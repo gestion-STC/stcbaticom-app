@@ -88,10 +88,16 @@ export default function RegleModal({
                 <option value="jours">jours</option>
               </select>
               <select value={f.delaiSens} onChange={(e) => set({ delaiSens: e.target.value as Regle["delaiSens"] })} className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm">
-                <option value="apres">après</option>
-                <option value="avant">avant</option>
+                <option value="apres">après l'entrée dans l'état</option>
+                <option value="avant">avant le rendez-vous</option>
               </select>
             </div>
+            {f.delaiSens === "avant" && (
+              <p className="mt-2 text-xs text-slate-400">
+                L'e-mail part dans la fenêtre avant le <b>prochain rendez-vous</b> du prospect
+                (rappel/confirmation) — un seul envoi par rendez-vous.
+              </p>
+            )}
           </Section>
 
           {/* Plage horaire */}

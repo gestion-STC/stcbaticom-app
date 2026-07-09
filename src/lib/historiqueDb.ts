@@ -5,7 +5,7 @@ export type Evenement = {
   date: string // ISO pour le tri
   libelle: string
   detail?: string
-  sens?: "entrant" | "sortant" // pour les appels : sens de l'appel
+  sens?: "entrant" | "sortant" // appels et emails : sens de l'échange
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,8 +46,28 @@ export async function chargerHistorique(prospectId: string): Promise<Evenement[]
     ev.push({
       type: "email",
       date: e.envoye_le,
+      sens: "sortant",
       libelle: `Email envoyé — ${e.modele_nom || "modèle"}`,
       detail: e.objet || undefined,
+    }),
+  )
+
+  // Emails REÇUS (boîte de réception). Les envoyés viennent déjà de emails_envoyes
+  // ci-dessus — on ne prend ici que les entrants pour ne pas les compter deux fois.
+  const recus = await lire(
+    supabase
+      .from("messages")
+      .select("objet, created_at")
+      .eq("prospect_id", prospectId)
+      .eq("sens", "entrant"),
+  )
+  recus.forEach((m) =>
+    ev.push({
+      type: "email",
+      date: m.created_at,
+      sens: "entrant",
+      libelle: "Email reçu",
+      detail: m.objet || undefined,
     }),
   )
 

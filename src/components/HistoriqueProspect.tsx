@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Phone, PhoneIncoming, PhoneOutgoing, Mail, CalendarClock, Loader2 } from "lucide-react"
+import { Phone, PhoneIncoming, PhoneOutgoing, Mail, MailOpen, CalendarClock, Loader2 } from "lucide-react"
 import { chargerHistorique, type Evenement } from "../lib/historiqueDb"
 
 const styles = {
@@ -15,6 +15,8 @@ function apparence(e: Evenement) {
       ? { icon: PhoneIncoming, teinte: "bg-emerald-50 text-emerald-600" }
       : { icon: PhoneOutgoing, teinte: "bg-violet-50 text-violet-600" }
   }
+  if (e.type === "email" && e.sens === "entrant")
+    return { icon: MailOpen, teinte: "bg-emerald-50 text-emerald-600" }
   return styles[e.type]
 }
 

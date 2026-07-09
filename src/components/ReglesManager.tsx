@@ -9,6 +9,7 @@ import {
   Repeat,
   Loader2,
   AlertTriangle,
+  CheckCircle2,
 } from "lucide-react"
 import { palette, type Statut } from "../statuts"
 import type { Email } from "../emails"
@@ -87,32 +88,32 @@ export default function ReglesManager() {
   )
 
   function delaiTexte(r: Regle) {
+    if (r.delaiSens === "avant")
+      return `${r.delaiValeur} ${r.delaiUnite} avant le RDV`
     if (r.delaiValeur === 0) return "dès l'entrée"
-    return `${r.delaiValeur} ${r.delaiUnite} ${r.delaiSens === "avant" ? "avant" : "après"}`
+    return `${r.delaiValeur} ${r.delaiUnite} après l'entrée`
   }
 
   return (
     <div className="px-8 pb-10">
       <div className="mx-auto max-w-3xl">
-        {/* Statut du moteur : tant que l'envoi d'email (Resend) n'est pas branché,
-            les règles sont ENREGISTRÉES mais AUCUN email ne part automatiquement. */}
-        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-500" />
-          <div className="text-sm text-amber-800">
-            <p className="font-semibold">Envoi automatique pas encore actif</p>
-            <p className="mt-0.5 text-amber-700">
-              Tu peux déjà créer et régler tes règles ici — elles sont bien enregistrées. Mais
-              <b> aucun email ne part encore tout seul</b> : le moteur s'activera une fois la
-              connexion email (Resend) mise en place. En attendant, envoie tes emails à la main
-              depuis la fiche d'un prospect.
+        {/* Le moteur serveur passe toutes les 10 minutes et exécute les règles ACTIVES. */}
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-500" />
+          <div className="text-sm text-emerald-800">
+            <p className="font-semibold">Envoi automatique actif</p>
+            <p className="mt-0.5 text-emerald-700">
+              Le moteur passe <b>toutes les 10 minutes</b> et exécute les règles actives :
+              « après » = relance après l'entrée dans un état ; « avant » = rappel avant le
+              prochain rendez-vous. Garde-fous : jamais deux fois le même email au même
+              prospect (sauf répétition volontaire), maximum 30 envois par passage.
             </p>
           </div>
         </div>
 
         <div className="mb-4 flex items-center justify-between">
           <p className="text-sm text-slate-500">
-            Définissez quel email partira automatiquement quand un prospect change
-            d'état (une fois le moteur activé).
+            Définissez quel email partira automatiquement quand un prospect change d'état.
           </p>
           <button
             onClick={() => setModal({ mode: "create" })}

@@ -2,6 +2,9 @@ import { supabase } from "./supabase"
 
 export type SensMessage = "entrant" | "sortant"
 
+// Pièce jointe d'un e-mail reçu (fichier archivé dans le bucket privé « mails-recus »).
+export type PieceRecue = { nom: string; chemin: string; taille: number; type: string }
+
 export type Message = {
   id: string
   sens: SensMessage
@@ -15,6 +18,7 @@ export type Message = {
   prospectId: string | null
   lu: boolean
   date: string
+  piecesJointes: PieceRecue[]
 }
 
 type Ligne = {
@@ -30,6 +34,7 @@ type Ligne = {
   prospect_id: string | null
   lu: boolean
   created_at: string
+  pieces_jointes: PieceRecue[] | null
 }
 
 function vers(l: Ligne): Message {
@@ -46,6 +51,7 @@ function vers(l: Ligne): Message {
     prospectId: l.prospect_id,
     lu: l.lu,
     date: l.created_at,
+    piecesJointes: Array.isArray(l.pieces_jointes) ? l.pieces_jointes : [],
   }
 }
 
@@ -54,7 +60,7 @@ export async function chargerMessages(): Promise<Message[]> {
   const { data, error } = await supabase
     .from("messages")
     .select(
-      "id, sens, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at",
+      "id, sens, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at, pieces_jointes",
     )
     .order("created_at", { ascending: false })
     .limit(500)
@@ -77,10 +83,20 @@ export async function compterNonLus(): Promise<number> {
   return count ?? 0
 }
 
-export async function marquerLu(id: string): Promise<void> {
-  if (!supabase) return
-  const { error } = await supabase.from("messages").update({ lu: true }).eq("id", id)
-  if (error) console.error("Marquer lu :", error.message)
+// Marque une liste de messages comme lus (ouverture d'un fil de discussion).
+export async function marquerLus(ids: string[]): Promise<void> {
+  if (!supabase || ids.length === 0) return
+  const { error } = await supabase.from("messages").update({ lu: true }).in("id", ids)
+  if (error) console.error("Marquer lus :", error.message)
+}
+
+// Lien de téléchargement temporaire (5 min) d'une pièce jointe reçue.
+// Le bucket est privé : seul un utilisateur connecté peut générer ce lien.
+export async function lienPieceJointe(chemin: string): Promise<string> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const { data, error } = await supabase.storage.from("mails-recus").createSignedUrl(chemin, 300)
+  if (error || !data?.signedUrl) throw new Error(error?.message || "Lien indisponible")
+  return data.signedUrl
 }
 
 // Répond à un message via le relais serveur (contrat « moteur » de envoyer-email :
