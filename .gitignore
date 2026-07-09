@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Docs internes (contiennent un jeton webhook) — jamais dans le depot public
+STC-Batiment-reprise-projet.md
+EXPORT-INFO.md
+CLAUDE.md
