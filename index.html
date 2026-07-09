@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>STCBATICOM — Vue</title>
+<style>
+  :root { --noir:#171717; --gris:#6b7280; --ligne:#e5e7eb; --fond:#fafafa; --bleu:#3b82f6; --bleu-pale:#eff6ff; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--fond); color:var(--noir); font-size:14px; }
+  header { background:#fff; border-bottom:1px solid var(--ligne); padding:14px 24px; display:flex; align-items:center; gap:14px; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; font-weight:700; }
+  header .maj { margin-left:auto; color:var(--gris); font-size:12px; }
+  main { max-width:1200px; margin:0 auto; padding:20px 24px 60px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:22px; }
+  .kpi { background:#fff; border:1px solid var(--ligne); border-radius:12px; padding:14px 16px; }
+  .kpi b { display:block; font-size:22px; }
+  .kpi span { color:var(--gris); font-size:12px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--gris); margin:26px 0 10px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--ligne); border-radius:12px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--ligne); vertical-align:top; }
+  th { background:#fff; color:var(--gris); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  tr:last-child td { border-bottom:none; }
+  .pastille { display:inline-block; padding:2px 9px; border-radius:99px; font-size:11px; font-weight:600; background:#f1f5f9; color:#334155; white-space:nowrap; }
+  .nonlu { border-left:4px solid var(--bleu); background:var(--bleu-pale); }
+  input[type=search] { width:100%; max-width:340px; padding:8px 12px; border:1px solid var(--ligne); border-radius:9px; font-size:14px; margin-bottom:10px; }
+  .vide { color:var(--gris); padding:14px; background:#fff; border:1px dashed var(--ligne); border-radius:12px; }
+  .muted { color:var(--gris); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>STCBATICOM — vue en direct</h1>
+  <span class="maj" id="maj">chargement…</span>
+</header>
+<main>
+  <div class="kpis" id="kpis"></div>
+
+  <h2>📨 Boîte de réception (messages)</h2>
+  <div id="messages" class="vide">Aucun message pour l’instant — la boîte se remplira dès que Resend sera branché.</div>
+
+  <h2>📅 Prochains RDV</h2>
+  <div id="rdv"></div>
+
+  <h2>👥 Prospects</h2>
+  <input type="search" id="filtre" placeholder="Rechercher (entreprise, contact, statut…)">
+  <div id="prospects"></div>
+
+  <h2>📞 Derniers appels</h2>
+  <div id="appels"></div>
+</main>
+<script>
+// Vue LECTURE SEULE, en direct sur la base STCBATICOM — même accès (clé publique)
+// que l'app du collègue. Rafraîchissement toutes les 30 s.
+const URL_BASE = "https://ifvrmsiwlwppinfdmeao.supabase.co/rest/v1";
+const CLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmdnJtc2l3bHdwcGluZmRtZWFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMjAwNDEsImV4cCI6MjA5Nzc5NjA0MX0.Gku1Y401HNT-wyKkT_ZmlXO4OpLkSqatzoANA4Hf8y8";
+const H = { apikey: CLE, Authorization: "Bearer " + CLE };
+const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const dateFr = (d) => d ? new Date(d).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+let donnees = { prospects: [], statuts: [], rdv: [], appels: [], messages: [] };
+
+async function q(chemin) {
+  const r = await fetch(`${URL_BASE}/${chemin}`, { headers: H });
+  if (!r.ok) throw new Error(chemin + " → " + r.status);
+  return r.json();
+}
+
+function rendu() {
+  const { prospects, statuts, rdv, appels, messages } = donnees;
+  // KPIs par statut (ordre de son pipeline)
+  const parStatut = {};
+  for (const p of prospects) parStatut[p.statut] = (parStatut[p.statut] || 0) + 1;
+  const nonLus = messages.filter((m) => m.sens === "entrant" && !m.lu).length;
+  document.getElementById("kpis").innerHTML =
+    `<div class="kpi"><b>${prospects.length}</b><span>prospects</span></div>` +
+    `<div class="kpi"><b>${nonLus}</b><span>messages non lus</span></div>` +
+    statuts.map((s) => `<div class="kpi"><b>${parStatut[s.libelle] || 0}</b><span>${esc(s.libelle)}</span></div>`).join("");
+
+  // Boîte de réception
+  if (messages.length) {
+    document.getElementById("messages").outerHTML = `<table id="messages"><tr><th>Reçu/Envoyé</th><th>De → À</th><th>Objet</th><th>Quand</th></tr>` +
+      messages.slice(0, 30).map((m) => `<tr class="${m.sens === "entrant" && !m.lu ? "nonlu" : ""}">
+        <td>${m.sens === "entrant" ? "📥 Reçu" : "📤 Envoyé"}</td>
+        <td>${esc(m.de)}<br><span class="muted">→ ${esc(m.a)}</span></td>
+        <td><b>${esc(m.objet)}</b><br><span class="muted">${esc((m.corps_text || "").slice(0, 90))}…</span></td>
+        <td>${dateFr(m.created_at)}</td></tr>`).join("") + `</table>`;
+  }
+
+  // RDV à venir
+  const rdvFuturs = rdv.filter((r) => !r.fait);
+  document.getElementById("rdv").innerHTML = rdvFuturs.length
+    ? `<table><tr><th>Date</th><th>Heure</th><th>Prospect</th><th>Type</th><th>Note</th></tr>` +
+      rdvFuturs.slice(0, 15).map((r) => `<tr><td>${esc(r.date)}</td><td>${esc(r.heure)}</td>
+        <td><b>${esc(r.prospects?.entreprise || r.titre || "—")}</b><br><span class="muted">${esc(r.prospects?.contact || "")} ${esc(r.telephone || r.prospects?.telephone || "")}</span></td>
+        <td>${esc(r.type)}</td><td>${esc(r.note)}</td></tr>`).join("") + `</table>`
+    : `<div class="vide">Aucun RDV à venir.</div>`;
+
+  // Prospects (avec filtre)
+  const f = (document.getElementById("filtre").value || "").toLowerCase();
+  const visibles = prospects.filter((p) => !f || `${p.entreprise} ${p.contact} ${p.statut} ${p.arrondissement} ${p.type}`.toLowerCase().includes(f));
+  document.getElementById("prospects").innerHTML =
+    `<table><tr><th>Entreprise</th><th>Contact</th><th>Statut</th><th>Priorité</th><th>Secteur</th><th>Relance</th></tr>` +
+    visibles.slice(0, 200).map((p) => `<tr>
+      <td><b>${esc(p.entreprise)}</b></td>
+      <td>${esc(p.contact)}<br><span class="muted">${esc(p.telephone)} ${esc(p.email)}</span></td>
+      <td><span class="pastille">${esc(p.statut)}</span></td>
+      <td>${esc(p.priorite)}</td><td>${esc(p.arrondissement)}</td><td>${esc(p.prochaine_relance)}</td></tr>`).join("") +
+    `</table><p class="muted" style="margin-top:6px">${visibles.length} affiché(s) / ${prospects.length}</p>`;
+
+  // Appels
+  document.getElementById("appels").innerHTML = appels.length
+    ? `<table><tr><th>Quand</th><th>Prospect</th><th>Sens</th><th>Résultat</th><th>Nouvel état</th></tr>` +
+      appels.slice(0, 20).map((a) => `<tr><td>${dateFr(a.horodatage)}</td>
+        <td>${esc(a.prospects?.entreprise || "—")}</td><td>${esc(a.sens)}</td>
+        <td>${esc(a.resultat)}</td><td>${esc(a.nouvel_etat)}</td></tr>`).join("") + `</table>`
+    : `<div class="vide">Aucun appel journalisé.</div>`;
+}
+
+async function charger() {
+  try {
+    const [prospects, statuts, rdv, appels, messages] = await Promise.all([
+      q("prospects?select=*&order=entreprise.asc"),
+      q("statuts?select=libelle,ordre&order=ordre.asc"),
+      q("rdv?select=*,prospects(entreprise,contact,telephone)&order=date.asc,heure.asc"),
+      q("appels?select=*,prospects(entreprise)&order=horodatage.desc&limit=50"),
+      q("messages?select=*&order=created_at.desc&limit=50"),
+    ]);
+    donnees = { prospects, statuts, rdv, appels, messages };
+    rendu();
+    document.getElementById("maj").textContent = "à jour · " + new Date().toLocaleTimeString("fr-FR");
+  } catch (e) {
+    document.getElementById("maj").textContent = "erreur de chargement — " + e.message;
+  }
+}
+document.getElementById("filtre").addEventListener("input", rendu);
+charger();
+setInterval(charger, 30000);
+</script>
+</body>
+</html>
