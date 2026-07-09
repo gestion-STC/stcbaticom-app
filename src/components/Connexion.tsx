@@ -26,8 +26,10 @@ export default function Connexion() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex justify-center">
-          <img src={`${import.meta.env.BASE_URL}logo-stc.png`} alt="STC Bâtiment" className="h-14 w-auto" />
+        <div className="mb-6 text-center">
+          <span className="font-brand text-3xl font-bold tracking-tight text-slate-950">
+            STCBATICOM
+          </span>
         </div>
 
         <form

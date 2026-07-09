@@ -68,11 +68,10 @@ export default function Sidebar({
 
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
-      {/* Logo STC Bâtiment (le vrai), discret */}
-      <div className="flex items-center px-5 pb-4 pt-5">
-        <img src={`${import.meta.env.BASE_URL}logo-stc.png`} alt="STC Bâtiment" className="h-9 w-auto" />
-        <span className="ml-2.5 border-l border-slate-200 pl-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Commercial
+      {/* Wordmark STCBATICOM — écrit avec la police du logo STC Bâtiment, en noir */}
+      <div className="px-5 pb-4 pt-5">
+        <span className="font-brand text-[21px] font-bold tracking-tight text-slate-950">
+          STCBATICOM
         </span>
       </div>
 
@@ -87,18 +86,23 @@ export default function Sidebar({
               className={
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
                 (isActive
-                  ? "bg-slate-100 text-slate-900"
+                  ? "bg-gradient-to-r from-violet-600 to-violet-800 text-white shadow-sm"
                   : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")
               }
             >
               <Icon
                 size={17}
                 strokeWidth={2}
-                className={isActive ? "text-violet-600" : "text-slate-400"}
+                className={isActive ? "text-white" : "text-slate-400"}
               />
               <span className="flex-1 text-left">{label}</span>
               {id === "messages" && nonLus > 0 && (
-                <span className="rounded-full bg-violet-600 px-2 py-0.5 text-xs font-semibold text-white">
+                <span
+                  className={
+                    "rounded-full px-2 py-0.5 text-xs font-semibold " +
+                    (isActive ? "bg-white/25 text-white" : "bg-violet-600 text-white")
+                  }
+                >
                   {nonLus}
                 </span>
               )}
