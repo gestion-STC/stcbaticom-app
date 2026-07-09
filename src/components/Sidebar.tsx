@@ -15,6 +15,7 @@ import {
 import { commercial } from "../data"
 import { compterNonLus } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
+import LogoBaticom from "./LogoBaticom"
 
 export type PageId =
   | "dashboard"
@@ -71,11 +72,9 @@ export default function Sidebar({
       {/* Trame de petits points, comme sur le site */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.1] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" />
 
-      {/* Wordmark STCBATICOM — police du logo STC Bâtiment */}
-      <div className="relative px-5 pb-4 pt-5">
-        <span className="font-brand text-[21px] font-bold tracking-tight text-white">
-          STCBATICOM
-        </span>
+      {/* Logo STCbaticom (version blanche sur fond sombre) */}
+      <div className="relative px-5 pb-4 pt-6">
+        <LogoBaticom clair className="text-[22px]" />
       </div>
 
       {/* Navigation */}

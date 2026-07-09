@@ -7,8 +7,8 @@
    sans toucher aux composants. Le rouge reste réservé aux erreurs. */
 @theme {
   --font-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
-  /* Police du logo STC Bâtiment (serif à forts contrastes) — pour le wordmark STCBATICOM */
-  --font-brand: "Playfair Display", Georgia, "Times New Roman", serif;
+  /* Police du logo STCbaticom (géométrique fine, pastille violette) */
+  --font-brand: "Poppins", "Montserrat", ui-sans-serif, sans-serif;
 
   /* Accent : blue-* → violet (Qonto) */
   --color-blue-50: #f5f3ff;

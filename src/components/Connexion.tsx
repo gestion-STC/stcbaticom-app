@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react"
 import { Loader2, Lock } from "lucide-react"
 import { seConnecter } from "../lib/auth"
+import LogoBaticom from "./LogoBaticom"
 
 // Écran de connexion : la base est protégée, il faut un compte pour entrer.
 // (La bascule vers l'application se fait toute seule via useSession dans App.)
@@ -27,9 +28,7 @@ export default function Connexion() {
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <span className="font-brand text-3xl font-bold tracking-tight text-slate-950">
-            STCBATICOM
-          </span>
+          <LogoBaticom className="text-4xl" />
         </div>
 
         <form
