@@ -9,7 +9,6 @@ import {
   Calendar,
   SlidersHorizontal,
   Handshake,
-  Hexagon,
   Inbox,
   LogOut,
 } from "lucide-react"
@@ -44,6 +43,8 @@ const items: NavItem[] = [
   { id: "parametrage", label: "Paramétrage", icon: SlidersHorizontal },
 ]
 
+// Barre latérale BLANCHE (design STC, style Notion/Qonto) : texte gris sobre,
+// élément actif = fond gris très clair + texte foncé, accent violet discret.
 export default function Sidebar({
   active,
   onNavigate,
@@ -66,19 +67,17 @@ export default function Sidebar({
   }, [active])
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col bg-slate-900 text-slate-300">
-      {/* Logo */}
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white">
-          <Hexagon size={20} strokeWidth={2.2} />
-        </div>
-        <span className="text-[15px] font-semibold tracking-wide text-white">
-          STC <span className="text-blue-400">BÂTIMENTS</span>
+    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
+      {/* Logo STC Bâtiment (le vrai), discret */}
+      <div className="flex items-center px-5 pb-4 pt-5">
+        <img src={`${import.meta.env.BASE_URL}logo-stc.png`} alt="STC Bâtiment" className="h-9 w-auto" />
+        <span className="ml-2.5 border-l border-slate-200 pl-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Commercial
         </span>
       </div>
 
       {/* Navigation */}
-      <nav className="mt-2 flex-1 space-y-1 px-3">
+      <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3">
         {items.map(({ id, label, icon: Icon }) => {
           const isActive = id === active
           return (
@@ -86,16 +85,20 @@ export default function Sidebar({
               key={id}
               onClick={() => onNavigate(id)}
               className={
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors " +
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
                 (isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white")
+                  ? "bg-slate-100 text-slate-900"
+                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")
               }
             >
-              <Icon size={18} strokeWidth={2} />
+              <Icon
+                size={17}
+                strokeWidth={2}
+                className={isActive ? "text-violet-600" : "text-slate-400"}
+              />
               <span className="flex-1 text-left">{label}</span>
               {id === "messages" && nonLus > 0 && (
-                <span className="rounded-full bg-blue-500 px-2 py-0.5 text-xs font-semibold text-white">
+                <span className="rounded-full bg-violet-600 px-2 py-0.5 text-xs font-semibold text-white">
                   {nonLus}
                 </span>
               )}
@@ -105,18 +108,18 @@ export default function Sidebar({
       </nav>
 
       {/* Profil */}
-      <div className="mt-2 flex items-center gap-3 border-t border-slate-800 px-5 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500 text-sm font-semibold text-white">
+      <div className="mt-2 flex items-center gap-3 border-t border-slate-200 px-5 py-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">
           {commercial.initiales}
         </div>
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-sm font-medium text-white">{commercial.prenom}</p>
+          <p className="text-sm font-medium text-slate-900">{commercial.prenom}</p>
           <p className="text-xs text-slate-400">{commercial.role}</p>
         </div>
         <button
           onClick={seDeconnecter}
           title="Se déconnecter"
-          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
         >
           <LogOut size={16} />
         </button>

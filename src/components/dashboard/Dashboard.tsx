@@ -388,10 +388,10 @@ export default function Dashboard() {
           <div className="mt-4 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={evolution} barCategoryGap="20%">
-                <XAxis dataKey="jour" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} interval={1} />
-                <Tooltip cursor={{ fill: "#f1f5f9" }} contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} />
+                <XAxis dataKey="jour" tick={{ fontSize: 11, fill: "#a3a3a3" }} axisLine={false} tickLine={false} interval={1} />
+                <Tooltip cursor={{ fill: "#f5f5f5" }} contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e8e8e8" }} />
                 <Bar dataKey="decroche" stackId="a" fill="#10b981" name="Décroché" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="autres" stackId="a" fill="#cbd5e1" name="Autres" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="autres" stackId="a" fill="#d4d4d4" name="Autres" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

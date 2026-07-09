@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react"
-import { Hexagon, Loader2, Lock } from "lucide-react"
+import { Loader2, Lock } from "lucide-react"
 import { seConnecter } from "../lib/auth"
 
 // Écran de connexion : la base est protégée, il faut un compte pour entrer.
@@ -26,13 +26,8 @@ export default function Connexion() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white">
-            <Hexagon size={22} strokeWidth={2.2} />
-          </div>
-          <span className="text-lg font-semibold tracking-wide text-slate-900">
-            STC <span className="text-blue-600">BÂTIMENTS</span>
-          </span>
+        <div className="mb-6 flex justify-center">
+          <img src={`${import.meta.env.BASE_URL}logo-stc.png`} alt="STC Bâtiment" className="h-14 w-auto" />
         </div>
 
         <form

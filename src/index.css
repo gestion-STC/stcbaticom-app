@@ -1,7 +1,43 @@
 @import "tailwindcss";
 
+/* ═══ Design STC (aligné sur le logiciel principal, style Notion/Qonto) ═══
+   Police Montserrat, gris purs, cartes blanches arrondies (10px), accent VIOLET.
+   Les composants utilisent les classes blue-* et slate-* historiques : on les
+   REMAPPE ici vers le violet et les gris purs — toute l'app change d'un coup,
+   sans toucher aux composants. Le rouge reste réservé aux erreurs. */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+
+  /* Accent : blue-* → violet (Qonto) */
+  --color-blue-50: #f5f3ff;
+  --color-blue-100: #ede9fe;
+  --color-blue-200: #ddd6fe;
+  --color-blue-300: #c4b5fd;
+  --color-blue-400: #a78bfa;
+  --color-blue-500: #8b5cf6;
+  --color-blue-600: #7c3aed;
+  --color-blue-700: #6d28d9;
+  --color-blue-800: #5b21b6;
+  --color-blue-900: #4c1d95;
+  --color-blue-950: #2e1065;
+
+  /* Neutres : slate-* (gris bleutés) → gris purs du design STC */
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f5f5f5;
+  --color-slate-200: #e8e8e8;
+  --color-slate-300: #d4d4d4;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #737373;
+  --color-slate-600: #525252;
+  --color-slate-700: #404040;
+  --color-slate-800: #262626;
+  --color-slate-900: #171717;
+  --color-slate-950: #0a0a0a;
+
+  /* Arrondis légèrement plus généreux (radius 10px du design STC) */
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
 }
 
 html,
@@ -12,8 +48,8 @@ body,
 
 body {
   margin: 0;
-  background-color: #f1f5f9;
-  color: #0f172a;
+  background-color: #f8f8f8;
+  color: #171717;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -22,10 +58,10 @@ body {
 /* Invite (placeholder) de l'éditeur de signature */
 .signature-edit:empty::before {
   content: attr(data-placeholder);
-  color: #94a3b8;
+  color: #a3a3a3;
 }
 .signature-edit a {
-  color: #2563eb;
+  color: #7c3aed;
   text-decoration: underline;
 }
 .signature-edit img {
@@ -40,12 +76,12 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #d4d4d4;
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #a3a3a3;
   background-clip: content-box;
 }

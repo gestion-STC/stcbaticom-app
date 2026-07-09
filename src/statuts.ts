@@ -14,8 +14,10 @@ export type CleCouleur =
   | "red"
 
 const paletteBase: Record<CleCouleur, { pill: string; dot: string; label: string }> = {
-  slate: { pill: "bg-slate-100 text-slate-700", dot: "#64748b", label: "Gris" },
-  blue: { pill: "bg-blue-50 text-blue-700", dot: "#3b82f6", label: "Bleu" },
+  slate: { pill: "bg-slate-100 text-slate-700", dot: "#737373", label: "Gris" },
+  // « blue » est remappé en violet par le thème global (design STC) : pour garder
+  // un vrai bleu dans la palette des états, on passe par sky (non remappé).
+  blue: { pill: "bg-sky-50 text-sky-700", dot: "#0ea5e9", label: "Bleu" },
   cyan: { pill: "bg-cyan-50 text-cyan-700", dot: "#06b6d4", label: "Cyan" },
   violet: { pill: "bg-violet-50 text-violet-700", dot: "#8b5cf6", label: "Violet" },
   orange: { pill: "bg-orange-50 text-orange-700", dot: "#f97316", label: "Orange" },
