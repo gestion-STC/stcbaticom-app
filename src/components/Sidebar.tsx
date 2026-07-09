@@ -43,8 +43,8 @@ const items: NavItem[] = [
   { id: "parametrage", label: "Paramétrage", icon: SlidersHorizontal },
 ]
 
-// Barre latérale BLANCHE (design STC, style Notion/Qonto) : texte gris sobre,
-// élément actif = fond gris très clair + texte foncé, accent violet discret.
+// Barre latérale sombre : dégradé noir → violet + trame de petits points,
+// même recette que la section « Vision » du site vitrine (qui l'a en rouge).
 export default function Sidebar({
   active,
   onNavigate,
@@ -67,16 +67,19 @@ export default function Sidebar({
   }, [active])
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
-      {/* Wordmark STCBATICOM — écrit avec la police du logo STC Bâtiment, en noir */}
-      <div className="px-5 pb-4 pt-5">
-        <span className="font-brand text-[21px] font-bold tracking-tight text-slate-950">
+    <aside className="relative flex h-screen w-64 shrink-0 flex-col overflow-hidden bg-gradient-to-b from-[#0b0a12] via-[#1d1038] to-violet-700">
+      {/* Trame de petits points, comme sur le site */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.1] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" />
+
+      {/* Wordmark STCBATICOM — police du logo STC Bâtiment */}
+      <div className="relative px-5 pb-4 pt-5">
+        <span className="font-brand text-[21px] font-bold tracking-tight text-white">
           STCBATICOM
         </span>
       </div>
 
       {/* Navigation */}
-      <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3">
+      <nav className="relative mt-1 flex-1 space-y-0.5 overflow-y-auto px-3">
         {items.map(({ id, label, icon: Icon }) => {
           const isActive = id === active
           return (
@@ -86,23 +89,18 @@ export default function Sidebar({
               className={
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
                 (isActive
-                  ? "bg-gradient-to-r from-violet-600 to-violet-800 text-white shadow-sm"
-                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")
+                  ? "bg-white/15 text-white"
+                  : "text-white/55 hover:bg-white/10 hover:text-white")
               }
             >
               <Icon
                 size={17}
                 strokeWidth={2}
-                className={isActive ? "text-white" : "text-slate-400"}
+                className={isActive ? "text-white" : "text-white/40"}
               />
               <span className="flex-1 text-left">{label}</span>
               {id === "messages" && nonLus > 0 && (
-                <span
-                  className={
-                    "rounded-full px-2 py-0.5 text-xs font-semibold " +
-                    (isActive ? "bg-white/25 text-white" : "bg-violet-600 text-white")
-                  }
-                >
+                <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-semibold text-white">
                   {nonLus}
                 </span>
               )}
@@ -112,18 +110,18 @@ export default function Sidebar({
       </nav>
 
       {/* Profil */}
-      <div className="mt-2 flex items-center gap-3 border-t border-slate-200 px-5 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">
+      <div className="relative mt-2 flex items-center gap-3 border-t border-white/10 px-5 py-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
           {commercial.initiales}
         </div>
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-sm font-medium text-slate-900">{commercial.prenom}</p>
-          <p className="text-xs text-slate-400">{commercial.role}</p>
+          <p className="text-sm font-medium text-white">{commercial.prenom}</p>
+          <p className="text-xs text-white/50">{commercial.role}</p>
         </div>
         <button
           onClick={seDeconnecter}
           title="Se déconnecter"
-          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
         >
           <LogOut size={16} />
         </button>
