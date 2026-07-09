@@ -15,6 +15,8 @@ import Calendrier from "./components/Calendrier"
 import Parametrage from "./components/Parametrage"
 import RappelsRdv from "./components/RappelsRdv"
 import TelephoneRingover from "./components/TelephoneRingover"
+import Connexion from "./components/Connexion"
+import { useSession } from "./lib/auth"
 
 const titres: Record<PageId, string> = {
   dashboard: "Dashboard",
@@ -31,6 +33,18 @@ const titres: Record<PageId, string> = {
 
 function App() {
   const [page, setPage] = useState<PageId>("dashboard")
+  const session = useSession()
+
+  // Session en cours de vérification → petit écran d'attente (évite un flash).
+  if (session === undefined)
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-100 text-slate-400">
+        <Loader2 size={22} className="animate-spin" />
+      </div>
+    )
+
+  // Pas connecté → écran de connexion (la base est protégée, voir Lot 5 sécurité).
+  if (!session) return <Connexion />
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">

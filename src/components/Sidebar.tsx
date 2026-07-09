@@ -11,9 +11,11 @@ import {
   Handshake,
   Hexagon,
   Inbox,
+  LogOut,
 } from "lucide-react"
 import { commercial } from "../data"
 import { compterNonLus } from "../lib/messagesDb"
+import { seDeconnecter } from "../lib/auth"
 
 export type PageId =
   | "dashboard"
@@ -107,10 +109,17 @@ export default function Sidebar({
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500 text-sm font-semibold text-white">
           {commercial.initiales}
         </div>
-        <div className="leading-tight">
+        <div className="min-w-0 flex-1 leading-tight">
           <p className="text-sm font-medium text-white">{commercial.prenom}</p>
           <p className="text-xs text-slate-400">{commercial.role}</p>
         </div>
+        <button
+          onClick={seDeconnecter}
+          title="Se déconnecter"
+          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+        >
+          <LogOut size={16} />
+        </button>
       </div>
     </aside>
   )
