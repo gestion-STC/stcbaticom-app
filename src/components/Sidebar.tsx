@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import {
   LayoutDashboard,
   Users,
@@ -9,8 +10,10 @@ import {
   SlidersHorizontal,
   Handshake,
   Hexagon,
+  Inbox,
 } from "lucide-react"
 import { commercial } from "../data"
+import { compterNonLus } from "../lib/messagesDb"
 
 export type PageId =
   | "dashboard"
@@ -20,6 +23,7 @@ export type PageId =
   | "agences"
   | "pipeline"
   | "sessions"
+  | "messages"
   | "calendrier"
   | "parametrage"
 
@@ -33,6 +37,7 @@ const items: NavItem[] = [
   { id: "agences", label: "Agences", icon: Building2 },
   { id: "pipeline", label: "Pipeline", icon: Columns3 },
   { id: "sessions", label: "Sessions de call", icon: PhoneCall },
+  { id: "messages", label: "Boîte de réception", icon: Inbox },
   { id: "calendrier", label: "Calendrier", icon: Calendar },
   { id: "parametrage", label: "Paramétrage", icon: SlidersHorizontal },
 ]
@@ -44,6 +49,20 @@ export default function Sidebar({
   active: PageId
   onNavigate: (id: PageId) => void
 }) {
+  // Pastille « non lus » de la boîte de réception, rafraîchie toutes les 60 s
+  // (et quand on quitte la boîte, pour qu'elle retombe après lecture).
+  const [nonLus, setNonLus] = useState(0)
+  useEffect(() => {
+    let annule = false
+    const maj = () => compterNonLus().then((n) => !annule && setNonLus(n))
+    maj()
+    const t = setInterval(maj, 60_000)
+    return () => {
+      annule = true
+      clearInterval(t)
+    }
+  }, [active])
+
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col bg-slate-900 text-slate-300">
       {/* Logo */}
@@ -72,7 +91,12 @@ export default function Sidebar({
               }
             >
               <Icon size={18} strokeWidth={2} />
-              {label}
+              <span className="flex-1 text-left">{label}</span>
+              {id === "messages" && nonLus > 0 && (
+                <span className="rounded-full bg-blue-500 px-2 py-0.5 text-xs font-semibold text-white">
+                  {nonLus}
+                </span>
+              )}
             </button>
           )
         })}
