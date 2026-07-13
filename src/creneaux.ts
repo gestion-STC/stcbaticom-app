@@ -9,6 +9,7 @@ export type Creneau = {
   cadenceSecondes: number
   jours: number[] // 1 = lundi … 7 = dimanche
   actif: boolean
+  arrondissement?: string // secteur ciblé ("" = tous)
 }
 
 export const joursLabels: { num: number; court: string }[] = [

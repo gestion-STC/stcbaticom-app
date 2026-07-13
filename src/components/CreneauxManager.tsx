@@ -4,6 +4,8 @@ import { palette, type Statut } from "../statuts"
 import { joursLabels, type Creneau } from "../creneaux"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerStatuts } from "../lib/statutsDb"
+import { chargerProspects } from "../lib/prospectsDb"
+import { secteursDisponibles } from "../lib/secteurs"
 import {
   chargerCreneaux,
   creerCreneau,
@@ -14,6 +16,7 @@ import {
 export default function CreneauxManager() {
   const [creneaux, setCreneaux] = useState<Creneau[]>([])
   const [statuts, setStatuts] = useState<Statut[]>([])
+  const [secteurs, setSecteurs] = useState<string[]>([]) // arrondissements présents dans la base
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState<string | null>(null)
 
@@ -23,10 +26,11 @@ export default function CreneauxManager() {
       setChargement(false)
       return
     }
-    Promise.all([chargerStatuts(), chargerCreneaux()])
-      .then(([s, c]) => {
+    Promise.all([chargerStatuts(), chargerCreneaux(), chargerProspects()])
+      .then(([s, c, p]) => {
         setStatuts(s)
         setCreneaux(c)
+        setSecteurs(secteursDisponibles(p))
       })
       .catch((e) =>
         setErreur(
@@ -61,6 +65,7 @@ export default function CreneauxManager() {
         cadenceSecondes: 20,
         jours: [1, 2, 3, 4, 5],
         actif: true,
+        arrondissement: "",
       })
       setCreneaux((arr) => [...arr, cree])
     } catch (e) {
@@ -183,6 +188,17 @@ export default function CreneauxManager() {
                       className="w-16 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                     />
                     <span>s</span>
+                    <span>· secteur</span>
+                    <select
+                      value={c.arrondissement ?? ""}
+                      onChange={(e) => modifier(c, { arrondissement: e.target.value })}
+                      className={champHeure}
+                    >
+                      <option value="">tous</option>
+                      {secteurs.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="mt-3 flex items-center gap-1.5">

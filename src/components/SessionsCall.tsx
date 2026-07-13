@@ -34,6 +34,7 @@ import { chargerRdv } from "../lib/rdvDb"
 import { lireParametre, ecrireParametre } from "../lib/parametresDb"
 import { chargerNumeros, numeroPourProspect, numeroLeMoinsUtilise } from "../lib/numerosEmission"
 import { relanceAutoEntreeEtat } from "../lib/relanceAuto"
+import { secteursDisponibles, memeSecteur } from "../lib/secteurs"
 import { numeroValide, formaterTelephone, chiffresTel } from "../lib/telephone"
 import { lancerAppelRingover, statutAppelsRingover, detailAppelRingover } from "../lib/ringover"
 import { entrantActif } from "../lib/appelEntrantActif"
@@ -134,6 +135,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     Moyenne: true,
     Basse: true,
   })
+  const [secteurFiltre, setSecteurFiltre] = useState("") // secteur (arrondissement) à appeler ; "" = tous
   const [script, setScript] = useState("") // script/accroche d'appel (persisté)
   const [scriptEdit, setScriptEdit] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,9 +228,13 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   const prioriteOk = (p: Prospect): boolean =>
     !PRIORITES.includes(p.priorite) || Boolean(prioritesActives[p.priorite])
 
-  // Prospects d'un état, filtrés par les priorités cochées.
-  const fileDeLEtat = (libelle: string): Prospect[] =>
-    prospects.filter((p) => p.statut === libelle && prioriteOk(p))
+  // Prospects d'un état filtrés par SECTEUR (arrondissement). Base commune.
+  const prospectsEtatSecteur = (libelle: string, secteur: string): Prospect[] =>
+    prospects.filter((p) => p.statut === libelle && memeSecteur(p, secteur))
+
+  // File d'une session MANUELLE : état + secteur choisi à l'écran + priorités cochées.
+  const fileManuelle = (libelle: string): Prospect[] =>
+    prospectsEtatSecteur(libelle, secteurFiltre).filter(prioriteOk)
 
   // Ordonne la file selon le choix de l'utilisateur (fait au démarrage de session).
   function ordonnerFile(liste: Prospect[]): Prospect[] {
@@ -257,7 +263,8 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   function lancerCreneau(cr: Creneau) {
     const st = statuts.find((s) => s.id === cr.etatId)
     if (!st) return
-    const file = ordonnerFile(dedupTelephone(fileDeLEtat(st.libelle)))
+    // Un créneau appelle SON secteur (arrondissement), indépendamment des filtres à l'écran.
+    const file = ordonnerFile(dedupTelephone(prospectsEtatSecteur(st.libelle, cr.arrondissement ?? "")))
     if (file.length === 0) return
     verrouRef.current = false // repartir propre
     setFileStatut(st.libelle)
@@ -445,7 +452,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   }
 
   function demarrer() {
-    const file = ordonnerFile(dedupTelephone(fileDeLEtat(fileStatut)))
+    const file = ordonnerFile(dedupTelephone(fileManuelle(fileStatut)))
     if (file.length === 0) return
     verrouRef.current = false // repartir propre (le verrou peut rester posé après une fin de session)
     setFileSession(file)
@@ -1022,7 +1029,8 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
 
   // --- Écran de configuration ---
   if (!enCours) {
-    const fileApercu = fileDeLEtat(fileStatut)
+    const fileApercu = fileManuelle(fileStatut)
+    const secteurs = secteursDisponibles(prospects)
     const q = rechercheDirecte.trim().toLowerCase()
     const resultatsDirects = q
       ? prospects
@@ -1236,6 +1244,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                             .filter((j) => cr.jours.includes(j.num))
                             .map((j) => j.court)
                             .join(" ")}
+                          {cr.arrondissement ? ` · 📍${cr.arrondissement}` : ""}
                         </p>
                       </div>
                       <span className="shrink-0 text-xs text-slate-400">
@@ -1317,6 +1326,26 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                 </button>
               ))}
             </div>
+
+            <label className="mt-5 block text-sm font-medium text-slate-700">Secteur (arrondissement)</label>
+            <p className="text-xs text-slate-400">
+              Pour n'appeler qu'un secteur précis (ex. 75015). « Tous » = pas de filtre.
+            </p>
+            <select
+              value={secteurFiltre}
+              onChange={(e) => setSecteurFiltre(e.target.value)}
+              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">🌍 Tous les secteurs</option>
+              {secteurs.map((s) => {
+                const n = prospects.filter((p) => p.statut === fileStatut && memeSecteur(p, s)).length
+                return (
+                  <option key={s} value={s}>
+                    {s} ({n})
+                  </option>
+                )
+              })}
+            </select>
 
             <label className="mt-5 block text-sm font-medium text-slate-700">Priorités à appeler</label>
             <p className="text-xs text-slate-400">

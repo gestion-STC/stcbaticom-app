@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { X, Phone, Trash2, Plus } from "lucide-react"
+import { X, Phone, Trash2, Plus, Pencil, Check } from "lucide-react"
 import type { Prospect } from "../data"
 import { typesRdv, type Rdv } from "../rdv"
 
@@ -10,6 +10,7 @@ export default function RdvJourModal({
   onClose,
   onAjouter,
   onSupprimer,
+  onModifier,
 }: {
   dateLisible: string
   rdvs: Rdv[]
@@ -24,6 +25,10 @@ export default function RdvJourModal({
     note: string
   }) => void
   onSupprimer: (id: string) => void
+  onModifier: (
+    id: string,
+    champs: { titre?: string; telephone?: string; type?: string; heure?: string; note?: string },
+  ) => void
 }) {
   const [prospectId, setProspectId] = useState("") // "" = saisie libre
   const [titre, setTitre] = useState("")
@@ -31,6 +36,37 @@ export default function RdvJourModal({
   const [type, setType] = useState<string>("Téléphone")
   const [heure, setHeure] = useState("10:00")
   const [note, setNote] = useState("")
+  // Édition d'un RDV existant (crayon).
+  const [editId, setEditId] = useState<string | null>(null)
+  const [eHeure, setEHeure] = useState("")
+  const [eType, setEType] = useState("Téléphone")
+  const [eNote, setENote] = useState("")
+  const [eTitre, setETitre] = useState("")
+  const [eTel, setETel] = useState("")
+
+  function ouvrirEdition(r: Rdv) {
+    setEditId(r.id ?? null)
+    setEHeure(r.heure)
+    setEType(r.type)
+    setENote(r.note ?? "")
+    setETitre(r.titre ?? "")
+    setETel(r.telephone ?? "")
+  }
+  function enregistrerEdition(r: Rdv) {
+    if (!r.id) return
+    const champs: { titre?: string; telephone?: string; type?: string; heure?: string; note?: string } = {
+      type: eType,
+      heure: eHeure,
+      note: eNote,
+    }
+    // Un RDV « libre » (pas rattaché à un prospect) : on peut aussi corriger le nom + tél.
+    if (r.prospectId === null) {
+      champs.titre = eTitre
+      champs.telephone = eTel
+    }
+    onModifier(r.id, champs)
+    setEditId(null)
+  }
 
   const champ =
     "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
@@ -62,27 +98,60 @@ export default function RdvJourModal({
               {rdvs
                 .slice()
                 .sort((a, b) => a.heure.localeCompare(b.heure))
-                .map((r) => (
-                  <div key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2">
-                    <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{r.heure}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-800">{r.entreprise}</p>
-                      <p className="truncate text-xs text-slate-400">
-                        {r.type}
-                        {r.telephone ? " · " + r.telephone : ""}
-                        {r.note ? " · " + r.note : ""}
-                      </p>
+                .map((r) =>
+                  editId === r.id ? (
+                    // --- Mode ÉDITION ---
+                    <div key={r.id} className="space-y-2 rounded-lg border border-blue-300 bg-blue-50/40 p-2.5">
+                      {r.prospectId === null && (
+                        <>
+                          <input value={eTitre} onChange={(e) => setETitre(e.target.value)} placeholder="Nom / objet du RDV" className={champ + " w-full"} />
+                          <input value={eTel} onChange={(e) => setETel(e.target.value)} placeholder="Téléphone (optionnel)" className={champ + " w-full"} />
+                        </>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <select value={eType} onChange={(e) => setEType(e.target.value)} className={champ}>
+                          {typesRdv.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                        <input type="time" value={eHeure} onChange={(e) => setEHeure(e.target.value)} className={champ} />
+                      </div>
+                      <input value={eNote} onChange={(e) => setENote(e.target.value)} placeholder="Note (optionnel)" className={champ + " w-full"} />
+                      <div className="flex gap-2">
+                        <button onClick={() => enregistrerEdition(r)} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
+                          <Check size={15} /> Enregistrer
+                        </button>
+                        <button onClick={() => setEditId(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+                          Annuler
+                        </button>
+                      </div>
                     </div>
-                    {r.telephone && (
-                      <a href={`tel:${r.telephone.replace(/\s/g, "")}`} className="rounded-md p-1.5 text-green-600 hover:bg-green-50" title="Appeler">
-                        <Phone size={16} />
-                      </a>
-                    )}
-                    <button onClick={() => r.id && onSupprimer(r.id)} className="rounded-md p-1.5 text-slate-300 hover:text-red-500">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
+                  ) : (
+                    // --- Mode AFFICHAGE ---
+                    <div key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                      <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{r.heure}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-800">{r.entreprise}</p>
+                        <p className="truncate text-xs text-slate-400">
+                          {r.type}
+                          {r.telephone ? " · " + r.telephone : ""}
+                          {r.note ? " · " + r.note : ""}
+                        </p>
+                      </div>
+                      {r.telephone && (
+                        <a href={`tel:${r.telephone.replace(/\s/g, "")}`} className="rounded-md p-1.5 text-green-600 hover:bg-green-50" title="Appeler">
+                          <Phone size={16} />
+                        </a>
+                      )}
+                      <button onClick={() => ouvrirEdition(r)} className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600" title="Modifier">
+                        <Pencil size={16} />
+                      </button>
+                      <button onClick={() => r.id && onSupprimer(r.id)} className="rounded-md p-1.5 text-slate-300 hover:text-red-500" title="Supprimer">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ),
+                )}
             </div>
           )}
 

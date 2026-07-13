@@ -70,6 +70,16 @@ export async function majRdvFait(id: string, fait: boolean): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+// Modifie un RDV existant (heure, type, note, et pour un RDV libre : titre + téléphone).
+export async function majRdv(
+  id: string,
+  champs: Partial<{ titre: string; telephone: string; type: string; date: string; heure: string; note: string }>,
+): Promise<void> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const { error } = await supabase.from("rdv").update(champs).eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
 export async function supprimerRdv(id: string): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
   const { error } = await supabase.from("rdv").delete().eq("id", id)

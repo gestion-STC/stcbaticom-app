@@ -5,7 +5,7 @@ import { prospects as prospectsDemo } from "../data"
 import type { Rdv } from "../rdv"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerProspects } from "../lib/prospectsDb"
-import { chargerRdv, creerRdv, supprimerRdv } from "../lib/rdvDb"
+import { chargerRdv, creerRdv, supprimerRdv, majRdv } from "../lib/rdvDb"
 import RdvJourModal from "./RdvJourModal"
 import BandeauErreur from "./BandeauErreur"
 
@@ -103,6 +103,12 @@ export default function Calendrier() {
   function retirerRdv(id: string) {
     supprimerRdv(id).then(rechargerRdv).catch(() => {})
   }
+  function modifierRdv(
+    id: string,
+    champs: Partial<{ titre: string; telephone: string; type: string; heure: string; note: string }>,
+  ) {
+    majRdv(id, champs).then(rechargerRdv).catch(() => {})
+  }
 
   const jourLisible = jourSel
     ? `${Number(jourSel.slice(8, 10))} ${MOIS[Number(jourSel.slice(5, 7)) - 1]} ${jourSel.slice(0, 4)}`
@@ -119,6 +125,7 @@ export default function Calendrier() {
           onClose={() => setJourSel(null)}
           onAjouter={ajouterRdv}
           onSupprimer={retirerRdv}
+          onModifier={modifierRdv}
         />
       )}
 
