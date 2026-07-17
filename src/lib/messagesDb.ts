@@ -90,6 +90,13 @@ export async function marquerLus(ids: string[]): Promise<void> {
   if (error) console.error("Marquer lus :", error.message)
 }
 
+// Marque une liste de messages comme NON lus (option « marquer comme non lu »).
+export async function marquerNonLus(ids: string[]): Promise<void> {
+  if (!supabase || ids.length === 0) return
+  const { error } = await supabase.from("messages").update({ lu: false }).in("id", ids)
+  if (error) console.error("Marquer non lus :", error.message)
+}
+
 // Lien de téléchargement temporaire (5 min) d'une pièce jointe reçue.
 // Le bucket est privé : seul un utilisateur connecté peut générer ce lien.
 export async function lienPieceJointe(chemin: string): Promise<string> {

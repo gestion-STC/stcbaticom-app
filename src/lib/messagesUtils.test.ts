@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  apercuTexte,
   dateCourte,
   extraireAdresse,
   grouperEnFils,
@@ -40,6 +41,18 @@ describe("objetReponse", () => {
   })
   it("gère l'objet vide", () => {
     expect(objetReponse("")).toBe("Re: (sans objet)")
+  })
+})
+
+describe("apercuTexte", () => {
+  it("met le texte sur une seule ligne", () => {
+    expect(apercuTexte("Bonjour,\n\nvoici le devis.")).toBe("Bonjour, voici le devis.")
+  })
+  it("tronque avec une ellipse au-delà du maximum", () => {
+    expect(apercuTexte("abcdefghij", 5)).toBe("abcde…")
+  })
+  it("supporte le vide", () => {
+    expect(apercuTexte("")).toBe("")
   })
 })
 

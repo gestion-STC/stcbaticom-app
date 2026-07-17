@@ -22,6 +22,13 @@ export function objetReponse(objet: string): string {
   return /^re\s*:/i.test(o) ? o : "Re: " + (o || "(sans objet)")
 }
 
+// Aperçu d'un corps de message pour la liste (façon Gmail) : texte brut, sur une
+// seule ligne (retours à la ligne → espaces), tronqué proprement.
+export function apercuTexte(texte: string, max = 120): string {
+  const s = (texte || "").replace(/\s+/g, " ").trim()
+  return s.length > max ? s.slice(0, max).trimEnd() + "…" : s
+}
+
 // ── Fils de discussion ─────────────────────────────────────────────────────
 // Un fil = tous les échanges avec un même correspondant (rattachés au prospect
 // quand il est connu, sinon à l'adresse e-mail).
