@@ -356,7 +356,7 @@ export default function Messages() {
   const enLecture = campagneOuverte !== null || ouvert !== null
 
   return (
-    <div className="mx-auto flex h-full max-w-5xl flex-col gap-3 px-6">
+    <div className="flex h-full flex-col gap-3 px-6">
       {/* ── Barre d'outils : onglets + recherche + actualiser ── */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
@@ -626,7 +626,7 @@ export default function Messages() {
                   <button
                     key={it.id}
                     onClick={() => ouvrirCampagne(e)}
-                    className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
+                    className="flex w-full items-center gap-3 border-b border-l-4 border-l-transparent border-slate-100 px-4 py-3 text-left transition-colors hover:bg-slate-50"
                   >
                     <span className="h-2 w-2 shrink-0" />
                     <span className="w-52 shrink-0 truncate text-sm text-slate-700">À {nom}</span>
@@ -654,7 +654,12 @@ export default function Messages() {
                 <button
                   key={it.id}
                   onClick={() => ouvrirMessage(m)}
-                  className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
+                  className={
+                    "flex w-full items-center gap-3 border-b border-l-4 border-slate-100 px-4 py-3 text-left transition-colors " +
+                    (nonLu
+                      ? "border-l-blue-500 bg-blue-50/60 hover:bg-blue-50"
+                      : "border-l-transparent hover:bg-slate-50")
+                  }
                 >
                   {nonLu ? (
                     <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
