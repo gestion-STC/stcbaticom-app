@@ -52,7 +52,17 @@ export function composer(
         .map((pj) => `• <a href="${pj.url}">${pj.nom}</a>`)
         .join("<br>")
   }
-  return { objet, corpsHtml }
+  // Police Montserrat pour le rendu du mail (avec repli Arial : la plupart des
+  // messageries ne chargent pas les polices web, on garde donc une police sûre).
+  return { objet, corpsHtml: enveloppeMontserrat(corpsHtml) }
+}
+
+// Enveloppe le corps HTML dans une police Montserrat (repli Arial/sans-serif).
+export function enveloppeMontserrat(html: string): string {
+  return (
+    `<div style="font-family:'Montserrat',Arial,Helvetica,sans-serif;` +
+    `font-size:14px;line-height:1.6;color:#1e293b">${html}</div>`
+  )
 }
 
 // Envoie l'email (via le relais serveur Resend) puis le journalise.
