@@ -147,15 +147,27 @@ function MessageCard({
       {ouvert && (
         <div className="pb-5 pl-[4.5rem] pr-6">
           {m.corpsText ? (
-            <pre className="max-h-[55vh] overflow-y-auto whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">
+            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">
               {m.corpsText}
             </pre>
           ) : m.corpsHtml ? (
             <iframe
               title="Contenu du message"
-              sandbox=""
+              // allow-same-origin (SANS allow-scripts) : aucun script ne s'exécute,
+              // mais on peut mesurer la hauteur du contenu pour tout afficher.
+              sandbox="allow-same-origin"
               srcDoc={m.corpsHtml}
-              className="h-96 w-full rounded border border-slate-100 bg-white"
+              onLoad={(e) => {
+                const f = e.currentTarget
+                try {
+                  const h = f.contentWindow?.document.body?.scrollHeight
+                  if (h) f.style.height = h + 24 + "px"
+                } catch {
+                  /* mesure impossible : on garde la hauteur par défaut */
+                }
+              }}
+              style={{ height: "300px" }}
+              className="w-full border-0 bg-white"
             />
           ) : (
             <p className="text-sm italic text-slate-400">(message vide)</p>
