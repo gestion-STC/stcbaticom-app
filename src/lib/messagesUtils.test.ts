@@ -6,6 +6,7 @@ import {
   grouperEnFils,
   nomCorrespondant,
   objetReponse,
+  objetTransfert,
   type MessageDeBase,
 } from "./messagesUtils"
 
@@ -41,6 +42,17 @@ describe("objetReponse", () => {
   })
   it("gère l'objet vide", () => {
     expect(objetReponse("")).toBe("Re: (sans objet)")
+  })
+})
+
+describe("objetTransfert", () => {
+  it("préfixe Tr: une seule fois", () => {
+    expect(objetTransfert("Devis peinture")).toBe("Tr: Devis peinture")
+    expect(objetTransfert("Tr: Devis")).toBe("Tr: Devis")
+    expect(objetTransfert("Fwd: Devis")).toBe("Fwd: Devis")
+  })
+  it("gère l'objet vide", () => {
+    expect(objetTransfert("")).toBe("Tr: (sans objet)")
   })
 })
 

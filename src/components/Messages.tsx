@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
+  Forward,
   Inbox,
   Loader2,
   Mail,
-  MailOpen,
   Megaphone,
   Paperclip,
+  Reply,
   RefreshCw,
   Search,
   Send,
@@ -28,12 +30,14 @@ import {
   grouperEnFils,
   nomCorrespondant,
   objetReponse,
+  objetTransfert,
   type Fil,
 } from "../lib/messagesUtils"
 import { formatTaille } from "../lib/stockage"
 import { supabase } from "../lib/supabase"
 
 type Onglet = "recus" | "envoyes"
+type ModeCompo = "repondre" | "transferer" | null
 
 // Un élément affiché dans la liste : soit un message (reçu/envoyé, avec contenu),
 // soit un email de campagne (journalisé sans corps → affiché en en-tête seul).
@@ -44,6 +48,18 @@ type Item =
 // Clé de fil d'un message (identique à grouperEnFils : prospect sinon adresse).
 function cleFil(m: Message): string {
   return m.prospectId || adresseCorrespondant(m) || "(inconnu)"
+}
+
+// Corps pré-rempli pour un transfert : cite le message d'origine.
+function corpsTransfert(m: Message): string {
+  const contenu = m.corpsText || "(contenu non textuel — voir le mail d'origine)"
+  return (
+    "\n\n---------- Message transféré ----------\n" +
+    `De : ${m.de}\n` +
+    `Date : ${new Date(m.date).toLocaleString("fr-FR")}\n` +
+    `Objet : ${m.objet}\n\n` +
+    contenu
+  )
 }
 
 // ── Une bulle de message dans le fil ──
@@ -67,7 +83,7 @@ function BulleMessage({ m }: { m: Message }) {
     <div className={"flex " + (entrant ? "justify-start" : "justify-end")}>
       <div
         className={
-          "w-[85%] rounded-xl border px-4 py-3 " +
+          "w-[85%] max-w-3xl rounded-xl border px-4 py-3 " +
           (entrant ? "border-slate-200 bg-white" : "border-blue-100 bg-blue-50")
         }
       >
@@ -87,7 +103,7 @@ function BulleMessage({ m }: { m: Message }) {
 
         {/* Corps : texte si disponible, sinon HTML isolé (sandbox = aucun script). */}
         {m.corpsText ? (
-          <pre className="mt-1 max-h-72 overflow-y-auto whitespace-pre-wrap font-sans text-sm text-slate-700">
+          <pre className="mt-1 max-h-96 overflow-y-auto whitespace-pre-wrap font-sans text-sm text-slate-700">
             {m.corpsText}
           </pre>
         ) : m.corpsHtml ? (
@@ -95,7 +111,7 @@ function BulleMessage({ m }: { m: Message }) {
             title="Contenu du message"
             sandbox=""
             srcDoc={m.corpsHtml}
-            className="mt-1 h-64 w-full rounded border-0 bg-white"
+            className="mt-1 h-96 w-full rounded border-0 bg-white"
           />
         ) : (
           <p className="mt-1 text-sm italic text-slate-400">(message vide)</p>
@@ -139,8 +155,11 @@ export default function Messages() {
   const [filOuvert, setFilOuvert] = useState<string | null>(null)
   const [campagneOuverte, setCampagneOuverte] = useState<EmailEnvoye | null>(null)
 
-  // Réponse (en bas du fil)
+  // Zone de composition (répondre / transférer)
+  const [mode, setMode] = useState<ModeCompo>(null)
   const [reponseTexte, setReponseTexte] = useState("")
+  const [transfertTo, setTransfertTo] = useState("")
+  const [transfertCorps, setTransfertCorps] = useState("")
   const [envoiEnCours, setEnvoiEnCours] = useState(false)
   const [envoiErreur, setEnvoiErreur] = useState("")
   const [envoiOk, setEnvoiOk] = useState(false)
@@ -155,13 +174,9 @@ export default function Messages() {
       ])
       setMessages(liste)
       setCampagnes(envois)
-      // Noms de prospects : à partir des messages ET des campagnes.
       const ids = [
         ...new Set(
-          [
-            ...liste.map((m) => m.prospectId),
-            ...envois.map((e) => e.prospectId),
-          ].filter(Boolean),
+          [...liste.map((m) => m.prospectId), ...envois.map((e) => e.prospectId)].filter(Boolean),
         ),
       ] as string[]
       if (ids.length && supabase) {
@@ -192,7 +207,6 @@ export default function Messages() {
     [messages],
   )
 
-  // Éléments de la liste selon l'onglet, triés du plus récent au plus ancien.
   const items = useMemo<Item[]>(() => {
     if (onglet === "recus") {
       return messages
@@ -234,13 +248,22 @@ export default function Messages() {
     [fils, filOuvert],
   )
 
+  function retourListe() {
+    setFilOuvert(null)
+    setCampagneOuverte(null)
+    setMode(null)
+    setEnvoiOk(false)
+    setEnvoiErreur("")
+  }
+
   function ouvrirMessage(m: Message) {
     setCampagneOuverte(null)
     setFilOuvert(cleFil(m))
+    setMode(null)
     setReponseTexte("")
+    setTransfertTo("")
     setEnvoiErreur("")
     setEnvoiOk(false)
-    // Ouvrir marque comme lus tous les messages reçus du fil.
     const cle = cleFil(m)
     const aLire = messages
       .filter((x) => x.sens === "entrant" && !x.lu && cleFil(x) === cle)
@@ -253,17 +276,28 @@ export default function Messages() {
 
   function ouvrirCampagne(env: EmailEnvoye) {
     setFilOuvert(null)
+    setMode(null)
     setCampagneOuverte(env)
   }
 
-  // Repasse en « non lu » les messages reçus du fil ouvert.
   function marquerFilNonLu() {
     if (!ouvert) return
     const ids = ouvert.messages.filter((m) => m.sens === "entrant").map((m) => m.id)
     if (!ids.length) return
     setMessages((prev) => prev.map((x) => (ids.includes(x.id) ? { ...x, lu: false } : x)))
     marquerNonLus(ids)
-    setFilOuvert(null) // on referme, comme Gmail (le mail redevient « en gras » dans la liste)
+    retourListe()
+  }
+
+  // Ouvre la zone « Répondre » ou « Transférer » (pré-remplit le transfert).
+  function ouvrirCompo(m: ModeCompo) {
+    setEnvoiOk(false)
+    setEnvoiErreur("")
+    if (m === "transferer" && ouvert) {
+      setTransfertTo("")
+      setTransfertCorps(corpsTransfert(ouvert.dernier))
+    }
+    setMode(m)
   }
 
   async function envoyerReponse() {
@@ -281,6 +315,31 @@ export default function Messages() {
       })
       setEnvoiOk(true)
       setReponseTexte("")
+      setMode(null)
+      charger()
+    } catch (e) {
+      setEnvoiErreur(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnvoiEnCours(false)
+    }
+  }
+
+  async function envoyerTransfert() {
+    if (!ouvert || !transfertTo.trim() || !transfertCorps.trim()) return
+    setEnvoiEnCours(true)
+    setEnvoiErreur("")
+    try {
+      await repondreMessage({
+        to: transfertTo.trim(),
+        objet: objetTransfert(ouvert.dernier.objet),
+        corps: transfertCorps.trim(),
+        inReplyTo: null,
+        prospectId: null,
+      })
+      setEnvoiOk(true)
+      setTransfertTo("")
+      setTransfertCorps("")
+      setMode(null)
       charger()
     } catch (e) {
       setEnvoiErreur(e instanceof Error ? e.message : String(e))
@@ -294,8 +353,10 @@ export default function Messages() {
     { id: "envoyes", label: "Envoyés", icon: Send },
   ]
 
+  const enLecture = campagneOuverte !== null || ouvert !== null
+
   return (
-    <div className="mx-auto flex h-full max-w-7xl flex-col gap-3 px-6">
+    <div className="mx-auto flex h-full max-w-5xl flex-col gap-3 px-6">
       {/* ── Barre d'outils : onglets + recherche + actualiser ── */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
@@ -307,8 +368,7 @@ export default function Messages() {
                 key={o.id}
                 onClick={() => {
                   setOnglet(o.id)
-                  setFilOuvert(null)
-                  setCampagneOuverte(null)
+                  retourListe()
                 }}
                 className={
                   "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors " +
@@ -332,15 +392,18 @@ export default function Messages() {
           })}
         </div>
 
-        <div className="relative min-w-56 flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={recherche}
-            onChange={(e) => setRecherche(e.target.value)}
-            placeholder="Rechercher (expéditeur, objet, contenu)…"
-            className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-          />
-        </div>
+        {!enLecture && (
+          <div className="relative min-w-56 flex-1">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder="Rechercher (expéditeur, objet, contenu)…"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+        )}
+        {enLecture && <div className="flex-1" />}
 
         <button
           onClick={charger}
@@ -351,10 +414,190 @@ export default function Messages() {
         </button>
       </div>
 
-      {/* ── Corps : liste + volet de lecture ── */}
-      <div className="flex min-h-0 flex-1 gap-4">
-        {/* Liste des mails */}
-        <div className="flex w-96 shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+      {/* ── Corps : liste PLEIN ÉCRAN, ou mail ouvert PLEIN ÉCRAN ── */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+        {/* Vue 1 : email de campagne (en-tête seul) */}
+        {campagneOuverte ? (
+          <div className="flex flex-1 flex-col overflow-y-auto">
+            <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-3">
+              <button
+                onClick={retourListe}
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                <ArrowLeft size={16} /> Retour
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                <Megaphone size={14} /> Email de campagne
+              </div>
+              <h2 className="mt-2 text-lg font-semibold text-slate-900">
+                {campagneOuverte.objet || "(sans objet)"}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                À {prospects[campagneOuverte.prospectId] || "prospect"} · Modèle «{" "}
+                {campagneOuverte.modeleNom} »
+                {campagneOuverte.envoyeLe && (
+                  <>
+                    {" "}
+                    ·{" "}
+                    {new Date(campagneOuverte.envoyeLe).toLocaleString("fr-FR", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </>
+                )}
+              </p>
+              {campagneOuverte.aRepondu && (
+                <p className="mt-2 text-sm font-medium text-emerald-600">Le prospect a répondu ✓</p>
+              )}
+              <div className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
+                Le contenu de cet email de campagne n'a pas été archivé — seul l'en-tête est
+                conservé (objet, modèle, date).
+              </div>
+            </div>
+          </div>
+        ) : ouvert ? (
+          /* Vue 2 : conversation PLEIN ÉCRAN */
+          <>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
+              <button
+                onClick={retourListe}
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                <ArrowLeft size={16} /> Retour
+              </button>
+              <div className="min-w-0 flex-1 text-center">
+                <h2 className="truncate text-base font-semibold text-slate-900">{ouvert.nom}</h2>
+                <p className="truncate text-xs text-slate-500">
+                  {ouvert.adresse}
+                  {ouvert.prospectId && prospects[ouvert.prospectId] && (
+                    <> · {prospects[ouvert.prospectId]}</>
+                  )}
+                </p>
+              </div>
+              {ouvert.messages.some((m) => m.sens === "entrant") ? (
+                <button
+                  onClick={marquerFilNonLu}
+                  title="Marquer comme non lu"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Mail size={13} /> Non lu
+                </button>
+              ) : (
+                <div className="w-16 shrink-0" />
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50/60 px-6 py-4">
+              {ouvert.messages.map((m) => (
+                <BulleMessage key={m.id} m={m} />
+              ))}
+            </div>
+
+            {/* Barre d'actions + zone de composition */}
+            <div className="border-t border-slate-200 bg-white px-6 py-4">
+              {envoiOk && <p className="mb-2 text-sm text-green-700">Message envoyé ✓</p>}
+
+              {mode === null && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => ouvrirCompo("repondre")}
+                    className="flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Reply size={15} /> Répondre
+                  </button>
+                  <button
+                    onClick={() => ouvrirCompo("transferer")}
+                    className="flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Forward size={15} /> Transférer
+                  </button>
+                </div>
+              )}
+
+              {mode === "repondre" && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <Reply size={13} /> Réponse à {ouvert.nom}
+                  </div>
+                  <textarea
+                    value={reponseTexte}
+                    onChange={(e) => setReponseTexte(e.target.value)}
+                    rows={5}
+                    autoFocus
+                    placeholder="Votre réponse… (la signature est ajoutée automatiquement)"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      onClick={envoyerReponse}
+                      disabled={envoiEnCours || !reponseTexte.trim()}
+                      className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {envoiEnCours ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Send size={15} />
+                      )}
+                      Envoyer
+                    </button>
+                    <button
+                      onClick={() => setMode(null)}
+                      className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mode === "transferer" && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <Forward size={13} /> Transférer
+                  </div>
+                  <input
+                    value={transfertTo}
+                    onChange={(e) => setTransfertTo(e.target.value)}
+                    autoFocus
+                    placeholder="Destinataire (adresse e-mail)…"
+                    className="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                  />
+                  <textarea
+                    value={transfertCorps}
+                    onChange={(e) => setTransfertCorps(e.target.value)}
+                    rows={6}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      onClick={envoyerTransfert}
+                      disabled={envoiEnCours || !transfertTo.trim() || !transfertCorps.trim()}
+                      className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {envoiEnCours ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Forward size={15} />
+                      )}
+                      Transférer
+                    </button>
+                    <button
+                      onClick={() => setMode(null)}
+                      className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {envoiErreur && <p className="mt-2 text-sm text-red-600">{envoiErreur}</p>}
+            </div>
+          </>
+        ) : (
+          /* Vue 3 : LISTE plein écran */
           <div className="min-h-0 flex-1 overflow-y-auto">
             {chargement && messages.length === 0 && (
               <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-400">
@@ -383,25 +626,22 @@ export default function Messages() {
                   <button
                     key={it.id}
                     onClick={() => ouvrirCampagne(e)}
-                    className={
-                      "block w-full border-b border-slate-100 px-4 py-3 text-left transition-colors " +
-                      (campagneOuverte?.id === e.id ? "bg-blue-50" : "hover:bg-slate-50")
-                    }
+                    className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                        À {nom}
+                    <span className="h-2 w-2 shrink-0" />
+                    <span className="w-52 shrink-0 truncate text-sm text-slate-700">À {nom}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      <span className="text-slate-700">{e.objet || "(sans objet)"}</span>
+                      <span className="text-slate-400">
+                        {" "}
+                        — Campagne · {e.modeleNom}
+                        {e.aRepondu ? " · a répondu" : ""}
                       </span>
-                      <span className="shrink-0 text-xs text-slate-400">{dateCourte(it.date)}</span>
-                    </div>
-                    <p className="mt-0.5 truncate text-sm text-slate-500">
-                      {e.objet || "(sans objet)"}
-                    </p>
-                    <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-slate-400">
-                      <Megaphone size={12} className="shrink-0" />
-                      Campagne · {e.modeleNom}
-                      {e.aRepondu && <span className="text-emerald-600">· a répondu</span>}
-                    </p>
+                    </span>
+                    <Megaphone size={13} className="shrink-0 text-slate-300" />
+                    <span className="w-16 shrink-0 text-right text-xs text-slate-400">
+                      {dateCourte(it.date)}
+                    </span>
                   </button>
                 )
               }
@@ -410,141 +650,42 @@ export default function Messages() {
               const entrant = m.sens === "entrant"
               const nonLu = entrant && !m.lu
               const nom = nomCorrespondant(entrant ? m.de : m.a)
-              const actif = filOuvert === cleFil(m)
               return (
                 <button
                   key={it.id}
                   onClick={() => ouvrirMessage(m)}
-                  className={
-                    "block w-full border-b border-slate-100 px-4 py-3 text-left transition-colors " +
-                    (actif ? "bg-blue-50" : "hover:bg-slate-50")
-                  }
+                  className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
                 >
-                  <div className="flex items-center gap-2">
-                    {nonLu && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
-                    <span
-                      className={
-                        "min-w-0 flex-1 truncate text-sm " +
-                        (nonLu ? "font-semibold text-slate-900" : "text-slate-700")
-                      }
-                    >
-                      {entrant ? nom : "À " + nom}
-                    </span>
-                    <span className="shrink-0 text-xs text-slate-400">{dateCourte(m.date)}</span>
-                  </div>
-                  <p
+                  {nonLu ? (
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                  ) : (
+                    <span className="h-2 w-2 shrink-0" />
+                  )}
+                  <span
                     className={
-                      "mt-0.5 flex items-center gap-1.5 truncate text-sm " +
-                      (nonLu ? "font-medium text-slate-800" : "text-slate-600")
+                      "w-52 shrink-0 truncate text-sm " +
+                      (nonLu ? "font-semibold text-slate-900" : "text-slate-700")
                     }
                   >
-                    {m.piecesJointes.length > 0 && (
-                      <Paperclip size={12} className="shrink-0 text-slate-400" />
-                    )}
-                    <span className="truncate">{m.objet || "(sans objet)"}</span>
-                  </p>
-                  {m.corpsText && (
-                    <p className="mt-0.5 truncate text-xs text-slate-400">
-                      {apercuTexte(m.corpsText)}
-                    </p>
+                    {entrant ? nom : "À " + nom}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    <span className={nonLu ? "font-semibold text-slate-900" : "text-slate-700"}>
+                      {m.objet || "(sans objet)"}
+                    </span>
+                    {m.corpsText && <span className="text-slate-400"> — {apercuTexte(m.corpsText)}</span>}
+                  </span>
+                  {m.piecesJointes.length > 0 && (
+                    <Paperclip size={13} className="shrink-0 text-slate-400" />
                   )}
+                  <span className="w-16 shrink-0 text-right text-xs text-slate-400">
+                    {dateCourte(m.date)}
+                  </span>
                 </button>
               )
             })}
           </div>
-        </div>
-
-        {/* Volet de lecture */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-          {campagneOuverte ? (
-            <div className="flex flex-1 flex-col overflow-y-auto px-6 py-5">
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-                <Megaphone size={14} /> Email de campagne
-              </div>
-              <h2 className="mt-2 text-base font-semibold text-slate-900">
-                {campagneOuverte.objet || "(sans objet)"}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                À {prospects[campagneOuverte.prospectId] || "prospect"} · Modèle «{" "}
-                {campagneOuverte.modeleNom} »
-                {campagneOuverte.envoyeLe && (
-                  <>
-                    {" "}
-                    ·{" "}
-                    {new Date(campagneOuverte.envoyeLe).toLocaleString("fr-FR", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </>
-                )}
-              </p>
-              {campagneOuverte.aRepondu && (
-                <p className="mt-2 text-sm font-medium text-emerald-600">Le prospect a répondu ✓</p>
-              )}
-              <div className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
-                Le contenu de cet email de campagne n'a pas été archivé — seul l'en-tête est
-                conservé (objet, modèle, date).
-              </div>
-            </div>
-          ) : !ouvert ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-300">
-              <MailOpen size={40} strokeWidth={1.2} />
-              <p className="text-sm text-slate-400">Sélectionne un message</p>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4">
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-semibold text-slate-900">{ouvert.nom}</h2>
-                  <p className="mt-0.5 truncate text-sm text-slate-500">
-                    {ouvert.adresse}
-                    {ouvert.prospectId && prospects[ouvert.prospectId] && (
-                      <> · Prospect : {prospects[ouvert.prospectId]}</>
-                    )}
-                  </p>
-                </div>
-                {ouvert.messages.some((m) => m.sens === "entrant") && (
-                  <button
-                    onClick={marquerFilNonLu}
-                    title="Marquer comme non lu"
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                  >
-                    <Mail size={13} /> Marquer non lu
-                  </button>
-                )}
-              </div>
-
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50/60 px-6 py-4">
-                {ouvert.messages.map((m) => (
-                  <BulleMessage key={m.id} m={m} />
-                ))}
-              </div>
-
-              {/* Réponse, toujours visible en bas du fil. */}
-              <div className="border-t border-slate-200 bg-white px-6 py-4">
-                {envoiOk && <p className="mb-2 text-sm text-green-700">Réponse envoyée ✓</p>}
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={reponseTexte}
-                    onChange={(e) => setReponseTexte(e.target.value)}
-                    rows={3}
-                    placeholder={`Répondre à ${ouvert.nom}… (la signature est ajoutée automatiquement)`}
-                    className="min-h-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={envoyerReponse}
-                    disabled={envoiEnCours || !reponseTexte.trim()}
-                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {envoiEnCours ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                    Envoyer
-                  </button>
-                </div>
-                {envoiErreur && <p className="mt-1 text-sm text-red-600">{envoiErreur}</p>}
-              </div>
-            </>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )

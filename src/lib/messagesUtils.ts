@@ -29,6 +29,12 @@ export function apercuTexte(texte: string, max = 120): string {
   return s.length > max ? s.slice(0, max).trimEnd() + "…" : s
 }
 
+// Objet d'un transfert : préfixe « Tr: » une seule fois (« Tr: » ou « Fwd: » déjà là → inchangé).
+export function objetTransfert(objet: string): string {
+  const o = (objet || "").trim()
+  return /^(tr|fwd?)\s*:/i.test(o) ? o : "Tr: " + (o || "(sans objet)")
+}
+
 // ── Fils de discussion ─────────────────────────────────────────────────────
 // Un fil = tous les échanges avec un même correspondant (rattachés au prospect
 // quand il est connu, sinon à l'adresse e-mail).
