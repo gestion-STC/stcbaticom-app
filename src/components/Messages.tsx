@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  ArrowDownLeft,
   ArrowLeft,
-  ArrowUpRight,
   Forward,
   Inbox,
   Loader2,
@@ -62,10 +60,47 @@ function corpsTransfert(m: Message): string {
   )
 }
 
-// ── Une bulle de message dans le fil ──
-function BulleMessage({ m }: { m: Message }) {
-  const entrant = m.sens === "entrant"
+// Avatar rond avec l'initiale de l'expéditeur (couleur stable par initiale ;
+// bleu pour nos propres messages sortants).
+function Avatar({ nom, sortant }: { nom: string; sortant: boolean }) {
+  const initiale = (nom.trim()[0] || "?").toUpperCase()
+  const palette = [
+    "bg-emerald-500",
+    "bg-indigo-500",
+    "bg-rose-500",
+    "bg-amber-500",
+    "bg-sky-500",
+    "bg-violet-500",
+    "bg-teal-500",
+  ]
+  const bg = sortant ? "bg-blue-600" : palette[initiale.charCodeAt(0) % palette.length]
+  return (
+    <span
+      className={
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white " +
+        bg
+      }
+    >
+      {initiale}
+    </span>
+  )
+}
+
+// ── Un message de la conversation, façon Gmail ──
+// En-tête (avatar, expéditeur, destinataires, date) + corps. Replié = une seule
+// ligne (aperçu) ; déplié = le message entier + pièces jointes.
+function MessageCard({
+  m,
+  ouvert,
+  onToggle,
+}: {
+  m: Message
+  ouvert: boolean
+  onToggle: () => void
+}) {
   const [pjEnCours, setPjEnCours] = useState("")
+  const entrant = m.sens === "entrant"
+  const nom = nomCorrespondant(m.de)
 
   async function ouvrirPiece(chemin: string) {
     setPjEnCours(chemin)
@@ -80,65 +115,74 @@ function BulleMessage({ m }: { m: Message }) {
   }
 
   return (
-    <div className={"flex " + (entrant ? "justify-start" : "justify-end")}>
-      <div
-        className={
-          "w-[85%] max-w-3xl rounded-xl border px-4 py-3 " +
-          (entrant ? "border-slate-200 bg-white" : "border-blue-100 bg-blue-50")
-        }
+    <div className="border-b border-slate-100 last:border-b-0">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 px-6 py-4 text-left hover:bg-slate-50/60"
       >
-        <div className="mb-1.5 flex items-center gap-2 text-xs text-slate-400">
-          {entrant ? (
-            <ArrowDownLeft size={13} className="text-emerald-500" />
-          ) : (
-            <ArrowUpRight size={13} className="text-blue-500" />
-          )}
-          <span className="font-medium text-slate-500">{entrant ? "Reçu" : "Envoyé"}</span>
-          <span>·</span>
-          <span>
-            {new Date(m.date).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
-          </span>
-        </div>
-        {m.objet && <p className="text-sm font-semibold text-slate-800">{m.objet}</p>}
-
-        {/* Corps : texte si disponible, sinon HTML isolé (sandbox = aucun script). */}
-        {m.corpsText ? (
-          <pre className="mt-1 max-h-96 overflow-y-auto whitespace-pre-wrap font-sans text-sm text-slate-700">
-            {m.corpsText}
-          </pre>
-        ) : m.corpsHtml ? (
-          <iframe
-            title="Contenu du message"
-            sandbox=""
-            srcDoc={m.corpsHtml}
-            className="mt-1 h-96 w-full rounded border-0 bg-white"
-          />
-        ) : (
-          <p className="mt-1 text-sm italic text-slate-400">(message vide)</p>
-        )}
-
-        {/* Pièces jointes reçues (archivées dans le bucket privé). */}
-        {m.piecesJointes.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {m.piecesJointes.map((pj) => (
-              <button
-                key={pj.chemin}
-                onClick={() => ouvrirPiece(pj.chemin)}
-                disabled={pjEnCours === pj.chemin}
-                className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50"
-              >
-                {pjEnCours === pj.chemin ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Paperclip size={12} />
-                )}
-                {pj.nom}
-                {pj.taille > 0 && <span className="text-slate-400">({formatTaille(pj.taille)})</span>}
-              </button>
-            ))}
+        <Avatar nom={nom} sortant={!entrant} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="truncate text-sm font-semibold text-slate-900">
+              {nom}
+              {!entrant && <span className="font-normal text-slate-400"> (vous)</span>}
+            </span>
+            <span className="shrink-0 text-xs text-slate-400">
+              {new Date(m.date).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
+            </span>
           </div>
-        )}
-      </div>
+          {ouvert ? (
+            <div className="truncate text-xs text-slate-500">
+              {m.de}
+              {m.a && <> · À {m.a}</>}
+            </div>
+          ) : (
+            <div className="truncate text-sm text-slate-500">
+              {apercuTexte(m.corpsText || m.objet)}
+            </div>
+          )}
+        </div>
+      </button>
+
+      {ouvert && (
+        <div className="pb-5 pl-[4.5rem] pr-6">
+          {m.corpsText ? (
+            <pre className="max-h-[55vh] overflow-y-auto whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">
+              {m.corpsText}
+            </pre>
+          ) : m.corpsHtml ? (
+            <iframe
+              title="Contenu du message"
+              sandbox=""
+              srcDoc={m.corpsHtml}
+              className="h-96 w-full rounded border border-slate-100 bg-white"
+            />
+          ) : (
+            <p className="text-sm italic text-slate-400">(message vide)</p>
+          )}
+
+          {m.piecesJointes.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {m.piecesJointes.map((pj) => (
+                <button
+                  key={pj.chemin}
+                  onClick={() => ouvrirPiece(pj.chemin)}
+                  disabled={pjEnCours === pj.chemin}
+                  className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50"
+                >
+                  {pjEnCours === pj.chemin ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Paperclip size={12} />
+                  )}
+                  {pj.nom}
+                  {pj.taille > 0 && <span className="text-slate-400">({formatTaille(pj.taille)})</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -154,6 +198,7 @@ export default function Messages() {
   const [recherche, setRecherche] = useState("")
   const [filOuvert, setFilOuvert] = useState<string | null>(null)
   const [campagneOuverte, setCampagneOuverte] = useState<EmailEnvoye | null>(null)
+  const [depiles, setDepiles] = useState<string[]>([]) // messages dépliés dans la conversation
 
   // Zone de composition (répondre / transférer)
   const [mode, setMode] = useState<ModeCompo>(null)
@@ -265,13 +310,21 @@ export default function Messages() {
     setEnvoiErreur("")
     setEnvoiOk(false)
     const cle = cleFil(m)
-    const aLire = messages
-      .filter((x) => x.sens === "entrant" && !x.lu && cleFil(x) === cle)
-      .map((x) => x.id)
+    // Déplie le dernier message du fil par défaut (comme Gmail).
+    const filMsgs = messages
+      .filter((x) => cleFil(x) === cle)
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+    const dernier = filMsgs[filMsgs.length - 1]
+    setDepiles(dernier ? [dernier.id] : [])
+    const aLire = filMsgs.filter((x) => x.sens === "entrant" && !x.lu).map((x) => x.id)
     if (aLire.length) {
       setMessages((prev) => prev.map((x) => (aLire.includes(x.id) ? { ...x, lu: true } : x)))
       marquerLus(aLire)
     }
+  }
+
+  function basculerMessage(id: string) {
+    setDepiles((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   function ouvrirCampagne(env: EmailEnvoye) {
@@ -460,23 +513,24 @@ export default function Messages() {
         ) : ouvert ? (
           /* Vue 2 : conversation PLEIN ÉCRAN */
           <>
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-3">
+            <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-3">
               <button
                 onClick={retourListe}
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
               >
                 <ArrowLeft size={16} /> Retour
               </button>
-              <div className="min-w-0 flex-1 text-center">
-                <h2 className="truncate text-base font-semibold text-slate-900">{ouvert.nom}</h2>
-                <p className="truncate text-xs text-slate-500">
-                  {ouvert.adresse}
-                  {ouvert.prospectId && prospects[ouvert.prospectId] && (
-                    <> · {prospects[ouvert.prospectId]}</>
-                  )}
-                </p>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-base font-semibold text-slate-900">
+                  {ouvert.dernier.objet || "(sans objet)"}
+                </h2>
+                {ouvert.prospectId && prospects[ouvert.prospectId] && (
+                  <p className="truncate text-xs text-slate-500">
+                    Prospect : {prospects[ouvert.prospectId]}
+                  </p>
+                )}
               </div>
-              {ouvert.messages.some((m) => m.sens === "entrant") ? (
+              {ouvert.messages.some((m) => m.sens === "entrant") && (
                 <button
                   onClick={marquerFilNonLu}
                   title="Marquer comme non lu"
@@ -484,14 +538,17 @@ export default function Messages() {
                 >
                   <Mail size={13} /> Non lu
                 </button>
-              ) : (
-                <div className="w-16 shrink-0" />
               )}
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50/60 px-6 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto bg-white">
               {ouvert.messages.map((m) => (
-                <BulleMessage key={m.id} m={m} />
+                <MessageCard
+                  key={m.id}
+                  m={m}
+                  ouvert={depiles.includes(m.id)}
+                  onToggle={() => basculerMessage(m.id)}
+                />
               ))}
             </div>
 
