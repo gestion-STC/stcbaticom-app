@@ -16,10 +16,12 @@ import {
   Mic,
   Undo2,
   Search,
+  Send,
+  Handshake,
 } from "lucide-react"
 import { palette, statutsParDefaut, classePastille, type Statut } from "../statuts"
 import type { Prospect } from "../data"
-import { prospects as prospectsDemo, estApporteur } from "../data"
+import { prospects as prospectsDemo, estApporteur, TYPE_APPORTEUR } from "../data"
 import BandeauErreur from "./BandeauErreur"
 import { joursLabels, type Creneau } from "../creneaux"
 import type { Rdv } from "../rdv"
@@ -37,6 +39,7 @@ import { entrantActif } from "../lib/appelEntrantActif"
 import { enregistrerAppel } from "../lib/appelsDb"
 import { resultatsNonJoint, RESULTAT_DECROCHE } from "../appels"
 import NouveauRdvModal from "./NouveauRdvModal"
+import EnvoyerEmailModal from "./EnvoyerEmailModal"
 import HistoriqueProspect from "./HistoriqueProspect"
 
 function dateAujourdhui(): string {
@@ -104,6 +107,7 @@ export default function SessionsCall() {
   const [creneaux, setCreneaux] = useState<Creneau[]>([])
   const [rdvJour, setRdvJour] = useState<Rdv[]>([])
   const [rdvPour, setRdvPour] = useState<Prospect | null>(null)
+  const [envoiPour, setEnvoiPour] = useState<Prospect | null>(null)
   // Commentaires en cours d'édition, rattachés à l'id du prospect (évite tout mélange)
   const [commentaires, setCommentaires] = useState<Record<string, string>>({})
   const [erreur, setErreur] = useState<string | null>(null)
@@ -491,6 +495,17 @@ export default function SessionsCall() {
     majProspect(courant.id, { prochaine_relance: date }).catch(() => setErreurSave(true))
     setRelanceMsg(`Relance programmée le ${date}`)
     setRelanceInput("")
+  }
+
+  // Bascule la fiche en cours en apporteur d'affaires (ou l'y retire). On RESTE
+  // sur la fiche : elle change juste d'étiquette `type` et est enregistrée aussitôt.
+  function basculerApporteurCourant() {
+    if (!courant?.id) return
+    const id = courant.id
+    const nouveauType = estApporteur(courant) ? "Gestionnaire locatif" : TYPE_APPORTEUR
+    setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, type: nouveauType } : x)))
+    setFileSession((arr) => arr.map((x) => (x.id === id ? { ...x, type: nouveauType } : x)))
+    majProspect(id, { type: nouveauType }).catch(() => setErreurSave(true))
   }
 
   function appliquer(nouveauStatut: string) {
@@ -1329,6 +1344,12 @@ export default function SessionsCall() {
           onCree={rechargerRdvJour}
         />
       )}
+      {envoiPour && envoiPour.id && (
+        <EnvoyerEmailModal
+          prospect={{ ...envoiPour, id: envoiPour.id }}
+          onClose={() => setEnvoiPour(null)}
+        />
+      )}
       {rdvJour.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3">
           <Clock size={18} className="shrink-0 text-emerald-600" />
@@ -1695,6 +1716,29 @@ export default function SessionsCall() {
                 >
                   <CalendarPlus size={16} /> Programmer un RDV
                 </button>
+                <button
+                  onClick={() => setEnvoiPour(courant)}
+                  className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  <Send size={16} /> Email
+                </button>
+                {estApporteur(courant) ? (
+                  <button
+                    onClick={basculerApporteurCourant}
+                    title="Remettre cette fiche parmi les gestionnaires"
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    <Undo2 size={16} /> Remettre en gestionnaire
+                  </button>
+                ) : (
+                  <button
+                    onClick={basculerApporteurCourant}
+                    title="Ranger cette fiche dans la base des apporteurs d'affaires"
+                    className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                  >
+                    <Handshake size={16} /> C'est un apporteur
+                  </button>
+                )}
                 <button
                   onClick={avancer}
                   className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"

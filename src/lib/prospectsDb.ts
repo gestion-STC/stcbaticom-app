@@ -93,6 +93,7 @@ export async function majProspect(
     telephone: string
     adresse: string
     numero_emission: string
+    type: string
   }>,
 ): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
