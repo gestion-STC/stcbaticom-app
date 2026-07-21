@@ -97,7 +97,10 @@ const Reconnaissance: any =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     : undefined
 
-export default function SessionsCall() {
+// `actif` = l'onglet Sessions est actuellement affiché. Le composant reste monté en
+// permanence (voir App.tsx) pour qu'une session en cours ne se coupe pas quand on
+// navigue ailleurs → on s'en sert pour rafraîchir les données au retour sur l'onglet.
+export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [statuts, setStatuts] = useState<Statut[]>(statutsParDefaut)
   const [fileStatut, setFileStatut] = useState<string>("")
@@ -189,6 +192,19 @@ export default function SessionsCall() {
     chargerNumeros().then(setNumerosPool).catch(() => {})
     rechargerRdvJour()
   }, [])
+
+  // Le composant restant monté en permanence, les données ne se rechargent plus toutes
+  // seules à chaque visite. On rafraîchit donc la liste des prospects + les RDV du jour
+  // quand on REVIENT sur l'onglet SANS session en cours. Jamais pendant une session
+  // active : on ne veut surtout pas remplacer la file d'appels sous les pieds.
+  useEffect(() => {
+    if (!actif || enCours || !supabaseConfigure) return
+    chargerProspects()
+      .then((rows) => setProspects(rows.filter((p) => !estApporteur(p))))
+      .catch(() => {})
+    rechargerRdvJour()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actif])
 
   // Évite d'appeler 2 fois le même numéro dans une session
   function dedupTelephone(liste: Prospect[]): Prospect[] {

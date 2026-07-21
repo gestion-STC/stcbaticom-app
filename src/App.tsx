@@ -72,10 +72,16 @@ function App() {
           {page === "apporteurs" && <ApporteursView />}
           {page === "agences" && <AgencesView />}
           {page === "pipeline" && <Pipeline />}
-          {page === "sessions" && <SessionsCall />}
           {page === "messages" && <Messages />}
           {page === "calendrier" && <Calendrier />}
           {page === "parametrage" && <Parametrage />}
+
+          {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
+              coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant
+              un appel, puis revenir). Simplement masquée hors de son onglet. */}
+          <div className={page === "sessions" ? undefined : "hidden"}>
+            <SessionsCall actif={page === "sessions"} />
+          </div>
         </main>
       </div>
 
