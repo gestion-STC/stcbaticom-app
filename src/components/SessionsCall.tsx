@@ -18,6 +18,7 @@ import {
   Search,
   Send,
   Handshake,
+  Trash2,
 } from "lucide-react"
 import { palette, statutsParDefaut, classePastille, type Statut } from "../statuts"
 import type { Prospect } from "../data"
@@ -26,7 +27,7 @@ import BandeauErreur from "./BandeauErreur"
 import { joursLabels, type Creneau } from "../creneaux"
 import type { Rdv } from "../rdv"
 import { supabaseConfigure } from "../lib/supabase"
-import { chargerProspects, majProspect } from "../lib/prospectsDb"
+import { chargerProspects, majProspect, supprimerProspect } from "../lib/prospectsDb"
 import { chargerStatuts } from "../lib/statutsDb"
 import { chargerCreneaux } from "../lib/creneauxDb"
 import { chargerRdv } from "../lib/rdvDb"
@@ -506,6 +507,40 @@ export default function SessionsCall() {
     setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, type: nouveauType } : x)))
     setFileSession((arr) => arr.map((x) => (x.id === id ? { ...x, type: nouveauType } : x)))
     majProspect(id, { type: nouveauType }).catch(() => setErreurSave(true))
+  }
+
+  // Supprime DÉFINITIVEMENT la fiche en cours (faux numéro / faux prospect). On la
+  // retire des listes locales et on enchaîne sur la fiche suivante (l'index reste le
+  // même : les fiches derrière remontent d'un cran). Confirmation obligatoire.
+  async function supprimerFicheCourante() {
+    if (!courant?.id) return
+    const id = courant.id
+    const nom = courant.entreprise || courant.contact || "ce prospect"
+    if (!confirm(`Supprimer définitivement la fiche « ${nom} » ?\nÀ n'utiliser que pour un faux numéro ou un faux prospect — action irréversible.`)) return
+    // On quitte la fiche → stopper surveillance de fin d'appel + dictée.
+    surveillanceRef.current = { actif: false, vuActif: false }
+    setSurveille(false)
+    recoRef.current?.stop()
+    setRelanceMsg("")
+    setRelanceInput("")
+    setCopie(false)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    try {
+      await supprimerProspect(id)
+    } catch {
+      setErreurSave(true)
+      return
+    }
+    setProspects((arr) => arr.filter((x) => x.id !== id))
+    const suite = fileSession.filter((x) => x.id !== id)
+    setFileSession(suite)
+    if (suite.length === 0) {
+      setEnCours(false)
+      setIndex(0)
+    } else if (index > suite.length - 1) {
+      setIndex(suite.length - 1)
+    }
+    // sinon l'index reste identique et pointe naturellement sur la fiche suivante.
   }
 
   function appliquer(nouveauStatut: string) {
@@ -1754,6 +1789,13 @@ export default function SessionsCall() {
                   className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                 >
                   <PhoneOff size={16} /> Fin de session
+                </button>
+                <button
+                  onClick={supprimerFicheCourante}
+                  title="Supprimer définitivement la fiche (faux numéro / faux prospect)"
+                  className="ml-auto flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={16} /> Supprimer la fiche
                 </button>
               </div>
             </div>
