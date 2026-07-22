@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Handshake,
   Inbox,
+  HardHat,
   LogOut,
 } from "lucide-react"
 import { commercial } from "../data"
@@ -26,6 +27,7 @@ export type PageId =
   | "pipeline"
   | "sessions"
   | "messages"
+  | "recrutement"
   | "calendrier"
   | "parametrage"
 
@@ -40,6 +42,7 @@ const items: NavItem[] = [
   { id: "pipeline", label: "Pipeline", icon: Columns3 },
   { id: "sessions", label: "Sessions de call", icon: PhoneCall },
   { id: "messages", label: "Boîte de réception", icon: Inbox },
+  { id: "recrutement", label: "Recrutement ST", icon: HardHat },
   { id: "calendrier", label: "Calendrier", icon: Calendar },
   { id: "parametrage", label: "Paramétrage", icon: SlidersHorizontal },
 ]

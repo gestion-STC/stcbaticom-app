@@ -11,6 +11,7 @@ import AgencesView from "./components/AgencesView"
 import Pipeline from "./components/Pipeline"
 import SessionsCall from "./components/SessionsCall"
 import Messages from "./components/Messages"
+import RecrutementST from "./components/recrutement/RecrutementST"
 import Calendrier from "./components/Calendrier"
 import Parametrage from "./components/Parametrage"
 import RappelsRdv from "./components/RappelsRdv"
@@ -27,6 +28,7 @@ const titres: Record<PageId, string> = {
   pipeline: "Pipeline",
   sessions: "Sessions de call",
   messages: "Boîte de réception",
+  recrutement: "Recrutement sous-traitants",
   calendrier: "Calendrier",
   parametrage: "Paramétrage",
 }
@@ -73,6 +75,7 @@ function App() {
           {page === "agences" && <AgencesView />}
           {page === "pipeline" && <Pipeline />}
           {page === "messages" && <Messages />}
+          {page === "recrutement" && <RecrutementST />}
           {page === "calendrier" && <Calendrier />}
           {page === "parametrage" && <Parametrage />}
 
