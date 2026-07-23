@@ -104,3 +104,16 @@ export async function supprimerSousTraitant(id: string): Promise<void> {
   const { error } = await supabase.from("st_sous_traitants").delete().eq("id", id)
   if (error) throw new Error(error.message)
 }
+
+// Liste des métiers présents dans la base (pour proposer des objectifs cohérents).
+export async function metiersDistincts(): Promise<string[]> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const { data, error } = await supabase.from("st_sous_traitants").select("metier")
+  if (error) throw new Error(error.message)
+  const set = new Set<string>()
+  for (const r of (data as { metier: string }[]) ?? []) {
+    const m = (r.metier || "").trim()
+    if (m) set.add(m)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr"))
+}

@@ -46,6 +46,14 @@ export type EtapeST = {
   actif: boolean
 }
 
+// Objectif de recrutement pour UN métier (ex. Plombier : 2/semaine).
+export type ObjectifMetier = {
+  id?: string
+  metier: string
+  objectifHebdo: number
+  actif: boolean
+}
+
 // Pilotage global : combien de ST on veut recruter, à quelle cadence, marche/arrêt.
 export type PilotageST = {
   actif: boolean

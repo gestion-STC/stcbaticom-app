@@ -69,10 +69,20 @@ export default function BaseST() {
         setErreur("Aucune ligne exploitable (il faut au moins un e-mail ou un téléphone par ligne).")
         return
       }
-      const n = await insererSousTraitants(res.sousTraitants)
+      // Métier de CETTE base (ex. « Plombier ») : taggue toutes les lignes d'un coup,
+      // ce qui permet de piloter les objectifs par métier. Vide = on garde la colonne du fichier.
+      const metier = prompt(
+        "Métier de cette base ? (ex. Plombier, Peintre…)\nLaisse vide pour garder le métier indiqué dans le fichier.",
+        "",
+      )
+      const liste =
+        metier && metier.trim()
+          ? res.sousTraitants.map((s) => ({ ...s, metier: metier.trim() }))
+          : res.sousTraitants
+      const n = await insererSousTraitants(liste)
       await recharger()
       setInfo(
-        `${n} sous-traitant(s) importé(s)` +
+        `${n} sous-traitant(s) importé(s)${metier && metier.trim() ? ` (métier : ${metier.trim()})` : ""}` +
           (res.ignorees ? ` — ${res.ignorees} ligne(s) ignorée(s) (ni e-mail ni téléphone).` : "."),
       )
     } catch (e) {

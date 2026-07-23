@@ -130,19 +130,29 @@ Deno.serve(async (req: Request) => {
       heure >= String(pil.heure_min ?? "09:00").slice(0, 5) &&
       heure <= String(pil.heure_max ?? "18:00").slice(0, 5)
 
-    // --- 2) DÉMARRAGE piloté par le volume -----------------------------------
+    // --- 2) DÉMARRAGE piloté par le volume, MÉTIER PAR MÉTIER ----------------
+    // Pour chaque objectif actif (ex. Plombier: 2/sem), on démarre juste ce qu'il
+    // faut de ST de CE métier (7 jours glissants). Insensible à la casse (ilike).
     const depuis7j = new Date(now.getTime() - 7 * JOUR_MS).toISOString()
-    const { count: demarresRecents } = await sb
-      .from("st_sous_traitants")
-      .select("id", { count: "exact", head: true })
-      .gte("demarre_le", depuis7j)
-    const objectif = Number(pil.objectif_hebdo ?? 2)
-    const aDemarrer = Math.max(0, objectif - (demarresRecents ?? 0))
-    if (aDemarrer > 0) {
+    const { data: objectifs } = await sb.from("st_objectifs").select("*").eq("actif", true)
+    for (const o of objectifs ?? []) {
+      const metier = String(o.metier || "").trim()
+      const cible = Number(o.objectif_hebdo ?? 0)
+      if (!metier || cible <= 0) continue
+
+      const { count: demarresRecents } = await sb
+        .from("st_sous_traitants")
+        .select("id", { count: "exact", head: true })
+        .ilike("metier", metier)
+        .gte("demarre_le", depuis7j)
+      const aDemarrer = Math.max(0, cible - (demarresRecents ?? 0))
+      if (aDemarrer <= 0) continue
+
       const { data: aContacter } = await sb
         .from("st_sous_traitants")
         .select("id")
         .eq("statut", "a_contacter")
+        .ilike("metier", metier)
         .order("cree_le", { ascending: true })
         .limit(aDemarrer)
       for (const s of aContacter ?? []) {
