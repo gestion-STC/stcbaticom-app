@@ -12,6 +12,20 @@ export type CleCouleur =
   | "emerald"
   | "green"
   | "red"
+  // Couleurs ajoutées (la palette d'origine était presque entièrement utilisée).
+  | "teal"
+  | "indigo"
+  | "purple"
+  | "fuchsia"
+  | "rose"
+  | "lime"
+  | "yellow"
+  | "stone"
+  | "ardoise"
+  | "bleu-nuit"
+  | "vert-fonce"
+  | "bordeaux"
+  | "marron"
 
 const paletteBase: Record<CleCouleur, { pill: string; dot: string; label: string }> = {
   slate: { pill: "bg-slate-100 text-slate-700", dot: "#737373", label: "Gris" },
@@ -21,11 +35,26 @@ const paletteBase: Record<CleCouleur, { pill: string; dot: string; label: string
   cyan: { pill: "bg-cyan-50 text-cyan-700", dot: "#06b6d4", label: "Cyan" },
   violet: { pill: "bg-violet-50 text-violet-700", dot: "#8b5cf6", label: "Violet" },
   orange: { pill: "bg-orange-50 text-orange-700", dot: "#f97316", label: "Orange" },
-  amber: { pill: "bg-amber-50 text-amber-700", dot: "#d97706", label: "Jaune" },
+  amber: { pill: "bg-amber-50 text-amber-700", dot: "#d97706", label: "Ambre" },
   pink: { pill: "bg-pink-50 text-pink-700", dot: "#ec4899", label: "Rose" },
   emerald: { pill: "bg-emerald-50 text-emerald-700", dot: "#10b981", label: "Émeraude" },
   green: { pill: "bg-green-50 text-green-700", dot: "#22c55e", label: "Vert" },
   red: { pill: "bg-red-50 text-red-700", dot: "#ef4444", label: "Rouge" },
+  // --- Ajouts : teintes vives ---
+  teal: { pill: "bg-teal-50 text-teal-700", dot: "#14b8a6", label: "Turquoise" },
+  indigo: { pill: "bg-indigo-50 text-indigo-700", dot: "#6366f1", label: "Indigo" },
+  purple: { pill: "bg-purple-50 text-purple-700", dot: "#a855f7", label: "Pourpre" },
+  fuchsia: { pill: "bg-fuchsia-50 text-fuchsia-700", dot: "#d946ef", label: "Fuchsia" },
+  rose: { pill: "bg-rose-50 text-rose-700", dot: "#f43f5e", label: "Rose vif" },
+  lime: { pill: "bg-lime-50 text-lime-700", dot: "#84cc16", label: "Vert citron" },
+  yellow: { pill: "bg-yellow-50 text-yellow-700", dot: "#eab308", label: "Jaune vif" },
+  stone: { pill: "bg-stone-100 text-stone-700", dot: "#a8a29e", label: "Taupe" },
+  // --- Ajouts : teintes soutenues (pour bien se distinguer des précédentes) ---
+  ardoise: { pill: "bg-slate-200 text-slate-800", dot: "#475569", label: "Ardoise" },
+  "bleu-nuit": { pill: "bg-indigo-100 text-indigo-900", dot: "#3730a3", label: "Bleu nuit" },
+  "vert-fonce": { pill: "bg-emerald-100 text-emerald-900", dot: "#065f46", label: "Vert foncé" },
+  bordeaux: { pill: "bg-rose-100 text-rose-900", dot: "#9f1239", label: "Bordeaux" },
+  marron: { pill: "bg-amber-100 text-amber-900", dot: "#78350f", label: "Marron" },
 }
 
 // Accès sûr : une couleur inconnue (donnée corrompue) retombe sur "slate" au lieu de planter l'écran.
