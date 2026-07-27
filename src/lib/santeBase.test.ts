@@ -83,6 +83,20 @@ describe("calculerSante (indicateur d'avancement)", () => {
     expect(s.doublons).toBe(3) // 1-2, 1-3, 2-3
   })
 
+  it("détaille sur QUEL critère chaque doublon a été repéré", () => {
+    const s = calculerSante([
+      complete("1", { email: "meme@x.fr" }),
+      complete("2", { email: "meme@x.fr" }),
+      complete("3", { telephone: "09 09 09 09 09" }),
+      complete("4", { telephone: "0909090909" }),
+    ])
+    expect(s.doublonsEmail).toBe(1)
+    expect(s.doublonsTelephone).toBe(1)
+    expect(s.doublonsNom).toBe(0)
+    // Le détail doit toujours retomber sur le total affiché.
+    expect(s.doublonsEmail + s.doublonsNom + s.doublonsTelephone).toBe(s.doublons)
+  })
+
   it("ne signale aucun doublon sur une base saine", () => {
     const s = calculerSante([complete("1"), complete("2", { telephone: "01 02 03 04 05" })])
     expect(s.doublons).toBe(0)

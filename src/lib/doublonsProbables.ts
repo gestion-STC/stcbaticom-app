@@ -56,12 +56,19 @@ function indices(p: Prospect): string[] {
   ].filter(Boolean)
 }
 
+// Préfixe d'indice → raison affichée.
+const RAISON: Record<string, RaisonDoublon> = { e: "email", n: "nom", t: "telephone" }
+
 // TOUTES les paires de fiches susceptibles d'être la même personne, comptées une
-// seule fois. Passe par un regroupement (O(n)) au lieu de comparer chaque fiche à
-// toutes les autres (O(n²)) : indispensable au-delà de quelques centaines de
-// fiches — en comparaison deux à deux, 5000 fiches prenaient ~42 s.
+// seule fois, avec pour chacune l'indice le PLUS FORT qui l'a fait remonter.
+// Passe par un regroupement (O(n)) au lieu de comparer chaque fiche à toutes les
+// autres (O(n²)) : indispensable au-delà de quelques centaines de fiches — en
+// comparaison deux à deux, 5000 fiches prenaient ~42 s.
 // Pur → testable.
-export function pairesDoublons(prospects: Prospect[], ecartees: Set<string> = new Set()): Set<string> {
+export function pairesDoublons(
+  prospects: Prospect[],
+  ecartees: Set<string> = new Set(),
+): Map<string, RaisonDoublon> {
   const groupes = new Map<string, string[]>() // indice → ids
   for (const p of prospects) {
     if (!p.id) continue
@@ -72,13 +79,16 @@ export function pairesDoublons(prospects: Prospect[], ecartees: Set<string> = ne
     }
   }
 
-  const paires = new Set<string>()
-  for (const ids of groupes.values()) {
+  const paires = new Map<string, RaisonDoublon>()
+  for (const [cle, ids] of groupes) {
     if (ids.length < 2) continue
+    const raison = RAISON[cle[0]]
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         const k = clePaire(ids[i], ids[j])
-        if (!ecartees.has(k)) paires.add(k)
+        if (ecartees.has(k)) continue
+        const vue = paires.get(k)
+        if (!vue || FORCE[raison] > FORCE[vue]) paires.set(k, raison)
       }
     }
   }

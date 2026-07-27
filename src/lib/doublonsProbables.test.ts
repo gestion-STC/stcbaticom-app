@@ -116,12 +116,14 @@ describe("pairesDoublons (comptage global)", () => {
   }
 
   it("voit exactement les mêmes paires que la détection pendant l'appel", () => {
-    expect([...pairesDoublons(base)].sort()).toEqual([...parFiche(base)].sort())
+    expect([...pairesDoublons(base).keys()].sort()).toEqual([...parFiche(base)].sort())
   })
 
   it("reste d'accord avec elle une fois des paires écartées", () => {
     const ecartees = new Set([clePaire("1", "3"), clePaire("1", "4")])
-    expect([...pairesDoublons(base, ecartees)].sort()).toEqual([...parFiche(base, ecartees)].sort())
+    expect([...pairesDoublons(base, ecartees).keys()].sort()).toEqual(
+      [...parFiche(base, ecartees)].sort(),
+    )
   })
 
   it("compte chaque paire une seule fois même si plusieurs indices correspondent", () => {
@@ -130,6 +132,19 @@ describe("pairesDoublons (comptage global)", () => {
       p("2", { email: "a@x.fr", telephone: "0102030405", contact: "A", entreprise: "B" }),
     ]
     expect(pairesDoublons(memes).size).toBe(1)
+  })
+
+  it("retient l'indice le plus fort quand plusieurs correspondent (e-mail > nom > numéro)", () => {
+    const memes = [
+      p("1", { email: "a@x.fr", telephone: "0102030405" }),
+      p("2", { email: "a@x.fr", telephone: "0102030405" }),
+    ]
+    expect([...pairesDoublons(memes).values()]).toEqual(["email"])
+  })
+
+  it("qualifie « même numéro seul » comme tel (piste à confirmer)", () => {
+    const memes = [p("1", { telephone: "0102030405" }), p("2", { telephone: "01 02 03 04 05" })]
+    expect([...pairesDoublons(memes).values()]).toEqual(["telephone"])
   })
 
   it("tient la charge sur une grosse base (5000 fiches)", () => {

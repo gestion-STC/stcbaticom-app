@@ -320,6 +320,29 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {sante.doublons > 0 && (
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
+            <span>Doublons détectés sur —</span>
+            {sante.doublonsEmail > 0 && (
+              <span>
+                même e-mail : <span className="font-semibold text-slate-700">{sante.doublonsEmail}</span>
+              </span>
+            )}
+            {sante.doublonsNom > 0 && (
+              <span>
+                même nom + agence :{" "}
+                <span className="font-semibold text-slate-700">{sante.doublonsNom}</span>
+              </span>
+            )}
+            {sante.doublonsTelephone > 0 && (
+              <span>
+                même numéro (à confirmer) :{" "}
+                <span className="font-semibold text-slate-700">{sante.doublonsTelephone}</span>
+              </span>
+            )}
+          </div>
+        )}
+
         {sante.aCompleter > 0 && (
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
             <span>Ce qui manque —</span>

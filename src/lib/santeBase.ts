@@ -21,6 +21,11 @@ export type SanteBase = {
   sansEmail: number
   sansAdresse: number
   doublons: number // paires restant à trancher (comptées UNE fois)
+  // Détail du « pourquoi » : un même numéro n'est qu'une piste (standard partagé),
+  // alors qu'un même e-mail ou un même nom dans la même agence est un indice fort.
+  doublonsEmail: number
+  doublonsNom: number
+  doublonsTelephone: number
 }
 
 const vide = (v: string | undefined): boolean => !(v || "").trim()
@@ -39,9 +44,13 @@ export function calculerSante(prospects: Prospect[], nonDoublons: Set<string> = 
   // Chaque paire est comptée une seule fois (clé triée), via un regroupement
   // par indice — tient la charge sur une grosse base.
   const paires = pairesDoublons(liste, nonDoublons)
+  const raisons = [...paires.values()]
 
   const completes = liste.filter(estFicheComplete).length
   return {
+    doublonsEmail: raisons.filter((r) => r === "email").length,
+    doublonsNom: raisons.filter((r) => r === "nom").length,
+    doublonsTelephone: raisons.filter((r) => r === "telephone").length,
     total: liste.length,
     completes,
     aCompleter: liste.length - completes,
