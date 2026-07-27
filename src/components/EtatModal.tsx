@@ -4,6 +4,7 @@ import {
   palette,
   clesCouleurs,
   categories,
+  couleursPrises,
   type Statut,
   type CleCouleur,
   type Categorie,
@@ -11,19 +12,28 @@ import {
 
 export default function EtatModal({
   etat,
+  etats,
   ordreParDefaut,
   onClose,
   onSave,
 }: {
   etat: Statut | null // null = création
+  etats: Statut[] // tous les états existants (pour repérer les couleurs déjà prises)
   ordreParDefaut: number
   onClose: () => void
   onSave: (s: Statut) => void
 }) {
+  // Couleur déjà utilisée par un AUTRE état → on la bloque, pour ne pas avoir deux
+  // états de la même couleur (impossible à distinguer dans les listes).
+  // La couleur de l'état qu'on est en train de modifier reste évidemment sélectionnable.
+  const prisePar = couleursPrises(etats, etat)
+  const couleursLibres = clesCouleurs.filter((c) => !prisePar.has(c))
+
   const [f, setF] = useState<Statut>(
     etat ?? {
       libelle: "",
-      couleur: "blue",
+      // À la création : on propose d'emblée une couleur encore libre.
+      couleur: (couleursLibres[0] ?? "slate") as CleCouleur,
       ordre: ordreParDefaut,
       estObjectif: false,
       categorie: "Prospection",
@@ -58,21 +68,54 @@ export default function EtatModal({
 
           {/* Couleur */}
           <div>
-            <span className="text-xs font-medium text-slate-500">Couleur</span>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {clesCouleurs.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => set("couleur", c as CleCouleur)}
-                  className={
-                    "h-7 w-7 rounded-full border-2 " +
-                    (c === f.couleur ? "border-slate-900" : "border-transparent")
-                  }
-                  style={{ backgroundColor: palette[c].dot }}
-                  title={palette[c].label}
-                />
-              ))}
+            <div className="flex items-baseline justify-between">
+              <span className="text-xs font-medium text-slate-500">Couleur</span>
+              <span className="text-[11px] text-slate-400">
+                {couleursLibres.length} libre{couleursLibres.length > 1 ? "s" : ""} sur {clesCouleurs.length}
+              </span>
             </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {clesCouleurs.map((c) => {
+                const pris = prisePar.get(c)
+                const choisie = c === f.couleur
+                return (
+                  <button
+                    key={c}
+                    onClick={() => !pris && set("couleur", c as CleCouleur)}
+                    disabled={Boolean(pris)}
+                    className={
+                      "relative h-7 w-7 rounded-full border-2 " +
+                      (choisie ? "border-slate-900 " : "border-transparent ") +
+                      (pris ? "cursor-not-allowed " : "hover:scale-110 ") +
+                      // Une couleur prise est estompée, SAUF si c'est celle de l'état
+                      // en cours (sinon elle paraîtrait à la fois choisie et désactivée).
+                      (pris && !choisie ? "opacity-25" : "")
+                    }
+                    style={{ backgroundColor: palette[c].dot }}
+                    title={pris ? `${palette[c].label} — déjà pris par « ${pris} »` : palette[c].label}
+                  >
+                    {/* Barre oblique : cette couleur est déjà attribuée à un autre état */}
+                    {pris && !choisie && (
+                      <span className="pointer-events-none absolute left-1/2 top-1/2 h-[2px] w-[26px] -translate-x-1/2 -translate-y-1/2 rotate-45 rounded bg-slate-900" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+            {prisePar.has(f.couleur) ? (
+              <p className="mt-2 text-[11px] text-amber-600">
+                Cette couleur est aussi celle de « {prisePar.get(f.couleur)} » — choisissez-en une libre
+                pour bien distinguer les deux états.
+              </p>
+            ) : couleursLibres.length === 0 ? (
+              <p className="mt-2 text-[11px] text-amber-600">
+                Toutes les couleurs sont utilisées. Libérez-en une en changeant la couleur d'un autre état.
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-slate-400">
+                Les couleurs barrées sont déjà prises par un autre état.
+              </p>
+            )}
           </div>
 
           {/* Catégorie */}

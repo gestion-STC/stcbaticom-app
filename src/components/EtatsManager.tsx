@@ -129,6 +129,7 @@ export default function EtatsManager() {
         {modal && (
           <EtatModal
             etat={modal.mode === "edit" ? modal.etat : null}
+            etats={statuts}
             ordreParDefaut={(statuts.at(-1)?.ordre ?? 0) + 1}
             onClose={() => setModal(null)}
             onSave={enregistrer}

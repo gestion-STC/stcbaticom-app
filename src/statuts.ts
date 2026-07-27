@@ -97,6 +97,23 @@ export type Statut = {
   relanceJours: number | null // relance auto au bout de X jours (null = aucune)
 }
 
+// Couleurs déjà attribuées à un AUTRE état que celui qu'on est en train de modifier.
+// Renvoie une Map « couleur → libellé de l'état qui la porte », pour pouvoir bloquer
+// ces couleurs dans le sélecteur (deux états de la même couleur = indistinguables).
+// `enCours` = l'état modifié (null en création) : SA couleur reste disponible.
+// Pur → testable.
+export function couleursPrises(etats: Statut[], enCours: Statut | null): Map<string, string> {
+  const prises = new Map<string, string>()
+  for (const s of etats) {
+    // On reconnaît l'état en cours par son id ; à défaut (état pas encore
+    // enregistré), on retombe sur son libellé.
+    const memeEtat = enCours && (s.id && enCours.id ? s.id === enCours.id : s.libelle === enCours.libelle)
+    if (memeEtat) continue
+    if (!prises.has(s.couleur)) prises.set(s.couleur, s.libelle)
+  }
+  return prises
+}
+
 // Classe du badge pour un libellé de statut donné, via la liste des états connus.
 export function classePastille(
   libelle: string,

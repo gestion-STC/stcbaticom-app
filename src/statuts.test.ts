@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest"
-import { rangEtat, palette, clesCouleurs } from "./statuts"
+import { rangEtat, palette, clesCouleurs, couleursPrises, type Statut } from "./statuts"
+
+// Fabrique un état minimal pour les tests.
+const etat = (id: string, libelle: string, couleur: string): Statut => ({
+  id,
+  libelle,
+  couleur: couleur as Statut["couleur"],
+  ordre: 1,
+  estObjectif: false,
+  categorie: "",
+  relanceJours: null,
+})
 
 describe("rangEtat (classement du meilleur au pire)", () => {
   it("Client signé passe avant RDV pris, avant Nouveau, avant Perdu", () => {
@@ -43,5 +54,41 @@ describe("palette (choix de couleurs pour les états)", () => {
     for (const c of clesCouleurs) {
       expect(palette[c].pill, `${c} utilise du blue-* remappé`).not.toMatch(/\b(bg|text)-blue-/)
     }
+  })
+})
+
+describe("couleursPrises (bloquer les couleurs déjà attribuées)", () => {
+  const existants = [
+    etat("1", "À rappeler", "blue"),
+    etat("2", "Intéressé", "violet"),
+    etat("3", "Perdu", "red"),
+  ]
+
+  it("à la création, toutes les couleurs des autres états sont prises", () => {
+    const prises = couleursPrises(existants, null)
+    expect([...prises.keys()].sort()).toEqual(["blue", "red", "violet"])
+    expect(prises.get("violet")).toBe("Intéressé") // on sait QUI la prend
+    expect(prises.has("teal")).toBe(false) // une couleur neuve reste libre
+  })
+
+  it("en modification, l'état garde SA propre couleur disponible", () => {
+    const prises = couleursPrises(existants, existants[1]) // on modifie « Intéressé »
+    expect(prises.has("violet")).toBe(false)
+    expect(prises.has("blue")).toBe(true)
+  })
+
+  it("reconnaît l'état en cours par son libellé quand il n'a pas encore d'id", () => {
+    const sansId = { ...existants[1], id: undefined }
+    expect(couleursPrises(existants, sansId).has("violet")).toBe(false)
+  })
+
+  it("si deux états partagent une couleur, le doublon reste signalé pendant la modification", () => {
+    const avecDoublon = [...existants, etat("4", "Injoignable", "violet")]
+    const prises = couleursPrises(avecDoublon, avecDoublon[1]) // on modifie « Intéressé »
+    expect(prises.get("violet")).toBe("Injoignable")
+  })
+
+  it("ne bloque rien quand il n'existe encore aucun état", () => {
+    expect(couleursPrises([], null).size).toBe(0)
   })
 })
