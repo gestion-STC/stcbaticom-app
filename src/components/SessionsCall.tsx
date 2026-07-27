@@ -19,6 +19,8 @@ import {
   Send,
   Handshake,
   Trash2,
+  Users,
+  Combine,
 } from "lucide-react"
 import { palette, statutsParDefaut, classePastille, type Statut } from "../statuts"
 import type { Prospect } from "../data"
@@ -27,7 +29,15 @@ import BandeauErreur from "./BandeauErreur"
 import { joursLabels, type Creneau } from "../creneaux"
 import type { Rdv } from "../rdv"
 import { supabaseConfigure } from "../lib/supabase"
-import { chargerProspects, majProspect, supprimerProspect } from "../lib/prospectsDb"
+import {
+  chargerProspects,
+  majProspect,
+  supprimerProspect,
+  fusionnerProspects,
+  fusionnerChamps,
+} from "../lib/prospectsDb"
+import { candidatsDoublon, type CandidatDoublon } from "../lib/doublonsProbables"
+import { chargerNonDoublons, marquerNonDoublon } from "../lib/nonDoublons"
 import { chargerStatuts } from "../lib/statutsDb"
 import { chargerCreneaux } from "../lib/creneauxDb"
 import { chargerRdv } from "../lib/rdvDb"
@@ -127,6 +137,10 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   const [compte, setCompte] = useState<number | null>(null) // compte à rebours avant l'appel auto
   const [stats, setStats] = useState({ appels: 0, decroches: 0, os: 0 }) // perf de la session en cours
   const [erreurSave, setErreurSave] = useState(false) // une sauvegarde a échoué
+  // Nettoyage au fil de l'eau : paires déjà tranchées « ce ne sont pas des doublons »,
+  // et fusion en cours (pour éviter le double clic).
+  const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
+  const [fusionEnCours, setFusionEnCours] = useState(false)
   const [ordreAppel, setOrdreAppel] = useState<"base" | "meilleurs" | "melange">("melange") // ordre de la file (mélangé par défaut)
   // Priorités à INCLURE dans la session (cochées par défaut). Permet ex. « aujourd'hui
   // je n'appelle que les Haute + Moyenne ». Une priorité inconnue/vide passe toujours.
@@ -192,6 +206,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       .catch(() => {})
     lireParametre("script_appel").then((v) => v && setScript(v)).catch(() => {})
     chargerNumeros().then(setNumerosPool).catch(() => {})
+    chargerNonDoublons().then(setNonDoublons).catch(() => {})
     rechargerRdvJour()
   }, [])
 
@@ -332,6 +347,49 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   }
 
   const courant = fileSession[index]
+
+  // --- Nettoyage de la base AU FIL DE L'EAU -----------------------------------
+  // Les fiches qui pourraient être la même personne que celle qu'on appelle.
+  // C'est le bon moment pour trancher : l'utilisateur a le prospect au téléphone.
+  const doublonsCourant = useMemo(
+    () => (courant ? candidatsDoublon(courant, prospects, nonDoublons) : []),
+    [courant, prospects, nonDoublons],
+  )
+
+  // « C'est la même personne » → on fusionne, en GARDANT la fiche en cours d'appel
+  // (pour ne pas casser la file de session) et en récupérant tout le reste.
+  async function fusionnerAvec(c: CandidatDoublon) {
+    if (!courant?.id || !c.prospect.id || fusionEnCours) return
+    setFusionEnCours(true)
+    try {
+      const autres = [c.prospect]
+      await fusionnerProspects(fusionnerChamps(courant, autres), autres)
+      const rows = await chargerProspects()
+      const vivants = rows.filter((p) => !estApporteur(p))
+      setProspects(vivants)
+      // La fiche absorbée disparaît de la file ; la fiche en cours est rafraîchie.
+      const aJour = vivants.find((p) => p.id === courant.id)
+      setFileSession((arr) =>
+        arr
+          .filter((x) => x.id !== c.prospect.id)
+          .map((x) => (x.id === courant.id && aJour ? aJour : x)),
+      )
+    } catch {
+      setErreurSave(true)
+    } finally {
+      setFusionEnCours(false)
+    }
+  }
+
+  // « Non, 2 personnes différentes » (cas classique du standard partagé) :
+  // on le retient DÉFINITIVEMENT, la question ne reviendra plus.
+  async function pasUnDoublon(c: CandidatDoublon) {
+    if (!courant?.id || !c.prospect.id) return
+    const a = courant.id
+    const b = c.prospect.id
+    setNonDoublons((s) => new Set(s).add([a, b].sort().join("|"))) // effet immédiat
+    marquerNonDoublon(a, b).catch(() => setErreurSave(true))
+  }
   const cleCourant = courant?.id ?? ""
   // Commentaire affiché : valeur en cours d'édition si elle existe, sinon celui du prospect
   const commentaireCourant =
@@ -1610,6 +1668,48 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                   </div>
                 </div>
               )}
+
+              {/* Doublon possible — on tranche MAINTENANT, pendant qu'on a la personne au téléphone.
+                  Chaque réponse est mémorisée : la question ne reviendra plus pour cette paire. */}
+              {doublonsCourant.map((c) => (
+                <div
+                  key={c.prospect.id}
+                  className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3"
+                >
+                  <p className="flex items-start gap-1.5 text-sm font-semibold text-amber-900">
+                    <Users size={15} className="mt-0.5 shrink-0" />
+                    Une autre fiche pourrait être la même personne
+                  </p>
+                  <p className="mt-1.5 text-sm text-amber-900">
+                    <span className="font-medium">{c.prospect.entreprise || "(sans agence)"}</span>
+                    {c.prospect.contact ? " — " + c.prospect.contact : ""}
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-700">
+                    {c.certain ? "Indice fort : " : "À confirmer : "}
+                    {c.libelle}
+                  </p>
+                  <div className="mt-2.5 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => fusionnerAvec(c)}
+                      disabled={fusionEnCours}
+                      className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      <Combine size={15} />
+                      {fusionEnCours ? "Fusion…" : "C'est la même personne — fusionner"}
+                    </button>
+                    <button
+                      onClick={() => pasUnDoublon(c)}
+                      disabled={fusionEnCours}
+                      className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      Non, 2 personnes différentes
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-amber-600">
+                    La fusion garde tout : les deux commentaires et l'historique des deux fiches.
+                  </p>
+                </div>
+              ))}
 
               {/* Numéro d'émission (rotation intelligente) — INFO : l'appel part tout seul avec ce numéro */}
               {numeroEmissionCourant && (
