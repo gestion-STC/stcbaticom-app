@@ -4,8 +4,11 @@ import type { Prospect } from "../data"
 import { prospects as prospectsDemo } from "../data"
 import type { Rdv } from "../rdv"
 import { supabaseConfigure } from "../lib/supabase"
-import { chargerProspects } from "../lib/prospectsDb"
+import { chargerProspects, majProspect } from "../lib/prospectsDb"
 import { chargerRdv, creerRdv, supprimerRdv, majRdv } from "../lib/rdvDb"
+import { chargerNumeros, numeroPourProspect } from "../lib/numerosEmission"
+import { lancerAppelRingover } from "../lib/ringover"
+import { entrantActif } from "../lib/appelEntrantActif"
 import RdvJourModal from "./RdvJourModal"
 import BandeauErreur from "./BandeauErreur"
 
@@ -25,6 +28,10 @@ export default function Calendrier() {
   const [rdvs, setRdvs] = useState<Rdv[]>([])
   const [jourSel, setJourSel] = useState<string | null>(null)
   const [erreur, setErreur] = useState<string | null>(null)
+  // Appel Ringover depuis le calendrier (même moteur que les Sessions de call).
+  const [numerosPool, setNumerosPool] = useState<string[]>([])
+  const [appelMsg, setAppelMsg] = useState<{ ok: boolean; texte: string } | null>(null)
+  const [appelEnCours, setAppelEnCours] = useState(false)
   const today = new Date()
   const [annee, setAnnee] = useState(today.getFullYear())
   const [mois, setMois] = useState(today.getMonth())
@@ -37,6 +44,7 @@ export default function Calendrier() {
     chargerProspects()
       .then(setProspects)
       .catch((e) => setErreur(e instanceof Error ? e.message : "Erreur inconnue"))
+    chargerNumeros().then(setNumerosPool).catch(() => {})
     rechargerRdv()
   }, [])
 
@@ -110,6 +118,53 @@ export default function Calendrier() {
     majRdv(id, champs).then(rechargerRdv).catch(() => {})
   }
 
+  // Appelle le contact d'un RDV via Ringover (comme dans les Sessions de call).
+  // Mêmes garde-fous : jamais par-dessus un appel entrant, et un prospect est toujours
+  // appelé avec SON numéro d'émission attribué (anti-spam).
+  async function appelerRdv(r: Rdv) {
+    const fiche = r.prospectId ? prospects.find((p) => p.id === r.prospectId) : undefined
+    const numero = (fiche?.telephone || r.telephone || "").trim()
+    if (!numero || appelEnCours) return
+
+    if (entrantActif()) {
+      setAppelMsg({ ok: false, texte: "Quelqu'un est en train de vous appeler — répondez d'abord." })
+      setTimeout(() => setAppelMsg(null), 5000)
+      return
+    }
+
+    let from = ""
+    if (fiche && numerosPool.length) {
+      const attribution = numeroPourProspect(fiche, numerosPool, prospects)
+      if (attribution.bloque) {
+        setAppelMsg({
+          ok: false,
+          texte:
+            `Appel bloqué : ${fiche.entreprise || "ce prospect"} a toujours été appelé avec le ` +
+            `${attribution.numero}, qui n'est plus en rotation. Réactivez-le dans le Paramétrage.`,
+        })
+        setTimeout(() => setAppelMsg(null), 8000)
+        return
+      }
+      from = attribution.numero
+      // 1re fois qu'on l'appelle : on lui attribue son numéro et on le retient.
+      if (attribution.aEnregistrer && attribution.numero && fiche.id) {
+        const id = fiche.id
+        setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, numeroEmission: attribution.numero } : x)))
+        majProspect(id, { numero_emission: attribution.numero }).catch(() => {})
+      }
+    }
+
+    setAppelEnCours(true)
+    const res = await lancerAppelRingover(numero, from)
+    setAppelEnCours(false)
+    setAppelMsg(
+      res.ok
+        ? { ok: true, texte: "Appel lancé via Ringover — décrochez sur votre appli Ringover." }
+        : { ok: false, texte: res.message ?? "L'appel n'a pas pu être lancé." },
+    )
+    setTimeout(() => setAppelMsg(null), res.ok ? 5000 : 8000)
+  }
+
   const jourLisible = jourSel
     ? `${Number(jourSel.slice(8, 10))} ${MOIS[Number(jourSel.slice(5, 7)) - 1]} ${jourSel.slice(0, 4)}`
     : ""
@@ -126,6 +181,9 @@ export default function Calendrier() {
           onAjouter={ajouterRdv}
           onSupprimer={retirerRdv}
           onModifier={modifierRdv}
+          onAppeler={appelerRdv}
+          appelMsg={appelMsg}
+          appelEnCours={appelEnCours}
         />
       )}
 

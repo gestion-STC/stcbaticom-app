@@ -11,6 +11,9 @@ export default function RdvJourModal({
   onAjouter,
   onSupprimer,
   onModifier,
+  onAppeler,
+  appelMsg,
+  appelEnCours,
 }: {
   dateLisible: string
   rdvs: Rdv[]
@@ -29,6 +32,9 @@ export default function RdvJourModal({
     id: string,
     champs: { titre?: string; telephone?: string; type?: string; heure?: string; note?: string },
   ) => void
+  onAppeler: (r: Rdv) => void
+  appelMsg: { ok: boolean; texte: string } | null
+  appelEnCours: boolean
 }) {
   const [prospectId, setProspectId] = useState("") // "" = saisie libre
   const [titre, setTitre] = useState("")
@@ -190,14 +196,25 @@ export default function RdvJourModal({
               )
             )}
 
-            {/* Appeler directement depuis le calendrier */}
+            {/* Appeler directement depuis le calendrier (Ringover) */}
             {numero && (
-              <a
-                href={`tel:${numero.replace(/\s/g, "")}`}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-base font-semibold text-white hover:bg-green-700"
+              <button
+                onClick={() => onAppeler(r)}
+                disabled={appelEnCours}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-base font-semibold text-white hover:bg-green-700 disabled:opacity-50"
               >
-                <Phone size={18} /> Appeler {numero}
-              </a>
+                <Phone size={18} /> {appelEnCours ? "Appel en cours…" : `Appeler ${numero}`}
+              </button>
+            )}
+            {appelMsg && (
+              <p
+                className={
+                  "mt-2 rounded-lg px-3 py-2 text-sm " +
+                  (appelMsg.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")
+                }
+              >
+                {appelMsg.texte}
+              </p>
             )}
 
             {/* Actions */}
@@ -255,9 +272,9 @@ export default function RdvJourModal({
                       </button>
                       <div className="flex shrink-0 items-center gap-0.5 py-2 pr-2">
                         {r.telephone && (
-                          <a href={`tel:${r.telephone.replace(/\s/g, "")}`} className="rounded-md p-1.5 text-green-600 hover:bg-green-50" title="Appeler">
+                          <button onClick={() => onAppeler(r)} disabled={appelEnCours} className="rounded-md p-1.5 text-green-600 hover:bg-green-50 disabled:opacity-40" title="Appeler">
                             <Phone size={16} />
-                          </a>
+                          </button>
                         )}
                         <button onClick={() => r.id && setDetailId(r.id)} className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600" title="Ouvrir / modifier">
                           <Pencil size={16} />
@@ -269,6 +286,17 @@ export default function RdvJourModal({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {appelMsg && (
+                <p
+                  className={
+                    "mb-3 rounded-lg px-3 py-2 text-sm " +
+                    (appelMsg.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")
+                  }
+                >
+                  {appelMsg.texte}
+                </p>
               )}
 
               {/* Ajouter un RDV */}
