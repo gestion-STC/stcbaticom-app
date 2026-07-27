@@ -116,7 +116,7 @@ export default function RdvJourModal({
                         </select>
                         <input type="time" value={eHeure} onChange={(e) => setEHeure(e.target.value)} className={champ} />
                       </div>
-                      <input value={eNote} onChange={(e) => setENote(e.target.value)} placeholder="Note (optionnel)" className={champ + " w-full"} />
+                      <textarea value={eNote} onChange={(e) => setENote(e.target.value)} placeholder="Commentaire (optionnel)" rows={3} className={champ + " w-full resize-y"} />
                       <div className="flex gap-2">
                         <button onClick={() => enregistrerEdition(r)} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
                           <Check size={15} /> Enregistrer
@@ -128,15 +128,19 @@ export default function RdvJourModal({
                     </div>
                   ) : (
                     // --- Mode AFFICHAGE ---
-                    <div key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2">
-                      <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{r.heure}</span>
+                    <div key={r.id} className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                      <span className="mt-0.5 shrink-0 rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{r.heure}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-800">{r.entreprise}</p>
-                        <p className="truncate text-xs text-slate-400">
+                        <p className="text-sm font-medium text-slate-800">{r.entreprise}</p>
+                        <p className="text-xs text-slate-400">
                           {r.type}
                           {r.telephone ? " · " + r.telephone : ""}
-                          {r.note ? " · " + r.note : ""}
                         </p>
+                        {r.note && (
+                          <p className="mt-1 whitespace-pre-wrap break-words rounded-md bg-amber-50 px-2 py-1 text-xs text-slate-700">
+                            {r.note}
+                          </p>
+                        )}
                       </div>
                       {r.telephone && (
                         <a href={`tel:${r.telephone.replace(/\s/g, "")}`} className="rounded-md p-1.5 text-green-600 hover:bg-green-50" title="Appeler">
@@ -180,7 +184,7 @@ export default function RdvJourModal({
               </select>
               <input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} className={champ} />
             </div>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optionnel)" className={champ + " w-full"} />
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Commentaire (optionnel)" rows={3} className={champ + " w-full resize-y"} />
 
             <button
               onClick={ajouter}
