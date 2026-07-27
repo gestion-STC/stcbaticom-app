@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest"
-import { rangDepuisOrdre, palette, clesCouleurs, couleursPrises, type Statut } from "./statuts"
+import {
+  rangDepuisOrdre,
+  palette,
+  clesCouleurs,
+  couleursPrises,
+  deplacerEtat,
+  renumeroterOrdres,
+  type Statut,
+} from "./statuts"
 
 // Fabrique un état minimal pour les tests.
 const etat = (id: string, libelle: string, couleur: string): Statut => ({
@@ -85,6 +93,62 @@ describe("palette (choix de couleurs pour les états)", () => {
     for (const c of clesCouleurs) {
       expect(palette[c].pill, `${c} utilise du blue-* remappé`).not.toMatch(/\b(bg|text)-blue-/)
     }
+  })
+})
+
+describe("réorganisation des états (flèches ↑↓ puis enregistrement)", () => {
+  const liste = () => [
+    { ...etat("a", "Client signé", "green"), ordre: 1 },
+    { ...etat("b", "RDV pris", "orange"), ordre: 2 },
+    { ...etat("c", "Perdu", "red"), ordre: 3 },
+  ]
+  const libelles = (l: Statut[]) => l.map((s) => s.libelle)
+
+  it("descend un état d'un cran", () => {
+    expect(libelles(deplacerEtat(liste(), 0, 1))).toEqual(["RDV pris", "Client signé", "Perdu"])
+  })
+
+  it("remonte un état d'un cran", () => {
+    expect(libelles(deplacerEtat(liste(), 2, -1))).toEqual(["Client signé", "Perdu", "RDV pris"])
+  })
+
+  it("ne fait rien au-delà des bords (haut du premier, bas du dernier)", () => {
+    expect(libelles(deplacerEtat(liste(), 0, -1))).toEqual(libelles(liste()))
+    expect(libelles(deplacerEtat(liste(), 2, 1))).toEqual(libelles(liste()))
+  })
+
+  it("ne modifie pas la liste d'origine (pas d'effet de bord)", () => {
+    const origine = liste()
+    deplacerEtat(origine, 0, 1)
+    expect(libelles(origine)).toEqual(["Client signé", "RDV pris", "Perdu"])
+  })
+
+  // Le bug historique : on échangeait les numéros deux à deux sans les rafraîchir,
+  // ce qui finissait par donner le MÊME numéro à deux états → ordre imprévisible.
+  it("après PLUSIEURS déplacements, la renumérotation ne laisse ni doublon ni trou", () => {
+    let l = liste()
+    l = deplacerEtat(l, 0, 1) // RDV pris, Client signé, Perdu
+    l = deplacerEtat(l, 1, 1) // RDV pris, Perdu, Client signé
+    l = deplacerEtat(l, 0, 1) // Perdu, RDV pris, Client signé
+    const enregistre = renumeroterOrdres(l)
+
+    const ordres = enregistre.map((s) => s.ordre)
+    expect(ordres).toEqual([1, 2, 3]) // ni trou, ni doublon
+    expect(new Set(ordres).size).toBe(3)
+    // Et le classement utilisé par les listes correspond bien à l'affichage.
+    const rang = rangDepuisOrdre(enregistre)
+    expect(libelles(enregistre)).toEqual(["Perdu", "RDV pris", "Client signé"])
+    expect(rang("Perdu")).toBeLessThan(rang("RDV pris"))
+    expect(rang("RDV pris")).toBeLessThan(rang("Client signé"))
+  })
+
+  it("repart proprement même si les numéros arrivent en double ou troués", () => {
+    const abimee = [
+      { ...etat("a", "A", "green"), ordre: 1 },
+      { ...etat("b", "B", "orange"), ordre: 1 }, // doublon
+      { ...etat("c", "C", "red"), ordre: 9 }, // trou
+    ]
+    expect(renumeroterOrdres(abimee).map((s) => s.ordre)).toEqual([1, 2, 3])
   })
 })
 

@@ -39,7 +39,11 @@ export async function chargerStatuts(): Promise<Statut[]> {
   const { data, error } = await supabase
     .from("statuts")
     .select("*")
+    // Tri secondaire sur le libellé : si deux états portent le même numéro d'ordre
+    // (séquelle de l'ancien bug de réorganisation), le classement reste STABLE
+    // d'un chargement à l'autre au lieu de sauter au hasard.
     .order("ordre", { ascending: true })
+    .order("libelle", { ascending: true })
   if (error) throw new Error(error.message)
   return (data as LigneStatut[]).map(vers)
 }

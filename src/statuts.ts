@@ -124,6 +124,25 @@ export function classePastille(
   return palette[cle].pill
 }
 
+// Déplace un état d'un cran (flèches ↑↓ du Paramétrage). Renvoie une NOUVELLE
+// liste ; hors limites, la liste est rendue inchangée. Pur → testable.
+export function deplacerEtat(liste: Statut[], index: number, sens: -1 | 1): Statut[] {
+  const cible = index + sens
+  if (cible < 0 || cible >= liste.length) return liste
+  const copie = [...liste]
+  copie[index] = liste[cible]
+  copie[cible] = liste[index]
+  return copie
+}
+
+// Renumérote la liste affichée de 1 à N, sans trou ni doublon.
+// C'est LA garantie que le classement est le même partout : toutes les listes
+// trient sur `ordre`, donc deux états ne doivent jamais partager un numéro.
+// Pur → testable.
+export function renumeroterOrdres(liste: Statut[]): Statut[] {
+  return liste.map((s, i) => ({ ...s, ordre: i + 1 }))
+}
+
 // Classement des prospects d'après l'ORDRE des états choisi par l'utilisateur
 // (les flèches ↑↓ du Paramétrage → États). L'état placé en haut de la liste
 // remonte les prospects en premier : le classement du Paramétrage fait foi partout.

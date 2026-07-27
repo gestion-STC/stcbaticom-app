@@ -9,8 +9,9 @@ import {
   Clock,
   Loader2,
   AlertTriangle,
+  Check,
 } from "lucide-react"
-import { palette, type Statut } from "../statuts"
+import { palette, deplacerEtat, renumeroterOrdres, type Statut } from "../statuts"
 import { supabaseConfigure } from "../lib/supabase"
 import {
   chargerStatuts,
@@ -30,6 +31,22 @@ export default function EtatsManager() {
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
+  // Ordre tel qu'il est ENREGISTRÉ (liste d'ids) : sert à savoir s'il y a des
+  // changements en attente, et à pouvoir les annuler.
+  const [ordreEnregistre, setOrdreEnregistre] = useState<string[]>([])
+  const [enregistrementOrdre, setEnregistrementOrdre] = useState(false)
+  const [ordreOk, setOrdreOk] = useState(false)
+
+  // Vrai si l'ordre affiché diffère de celui enregistré → bandeau « Enregistrer ».
+  const ordreModifie =
+    statuts.length === ordreEnregistre.length &&
+    statuts.some((s, i) => s.id !== ordreEnregistre[i])
+
+  // Pose la liste ET la mémorise comme « ordre enregistré » (rien en attente).
+  function poser(liste: Statut[]) {
+    setStatuts(liste)
+    setOrdreEnregistre(liste.map((s) => s.id ?? ""))
+  }
 
   useEffect(() => {
     if (!supabaseConfigure) {
@@ -38,7 +55,7 @@ export default function EtatsManager() {
       return
     }
     chargerStatuts()
-      .then(setStatuts)
+      .then(poser)
       .catch((e) =>
         setErreur(
           "Impossible de charger les états. Avez-vous exécuté le script SQL de mise à jour ? Détail : " +
@@ -62,7 +79,9 @@ export default function EtatsManager() {
     } else {
       try {
         const cree = await creerStatut(s)
+        // Le nouvel état arrive en fin de liste, déjà enregistré : rien en attente.
         setStatuts((arr) => [...arr, cree])
+        setOrdreEnregistre((ids) => [...ids, cree.id ?? ""])
       } catch (e) {
         setErreur("Création impossible : " + (e instanceof Error ? e.message : String(e)))
       }
@@ -80,23 +99,56 @@ export default function EtatsManager() {
     }
     if (!confirm(`Supprimer l'état « ${s.libelle} » ?`)) return
     setStatuts((arr) => arr.filter((x) => x.id !== s.id))
+    setOrdreEnregistre((ids) => ids.filter((id) => id !== s.id))
     if (s.id) await supprimerStatut(s.id).catch(console.error)
   }
 
-  async function deplacer(index: number, sens: -1 | 1) {
+  // Déplacement PUREMENT local : instantané, aucun aller-retour réseau.
+  // L'enregistrement se fait en une fois avec le bouton « Enregistrer l'ordre ».
+  function deplacer(index: number, sens: -1 | 1) {
     const cible = index + sens
     if (cible < 0 || cible >= statuts.length) return
-    const a = statuts[index]
-    const b = statuts[cible]
-    const arr = [...statuts]
-    arr[index] = b
-    arr[cible] = a
-    setStatuts(arr)
-    if (a.id && b.id)
-      await Promise.all([
-        majOrdreStatut(a.id, b.ordre),
-        majOrdreStatut(b.id, a.ordre),
-      ]).catch(console.error)
+    setStatuts((arr) => deplacerEtat(arr, index, sens))
+    setOrdreOk(false)
+  }
+
+  // Enregistre l'ordre affiché en RENUMÉROTANT proprement de 1 à N.
+  // C'est ce qui corrige le bug historique : l'ancienne version échangeait deux
+  // numéros sans les rafraîchir en mémoire, ce qui finissait par donner le MÊME
+  // numéro à deux états — la base ne savait alors plus lequel passe devant, et
+  // l'ordre sautait au rechargement. Une numérotation 1..N sans trou ni doublon
+  // garantit le même classement partout (toutes les listes trient sur `ordre`).
+  async function enregistrerOrdre() {
+    setEnregistrementOrdre(true)
+    setErreur(null)
+    // On fige la liste au moment du clic : elle sert de référence même si l'écran
+    // bouge entre-temps.
+    const liste = statuts
+    try {
+      const aEcrire = liste
+        .map((s, i) => ({ s, nouvelOrdre: i + 1 }))
+        .filter(({ s, nouvelOrdre }) => s.id && s.ordre !== nouvelOrdre)
+      await Promise.all(aEcrire.map(({ s, nouvelOrdre }) => majOrdreStatut(s.id!, nouvelOrdre)))
+      // On aligne les numéros en mémoire sur ce qui vient d'être écrit.
+      setStatuts(renumeroterOrdres)
+      setOrdreEnregistre(liste.map((s) => s.id ?? ""))
+      setOrdreOk(true)
+      setTimeout(() => setOrdreOk(false), 3000)
+    } catch (e) {
+      setErreur(
+        "L'ordre n'a pas pu être enregistré : " + (e instanceof Error ? e.message : String(e)),
+      )
+    } finally {
+      setEnregistrementOrdre(false)
+    }
+  }
+
+  // Revient à l'ordre enregistré (annule les déplacements en attente).
+  function annulerOrdre() {
+    setStatuts((arr) =>
+      [...arr].sort((a, b) => ordreEnregistre.indexOf(a.id ?? "") - ordreEnregistre.indexOf(b.id ?? "")),
+    )
+    setOrdreOk(false)
   }
 
   return (
@@ -136,6 +188,45 @@ export default function EtatsManager() {
           />
         )}
 
+        {/* Ordre en attente d'enregistrement */}
+        {ordreModifie && (
+          <div className="sticky top-2 z-10 mb-3 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-sm">
+            <AlertTriangle size={18} className="shrink-0 text-amber-500" />
+            <p className="flex-1 text-sm text-amber-900">
+              Vous avez changé l'ordre des états. Enregistrez pour l'appliquer partout
+              (Prospects, Gestionnaires, Pipeline…).
+            </p>
+            <button
+              onClick={annulerOrdre}
+              disabled={enregistrementOrdre}
+              className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-100 disabled:opacity-40"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={enregistrerOrdre}
+              disabled={enregistrementOrdre}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              {enregistrementOrdre ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" /> Enregistrement…
+                </>
+              ) : (
+                <>
+                  <Check size={15} /> Enregistrer l'ordre
+                </>
+              )}
+            </button>
+          </div>
+        )}
+        {ordreOk && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
+            <Check size={16} className="text-green-600" /> Ordre enregistré — il s'applique
+            maintenant partout.
+          </div>
+        )}
+
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
           {chargement ? (
             <div className="flex items-center gap-2 px-5 py-8 text-sm text-slate-500">
@@ -148,14 +239,16 @@ export default function EtatsManager() {
                   <div className="flex flex-col">
                     <button
                       onClick={() => deplacer(i, -1)}
-                      disabled={i === 0}
+                      disabled={i === 0 || enregistrementOrdre}
+                      title="Monter"
                       className="text-slate-300 hover:text-slate-600 disabled:opacity-30"
                     >
                       <ChevronUp size={15} />
                     </button>
                     <button
                       onClick={() => deplacer(i, 1)}
-                      disabled={i === statuts.length - 1}
+                      disabled={i === statuts.length - 1 || enregistrementOrdre}
+                      title="Descendre"
                       className="text-slate-300 hover:text-slate-600 disabled:opacity-30"
                     >
                       <ChevronDown size={15} />
