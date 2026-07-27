@@ -41,6 +41,50 @@ export function clePaire(idA: string, idB: string): string {
 // Force de chaque indice : on ne garde que le plus fort par fiche candidate.
 const FORCE: Record<RaisonDoublon, number> = { email: 3, nom: 2, telephone: 1 }
 
+// Les 3 indices d'une fiche, sous forme de clés de regroupement ("" = inapplicable).
+// Une seule définition, utilisée par la détection fiche-à-fiche ET par le comptage
+// global : les deux ne peuvent donc pas diverger.
+function indices(p: Prospect): string[] {
+  const email = normTexte(p.email)
+  const contact = normTexte(p.contact)
+  const entreprise = normTexte(p.entreprise)
+  const tel = normaliserTel(p.telephone)
+  return [
+    email ? "e:" + email : "",
+    contact && entreprise ? "n:" + contact + "|" + entreprise : "",
+    tel ? "t:" + tel : "",
+  ].filter(Boolean)
+}
+
+// TOUTES les paires de fiches susceptibles d'être la même personne, comptées une
+// seule fois. Passe par un regroupement (O(n)) au lieu de comparer chaque fiche à
+// toutes les autres (O(n²)) : indispensable au-delà de quelques centaines de
+// fiches — en comparaison deux à deux, 5000 fiches prenaient ~42 s.
+// Pur → testable.
+export function pairesDoublons(prospects: Prospect[], ecartees: Set<string> = new Set()): Set<string> {
+  const groupes = new Map<string, string[]>() // indice → ids
+  for (const p of prospects) {
+    if (!p.id) continue
+    for (const cle of indices(p)) {
+      const g = groupes.get(cle)
+      if (g) g.push(p.id)
+      else groupes.set(cle, [p.id])
+    }
+  }
+
+  const paires = new Set<string>()
+  for (const ids of groupes.values()) {
+    if (ids.length < 2) continue
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const k = clePaire(ids[i], ids[j])
+        if (!ecartees.has(k)) paires.add(k)
+      }
+    }
+  }
+  return paires
+}
+
 // Fiches qui pourraient être la même personne que `cible`.
 // `ecartees` = paires déjà tranchées par l'utilisateur (« non, 2 personnes »).
 // Pur → testable.

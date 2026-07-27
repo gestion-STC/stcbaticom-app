@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { candidatsDoublon, clePaire, normTexte } from "./doublonsProbables"
+import { candidatsDoublon, pairesDoublons, clePaire, normTexte } from "./doublonsProbables"
 import { parserPaires } from "./nonDoublons"
 import type { Prospect } from "../data"
 
@@ -90,6 +90,60 @@ describe("candidatsDoublon (repérage au fil de l'eau)", () => {
   it("ne propose rien pour une fiche sans id (décision impossible à mémoriser)", () => {
     const sansId = { ...p("1", { email: "x@y.fr" }), id: undefined }
     expect(candidatsDoublon(sansId, [sansId, p("2", { email: "x@y.fr" })])).toEqual([])
+  })
+})
+
+describe("pairesDoublons (comptage global)", () => {
+  // Filet de sécurité : le comptage global (rapide, par regroupement) doit voir
+  // EXACTEMENT les mêmes paires que la détection fiche par fiche affichée pendant
+  // l'appel. Sans ce test, les deux pourraient diverger et l'indicateur
+  // annoncerait des doublons que l'utilisateur ne verrait jamais.
+  const base = [
+    p("1", { email: "meme@x.fr", telephone: "0102030405", contact: "Mme Bolot", entreprise: "Fortis" }),
+    p("2", { email: "MEME@X.fr", telephone: "0999999999" }),
+    p("3", { telephone: "01 02 03 04 05", contact: "M. Durand", entreprise: "Fortis" }),
+    p("4", { contact: "mme bolot", entreprise: "FORTIS" }),
+    p("5", {}),
+    p("6", { email: "seul@x.fr" }),
+  ]
+
+  const parFiche = (liste: Prospect[], ecartees = new Set<string>()) => {
+    const s = new Set<string>()
+    for (const x of liste)
+      for (const c of candidatsDoublon(x, liste, ecartees))
+        if (x.id && c.prospect.id) s.add(clePaire(x.id, c.prospect.id))
+    return s
+  }
+
+  it("voit exactement les mêmes paires que la détection pendant l'appel", () => {
+    expect([...pairesDoublons(base)].sort()).toEqual([...parFiche(base)].sort())
+  })
+
+  it("reste d'accord avec elle une fois des paires écartées", () => {
+    const ecartees = new Set([clePaire("1", "3"), clePaire("1", "4")])
+    expect([...pairesDoublons(base, ecartees)].sort()).toEqual([...parFiche(base, ecartees)].sort())
+  })
+
+  it("compte chaque paire une seule fois même si plusieurs indices correspondent", () => {
+    const memes = [
+      p("1", { email: "a@x.fr", telephone: "0102030405", contact: "A", entreprise: "B" }),
+      p("2", { email: "a@x.fr", telephone: "0102030405", contact: "A", entreprise: "B" }),
+    ]
+    expect(pairesDoublons(memes).size).toBe(1)
+  })
+
+  it("tient la charge sur une grosse base (5000 fiches)", () => {
+    const grosse = Array.from({ length: 5000 }, (_, i) =>
+      p(String(i), {
+        email: `c${i}@x.fr`,
+        telephone: `01 45 44 ${String(i % 500).padStart(2, "0")} 00`,
+        contact: `Gestionnaire ${i}`,
+        entreprise: `Agence ${i % 200}`,
+      }),
+    )
+    const t = performance.now()
+    pairesDoublons(grosse)
+    expect(performance.now() - t).toBeLessThan(2000) // avant optimisation : ~42 000 ms
   })
 })
 

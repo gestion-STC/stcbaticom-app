@@ -9,7 +9,17 @@ import {
   XAxis,
   Tooltip,
 } from "recharts"
-import { Users, Flag, PhoneOutgoing, PhoneCall, Target, Repeat, Trophy, Mail } from "lucide-react"
+import {
+  Users,
+  Flag,
+  PhoneOutgoing,
+  PhoneCall,
+  Target,
+  Repeat,
+  Trophy,
+  Mail,
+  ListChecks,
+} from "lucide-react"
 import { palette, statutsParDefaut, type Statut } from "../../statuts"
 import type { Prospect } from "../../data"
 import { prospects as prospectsDemo } from "../../data"
@@ -19,6 +29,8 @@ import { chargerProspects } from "../../lib/prospectsDb"
 import { chargerStatuts } from "../../lib/statutsDb"
 import { chargerAppels } from "../../lib/appelsDb"
 import { chargerEmailsEnvoyes, type EmailEnvoye } from "../../lib/emailsEnvoyesDb"
+import { calculerSante } from "../../lib/santeBase"
+import { chargerNonDoublons } from "../../lib/nonDoublons"
 import BandeauErreur from "../BandeauErreur"
 
 const OBJECTIF_MENSUEL = 20
@@ -35,6 +47,12 @@ export default function Dashboard() {
   const [emailsEnvoyes, setEmailsEnvoyes] = useState<EmailEnvoye[]>([])
   const [periode, setPeriode] = useState<"jour" | "semaine" | "mois">("semaine")
   const [erreur, setErreur] = useState<string | null>(null)
+  // Paires déjà tranchées « 2 personnes différentes » : elles ne comptent plus
+  // comme doublons dans l'indicateur (même règle que l'écran d'appel).
+  const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
+
+  // Avancement du nettoyage de la base (fiches complètes / doublons restants).
+  const sante = useMemo(() => calculerSante(prospects, nonDoublons), [prospects, nonDoublons])
 
   const labelPeriode =
     periode === "jour" ? "aujourd'hui" : periode === "semaine" ? "7 jours" : "30 jours"
@@ -72,6 +90,7 @@ export default function Dashboard() {
     chargerEmailsEnvoyes()
       .then(setEmailsEnvoyes)
       .catch(() => {})
+    chargerNonDoublons().then(setNonDoublons).catch(() => {})
   }, [])
 
   // Stratégie de démarchage : 1er contact gagnant + recette moyenne avant l'OS
@@ -267,6 +286,63 @@ export default function Dashboard() {
             Nombre moyen d'appels avant qu'un gestionnaire envoie son 1er ordre de service
           </p>
         </div>
+      </div>
+
+      {/* Avancement du nettoyage de la base (au fil des appels) */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2">
+          <ListChecks size={18} className="text-emerald-600" />
+          <h2 className="text-base font-semibold text-slate-900">État de la base</h2>
+        </div>
+        <p className="mt-1 text-sm text-slate-500">
+          Se nettoie tout seul au fil de vos appels : complétez les fiches et tranchez les
+          doublons pendant que vous avez la personne au téléphone.
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-lg bg-emerald-50 px-4 py-3">
+            <p className="text-2xl font-bold text-emerald-700">{sante.completes}</p>
+            <p className="text-xs text-emerald-800">fiches complètes</p>
+          </div>
+          <div className="rounded-lg bg-amber-50 px-4 py-3">
+            <p className="text-2xl font-bold text-amber-700">{sante.aCompleter}</p>
+            <p className="text-xs text-amber-800">fiches à compléter</p>
+          </div>
+          <div className="rounded-lg bg-orange-50 px-4 py-3">
+            <p className="text-2xl font-bold text-orange-700">{sante.doublons}</p>
+            <p className="text-xs text-orange-800">
+              doublon{sante.doublons > 1 ? "s" : ""} à trancher
+            </p>
+          </div>
+          <div className="rounded-lg bg-slate-50 px-4 py-3">
+            <p className="text-2xl font-bold text-slate-700">{sante.total}</p>
+            <p className="text-xs text-slate-500">fiches au total</p>
+          </div>
+        </div>
+
+        {sante.aCompleter > 0 && (
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
+            <span>Ce qui manque —</span>
+            <span>
+              téléphone : <span className="font-semibold text-slate-700">{sante.sansTelephone}</span>
+            </span>
+            <span>
+              nom : <span className="font-semibold text-slate-700">{sante.sansContact}</span>
+            </span>
+            <span>
+              e-mail : <span className="font-semibold text-slate-700">{sante.sansEmail}</span>
+            </span>
+            <span>
+              adresse : <span className="font-semibold text-slate-700">{sante.sansAdresse}</span>
+            </span>
+          </div>
+        )}
+
+        {sante.total > 0 && sante.aCompleter === 0 && sante.doublons === 0 && (
+          <p className="mt-3 text-sm font-medium text-emerald-700">
+            Base entièrement propre : toutes les fiches sont complètes et sans doublon.
+          </p>
+        )}
       </div>
 
       {/* Stratégie de démarchage qui marche */}
