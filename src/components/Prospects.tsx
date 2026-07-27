@@ -22,6 +22,8 @@ import {
 import { palette, classePastille, rangDepuisOrdre, statutsParDefaut, type Statut } from "../statuts"
 import { importerProspects, type ResultatImport } from "../lib/importProspects"
 import { filtrerSansDoublons } from "../lib/dedup"
+import { groupesDoublons } from "../lib/doublonsProbables"
+import { chargerNonDoublons } from "../lib/nonDoublons"
 import { exporterProspectsExcel } from "../lib/exportProspects"
 import { supabaseConfigure } from "../lib/supabase"
 import {
@@ -121,6 +123,9 @@ export default function Prospects() {
   const [filtrePriorite, setFiltrePriorite] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [doublonsOuvert, setDoublonsOuvert] = useState(false)
+  // Nombre de doublons à traiter, affiché sur le bouton (utile surtout après
+  // l'import de plusieurs feuilles d'un coup).
+  const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(0)
   const [menu, setMenu] = useState<{
     cible: Prospect
@@ -161,6 +166,7 @@ export default function Prospects() {
     chargerStatuts()
       .then((rows) => rows.length && setStatuts(rows))
       .catch(() => {})
+    chargerNonDoublons().then(setNonDoublons).catch(() => {})
   }, [])
 
   // Vise la bonne fiche par id (fiable même après un rechargement), sinon par référence.
@@ -256,6 +262,11 @@ export default function Prospects() {
   // Classement des états tel que l'utilisateur les a rangés (Paramétrage → États).
   const rang = useMemo(() => rangDepuisOrdre(statuts), [statuts])
 
+  const nbDoublons = useMemo(
+    () => groupesDoublons(data.filter((p) => !estApporteur(p)), nonDoublons).length,
+    [data, nonDoublons],
+  )
+
   const lignes = useMemo(() => {
     const q = recherche.trim().toLowerCase()
     return data
@@ -329,6 +340,8 @@ export default function Prospects() {
         <DoublonsModal
           onClose={() => {
             setDoublonsOuvert(false)
+            // Le compteur doit refléter ce qui vient d'être fusionné ou écarté.
+            chargerNonDoublons().then(setNonDoublons).catch(() => {})
             if (connecte)
               chargerProspects().then((r) => r.length && setData(r)).catch(() => {})
           }}
@@ -457,10 +470,25 @@ export default function Prospects() {
             </button>
             <button
               onClick={() => setDoublonsOuvert(true)}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              title={
+                nbDoublons > 0
+                  ? `${nbDoublons} doublon(s) à traiter`
+                  : "Aucun doublon détecté"
+              }
+              className={
+                "flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors " +
+                (nbDoublons > 0
+                  ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50")
+              }
             >
               <Copy size={16} />
               Doublons
+              {nbDoublons > 0 && (
+                <span className="rounded-full bg-amber-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                  {nbDoublons}
+                </span>
+              )}
             </button>
           </div>
         </div>

@@ -4,6 +4,9 @@ import type { Prospect } from "../data"
 import type { Agence } from "../agences"
 import { chargerProspects, supprimerProspect, fusionnerProspects, fusionnerChamps } from "../lib/prospectsDb"
 import { chargerAgences, supprimerAgence, fusionnerAgences } from "../lib/agencesDb"
+import { groupesDoublons } from "../lib/doublonsProbables"
+import { chargerNonDoublons, marquerNonDoublonsGroupe } from "../lib/nonDoublons"
+import { estApporteur } from "../data"
 
 type Item = { id: string; titre: string; sousTitre: string; score: number }
 type Groupe = {
@@ -11,12 +14,12 @@ type Groupe = {
   table: "prospect" | "agence" // table à nettoyer
   categorie: "gestionnaire" | "agence" // pour l'icône / le sens
   entete: string
+  certain: boolean // false = piste à confirmer (même numéro : souvent le standard)
   items: Item[]
   prospects?: Prospect[] // fiches complètes (pour la fusion)
   agences?: Agence[]
 }
 
-const normTel = (t: string) => (t || "").replace(/\D/g, "")
 const norm = (s: string) => (s || "").trim().toLowerCase()
 
 export default function DoublonsModal({ onClose }: { onClose: () => void }) {
@@ -24,12 +27,16 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
   const [agences, setAgences] = useState<Agence[]>([])
   const [chargement, setChargement] = useState(true)
   const [garde, setGarde] = useState<Record<string, string>>({})
+  // Paires déjà tranchées « 2 personnes différentes » (ici ou pendant un appel) :
+  // elles ne doivent plus jamais remonter.
+  const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
 
   function recharger() {
-    Promise.all([chargerProspects(), chargerAgences()])
-      .then(([p, a]) => {
+    Promise.all([chargerProspects(), chargerAgences(), chargerNonDoublons()])
+      .then(([p, a, nd]) => {
         setProspects(p)
         setAgences(a)
+        setNonDoublons(nd)
       })
       .catch(() => {})
       .finally(() => setChargement(false))
@@ -47,32 +54,23 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
       score: scoreP(p),
     })
 
-    // Clé d'identité d'un prospect (par ordre de fiabilité)
-    function identite(p: Prospect): { cle: string; cat: "gestionnaire" | "agence"; label: string } | null {
-      const email = norm(p.email)
-      const tel = normTel(p.telephone)
-      const contact = norm(p.contact)
-      const ent = norm(p.entreprise)
-      if (email) return { cle: "e:" + email, cat: "gestionnaire", label: `Même gestionnaire — email ${p.email}` }
-      if (contact && tel) return { cle: "c:" + contact + "|" + tel, cat: "gestionnaire", label: `Même gestionnaire — ${p.contact}` }
-      if (ent && tel) return { cle: "a:" + ent + "|" + tel, cat: "agence", label: `Même agence — ${p.entreprise}` }
-      return null // pas assez d'info pour juger → on ne flague pas
-    }
-
-    const mapP: Record<string, { cat: "gestionnaire" | "agence"; label: string; items: Prospect[] }> = {}
-    prospects.forEach((p) => {
-      if (!p.id) return
-      const idn = identite(p)
-      if (!idn) return
-      ;(mapP[idn.cle] ??= { cat: idn.cat, label: idn.label, items: [] }).items.push(p)
-    })
-
+    // Mêmes règles que le repérage pendant les appels et que le compteur du
+    // Dashboard : les trois écrans annoncent donc toujours la même chose.
     const res: Groupe[] = []
-    Object.entries(mapP)
-      .filter(([, g]) => g.items.length > 1)
-      .forEach(([cle, g]) =>
-        res.push({ cle, table: "prospect", categorie: g.cat, entete: g.label, items: g.items.map(versP), prospects: g.items }),
-      )
+    const parId = new Map(prospects.filter((p) => p.id).map((p) => [p.id!, p]))
+    for (const g of groupesDoublons(prospects.filter((p) => !estApporteur(p)), nonDoublons)) {
+      const fiches = g.ids.map((id) => parId.get(id)).filter((p): p is Prospect => !!p)
+      if (fiches.length < 2) continue
+      res.push({
+        cle: g.cle,
+        table: "prospect",
+        categorie: "gestionnaire",
+        entete: (g.certain ? "Sûrement la même personne — " : "À confirmer — ") + g.libelle,
+        certain: g.certain,
+        items: fiches.map(versP),
+        prospects: fiches,
+      })
+    }
 
     // Agences (table) : même nom = même agence
     const mapA: Record<string, Agence[]> = {}
@@ -88,6 +86,7 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
           table: "agence",
           categorie: "agence",
           entete: `Même agence — ${arr[0].nom}`,
+          certain: true,
           items: arr.map((a): Item => ({
             id: a.id!,
             titre: a.nom,
@@ -99,7 +98,7 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
       )
 
     return res
-  }, [prospects, agences])
+  }, [prospects, agences, nonDoublons])
 
   const [enCours, setEnCours] = useState<string | null>(null)
 
@@ -124,6 +123,22 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
     } catch (e) {
       console.error(e)
       alert("La fusion a échoué. Réessayez.")
+    } finally {
+      setEnCours(null)
+    }
+  }
+
+  // « Ce ne sont pas des doublons » : mémorisé DÉFINITIVEMENT, le groupe ne
+  // remontera plus — ni ici, ni pendant les appels, ni dans le compteur.
+  async function ecarter(g: Groupe) {
+    const ids = (g.prospects ?? []).map((p) => p.id).filter((x): x is string => !!x)
+    if (ids.length < 2) return
+    setEnCours(g.cle)
+    try {
+      await marquerNonDoublonsGroupe(ids)
+      setNonDoublons(await chargerNonDoublons())
+    } catch {
+      alert("La décision n'a pas pu être enregistrée. Réessayez.")
     } finally {
       setEnCours(null)
     }
@@ -169,10 +184,12 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
 
         <div className="px-5 py-5">
           <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            Un doublon n'est détecté que si c'est <span className="font-medium">vraiment la même
-            identité</span> : même email, ou même nom + téléphone (gestionnaire), ou même nom
-            d'agence + téléphone. Deux gestionnaires différents partageant le standard d'une
-            agence ne sont pas considérés comme doublons.
+            Trois indices : <span className="font-medium">même e-mail</span> et{" "}
+            <span className="font-medium">même nom dans la même agence</span> sont des indices
+            sûrs. Un <span className="font-medium">même numéro</span> est seulement une piste — c'est
+            souvent le standard d'une agence avec deux gestionnaires différents ; ces cas sont
+            présentés deux par deux, jamais regroupés. Votre réponse « Ce ne sont pas des
+            doublons » est retenue définitivement, ici comme pendant vos appels.
           </p>
 
           {chargement ? (
@@ -214,6 +231,15 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
                     ))}
                   </div>
                   <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                    {g.table === "prospect" && (
+                      <button
+                        onClick={() => ecarter(g)}
+                        disabled={enCours === g.cle}
+                        className="mr-auto rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Ce ne sont pas des doublons
+                      </button>
+                    )}
                     <button
                       onClick={() => supprimerAutres(g)}
                       disabled={enCours === g.cle}

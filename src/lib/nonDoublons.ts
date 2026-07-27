@@ -36,8 +36,24 @@ export async function chargerNonDoublons(): Promise<Set<string>> {
 // Retient que ces deux fiches sont deux personnes DIFFÉRENTES.
 // On relit juste avant d'écrire pour ne pas écraser une décision prise ailleurs.
 export async function marquerNonDoublon(idA: string, idB: string): Promise<void> {
-  if (!idA || !idB || idA === idB) return
+  await marquerNonDoublonsGroupe([idA, idB])
+}
+
+// Toutes les paires possibles à l'intérieur d'un groupe de fiches. Sert à écarter
+// un groupe entier d'un seul clic dans l'écran Doublons. Pur → testable.
+export function pairesDuGroupe(ids: string[]): string[] {
+  const propres = [...new Set(ids.filter(Boolean))]
+  const paires: string[] = []
+  for (let i = 0; i < propres.length; i++)
+    for (let j = i + 1; j < propres.length; j++) paires.push(clePaire(propres[i], propres[j]))
+  return paires
+}
+
+// Écarte d'un coup toutes les paires d'un groupe (une seule écriture en base).
+export async function marquerNonDoublonsGroupe(ids: string[]): Promise<void> {
+  const paires = pairesDuGroupe(ids)
+  if (paires.length === 0) return
   const actuelles = await chargerNonDoublons()
-  actuelles.add(clePaire(idA, idB))
+  paires.forEach((k) => actuelles.add(k))
   await ecrireParametre(CLE, JSON.stringify([...actuelles]))
 }

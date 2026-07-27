@@ -59,6 +59,101 @@ function indices(p: Prospect): string[] {
 // Préfixe d'indice → raison affichée.
 const RAISON: Record<string, RaisonDoublon> = { e: "email", n: "nom", t: "telephone" }
 
+// Un groupe de fiches à traiter ensemble dans l'écran Doublons.
+export type GroupeDoublon = {
+  cle: string
+  ids: string[]
+  raison: RaisonDoublon
+  libelle: string
+  certain: boolean
+}
+
+// Regroupe les paires pour l'écran de traitement en lot (utile après l'import de
+// plusieurs feuilles d'un coup).
+//
+// RÈGLE DE SÛRETÉ : seuls les indices FORTS (même e-mail, même nom + agence) sont
+// chaînés entre eux (A~B et B~C ⇒ un seul groupe de 3). Un même NUMÉRO n'est
+// jamais chaîné : c'est souvent le standard d'une agence, et chaîner
+// transitivement proposerait de fusionner d'un coup tous les gestionnaires qui
+// partagent ce standard — exactement ce qu'il ne faut pas faire.
+// Pur → testable.
+export function groupesDoublons(
+  prospects: Prospect[],
+  ecartees: Set<string> = new Set(),
+): GroupeDoublon[] {
+  const paires = pairesDoublons(prospects, ecartees)
+  const parId = new Map(prospects.filter((p) => p.id).map((p) => [p.id!, p]))
+
+  // --- Indices forts : fusion des paires en composantes connexes (union-find) ---
+  const parent = new Map<string, string>()
+  const racine = (x: string): string => {
+    let r = parent.get(x) ?? x
+    while (r !== (parent.get(r) ?? r)) r = parent.get(r) ?? r
+    parent.set(x, r)
+    return r
+  }
+  const unir = (a: string, b: string) => {
+    const ra = racine(a)
+    const rb = racine(b)
+    if (ra !== rb) parent.set(ra, rb)
+  }
+
+  const forces: RaisonDoublon[] = ["email", "nom"]
+  for (const [cle, raison] of paires) {
+    if (!forces.includes(raison)) continue
+    const [a, b] = cle.split("|")
+    unir(a, b)
+  }
+
+  const composantes = new Map<string, string[]>()
+  for (const [cle, raison] of paires) {
+    if (!forces.includes(raison)) continue
+    for (const id of cle.split("|")) {
+      const r = racine(id)
+      const liste = composantes.get(r)
+      if (!liste) composantes.set(r, [id])
+      else if (!liste.includes(id)) liste.push(id)
+    }
+  }
+
+  const groupes: GroupeDoublon[] = []
+  for (const [r, ids] of composantes) {
+    if (ids.length < 2) continue
+    // Si un e-mail identique est en cause quelque part, c'est l'explication la plus parlante.
+    const aUnEmail = ids.some((id, i) =>
+      ids.some((autre, j) => j > i && paires.get(clePaire(id, autre)) === "email"),
+    )
+    const modele = parId.get(ids[0])
+    groupes.push({
+      cle: "g:" + r,
+      ids,
+      raison: aUnEmail ? "email" : "nom",
+      libelle: aUnEmail
+        ? `même e-mail${modele?.email ? " (" + modele.email + ")" : ""}`
+        : `même nom dans la même agence${modele?.contact ? " (" + modele.contact + ")" : ""}`,
+      certain: true,
+    })
+  }
+
+  // --- Même numéro seul : présenté en PAIRES, jamais chaîné ---
+  for (const [cle, raison] of paires) {
+    if (raison !== "telephone") continue
+    const [a, b] = cle.split("|")
+    if (racine(a) === racine(b) && parent.has(a)) continue // déjà dans un groupe fort
+    const modele = parId.get(a)
+    groupes.push({
+      cle: "t:" + cle,
+      ids: [a, b],
+      raison: "telephone",
+      libelle: `même numéro${modele?.telephone ? " (" + modele.telephone + ")" : ""} — c'est peut-être le standard de l'agence`,
+      certain: false,
+    })
+  }
+
+  // Indices sûrs d'abord.
+  return groupes.sort((x, y) => Number(y.certain) - Number(x.certain))
+}
+
 // TOUTES les paires de fiches susceptibles d'être la même personne, comptées une
 // seule fois, avec pour chacune l'indice le PLUS FORT qui l'a fait remonter.
 // Passe par un regroupement (O(n)) au lieu de comparer chaque fiche à toutes les

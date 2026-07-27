@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest"
-import { candidatsDoublon, pairesDoublons, clePaire, normTexte } from "./doublonsProbables"
-import { parserPaires } from "./nonDoublons"
+import {
+  candidatsDoublon,
+  pairesDoublons,
+  groupesDoublons,
+  clePaire,
+  normTexte,
+} from "./doublonsProbables"
+import { parserPaires, pairesDuGroupe } from "./nonDoublons"
 import type { Prospect } from "../data"
 
 const p = (id: string, champs: Partial<Prospect>): Prospect => ({
@@ -159,6 +165,82 @@ describe("pairesDoublons (comptage global)", () => {
     const t = performance.now()
     pairesDoublons(grosse)
     expect(performance.now() - t).toBeLessThan(2000) // avant optimisation : ~42 000 ms
+  })
+})
+
+describe("groupesDoublons (écran de traitement en lot)", () => {
+  it("regroupe en UN seul lot trois fiches liées par le même e-mail", () => {
+    const g = groupesDoublons([
+      p("1", { email: "a@x.fr" }),
+      p("2", { email: "a@x.fr" }),
+      p("3", { email: "a@x.fr" }),
+    ])
+    expect(g).toHaveLength(1)
+    expect(g[0].ids.sort()).toEqual(["1", "2", "3"])
+    expect(g[0].certain).toBe(true)
+  })
+
+  it("chaîne les indices forts : A~B par e-mail et B~C par nom+agence font un seul lot", () => {
+    const g = groupesDoublons([
+      p("1", { email: "a@x.fr", contact: "Mme Bolot", entreprise: "Fortis" }),
+      p("2", { email: "a@x.fr", contact: "Mme Bolot", entreprise: "Fortis" }),
+      p("3", { contact: "Mme Bolot", entreprise: "Fortis" }),
+    ])
+    expect(g).toHaveLength(1)
+    expect(g[0].ids).toHaveLength(3)
+  })
+
+  // LA règle de sûreté : sans elle, tous les gestionnaires d'un même standard
+  // seraient proposés à la fusion en un seul bloc — catastrophe assurée.
+  it("ne chaîne JAMAIS le même numéro : 3 gestionnaires d'un standard = 3 paires, pas 1 lot", () => {
+    const std = "01 45 44 66 00"
+    const g = groupesDoublons([
+      p("1", { telephone: std, contact: "Mme Bolot" }),
+      p("2", { telephone: std, contact: "M. Durand" }),
+      p("3", { telephone: std, contact: "Mme Mura" }),
+    ])
+    expect(g).toHaveLength(3) // 1-2, 1-3, 2-3
+    expect(g.every((x) => x.ids.length === 2)).toBe(true)
+    expect(g.every((x) => x.certain === false)).toBe(true)
+  })
+
+  it("ne repropose pas en « même numéro » deux fiches déjà réunies par un indice fort", () => {
+    const g = groupesDoublons([
+      p("1", { email: "a@x.fr", telephone: "0102030405" }),
+      p("2", { email: "a@x.fr", telephone: "0102030405" }),
+    ])
+    expect(g).toHaveLength(1)
+    expect(g[0].raison).toBe("email")
+  })
+
+  it("ignore les paires déjà tranchées « ce ne sont pas des doublons »", () => {
+    const liste = [p("1", { telephone: "0102030405" }), p("2", { telephone: "0102030405" })]
+    expect(groupesDoublons(liste, new Set([clePaire("1", "2")]))).toEqual([])
+  })
+
+  it("écarter un lot de 3 retire bien les 3 paires internes", () => {
+    const liste = [
+      p("1", { email: "a@x.fr" }),
+      p("2", { email: "a@x.fr" }),
+      p("3", { email: "a@x.fr" }),
+    ]
+    const ecartees = new Set(pairesDuGroupe(["1", "2", "3"]))
+    expect(ecartees.size).toBe(3)
+    expect(groupesDoublons(liste, ecartees)).toEqual([])
+  })
+
+  it("présente les indices sûrs avant les pistes à confirmer", () => {
+    const g = groupesDoublons([
+      p("1", { telephone: "0102030405" }),
+      p("2", { telephone: "0102030405" }),
+      p("3", { email: "a@x.fr" }),
+      p("4", { email: "a@x.fr" }),
+    ])
+    expect(g.map((x) => x.certain)).toEqual([true, false])
+  })
+
+  it("ne signale rien sur une base saine", () => {
+    expect(groupesDoublons([p("1", { email: "a@x.fr" }), p("2", { email: "b@x.fr" })])).toEqual([])
   })
 })
 
