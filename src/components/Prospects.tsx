@@ -19,7 +19,7 @@ import {
   type Prospect,
   type Priorite,
 } from "../data"
-import { palette, classePastille, rangEtat, statutsParDefaut, type Statut } from "../statuts"
+import { palette, classePastille, rangDepuisOrdre, statutsParDefaut, type Statut } from "../statuts"
 import { importerProspects, type ResultatImport } from "../lib/importProspects"
 import { filtrerSansDoublons } from "../lib/dedup"
 import { exporterProspectsExcel } from "../lib/exportProspects"
@@ -253,6 +253,9 @@ export default function Prospects() {
     ? statuts.map((s) => s.libelle)
     : [...new Set(data.map((p) => p.statut))]
 
+  // Classement des états tel que l'utilisateur les a rangés (Paramétrage → États).
+  const rang = useMemo(() => rangDepuisOrdre(statuts), [statuts])
+
   const lignes = useMemo(() => {
     const q = recherche.trim().toLowerCase()
     return data
@@ -271,13 +274,10 @@ export default function Prospects() {
           return false
         return true
       })
-      // Classé du meilleur état (Client signé) au pire (Perdu), puis par agence.
-      .sort(
-        (a, b) =>
-          rangEtat(a.statut) - rangEtat(b.statut) ||
-          a.entreprise.localeCompare(b.entreprise),
-      )
-  }, [recherche, data, filtreStatut, filtreArrond, filtrePriorite])
+      // Classé selon l'ORDRE des états défini dans le Paramétrage (flèches ↑↓),
+      // puis par agence.
+      .sort((a, b) => rang(a.statut) - rang(b.statut) || a.entreprise.localeCompare(b.entreprise))
+  }, [recherche, data, filtreStatut, filtreArrond, filtrePriorite, rang])
 
   // Pagination : on n'affiche que 50 lignes à la fois (rapide même à 5000+ prospects).
   const PAR_PAGE = 50

@@ -6,7 +6,7 @@ import {
   estApporteur,
   type Prospect,
 } from "../data"
-import { classePastille, palette, rangEtat, statutsParDefaut, type Statut } from "../statuts"
+import { classePastille, palette, rangDepuisOrdre, statutsParDefaut, type Statut } from "../statuts"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerProspects, majProspect, majProspectComplet, supprimerProspect } from "../lib/prospectsDb"
 import { chargerStatuts } from "../lib/statutsDb"
@@ -39,17 +39,20 @@ export default function GestionnairesView() {
     chargerStatuts().then((r) => r.length && setStatuts(r)).catch(() => {})
   }, [])
 
+  // Classement des états tel que l'utilisateur les a rangés (Paramétrage → États).
+  const rang = useMemo(() => rangDepuisOrdre(statuts), [statuts])
+
   const complets = useMemo(
     () =>
       data
         .filter((p) => estComplet(p) && !estApporteur(p))
-        // Classé du meilleur état (Client signé) au pire (Perdu), puis par nom.
+        // Classé selon l'ORDRE des états défini dans le Paramétrage (flèches ↑↓),
+        // puis par nom.
         .sort(
           (a, b) =>
-            rangEtat(a.statut) - rangEtat(b.statut) ||
-            (a.contact || "").localeCompare(b.contact || ""),
+            rang(a.statut) - rang(b.statut) || (a.contact || "").localeCompare(b.contact || ""),
         ),
-    [data],
+    [data, rang],
   )
 
   const lignes = useMemo(() => {

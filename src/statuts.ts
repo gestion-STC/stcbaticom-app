@@ -124,14 +124,20 @@ export function classePastille(
   return palette[cle].pill
 }
 
-// Ordre « qualité » pour classer les prospects du MEILLEUR (signé) au PIRE (perdu).
-const rangQualite: Record<string, number> = {
-  "Client signé": 0,
-  "RDV pris": 1,
-  Intéressé: 2,
-  "À rappeler": 3,
-  "Nouveau prospect": 4,
-  Injoignable: 5,
-  Perdu: 6,
+// Classement des prospects d'après l'ORDRE des états choisi par l'utilisateur
+// (les flèches ↑↓ du Paramétrage → États). L'état placé en haut de la liste
+// remonte les prospects en premier : le classement du Paramétrage fait foi partout.
+//
+// On se base sur la POSITION dans la liste triée, pas sur la valeur brute de `ordre`
+// (qui peut avoir des trous ou des doublons après des réorganisations).
+// Un état inconnu (donnée ancienne) est relégué en fin de liste. Pur → testable.
+export function rangDepuisOrdre(statuts: Statut[]): (libelle: string) => number {
+  const rangs = new Map<string, number>()
+  statuts
+    .slice()
+    .sort((a, b) => a.ordre - b.ordre)
+    .forEach((s, i) => {
+      if (!rangs.has(s.libelle)) rangs.set(s.libelle, i)
+    })
+  return (libelle: string) => rangs.get(libelle) ?? Number.MAX_SAFE_INTEGER
 }
-export const rangEtat = (libelle: string): number => rangQualite[libelle] ?? 50

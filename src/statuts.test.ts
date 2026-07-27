@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { rangEtat, palette, clesCouleurs, couleursPrises, type Statut } from "./statuts"
+import { rangDepuisOrdre, palette, clesCouleurs, couleursPrises, type Statut } from "./statuts"
 
 // Fabrique un état minimal pour les tests.
 const etat = (id: string, libelle: string, couleur: string): Statut => ({
@@ -12,15 +12,46 @@ const etat = (id: string, libelle: string, couleur: string): Statut => ({
   relanceJours: null,
 })
 
-describe("rangEtat (classement du meilleur au pire)", () => {
-  it("Client signé passe avant RDV pris, avant Nouveau, avant Perdu", () => {
-    expect(rangEtat("Client signé")).toBeLessThan(rangEtat("RDV pris"))
-    expect(rangEtat("RDV pris")).toBeLessThan(rangEtat("Nouveau prospect"))
-    expect(rangEtat("Nouveau prospect")).toBeLessThan(rangEtat("Perdu"))
+describe("rangDepuisOrdre (le classement du Paramétrage fait foi)", () => {
+  // Ordre choisi par l'utilisateur via les flèches ↑↓.
+  const ordonnes = [
+    { ...etat("1", "Client signé", "green"), ordre: 1 },
+    { ...etat("2", "RDV pris", "orange"), ordre: 2 },
+    { ...etat("3", "Perdu", "red"), ordre: 3 },
+  ]
+
+  it("respecte l'ordre choisi par l'utilisateur", () => {
+    const rang = rangDepuisOrdre(ordonnes)
+    expect(rang("Client signé")).toBeLessThan(rang("RDV pris"))
+    expect(rang("RDV pris")).toBeLessThan(rang("Perdu"))
   })
 
-  it("un état inconnu est relégué en fin de liste", () => {
-    expect(rangEtat("État bidon")).toBeGreaterThan(rangEtat("Perdu"))
+  it("suit l'utilisateur quand il inverse l'ordre", () => {
+    const inverse = [
+      { ...etat("3", "Perdu", "red"), ordre: 1 },
+      { ...etat("1", "Client signé", "green"), ordre: 2 },
+    ]
+    const rang = rangDepuisOrdre(inverse)
+    expect(rang("Perdu")).toBeLessThan(rang("Client signé"))
+  })
+
+  it("classe d'après la position, pas la valeur brute (trous après réorganisation)", () => {
+    const avecTrous = [
+      { ...etat("1", "Premier OS reçu", "teal"), ordre: 7 },
+      { ...etat("2", "En attente", "amber"), ordre: 42 },
+    ]
+    const rang = rangDepuisOrdre(avecTrous)
+    expect(rang("Premier OS reçu")).toBe(0)
+    expect(rang("En attente")).toBe(1)
+  })
+
+  it("relègue en fin de liste un état inconnu (ancienne donnée)", () => {
+    const rang = rangDepuisOrdre(ordonnes)
+    expect(rang("État supprimé")).toBeGreaterThan(rang("Perdu"))
+  })
+
+  it("ne plante pas quand aucun état n'est chargé", () => {
+    expect(() => rangDepuisOrdre([])("Peu importe")).not.toThrow()
   })
 })
 
