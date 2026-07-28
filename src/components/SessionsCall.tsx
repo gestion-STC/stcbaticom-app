@@ -136,7 +136,9 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   const [auto, setAuto] = useState(false) // mode automatique : appelle le prospect tout seul
   const [compte, setCompte] = useState<number | null>(null) // compte à rebours avant l'appel auto
   const [stats, setStats] = useState({ appels: 0, decroches: 0, os: 0 }) // perf de la session en cours
-  const [erreurSave, setErreurSave] = useState(false) // une sauvegarde a échoué
+  // Détail de la dernière sauvegarde ratée (null = tout va bien). On garde la
+  // VRAIE raison : un simple « ça n'a pas marché » ne permet pas de comprendre.
+  const [erreurSave, setErreurSave] = useState<string | null>(null)
   // Nettoyage au fil de l'eau : paires déjà tranchées « ce ne sont pas des doublons »,
   // et fusion en cours (pour éviter le double clic).
   const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
@@ -157,6 +159,16 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   const commentaireRef = useRef("")
   const cleCourantRef = useRef("") // id du prospect affiché (pour viser le bon en dictée)
   const verrouRef = useRef(false) // empêche de traiter 2× le même prospect (double-clic)
+
+  // Fabrique un gestionnaire d'échec qui retient CE QUI a raté et POURQUOI.
+  // À utiliser en `.catch(echec("Enregistrement de l'appel"))`.
+  function echec(contexte: string) {
+    return (e: unknown) => {
+      console.error(contexte, e)
+      const detail = e instanceof Error ? e.message : String(e)
+      setErreurSave(`${contexte} : ${detail || "raison inconnue"}`)
+    }
+  }
   const avancerRef = useRef<() => void>(() => {}) // toujours la dernière version d'avancer()
   const autoRef = useRef(false) // dernière valeur de `auto` (pour les callbacks async)
   const indexRef = useRef(0) // index courant (pour vérifier le bon prospect dans les callbacks async)
@@ -336,14 +348,14 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, [champ]: valeur } : x)))
   }
   function sauverChamp(champ: ChampInfo, valeur: string) {
-    if (courant?.id) majProspect(courant.id, { [champ]: valeur }).catch(() => setErreurSave(true))
+    if (courant?.id) majProspect(courant.id, { [champ]: valeur }).catch(echec("Enregistrement de la fiche"))
   }
 
   // Marque une relance comme faite : on efface la date (la fiche quitte la liste).
   function relanceFaite(p: Prospect) {
     if (!p.id) return
     setProspects((arr) => arr.map((x) => (x.id === p.id ? { ...x, prochaineRelance: "—" } : x)))
-    majProspect(p.id, { prochaine_relance: "—" }).catch(() => setErreurSave(true))
+    majProspect(p.id, { prochaine_relance: "—" }).catch(echec("Effacement de la relance"))
   }
 
   const courant = fileSession[index]
@@ -374,8 +386,8 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
           .filter((x) => x.id !== c.prospect.id)
           .map((x) => (x.id === courant.id && aJour ? aJour : x)),
       )
-    } catch {
-      setErreurSave(true)
+    } catch (e) {
+      echec("Fusion des deux fiches")(e)
     } finally {
       setFusionEnCours(false)
     }
@@ -388,7 +400,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const a = courant.id
     const b = c.prospect.id
     setNonDoublons((s) => new Set(s).add([a, b].sort().join("|"))) // effet immédiat
-    marquerNonDoublon(a, b).catch(() => setErreurSave(true))
+    marquerNonDoublon(a, b).catch(echec("Enregistrement de « 2 personnes différentes »"))
   }
   const cleCourant = courant?.id ?? ""
   // Commentaire affiché : valeur en cours d'édition si elle existe, sinon celui du prospect
@@ -415,7 +427,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const id = courant.id
     setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, numeroEmission: nouveau } : x)))
     setFileSession((arr) => arr.map((x) => (x.id === id ? { ...x, numeroEmission: nouveau } : x)))
-    majProspect(id, { numero_emission: nouveau }).catch(() => setErreurSave(true))
+    majProspect(id, { numero_emission: nouveau }).catch(echec("Enregistrement du numéro d'émission"))
     setAppelMsg({ ok: true, texte: `Nouveau numéro attribué : ${nouveau}. Tu peux appeler.` })
     setTimeout(() => setAppelMsg(null), 5000)
   }
@@ -429,14 +441,14 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       const id = courant.id
       setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, numeroEmission: numero } : x)))
       setFileSession((arr) => arr.map((x) => (x.id === id ? { ...x, numeroEmission: numero } : x)))
-      majProspect(id, { numero_emission: numero }).catch(() => setErreurSave(true))
+      majProspect(id, { numero_emission: numero }).catch(echec("Enregistrement du numéro d'émission"))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courant?.id, numerosPool])
 
   function sauverCommentaire() {
     if (courant?.id)
-      majProspect(courant.id, { commentaire: commentaireCourant }).catch(() => setErreurSave(true))
+      majProspect(courant.id, { commentaire: commentaireCourant }).catch(echec("Enregistrement du commentaire"))
   }
 
   // Sauvegarde AUTOMATIQUE du commentaire pendant la frappe (après ~1 s sans taper),
@@ -450,7 +462,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const t = setTimeout(() => {
       setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, commentaire: com } : x)))
       setFileSession((arr) => arr.map((x) => (x.id === id ? { ...x, commentaire: com } : x)))
-      majProspect(id, { commentaire: com }).catch(() => setErreurSave(true))
+      majProspect(id, { commentaire: com }).catch(echec("Enregistrement du commentaire"))
     }, 1000)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -529,7 +541,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       if (com !== (courant.commentaire ?? "")) {
         const id = courant.id
         setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, commentaire: com } : x)))
-        majProspect(id, { commentaire: com }).catch(() => setErreurSave(true))
+        majProspect(id, { commentaire: com }).catch(echec("Enregistrement du commentaire"))
       }
     }
     setRelanceMsg("")
@@ -574,7 +586,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const date = `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` // "JJ/MM/AAAA HH:MM"
     setProspects((arr) => arr.map((x) => (x.id === courant.id ? { ...x, prochaineRelance: date } : x)))
     setFileSession((arr) => arr.map((x) => (x.id === courant.id ? { ...x, prochaineRelance: date } : x)))
-    majProspect(courant.id, { prochaine_relance: date }).catch(() => setErreurSave(true))
+    majProspect(courant.id, { prochaine_relance: date }).catch(echec("Programmation de la relance"))
     setRelanceMsg(`Relance programmée le ${date}`)
     setRelanceInput("")
   }
@@ -587,7 +599,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const nouveauType = estApporteur(courant) ? "Gestionnaire locatif" : TYPE_APPORTEUR
     setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, type: nouveauType } : x)))
     setFileSession((arr) => arr.map((x) => (x.id === id ? { ...x, type: nouveauType } : x)))
-    majProspect(id, { type: nouveauType }).catch(() => setErreurSave(true))
+    majProspect(id, { type: nouveauType }).catch(echec("Changement de type de fiche"))
   }
 
   // Supprime DÉFINITIVEMENT la fiche en cours (faux numéro / faux prospect). On la
@@ -613,8 +625,8 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     try {
       await supprimerProspect(id)
-    } catch {
-      setErreurSave(true)
+    } catch (e) {
+      echec("Suppression de la fiche")(e)
       return false
     }
     setProspects((arr) => arr.filter((x) => x.id !== id))
@@ -650,9 +662,9 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
           statut: nouveauStatut,
           commentaire: com,
           ...(relance ? { prochaine_relance: relance } : {}),
-        }).catch(() => setErreurSave(true))
+        }).catch(echec("Sauvegarde"))
         // Changer l'état = la personne a été jointe (décroché)
-        enregistrerAppel(cible.id, RESULTAT_DECROCHE, nouveauStatut).catch(() => setErreurSave(true))
+        enregistrerAppel(cible.id, RESULTAT_DECROCHE, nouveauStatut).catch(echec("Enregistrement de l'appel"))
       }
       const estObjectif = statuts.find((s) => s.libelle === nouveauStatut)?.estObjectif
       setStats((s) => ({ appels: s.appels + 1, decroches: s.decroches + 1, os: s.os + (estObjectif ? 1 : 0) }))
@@ -664,29 +676,37 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   async function appelNonJoint(resultat: string) {
     if (verrouRef.current) return
     verrouRef.current = true
-    if (courant?.id) {
-      const cible = courant
-      const id = courant.id
-      const com = commentaireCourant
-      enregistrerAppel(id, resultat, cible.statut).catch(() => setErreurSave(true))
-      majProspect(id, { commentaire: com }).catch(() => setErreurSave(true))
-      setProspects((arr) =>
-        arr.map((x) => (x.id === cible.id ? { ...x, commentaire: com } : x)),
-      )
-      setStats((s) => ({ ...s, appels: s.appels + 1 }))
-    }
 
     // Faux numéro : la fiche ne mène à personne → on propose de la retirer tout
     // de suite (nettoyage au fil des appels). La confirmation est indispensable :
     // ce résultat est aussi déclenchable par une simple touche du clavier, et une
     // suppression sans garde-fou détruirait une vraie fiche sur une faute de frappe.
+    //
+    // On demande AVANT d'écrire quoi que ce soit : journaliser l'appel sur une
+    // fiche qu'on s'apprête à supprimer ne sert à rien (l'historique part avec
+    // elle) et ferait courir cette écriture contre la suppression.
     if (resultat === RESULTAT_FAUX_NUMERO && courant?.id) {
       const supprimee = await supprimerFicheCourante(true)
-      // La liste change sans forcément changer l'index (c'est lui qui libère le
-      // verrou d'ordinaire) : on le relâche donc explicitement.
-      verrouRef.current = false
-      if (!supprimee) avancer() // refus ou échec → on garde la fiche et on passe
-      return
+      if (supprimee) {
+        setStats((s) => ({ ...s, appels: s.appels + 1 }))
+        // La liste change sans forcément changer l'index (c'est lui qui libère
+        // le verrou d'ordinaire) : on le relâche donc explicitement.
+        verrouRef.current = false
+        return
+      }
+      // Refus ou échec : on garde la fiche et on continue comme un « pas joint ».
+    }
+
+    if (courant?.id) {
+      const cible = courant
+      const id = courant.id
+      const com = commentaireCourant
+      enregistrerAppel(id, resultat, cible.statut).catch(echec("Enregistrement de l'appel"))
+      majProspect(id, { commentaire: com }).catch(echec("Enregistrement du commentaire"))
+      setProspects((arr) =>
+        arr.map((x) => (x.id === cible.id ? { ...x, commentaire: com } : x)),
+      )
+      setStats((s) => ({ ...s, appels: s.appels + 1 }))
     }
 
     avancer()
@@ -751,7 +771,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       if (res.aEnregistrer && res.numero && p.id) {
         const id = p.id
         setProspects((arr) => arr.map((x) => (x.id === id ? { ...x, numeroEmission: res.numero } : x)))
-        majProspect(id, { numero_emission: res.numero }).catch(() => setErreurSave(true))
+        majProspect(id, { numero_emission: res.numero }).catch(echec("Enregistrement du numéro d'émission"))
       }
     }
     const r = await lancerAppelRingover(p.telephone, from)
@@ -974,7 +994,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
             }
           }
         }
-        if (s.prospectId) enregistrerAppel(s.prospectId, resultat, s.statut ?? "").catch(() => setErreurSave(true))
+        if (s.prospectId) enregistrerAppel(s.prospectId, resultat, s.statut ?? "").catch(echec("Enregistrement de l'appel"))
       })()
     }
     const iv = setInterval(async () => {
@@ -1080,12 +1100,14 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
 
   // Petit bandeau d'alerte si une sauvegarde a échoué (affiché sur les 2 écrans).
   const toastErreur = erreurSave ? (
-    <div className="fixed bottom-4 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-3 rounded-lg bg-red-600 px-4 py-2.5 text-sm text-white shadow-lg">
-      <AlertTriangle size={16} className="shrink-0" />
-      Une sauvegarde n'a pas pu être enregistrée (vérifiez votre connexion).
+    <div className="fixed bottom-4 left-1/2 z-[90] flex max-w-[90vw] -translate-x-1/2 items-start gap-3 rounded-lg bg-red-600 px-4 py-2.5 text-sm text-white shadow-lg">
+      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+      <span className="min-w-0 flex-1 break-words">
+        Échec — <span className="font-medium">{erreurSave}</span>
+      </span>
       <button
-        onClick={() => setErreurSave(false)}
-        className="ml-1 rounded px-2 py-0.5 font-medium hover:bg-red-700"
+        onClick={() => setErreurSave(null)}
+        className="ml-1 shrink-0 rounded px-2 py-0.5 font-medium hover:bg-red-700"
       >
         OK
       </button>
@@ -1994,7 +2016,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
             <p className="text-sm font-medium text-slate-700">📞 Script d'appel</p>
             <button
               onClick={() => {
-                if (scriptEdit) ecrireParametre("script_appel", script).catch(() => setErreurSave(true))
+                if (scriptEdit) ecrireParametre("script_appel", script).catch(echec("Enregistrement du script d'appel"))
                 setScriptEdit((v) => !v)
               }}
               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
