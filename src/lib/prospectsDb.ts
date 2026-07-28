@@ -197,20 +197,24 @@ async function fusionnerProspectsLegacy(
       .from("prospect_agence")
       .select("agence_id")
       .eq("prospect_id", garde.id)
+    // Cette table n'a PAS de colonne « id » : sa clé est le couple
+    // (prospect_id, agence_id). On rattache donc les agences manquantes à la
+    // fiche gardée, puis on retire les liens des fiches absorbées.
     const vus = new Set((dejaLies ?? []).map((l: { agence_id: string }) => l.agence_id))
     for (const ancien of ids) {
       const { data: liens } = await supabase
         .from("prospect_agence")
-        .select("id, agence_id")
+        .select("agence_id")
         .eq("prospect_id", ancien)
-      for (const l of (liens ?? []) as { id: string; agence_id: string }[]) {
-        if (vus.has(l.agence_id)) {
-          await supabase.from("prospect_agence").delete().eq("id", l.id)
-        } else {
-          await supabase.from("prospect_agence").update({ prospect_id: garde.id }).eq("id", l.id)
+      for (const l of (liens ?? []) as { agence_id: string }[]) {
+        if (!vus.has(l.agence_id)) {
+          await supabase
+            .from("prospect_agence")
+            .insert({ prospect_id: garde.id, agence_id: l.agence_id })
           vus.add(l.agence_id)
         }
       }
+      await supabase.from("prospect_agence").delete().eq("prospect_id", ancien)
     }
   } catch {
     /* table de liens absente : on ignore */

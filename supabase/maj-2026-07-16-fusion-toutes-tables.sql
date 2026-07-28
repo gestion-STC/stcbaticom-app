@@ -42,27 +42,26 @@ begin
   end if;
 
   -- 1) Liens agence D'ABORD : cas particulier, car un lien (prospect, agence)
-  --    est unique. On supprime les liens en trop AVANT de déplacer le reste,
-  --    sinon le déplacement créerait des doublons de liens (violation de clé).
+  --    est unique. On RATTACHE les agences des fiches absorbées à la fiche
+  --    gardée en ignorant les liens déjà présents, puis on retire les anciens.
+  --
+  --    NB : cette table n'a PAS de colonne « id » (sa clé est le couple
+  --    prospect_id + agence_id). La version précédente s'appuyait sur un « id »
+  --    inexistant : toute fusion échouait avec « column "id" does not exist ».
   if to_regclass('public.prospect_agence') is not null then
-    execute '
-      delete from public.prospect_agence pa
-      where pa.prospect_id = any($2)
-        and pa.id not in (
-          select distinct on (agence_id) id
-          from public.prospect_agence
-          where prospect_id = any($2)
-            and agence_id not in (
-              select agence_id from public.prospect_agence where prospect_id = $1
-            )
-          order by agence_id, id
-        )'
-      using p_garde, p_autres;
+    insert into public.prospect_agence (prospect_id, agence_id)
+    select distinct p_garde, pa.agence_id
+    from public.prospect_agence pa
+    where pa.prospect_id = any(p_autres)
+    on conflict do nothing;
+
+    delete from public.prospect_agence where prospect_id = any(p_autres);
   end if;
 
   -- 2) Toutes les autres tables liées : réaffectation AUTOMATIQUE.
-  --    Couvre appels, rdv, emails_envoyes, prospect_agence, messages… et toute
-  --    table ajoutée plus tard avec une colonne prospect_id.
+  --    Couvre appels, rdv, emails_envoyes, messages… et toute table ajoutée
+  --    plus tard avec une colonne prospect_id. (prospect_agence est exclue :
+  --    elle vient d'être traitée ci-dessus, avec sa règle d'unicité.)
   for t in
     select c.table_name
     from information_schema.columns c
@@ -72,6 +71,7 @@ begin
     where c.table_schema = 'public'
       and c.column_name  = 'prospect_id'
       and tb.table_type  = 'BASE TABLE'
+      and c.table_name  <> 'prospect_agence'
   loop
     execute format(
       'update public.%I set prospect_id = $1 where prospect_id = any($2)', t.table_name

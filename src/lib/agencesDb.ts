@@ -100,20 +100,24 @@ export async function fusionnerAgences(gardeId: string, autresIds: string[]): Pr
     .from("prospect_agence")
     .select("prospect_id")
     .eq("agence_id", gardeId)
+  // Cette table n'a PAS de colonne « id » : sa clé est le couple
+  // (prospect_id, agence_id). On rattache les gestionnaires manquants à l'agence
+  // gardée, puis on retire les liens des agences absorbées.
   const vus = new Set((dejaLies ?? []).map((l: { prospect_id: string }) => l.prospect_id))
   for (const ancien of ids) {
     const { data: liens } = await supabase
       .from("prospect_agence")
-      .select("id, prospect_id")
+      .select("prospect_id")
       .eq("agence_id", ancien)
-    for (const l of (liens ?? []) as { id: string; prospect_id: string }[]) {
-      if (vus.has(l.prospect_id)) {
-        await supabase.from("prospect_agence").delete().eq("id", l.id)
-      } else {
-        await supabase.from("prospect_agence").update({ agence_id: gardeId }).eq("id", l.id)
+    for (const l of (liens ?? []) as { prospect_id: string }[]) {
+      if (!vus.has(l.prospect_id)) {
+        await supabase
+          .from("prospect_agence")
+          .insert({ prospect_id: l.prospect_id, agence_id: gardeId })
         vus.add(l.prospect_id)
       }
     }
+    await supabase.from("prospect_agence").delete().eq("agence_id", ancien)
   }
 
   // 2. Combler les champs vides de la fiche gardée à partir des autres.
