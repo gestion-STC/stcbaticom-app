@@ -101,6 +101,7 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
   }, [prospects, agences, nonDoublons])
 
   const [enCours, setEnCours] = useState<string | null>(null)
+  const [erreurFusion, setErreurFusion] = useState<string | null>(null)
 
   const idGarde = (g: Groupe) =>
     garde[g.cle] ?? [...g.items].sort((a, b) => b.score - a.score)[0]?.id
@@ -122,7 +123,16 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
       recharger()
     } catch (e) {
       console.error(e)
-      alert("La fusion a échoué. Réessayez.")
+      // On affiche la VRAIE raison : « la fusion a échoué » sans plus de détail
+      // ne permet pas de comprendre (ex. une table liée non prise en charge).
+      const detail = e instanceof Error ? e.message : String(e)
+      setErreurFusion(
+        detail.match(/foreign key|violates|constraint/i)
+          ? "La fusion est refusée par la base : une fiche est encore rattachée à des données " +
+            "(messages, etc.). Exécutez le script supabase/maj-2026-07-16-fusion-toutes-tables.sql " +
+            "dans Supabase, puis réessayez.\n\nDétail : " + detail
+          : "La fusion a échoué.\n\nDétail : " + detail,
+      )
     } finally {
       setEnCours(null)
     }
@@ -191,6 +201,15 @@ export default function DoublonsModal({ onClose }: { onClose: () => void }) {
             présentés deux par deux, jamais regroupés. Votre réponse « Ce ne sont pas des
             doublons » est retenue définitivement, ici comme pendant vos appels.
           </p>
+
+          {erreurFusion && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">
+              <p className="flex-1 whitespace-pre-wrap break-words">{erreurFusion}</p>
+              <button onClick={() => setErreurFusion(null)} className="shrink-0 text-red-500">
+                ✕
+              </button>
+            </div>
+          )}
 
           {chargement ? (
             <div className="flex items-center gap-2 py-6 text-sm text-slate-500">

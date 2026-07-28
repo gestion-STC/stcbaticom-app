@@ -178,7 +178,9 @@ async function fusionnerProspectsLegacy(
     !!e && (e.code === "42P01" || /does not exist|could not find the table|schema cache/i.test(e.message ?? ""))
 
   // 1. Réaffecter l'historique vers la fiche gardée.
-  for (const table of ["appels", "rdv", "emails_envoyes"]) {
+  //    « messages » (boîte mail) est indispensable : sans ce déplacement, la
+  //    suppression finale est refusée par la base — ou pire, emporte les mails.
+  for (const table of ["appels", "rdv", "emails_envoyes", "messages"]) {
     for (const ancien of ids) {
       const { error } = await supabase.from(table).update({ prospect_id: garde.id }).eq("prospect_id", ancien)
       if (error && !tableAbsente(error)) {
