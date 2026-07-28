@@ -1,7 +1,19 @@
 import { useState } from "react"
-import { X, Phone, Trash2, Plus, Pencil, Check, ChevronLeft, Mail, MapPin, User, Building2, Clock } from "lucide-react"
+import { X, Phone, Trash2, Plus, Pencil, Check, ChevronLeft, Mail, MapPin, User, Building2, Clock, CalendarDays } from "lucide-react"
 import type { Prospect } from "../data"
 import { typesRdv, type Rdv } from "../rdv"
+
+const MOIS_COURTS = [
+  "janvier", "février", "mars", "avril", "mai", "juin",
+  "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+]
+
+// « 2026-08-03 » → « 3 août 2026 » (pour confirmer le déplacement en clair).
+function dateEnClair(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return iso
+  return `${Number(m[3])} ${MOIS_COURTS[Number(m[2]) - 1]} ${m[1]}`
+}
 
 export default function RdvJourModal({
   dateLisible,
@@ -30,7 +42,14 @@ export default function RdvJourModal({
   onSupprimer: (id: string) => void
   onModifier: (
     id: string,
-    champs: { titre?: string; telephone?: string; type?: string; heure?: string; note?: string },
+    champs: {
+      titre?: string
+      telephone?: string
+      type?: string
+      date?: string
+      heure?: string
+      note?: string
+    },
   ) => void
   onAppeler: (r: Rdv) => void
   appelMsg: { ok: boolean; texte: string } | null
@@ -51,6 +70,7 @@ export default function RdvJourModal({
   const [eNote, setENote] = useState("")
   const [eTitre, setETitre] = useState("")
   const [eTel, setETel] = useState("")
+  const [eDate, setEDate] = useState("") // AAAA-MM-JJ : permet de déplacer le RDV
 
   function ouvrirEdition(r: Rdv) {
     setEditId(r.id ?? null)
@@ -59,10 +79,18 @@ export default function RdvJourModal({
     setENote(r.note ?? "")
     setETitre(r.titre ?? "")
     setETel(r.telephone ?? "")
+    setEDate(r.date)
   }
   function enregistrerEdition(r: Rdv) {
     if (!r.id) return
-    const champs: { titre?: string; telephone?: string; type?: string; heure?: string; note?: string } = {
+    const champs: {
+      titre?: string
+      telephone?: string
+      type?: string
+      date?: string
+      heure?: string
+      note?: string
+    } = {
       type: eType,
       heure: eHeure,
       note: eNote,
@@ -72,8 +100,14 @@ export default function RdvJourModal({
       champs.titre = eTitre
       champs.telephone = eTel
     }
+    // Déplacement vers un autre jour (on n'écrit la date que si elle a changé).
+    const deplace = Boolean(eDate) && eDate !== r.date
+    if (deplace) champs.date = eDate
     onModifier(r.id, champs)
     setEditId(null)
+    // Le RDV ne fait plus partie du jour affiché : on referme sa fiche détaillée,
+    // sinon elle resterait ouverte sur un RDV absent de la liste.
+    if (deplace) setDetailId(null)
   }
 
   const champ =
@@ -117,6 +151,21 @@ export default function RdvJourModal({
           </select>
           <input type="time" value={eHeure} onChange={(e) => setEHeure(e.target.value)} className={champ} />
         </div>
+        {/* Déplacer le RDV à un autre jour */}
+        <label className="block">
+          <span className="text-xs font-medium text-slate-500">Date du RDV</span>
+          <input
+            type="date"
+            value={eDate}
+            onChange={(e) => setEDate(e.target.value)}
+            className={champ + " mt-1 w-full"}
+          />
+          {eDate !== r.date && eDate && (
+            <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-blue-600">
+              <CalendarDays size={12} /> Le RDV sera déplacé au {dateEnClair(eDate)}
+            </span>
+          )}
+        </label>
         <textarea value={eNote} onChange={(e) => setENote(e.target.value)} placeholder="Commentaire (optionnel)" rows={4} className={champ + " w-full resize-y"} />
         <div className="flex gap-2">
           <button onClick={() => enregistrerEdition(r)} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">

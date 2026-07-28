@@ -48,6 +48,15 @@ export default function Calendrier() {
     rechargerRdv()
   }, [])
 
+  // Remonte la VRAIE raison d'un échec au lieu de l'avaler en silence : sans ça,
+  // un RDV qui ne se déplace pas laisse croire à un simple bug d'affichage.
+  function signaler(contexte: string) {
+    return (e: unknown) => {
+      console.error(contexte, e)
+      setErreur(`${contexte} : ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   function rechargerRdv() {
     chargerRdv()
       .then(setRdvs)
@@ -106,16 +115,25 @@ export default function Calendrier() {
     if (!jourSel) return
     creerRdv({ ...r, date: jourSel })
       .then(rechargerRdv)
-      .catch(() => {})
+      .catch(signaler("Création du RDV"))
   }
   function retirerRdv(id: string) {
-    supprimerRdv(id).then(rechargerRdv).catch(() => {})
+    supprimerRdv(id).then(rechargerRdv).catch(signaler("Suppression du RDV"))
   }
   function modifierRdv(
     id: string,
-    champs: Partial<{ titre: string; telephone: string; type: string; heure: string; note: string }>,
+    champs: Partial<{
+      titre: string
+      telephone: string
+      type: string
+      date: string // déplacer le RDV à un autre jour
+      heure: string
+      note: string
+    }>,
   ) {
-    majRdv(id, champs).then(rechargerRdv).catch(() => {})
+    majRdv(id, champs)
+      .then(rechargerRdv)
+      .catch(signaler(champs.date ? "Déplacement du RDV" : "Modification du RDV"))
   }
 
   // Appelle le contact d'un RDV via Ringover (comme dans les Sessions de call).
