@@ -11,12 +11,16 @@ export type Appel = {
   sens?: SensAppel // défaut "sortant" (appels historiques + prospection)
 }
 
+// Un faux numéro ne mène à personne : la fiche n'a aucune valeur, on propose
+// de la retirer tout de suite (nettoyage au fil des appels).
+export const RESULTAT_FAUX_NUMERO = "Faux numéro"
+
 // Résultats où la personne n'a pas été jointe (boutons « pas joint »).
 export const resultatsNonJoint = [
   "Répondeur",
   "Pas de réponse",
   "Occupé",
-  "Faux numéro",
+  RESULTAT_FAUX_NUMERO,
 ] as const
 
 export const RESULTAT_DECROCHE = "Décroché"

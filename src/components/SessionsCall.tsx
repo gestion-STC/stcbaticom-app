@@ -49,7 +49,7 @@ import { numeroValide, formaterTelephone, chiffresTel } from "../lib/telephone"
 import { lancerAppelRingover, statutAppelsRingover, detailAppelRingover } from "../lib/ringover"
 import { entrantActif } from "../lib/appelEntrantActif"
 import { enregistrerAppel } from "../lib/appelsDb"
-import { resultatsNonJoint, RESULTAT_DECROCHE } from "../appels"
+import { resultatsNonJoint, RESULTAT_DECROCHE, RESULTAT_FAUX_NUMERO } from "../appels"
 import NouveauRdvModal from "./NouveauRdvModal"
 import EnvoyerEmailModal from "./EnvoyerEmailModal"
 import HistoriqueProspect from "./HistoriqueProspect"
@@ -593,11 +593,16 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   // Supprime DÉFINITIVEMENT la fiche en cours (faux numéro / faux prospect). On la
   // retire des listes locales et on enchaîne sur la fiche suivante (l'index reste le
   // même : les fiches derrière remontent d'un cran). Confirmation obligatoire.
-  async function supprimerFicheCourante() {
-    if (!courant?.id) return
+  // Renvoie true si la fiche a bien été supprimée (false si annulé ou échec) —
+  // l'appelant doit savoir s'il reste sur place ou s'il doit avancer.
+  async function supprimerFicheCourante(motifFauxNumero = false): Promise<boolean> {
+    if (!courant?.id) return false
     const id = courant.id
     const nom = courant.entreprise || courant.contact || "ce prospect"
-    if (!confirm(`Supprimer définitivement la fiche « ${nom} » ?\nÀ n'utiliser que pour un faux numéro ou un faux prospect — action irréversible.`)) return
+    const question = motifFauxNumero
+      ? `Faux numéro enregistré.\n\nSupprimer aussi définitivement la fiche « ${nom} » ?\nIrréversible : son historique (appels, RDV, e-mails) sera perdu.\n\nAnnuler = garder la fiche et passer au suivant.`
+      : `Supprimer définitivement la fiche « ${nom} » ?\nÀ n'utiliser que pour un faux numéro ou un faux prospect — action irréversible.`
+    if (!confirm(question)) return false
     // On quitte la fiche → stopper surveillance de fin d'appel + dictée.
     surveillanceRef.current = { actif: false, vuActif: false }
     setSurveille(false)
@@ -610,7 +615,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       await supprimerProspect(id)
     } catch {
       setErreurSave(true)
-      return
+      return false
     }
     setProspects((arr) => arr.filter((x) => x.id !== id))
     const suite = fileSession.filter((x) => x.id !== id)
@@ -622,6 +627,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       setIndex(suite.length - 1)
     }
     // sinon l'index reste identique et pointe naturellement sur la fiche suivante.
+    return true
   }
 
   function appliquer(nouveauStatut: string) {
@@ -655,7 +661,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   }
 
   // La personne n'a pas été jointe : on journalise sans changer l'état.
-  function appelNonJoint(resultat: string) {
+  async function appelNonJoint(resultat: string) {
     if (verrouRef.current) return
     verrouRef.current = true
     if (courant?.id) {
@@ -669,6 +675,20 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       )
       setStats((s) => ({ ...s, appels: s.appels + 1 }))
     }
+
+    // Faux numéro : la fiche ne mène à personne → on propose de la retirer tout
+    // de suite (nettoyage au fil des appels). La confirmation est indispensable :
+    // ce résultat est aussi déclenchable par une simple touche du clavier, et une
+    // suppression sans garde-fou détruirait une vraie fiche sur une faute de frappe.
+    if (resultat === RESULTAT_FAUX_NUMERO && courant?.id) {
+      const supprimee = await supprimerFicheCourante(true)
+      // La liste change sans forcément changer l'index (c'est lui qui libère le
+      // verrou d'ordinaire) : on le relâche donc explicitement.
+      verrouRef.current = false
+      if (!supprimee) avancer() // refus ou échec → on garde la fiche et on passe
+      return
+    }
+
     avancer()
   }
 
@@ -1823,16 +1843,33 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                 <span className="font-normal normal-case text-slate-400">— raccourcis : touches 1-{resultatsNonJoint.length} · Espace = passer</span>
               </p>
               <div className="flex flex-wrap gap-2">
-                {resultatsNonJoint.map((r, i) => (
-                  <button
-                    key={r}
-                    onClick={() => appelNonJoint(r)}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                  >
-                    <kbd className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{i + 1}</kbd>
-                    {r}
-                  </button>
-                ))}
+                {resultatsNonJoint.map((r, i) => {
+                  const faux = r === RESULTAT_FAUX_NUMERO
+                  return (
+                    <button
+                      key={r}
+                      onClick={() => appelNonJoint(r)}
+                      title={faux ? "Enregistre l'appel puis propose de supprimer la fiche" : undefined}
+                      className={
+                        "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium " +
+                        (faux
+                          ? "border-red-200 text-red-600 hover:bg-red-50"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50")
+                      }
+                    >
+                      <kbd
+                        className={
+                          "rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+                          (faux ? "bg-red-100 text-red-500" : "bg-slate-100 text-slate-500")
+                        }
+                      >
+                        {i + 1}
+                      </kbd>
+                      {r}
+                      {faux && <Trash2 size={12} />}
+                    </button>
+                  )
+                })}
               </div>
 
               <p className="mt-4 mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -1936,7 +1973,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                   <PhoneOff size={16} /> Fin de session
                 </button>
                 <button
-                  onClick={supprimerFicheCourante}
+                  onClick={() => supprimerFicheCourante()}
                   title="Supprimer définitivement la fiche (faux numéro / faux prospect)"
                   className="ml-auto flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
                 >
