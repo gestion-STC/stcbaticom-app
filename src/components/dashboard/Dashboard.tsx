@@ -19,6 +19,8 @@ import {
   Trophy,
   Mail,
   ListChecks,
+  Pencil,
+  Check,
 } from "lucide-react"
 import { palette, statutsParDefaut, type Statut } from "../../statuts"
 import type { Prospect } from "../../data"
@@ -31,9 +33,19 @@ import { chargerAppels } from "../../lib/appelsDb"
 import { chargerEmailsEnvoyes, type EmailEnvoye } from "../../lib/emailsEnvoyesDb"
 import { calculerSante } from "../../lib/santeBase"
 import { chargerNonDoublons } from "../../lib/nonDoublons"
+import { lireParametre, ecrireParametre } from "../../lib/parametresDb"
 import BandeauErreur from "../BandeauErreur"
 
+// Objectif par défaut, tant que l'utilisateur n'a pas saisi le sien.
 const OBJECTIF_MENSUEL = 20
+const CLE_OBJECTIF = "objectif_os_mensuel"
+
+// Les demandes d'OS saisies à la main sont rangées PAR MOIS : sinon le chiffre
+// de juillet resterait affiché en août.
+function cleOsDuMois(): string {
+  const d = new Date()
+  return `os_recus_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+}
 
 function dateAujourdhui(): string {
   const d = new Date()
@@ -50,6 +62,16 @@ export default function Dashboard() {
   // Paires déjà tranchées « 2 personnes différentes » : elles ne comptent plus
   // comme doublons dans l'indicateur (même règle que l'écran d'appel).
   const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
+
+  // Objectif d'OS + demandes d'OS saisis à la main (persistés dans `parametres`).
+  // `osManuel === null` → on retombe sur le calcul automatique par les états.
+  const [objectifOS, setObjectifOS] = useState(OBJECTIF_MENSUEL)
+  const [osManuel, setOsManuel] = useState<number | null>(null)
+  const [editObjectif, setEditObjectif] = useState(false)
+  const [saisieObjectif, setSaisieObjectif] = useState("")
+  const [saisieOs, setSaisieOs] = useState("")
+  const [erreurObjectif, setErreurObjectif] = useState<string | null>(null)
+  const [enregistreOk, setEnregistreOk] = useState(false)
 
   // Avancement du nettoyage de la base (fiches complètes / doublons restants).
   const sante = useMemo(() => calculerSante(prospects, nonDoublons), [prospects, nonDoublons])
@@ -91,7 +113,56 @@ export default function Dashboard() {
       .then(setEmailsEnvoyes)
       .catch(() => {})
     chargerNonDoublons().then(setNonDoublons).catch(() => {})
+    lireParametre(CLE_OBJECTIF)
+      .then((v) => {
+        const n = Number(v)
+        if (v && Number.isFinite(n) && n > 0) setObjectifOS(n)
+      })
+      .catch(() => {})
+    lireParametre(cleOsDuMois())
+      .then((v) => {
+        if (v === null || v.trim() === "") return // pas de saisie ce mois-ci → calcul auto
+        const n = Number(v)
+        if (Number.isFinite(n) && n >= 0) setOsManuel(n)
+      })
+      .catch(() => {})
   }, [])
+
+  function ouvrirEditionObjectif() {
+    setSaisieObjectif(String(objectifOS))
+    setSaisieOs(osManuel === null ? "" : String(osManuel))
+    setErreurObjectif(null)
+    setEditObjectif(true)
+  }
+
+  async function enregistrerObjectif() {
+    const obj = Number(saisieObjectif)
+    if (!Number.isFinite(obj) || obj <= 0) {
+      setErreurObjectif("L'objectif doit être un nombre supérieur à 0.")
+      return
+    }
+    const brut = saisieOs.trim()
+    const demandes = brut === "" ? null : Number(brut)
+    if (demandes !== null && (!Number.isFinite(demandes) || demandes < 0)) {
+      setErreurObjectif("Le nombre de demandes doit être un nombre positif (ou vide).")
+      return
+    }
+    try {
+      await ecrireParametre(CLE_OBJECTIF, String(obj))
+      // Vide = on revient au comptage automatique par les états.
+      await ecrireParametre(cleOsDuMois(), demandes === null ? "" : String(demandes))
+      setObjectifOS(obj)
+      setOsManuel(demandes)
+      setEditObjectif(false)
+      setErreurObjectif(null)
+      setEnregistreOk(true)
+      setTimeout(() => setEnregistreOk(false), 2500)
+    } catch (e) {
+      setErreurObjectif(
+        "Enregistrement impossible : " + (e instanceof Error ? e.message : String(e)),
+      )
+    }
+  }
 
   // Stratégie de démarchage : 1er contact gagnant + recette moyenne avant l'OS
   const strategie = useMemo(() => {
@@ -211,7 +282,12 @@ export default function Dashboard() {
     [statuts, stats],
   )
 
-  const progression = Math.min(100, Math.round((stats.demandesOS / OBJECTIF_MENSUEL) * 100))
+  // Le chiffre saisi à la main prime ; sinon on garde le comptage par les états.
+  const demandesOSAffiche = osManuel ?? stats.demandesOS
+  const progression = Math.min(
+    100,
+    Math.round((demandesOSAffiche / Math.max(1, objectifOS)) * 100),
+  )
 
   return (
     <div className="space-y-5 px-8 pb-10">
@@ -429,16 +505,81 @@ export default function Dashboard() {
       {/* Objectif mensuel + Anneau */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">Objectif du mois</h2>
-          <p className="mt-1 text-sm text-slate-500">Demandes d'ordre de service</p>
-          <div className="mt-5 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-slate-900">{stats.demandesOS}</span>
-            <span className="text-sm text-slate-400">/ {OBJECTIF_MENSUEL}</span>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Objectif du mois</h2>
+              <p className="mt-1 text-sm text-slate-500">Demandes d'ordre de service</p>
+            </div>
+            {!editObjectif && (
+              <button
+                onClick={ouvrirEditionObjectif}
+                title="Saisir les demandes d'OS et l'objectif"
+                className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-50 hover:text-blue-600"
+              >
+                <Pencil size={16} />
+              </button>
+            )}
           </div>
-          <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${progression}%` }} />
-          </div>
-          <p className="mt-2 text-xs text-slate-400">{progression}% de l'objectif</p>
+
+          {editObjectif ? (
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-500">Demandes d'OS reçues ce mois</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={saisieOs}
+                  onChange={(e) => setSaisieOs(e.target.value)}
+                  placeholder={`Vide = compté automatiquement (${stats.demandesOS})`}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-500">Objectif du mois</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={saisieObjectif}
+                  onChange={(e) => setSaisieObjectif(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              {erreurObjectif && (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{erreurObjectif}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={enregistrerObjectif}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  <Check size={15} /> Enregistrer
+                </button>
+                <button
+                  onClick={() => setEditObjectif(false)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="mt-5 flex items-baseline gap-2">
+                <span className="text-3xl font-bold text-slate-900">{demandesOSAffiche}</span>
+                <span className="text-sm text-slate-400">/ {objectifOS}</span>
+              </div>
+              <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${progression}%` }} />
+              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                {progression}% de l'objectif
+                {osManuel !== null && <span className="text-slate-400"> · chiffre saisi à la main</span>}
+              </p>
+              {enregistreOk && (
+                <p className="mt-1 text-xs font-medium text-emerald-600">Enregistré.</p>
+              )}
+            </>
+          )}
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
