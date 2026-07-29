@@ -315,7 +315,16 @@ export default function Dashboard() {
       {/* Cartes de chiffres */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Carte label="Prospects au total" valeur={prospects.length.toLocaleString("fr-FR")} icon={Users} teinte="bg-blue-50" couleur="text-blue-600" />
-        <Carte label="Demandes d'OS envoyées" valeur={String(stats.demandesOS)} icon={Flag} teinte="bg-emerald-50" couleur="text-emerald-600" />
+        {/* Même chiffre que le panneau « Objectif du mois » : une seule source,
+            sinon les deux pourraient s'afficher en se contredisant. */}
+        <Carte
+          label="Demandes d'OS envoyées"
+          valeur={String(demandesOSAffiche)}
+          sousLigne={osManuel !== null ? "saisi à la main" : "compté par les états"}
+          icon={Flag}
+          teinte="bg-emerald-50"
+          couleur="text-emerald-600"
+        />
         <Carte label="Relances aujourd'hui" valeur={String(stats.relancesAuj)} icon={PhoneOutgoing} teinte="bg-orange-50" couleur="text-orange-500" />
         <Carte
           label={`Appels (${labelPeriode})`}
