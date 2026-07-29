@@ -232,15 +232,24 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   // affichage — anciens noms, anciennes couleurs, et surtout numéros de raccourci
   // figés sur un classement périmé (ils sont déduits de l'ordre des états).
   useEffect(() => {
-    if (!actif || enCours || !supabaseConfigure) return
-    chargerProspects()
-      .then((rows) => setProspects(rows.filter((p) => !estApporteur(p))))
-      .catch(() => {})
+    if (!actif || !supabaseConfigure) return
+
+    // Les états et les créneaux se rechargent MÊME pendant une session en cours :
+    // ils ne touchent pas la file d'appels, seulement les libellés, les couleurs
+    // et les numéros de raccourci affichés. Les bloquer pendant une session (ce
+    // que faisait la 1re version de ce correctif) revenait à ne jamais les
+    // rafraîchir, puisque c'est justement en pleine session qu'on les consulte.
     chargerStatuts()
       .then((rows) => rows.length && setStatuts(rows))
       .catch(() => {})
     chargerCreneaux()
       .then((rows) => setCreneaux(rows.filter((c) => c.actif)))
+      .catch(() => {})
+
+    // Ce qui suit REMPLACERAIT la file d'appels : jamais pendant une session.
+    if (enCours) return
+    chargerProspects()
+      .then((rows) => setProspects(rows.filter((p) => !estApporteur(p))))
       .catch(() => {})
     rechargerRdvJour()
     // eslint-disable-next-line react-hooks/exhaustive-deps
