@@ -223,13 +223,24 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   }, [])
 
   // Le composant restant monté en permanence, les données ne se rechargent plus toutes
-  // seules à chaque visite. On rafraîchit donc la liste des prospects + les RDV du jour
-  // quand on REVIENT sur l'onglet SANS session en cours. Jamais pendant une session
-  // active : on ne veut surtout pas remplacer la file d'appels sous les pieds.
+  // seules à chaque visite. On rafraîchit donc à chaque RETOUR sur l'onglet, SANS
+  // session en cours. Jamais pendant une session active : on ne veut surtout pas
+  // remplacer la file d'appels sous les pieds.
+  //
+  // Les ÉTATS et les CRÉNEAUX en font partie : ils se modifient dans Paramétrage,
+  // et sans ce rechargement l'écran d'appel gardait la liste du tout premier
+  // affichage — anciens noms, anciennes couleurs, et surtout numéros de raccourci
+  // figés sur un classement périmé (ils sont déduits de l'ordre des états).
   useEffect(() => {
     if (!actif || enCours || !supabaseConfigure) return
     chargerProspects()
       .then((rows) => setProspects(rows.filter((p) => !estApporteur(p))))
+      .catch(() => {})
+    chargerStatuts()
+      .then((rows) => rows.length && setStatuts(rows))
+      .catch(() => {})
+    chargerCreneaux()
+      .then((rows) => setCreneaux(rows.filter((c) => c.actif)))
       .catch(() => {})
     rechargerRdvJour()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1082,7 +1093,9 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
         avancer()
         return
       }
-      const n = parseInt(e.key, 10)
+      if (!/^[0-9]$/.test(e.key)) return
+      // Un clavier n'a que 10 chiffres : « 0 » sert de 10e raccourci.
+      const n = e.key === "0" ? 10 : Number(e.key)
       if (n >= 1 && n <= resultatsNonJoint.length) {
         // Touches 1-4 : « pas joint »
         e.preventDefault()
@@ -1896,7 +1909,11 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
 
               <p className="mt-4 mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
                 Joint → nouvel état
-                <span className="font-normal normal-case text-slate-400">— raccourcis : touches {resultatsNonJoint.length + 1} et +</span>
+                <span className="font-normal normal-case text-slate-400">
+                  — raccourcis : touches {resultatsNonJoint.length + 1} à 9 puis 0
+                  {statuts.length > 10 - resultatsNonJoint.length &&
+                    " · les états suivants se cliquent (plus de chiffres disponibles)"}
+                </span>
               </p>
               <div className="flex flex-wrap gap-2">
                 {statuts.map((s, i) => {
@@ -1907,8 +1924,10 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                     onClick={() => appliquer(s.libelle)}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-80 ${palette[s.couleur].pill}`}
                   >
-                    {touche <= 9 && (
-                      <kbd className="rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold">{touche}</kbd>
+                    {touche <= 10 && (
+                      <kbd className="rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold">
+                        {touche === 10 ? "0" : touche}
+                      </kbd>
                     )}
                     {s.libelle}
                   </button>
