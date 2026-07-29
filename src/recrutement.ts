@@ -14,6 +14,7 @@ export type SousTraitant = {
   telephone: string
   metier: string
   zone: string
+  source?: string // d'où vient l'artisan (Pages Jaunes, Google Maps, fichier…)
   statut: StatutST
   sequenceId?: string | null
   etapeCourante: number // index de la PROCHAINE étape à envoyer

@@ -75,14 +75,25 @@ export default function BaseST() {
         "Métier de cette base ? (ex. Plombier, Peintre…)\nLaisse vide pour garder le métier indiqué dans le fichier.",
         "",
       )
-      const liste =
-        metier && metier.trim()
-          ? res.sousTraitants.map((s) => ({ ...s, metier: metier.trim() }))
-          : res.sousTraitants
+      // Source de CETTE base (ex. « Pages Jaunes ») : taggue toutes les lignes d'un coup.
+      // Vide = on garde la colonne « source » du fichier si elle existe.
+      const source = prompt(
+        "Source de cette base ? (ex. Pages Jaunes, Google Maps, salon…)\nLaisse vide pour garder la source indiquée dans le fichier.",
+        "",
+      )
+      const mTrim = metier?.trim()
+      const sTrim = source?.trim()
+      const liste = res.sousTraitants.map((s) => ({
+        ...s,
+        ...(mTrim ? { metier: mTrim } : {}),
+        ...(sTrim ? { source: sTrim } : {}),
+      }))
       const n = await insererSousTraitants(liste)
       await recharger()
       setInfo(
-        `${n} sous-traitant(s) importé(s)${metier && metier.trim() ? ` (métier : ${metier.trim()})` : ""}` +
+        `${n} sous-traitant(s) importé(s)` +
+          (mTrim ? ` (métier : ${mTrim})` : "") +
+          (sTrim ? ` (source : ${sTrim})` : "") +
           (res.ignorees ? ` — ${res.ignorees} ligne(s) ignorée(s) (ni e-mail ni téléphone).` : "."),
       )
     } catch (e) {
@@ -116,7 +127,7 @@ export default function BaseST() {
   const filtree = liste.filter((st) => {
     if (!recherche.trim()) return true
     const t = recherche.toLowerCase()
-    return [st.entreprise, st.contact, st.email, st.metier, st.zone]
+    return [st.entreprise, st.contact, st.email, st.telephone, st.metier, st.zone, st.source]
       .join(" ")
       .toLowerCase()
       .includes(t)
@@ -167,7 +178,7 @@ export default function BaseST() {
           Importer (Excel/CSV)
         </button>
         <button
-          onClick={() => setModal({ st: { entreprise: "", contact: "", email: "", telephone: "", metier: "", zone: "" } })}
+          onClick={() => setModal({ st: { entreprise: "", contact: "", email: "", telephone: "", metier: "", zone: "", source: "" } })}
           className="flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           <Plus size={15} /> Ajouter
@@ -199,7 +210,10 @@ export default function BaseST() {
             <tr>
               <th className="px-4 py-3">Entreprise</th>
               <th className="px-4 py-3">Contact</th>
+              <th className="px-4 py-3">Téléphone</th>
               <th className="px-4 py-3">Métier</th>
+              <th className="px-4 py-3">Zone</th>
+              <th className="px-4 py-3">Source</th>
               <th className="px-4 py-3">Statut</th>
               <th className="px-4 py-3 text-center">Clics</th>
               <th className="px-4 py-3"></th>
@@ -210,10 +224,13 @@ export default function BaseST() {
               <tr key={st.id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-800">{st.entreprise || "—"}</div>
-                  <div className="text-xs text-slate-400">{st.email || st.telephone || "—"}</div>
+                  <div className="text-xs text-slate-400">{st.email || "—"}</div>
                 </td>
                 <td className="px-4 py-3 text-slate-600">{st.contact || "—"}</td>
+                <td className="px-4 py-3 text-slate-600">{st.telephone || "—"}</td>
                 <td className="px-4 py-3 text-slate-600">{st.metier || "—"}</td>
+                <td className="px-4 py-3 text-slate-600">{st.zone || "—"}</td>
+                <td className="px-4 py-3 text-slate-500">{st.source || "—"}</td>
                 <td className="px-4 py-3">
                   <span className={"rounded-full px-2.5 py-0.5 text-xs font-medium " + couleurStatut[st.statut]}>
                     {libelleStatutST[st.statut]}
@@ -242,7 +259,7 @@ export default function BaseST() {
             ))}
             {filtree.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">
                   {liste.length === 0
                     ? "Aucun sous-traitant. Importez un fichier ou ajoutez-en un."
                     : "Aucun résultat pour cette recherche."}
@@ -325,6 +342,14 @@ function ModalST({
               <input className={champ} value={f.zone ?? ""} onChange={(e) => set("zone", e.target.value)} />
             </Ligne>
           </div>
+          <Ligne label="Source">
+            <input
+              className={champ}
+              value={f.source ?? ""}
+              onChange={(e) => set("source", e.target.value)}
+              placeholder="ex. Pages Jaunes, Google Maps…"
+            />
+          </Ligne>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3.5">
           <button

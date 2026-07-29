@@ -9,6 +9,7 @@ type LigneST = {
   telephone: string
   metier: string
   zone: string
+  source: string | null
   statut: string
   sequence_id: string | null
   etape_courante: number
@@ -30,6 +31,7 @@ function vers(r: LigneST): SousTraitant {
     telephone: r.telephone ?? "",
     metier: r.metier ?? "",
     zone: r.zone ?? "",
+    source: r.source ?? "",
     statut: (r.statut ?? "a_contacter") as StatutST,
     sequenceId: r.sequence_id,
     etapeCourante: r.etape_courante ?? 0,
@@ -53,6 +55,7 @@ function versLigne(st: Partial<SousTraitant>) {
   if (st.telephone !== undefined) l.telephone = st.telephone
   if (st.metier !== undefined) l.metier = st.metier
   if (st.zone !== undefined) l.zone = st.zone
+  if (st.source !== undefined) l.source = st.source
   if (st.statut !== undefined) l.statut = st.statut
   if (st.sequenceId !== undefined) l.sequence_id = st.sequenceId
   if (st.etapeCourante !== undefined) l.etape_courante = st.etapeCourante
@@ -62,12 +65,22 @@ function versLigne(st: Partial<SousTraitant>) {
 
 export async function chargerSousTraitants(): Promise<SousTraitant[]> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { data, error } = await supabase
-    .from("st_sous_traitants")
-    .select("*")
-    .order("cree_le", { ascending: false })
-  if (error) throw new Error(error.message)
-  return (data as LigneST[]).map(vers)
+  // Supabase/PostgREST plafonne à 1000 lignes par requête. On pagine pour tout
+  // récupérer, sinon la base semble bloquée à 1000 sous-traitants.
+  const PAS = 1000
+  const tout: LigneST[] = []
+  for (let debut = 0; ; debut += PAS) {
+    const { data, error } = await supabase
+      .from("st_sous_traitants")
+      .select("*")
+      .order("cree_le", { ascending: false })
+      .range(debut, debut + PAS - 1)
+    if (error) throw new Error(error.message)
+    const lot = (data ?? []) as LigneST[]
+    tout.push(...lot)
+    if (lot.length < PAS) break
+  }
+  return tout.map(vers)
 }
 
 export async function creerSousTraitant(st: Partial<SousTraitant>): Promise<SousTraitant> {
@@ -108,12 +121,20 @@ export async function supprimerSousTraitant(id: string): Promise<void> {
 // Liste des métiers présents dans la base (pour proposer des objectifs cohérents).
 export async function metiersDistincts(): Promise<string[]> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { data, error } = await supabase.from("st_sous_traitants").select("metier")
-  if (error) throw new Error(error.message)
+  const PAS = 1000
   const set = new Set<string>()
-  for (const r of (data as { metier: string }[]) ?? []) {
-    const m = (r.metier || "").trim()
-    if (m) set.add(m)
+  for (let debut = 0; ; debut += PAS) {
+    const { data, error } = await supabase
+      .from("st_sous_traitants")
+      .select("metier")
+      .range(debut, debut + PAS - 1)
+    if (error) throw new Error(error.message)
+    const lot = (data as { metier: string }[]) ?? []
+    for (const r of lot) {
+      const m = (r.metier || "").trim()
+      if (m) set.add(m)
+    }
+    if (lot.length < PAS) break
   }
   return [...set].sort((a, b) => a.localeCompare(b, "fr"))
 }

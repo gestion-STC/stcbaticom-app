@@ -42,6 +42,7 @@ function repererColonnes(entete: string[]): Record<string, number> {
     if (idx.email === undefined && /mail|email|courriel|e-mail/.test(h)) idx.email = i
     if (idx.telephone === undefined && /tel|phone|portable|mobile|gsm/.test(h)) idx.telephone = i
     if (idx.metier === undefined && /metier|activite|corps|specialite|categorie/.test(h)) idx.metier = i
+    if (idx.source === undefined && /source|origine|provenance|canal|apporteur/.test(h)) idx.source = i
     if (idx.zone === undefined && /zone|ville|departement|secteur|region|cp|code postal|adresse/.test(h)) idx.zone = i
   })
   return idx
@@ -95,6 +96,7 @@ export function construire(lignes: string[][]): { sousTraitants: Partial<SousTra
     const entreprise = (cols.entreprise !== undefined ? cells[cols.entreprise] : cells[0] ?? "").trim()
     const contact = (cols.contact !== undefined ? cells[cols.contact] : "").trim()
     const metier = (cols.metier !== undefined ? cells[cols.metier] : "").trim()
+    const source = (cols.source !== undefined ? cells[cols.source] : "").trim()
     const zone = (cols.zone !== undefined ? cells[cols.zone] : "").trim()
 
     // Sans e-mail NI téléphone, impossible de relancer → on écarte.
@@ -110,6 +112,7 @@ export function construire(lignes: string[][]): { sousTraitants: Partial<SousTra
       telephone,
       metier,
       zone,
+      source,
       statut: "a_contacter",
       etapeCourante: 0,
       nbClics: 0,

@@ -20,6 +20,15 @@ describe("import sous-traitants — construire", () => {
     expect(st.statut).toBe("a_contacter")
   })
 
+  it("reconnaît la colonne Source (origine de l'artisan)", () => {
+    const lignes = [
+      ["Entreprise", "Email", "Téléphone", "Métier", "Source"],
+      ["Plomberie Martin", "jean@martin.fr", "0612345678", "Plombier", "Pages Jaunes"],
+    ]
+    const { sousTraitants } = construire(lignes)
+    expect(sousTraitants[0].source).toBe("Pages Jaunes")
+  })
+
   it("écarte les lignes sans e-mail ni téléphone (inutilisables pour relancer)", () => {
     const lignes = [
       ["Entreprise", "Email", "Téléphone"],
