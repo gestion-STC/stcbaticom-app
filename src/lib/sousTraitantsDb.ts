@@ -17,6 +17,8 @@ type LigneST = {
   token: string
   dernier_clic_le: string | null
   nb_clics: number
+  bareme_vu_le: string | null
+  candidature_clic_le: string | null
   depose_le: string | null
   dossier_id: string | null
   cree_le: string
@@ -39,6 +41,8 @@ function vers(r: LigneST): SousTraitant {
     token: r.token,
     dernierClicLe: r.dernier_clic_le,
     nbClics: r.nb_clics ?? 0,
+    baremeVuLe: r.bareme_vu_le,
+    candidatureClicLe: r.candidature_clic_le,
     deposeLe: r.depose_le,
     dossierId: r.dossier_id,
     creeLe: r.cree_le,

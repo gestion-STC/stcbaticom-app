@@ -51,12 +51,19 @@ function texteVersHtml(texte: string, lien: string): string {
   return `<div style="font-family:Montserrat,Arial,sans-serif;font-size:14px;color:#1e293b">${html}</div>`
 }
 
-function remplir(texte: string, st: Record<string, unknown>, lien: string): string {
+function remplir(
+  texte: string,
+  st: Record<string, unknown>,
+  lienCandidature: string,
+  lienBareme: string,
+): string {
   return String(texte || "")
     .replaceAll("{{contact}}", String(st.contact || ""))
     .replaceAll("{{entreprise}}", String(st.entreprise || ""))
     .replaceAll("{{metier}}", String(st.metier || ""))
-    .replaceAll("{{lien}}", lien)
+    .replaceAll("{{lien_candidature}}", lienCandidature)
+    .replaceAll("{{lien_bareme}}", lienBareme)
+    .replaceAll("{{lien}}", lienCandidature) // rétrocompat : ancien {{lien}} = candidature
 }
 
 async function invoquer(base: string, cle: string, fonction: string, body: unknown) {
@@ -212,8 +219,11 @@ Deno.serve(async (req: Request) => {
       })
       if (!due) continue
 
-      const lien = `${base}/functions/v1/lien-st?t=${st.token}`
-      const contenu = remplir(due.contenu, st, lien)
+      // Deux liens tracés distincts : le clic est attribué à la BONNE destination
+      // (candidature vs barème) par la fonction lien-st.
+      const lienCandidature = `${base}/functions/v1/lien-st?t=${st.token}&d=candidature`
+      const lienBareme = `${base}/functions/v1/lien-st?t=${st.token}&d=bareme`
+      const contenu = remplir(due.contenu, st, lienCandidature, lienBareme)
       let envoi: { ok: boolean; erreur?: string }
 
       if (due.canal === "sms") {
@@ -227,8 +237,8 @@ Deno.serve(async (req: Request) => {
         else {
           const r = await invoquer(base, service, "envoyer-email", {
             to: st.email,
-            subject: remplir(due.objet, st, lien),
-            html: texteVersHtml(contenu, lien),
+            subject: remplir(due.objet, st, lienCandidature, lienBareme),
+            html: texteVersHtml(contenu, lienCandidature),
           })
           envoi = { ok: r.ok, erreur: r.ok ? undefined : String(r.data?.error || "envoi e-mail échoué") }
         }

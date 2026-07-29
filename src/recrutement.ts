@@ -22,6 +22,8 @@ export type SousTraitant = {
   token?: string
   dernierClicLe?: string | null
   nbClics: number
+  baremeVuLe?: string | null // a cliqué le lien « barème » = a consulté le barème
+  candidatureClicLe?: string | null // a cliqué le lien « candidater » (déposé ou non)
   deposeLe?: string | null
   dossierId?: string | null
   creeLe?: string
@@ -71,7 +73,9 @@ export const variablesST = [
   { cle: "{{contact}}", desc: "le nom du contact" },
   { cle: "{{entreprise}}", desc: "le nom de l'entreprise" },
   { cle: "{{metier}}", desc: "le métier / corps de métier" },
-  { cle: "{{lien}}", desc: "le lien vers le dépôt de dossier (tracké)" },
+  { cle: "{{lien_candidature}}", desc: "lien tracké vers le dépôt de dossier (candidater)" },
+  { cle: "{{lien_bareme}}", desc: "lien tracké vers le barème de prix (PDF)" },
+  { cle: "{{lien}}", desc: "raccourci = lien candidature (rétrocompat)" },
 ] as const
 
 // Remplace les variables par les vraies valeurs du sous-traitant.
