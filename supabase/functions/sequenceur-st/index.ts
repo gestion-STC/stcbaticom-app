@@ -63,6 +63,7 @@ function remplir(
     .replaceAll("{{metier}}", String(st.metier || ""))
     .replaceAll("{{lien_candidature}}", lienCandidature)
     .replaceAll("{{lien_bareme}}", lienBareme)
+    .replaceAll("{{lien_desinscription}}", "mailto:gestion@stcbatiment.fr?subject=Desinscription")
     .replaceAll("{{lien}}", lienCandidature) // rétrocompat : ancien {{lien}} = candidature
 }
 
@@ -235,10 +236,14 @@ Deno.serve(async (req: Request) => {
       } else {
         if (!st.email) envoi = { ok: false, erreur: "pas d'e-mail" }
         else {
+          // Si l'étape contient déjà un gabarit HTML, on l'envoie TEL QUEL (variables
+          // résolues) pour garder le visuel. Sinon, on convertit le texte en HTML simple.
+          const estHtml = /<(html|body|table|div|p|a|img|tr|td)\b/i.test(due.contenu)
+          const html = estHtml ? contenu : texteVersHtml(contenu, lienCandidature)
           const r = await invoquer(base, service, "envoyer-email", {
             to: st.email,
             subject: remplir(due.objet, st, lienCandidature, lienBareme),
-            html: texteVersHtml(contenu, lienCandidature),
+            html,
           })
           envoi = { ok: r.ok, erreur: r.ok ? undefined : String(r.data?.error || "envoi e-mail échoué") }
         }
