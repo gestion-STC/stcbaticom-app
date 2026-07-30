@@ -21,6 +21,7 @@ import {
   type Message,
 } from "../lib/messagesDb"
 import { chargerEmailsEnvoyes, type EmailEnvoye } from "../lib/emailsEnvoyesDb"
+import { chargerSousTraitants } from "../lib/sousTraitantsDb"
 import {
   adresseCorrespondant,
   apercuTexte,
@@ -35,6 +36,7 @@ import { formatTaille } from "../lib/stockage"
 import { supabase } from "../lib/supabase"
 
 type Onglet = "recus" | "envoyes"
+type Canal = "tous" | "recrutement" | "demarchage"
 type ModeCompo = "repondre" | "transferer" | null
 
 // Un élément affiché dans la liste : soit un message (reçu/envoyé, avec contenu),
@@ -207,6 +209,8 @@ export default function Messages() {
   const [erreur, setErreur] = useState("")
 
   const [onglet, setOnglet] = useState<Onglet>("recus")
+  const [canal, setCanal] = useState<Canal>("tous")
+  const [stEmails, setStEmails] = useState<Set<string>>(new Set())
   const [recherche, setRecherche] = useState("")
   const [filOuvert, setFilOuvert] = useState<string | null>(null)
   const [campagneOuverte, setCampagneOuverte] = useState<EmailEnvoye | null>(null)
@@ -225,12 +229,14 @@ export default function Messages() {
     setChargement(true)
     setErreur("")
     try {
-      const [liste, envois] = await Promise.all([
+      const [liste, envois, sts] = await Promise.all([
         chargerMessages(),
         chargerEmailsEnvoyes().catch(() => [] as EmailEnvoye[]),
+        chargerSousTraitants().catch(() => []),
       ])
       setMessages(liste)
       setCampagnes(envois)
+      setStEmails(new Set(sts.map((s) => (s.email || "").trim().toLowerCase()).filter(Boolean)))
       const ids = [
         ...new Set(
           [...liste.map((m) => m.prospectId), ...envois.map((e) => e.prospectId)].filter(Boolean),
@@ -283,11 +289,26 @@ export default function Messages() {
   }, [messages, campagnes, onglet])
 
   const itemsVisibles = useMemo(() => {
+    // Recrutement = le correspondant est un sous-traitant de la base ; sinon démarchage.
+    const estRecrut = (m: Message) => {
+      const e = (adresseCorrespondant(m) || "").toLowerCase()
+      return !!e && stEmails.has(e)
+    }
+    let base = items
+    if (canal !== "tous") {
+      base = base.filter((it) =>
+        it.type === "campagne"
+          ? canal === "demarchage" // les campagnes commerciales = démarchage
+          : estRecrut(it.msg)
+            ? canal === "recrutement"
+            : canal === "demarchage",
+      )
+    }
     const q = recherche.trim().toLowerCase()
-    if (!q) return items
+    if (!q) return base
     const contient = (...vals: (string | null | undefined)[]) =>
       vals.some((v) => (v || "").toLowerCase().includes(q))
-    return items.filter((it) =>
+    return base.filter((it) =>
       it.type === "msg"
         ? contient(
             nomCorrespondant(it.msg.sens === "entrant" ? it.msg.de : it.msg.a),
@@ -298,7 +319,7 @@ export default function Messages() {
           )
         : contient(prospects[it.env.prospectId], it.env.objet, it.env.modeleNom),
     )
-  }, [items, recherche, prospects])
+  }, [items, recherche, prospects, canal, stEmails])
 
   const ouvert: Fil<Message> | null = useMemo(
     () => fils.find((f) => f.cle === filOuvert) ?? null,
@@ -456,6 +477,29 @@ export default function Messages() {
             )
           })}
         </div>
+
+        {!enLecture && (
+          <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
+            {(
+              [
+                ["tous", "Tous"],
+                ["recrutement", "Recrutement"],
+                ["demarchage", "Démarchage"],
+              ] as [Canal, string][]
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setCanal(id)}
+                className={
+                  "rounded-lg px-3 py-2 font-medium transition-colors " +
+                  (canal === id ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {!enLecture && (
           <div className="relative min-w-56 flex-1">
