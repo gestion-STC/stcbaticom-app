@@ -40,16 +40,17 @@ describe("recrutementCalc", () => {
     expect(volumeADemarcher(5, 0)).toBe(0)
   })
 
-  it("compte les dispo d'un métier à contacter et joignables", () => {
+  it("compte les dispo d'un corps (multi-corps inclus), à contacter et joignables", () => {
     const liste = [
-      base({ metier: "Plombier", statut: "a_contacter", telephone: "0600000000" }),
-      base({ metier: "Plombier", statut: "a_contacter", email: "a@b.fr" }),
-      base({ metier: "Plombier", statut: "depose", telephone: "0600000000" }), // déjà déposé -> exclu
-      base({ metier: "Plombier", statut: "a_contacter" }), // ni email ni tel -> exclu
-      base({ metier: "Peintre", statut: "a_contacter", telephone: "0600000000" }), // autre métier
+      base({ metier: "Plomberie / sanitaire", statut: "a_contacter", telephone: "0600000000" }),
+      base({ metier: "Plomberie / sanitaire / Chauffage / VMC / ventilation", statut: "a_contacter", email: "a@b.fr" }), // multi-corps → compte
+      base({ metier: "Plomberie / sanitaire", statut: "depose", telephone: "0600000000" }), // déjà déposé → exclu
+      base({ metier: "Plomberie / sanitaire", statut: "a_contacter" }), // ni email ni tel → exclu
+      base({ metier: "Électricité", statut: "a_contacter", telephone: "0600000000" }), // autre corps
     ]
-    expect(dispoAContacter(liste, "Plombier")).toBe(2)
-    expect(dispoAContacter(liste, "plombier ")).toBe(2) // insensible casse/espaces
+    expect(dispoAContacter(liste, "Plomberie / sanitaire")).toBe(2)
+    expect(dispoAContacter(liste, "Chauffage / VMC / ventilation")).toBe(1) // via le multi-corps
+    expect(dispoAContacter(liste, "Électricité")).toBe(1)
     expect(dispoAContacter(liste, "")).toBe(0)
   })
 })

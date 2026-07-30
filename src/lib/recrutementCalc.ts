@@ -10,6 +10,20 @@
 
 import type { SousTraitant } from "../recrutement"
 
+// Les 7 corps de métier standards. `value` = la chaîne EXACTE présente dans la base
+// (le métier d'un artisan est une liste de ces corps jointe par " / ") ; `label` = affichage court.
+// L'éligibilité se fait par « le métier CONTIENT ce corps » → un artisan multi-corps
+// compte dans chacun de ses corps.
+export const CORPS_METIERS: { value: string; label: string }[] = [
+  { value: "Peinture", label: "Peinture" },
+  { value: "Plomberie / sanitaire", label: "Plomberie / sanitaire" },
+  { value: "Électricité", label: "Électricité" },
+  { value: "Revêtements de sols et carrelage", label: "Sols & carrelage" },
+  { value: "Plâtrerie / placo / isolation", label: "Plâtrerie / placo" },
+  { value: "Menuiserie", label: "Menuiserie" },
+  { value: "Chauffage / VMC / ventilation", label: "Chauffage / VMC" },
+]
+
 export const TAUX_DEFAUT = 0.03 // 3 % de dépôt, prudent, avant d'avoir des données
 export const MARGE = 0.25 // +25 % de sécurité sur le volume
 export const FENETRE_JOURS = 60 // fenêtre de mesure du taux
@@ -41,14 +55,17 @@ export function volumeADemarcher(objectif: number, taux: number): number {
   return Math.ceil((objectif / taux) * (1 + MARGE))
 }
 
-// Prospects d'un métier encore À CONTACTER (jamais démarchés) et joignables.
-export function dispoAContacter(liste: SousTraitant[], metier: string): number {
-  const m = metier.trim().toLowerCase()
-  if (!m) return 0
+// Un artisan exerce-t-il ce corps ? (son métier, multi-corps, CONTIENT le corps)
+export function exerceCorps(st: SousTraitant, corps: string): boolean {
+  const c = corps.trim().toLowerCase()
+  if (!c) return false
+  return (st.metier || "").toLowerCase().includes(c)
+}
+
+// Prospects d'un corps de métier encore À CONTACTER (jamais démarchés) et joignables.
+export function dispoAContacter(liste: SousTraitant[], corps: string): number {
+  if (!corps.trim()) return 0
   return liste.filter(
-    (s) =>
-      (s.metier || "").trim().toLowerCase() === m &&
-      s.statut === "a_contacter" &&
-      (s.email || s.telephone),
+    (s) => exerceCorps(s, corps) && s.statut === "a_contacter" && (s.email || s.telephone),
   ).length
 }

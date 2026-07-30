@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react"
-import { Loader2, AlertTriangle, Power, Save, CheckCircle2, Info, Plus, Trash2, HardHat, Calculator } from "lucide-react"
+import { Loader2, AlertTriangle, Power, Save, CheckCircle2, Info, Plus, Trash2, HardHat } from "lucide-react"
 import type { PilotageST as Pilotage, SequenceST, ObjectifMetier, SousTraitant } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
 import { chargerPilotage, majPilotage } from "../../lib/pilotageStDb"
 import { chargerSequences } from "../../lib/sequencesStDb"
 import { chargerObjectifs, creerObjectif, majObjectif, supprimerObjectif } from "../../lib/objectifsStDb"
-import { metiersDistincts, chargerSousTraitants } from "../../lib/sousTraitantsDb"
-import { tauxGlobal, volumeADemarcher, dispoAContacter, FENETRE_JOURS } from "../../lib/recrutementCalc"
+import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
+import { tauxGlobal, volumeADemarcher, dispoAContacter, FENETRE_JOURS, CORPS_METIERS } from "../../lib/recrutementCalc"
 
 const champ =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
@@ -20,7 +20,6 @@ export default function PilotageST() {
   const [p, setP] = useState<Pilotage | null>(null)
   const [sequences, setSequences] = useState<SequenceST[]>([])
   const [objectifs, setObjectifs] = useState<ObjectifMetier[]>([])
-  const [metiers, setMetiers] = useState<string[]>([])
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState("")
   const [enreg, setEnreg] = useState(false)
@@ -28,10 +27,8 @@ export default function PilotageST() {
   // Formulaire d'ajout d'un objectif
   const [nvMetier, setNvMetier] = useState("")
   const [nvObjectif, setNvObjectif] = useState(1)
-  // Calculateur de recrutement
+  // Base des sous-traitants (pour calculer le volume de chaque campagne)
   const [liste, setListe] = useState<SousTraitant[]>([])
-  const [calcMetier, setCalcMetier] = useState("")
-  const [calcObjectif, setCalcObjectif] = useState(5)
 
   useEffect(() => {
     if (!supabaseConfigure) {
@@ -39,12 +36,11 @@ export default function PilotageST() {
       setChargement(false)
       return
     }
-    Promise.all([chargerPilotage(), chargerSequences(), chargerObjectifs(), metiersDistincts(), chargerSousTraitants()])
-      .then(([pil, seqs, objs, mets, sts]) => {
+    Promise.all([chargerPilotage(), chargerSequences(), chargerObjectifs(), chargerSousTraitants()])
+      .then(([pil, seqs, objs, sts]) => {
         setP(pil)
         setSequences(seqs)
         setObjectifs(objs)
-        setMetiers(mets)
         setListe(sts)
       })
       .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
@@ -129,10 +125,8 @@ export default function PilotageST() {
   const seqActive = p.sequenceId ? sequences.find((s) => s.id === p.sequenceId) : sequences.find((s) => s.actif)
   const totalHebdo = objectifs.filter((o) => o.actif).reduce((n, o) => n + o.objectifHebdo, 0)
 
-  // Calculateur de recrutement (taux global sur 60 j, repli sur défaut prudent).
+  // Taux global (60 j, repli sur défaut prudent) qui pilote le calcul de toutes les campagnes.
   const tg = tauxGlobal(liste)
-  const volumeCalc = volumeADemarcher(calcObjectif, tg.taux)
-  const dispoCalc = calcMetier ? dispoAContacter(liste, calcMetier) : 0
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-8 pb-10">
@@ -164,124 +158,77 @@ export default function PilotageST() {
         </button>
       </div>
 
-      {/* Calculateur de recrutement (calcul seul, aucun envoi) */}
+      {/* Campagnes par corps de métier */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-          <Calculator size={16} className="text-blue-600" /> Combien démarcher pour recruter&nbsp;?
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <HardHat size={16} className="text-blue-600" /> Campagnes par corps de métier
+          </span>
+          <span
+            className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+            title={tg.fiable ? "taux de conversion réel" : "taux par défaut prudent (pas encore assez de données)"}
+          >
+            Taux {tg.fiable ? "réel" : "prudent"} : {(tg.taux * 100).toFixed(1)} %
+          </span>
         </div>
         <p className="mb-3 mt-1 text-xs text-slate-400">
-          Choisis un métier et le nombre voulu : le logiciel calcule le volume à démarcher à partir du taux de
-          conversion réel ({FENETRE_JOURS} derniers jours, tous métiers). C'est un <b>calcul seul</b> — rien n'est envoyé.
-        </p>
-
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="min-w-[180px] flex-1">
-            <span className="mb-1 block text-xs text-slate-500">Métier recherché</span>
-            <input
-              list="metiers-calc"
-              value={calcMetier}
-              onChange={(e) => setCalcMetier(e.target.value)}
-              placeholder="Plombier, Peintre, Électricien…"
-              className={champ}
-            />
-            <datalist id="metiers-calc">{metiers.map((m) => <option key={m} value={m} />)}</datalist>
-          </label>
-          <label className="w-28">
-            <span className="mb-1 block text-xs text-slate-500">J'en veux</span>
-            <input
-              type="number"
-              min={1}
-              value={calcObjectif}
-              onChange={(e) => setCalcObjectif(Math.max(1, parseInt(e.target.value) || 1))}
-              className={champ}
-            />
-          </label>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <Kpi
-            label="Taux de conversion utilisé"
-            valeur={(tg.taux * 100).toFixed(1) + " %"}
-            note={tg.fiable
-              ? `réel : ${tg.depots} dépôts / ${tg.contactes} contactés`
-              : `défaut prudent (pas encore assez de données : ${tg.depots} dépôt(s))`}
-          />
-          <Kpi
-            label="À démarcher (marge 25 % incl.)"
-            valeur={String(volumeCalc)}
-            note={`pour viser ${calcObjectif} recrue(s)`}
-            accent="text-blue-700"
-          />
-          <Kpi
-            label={`Dispo en base « ${calcMetier || "—"} »`}
-            valeur={calcMetier ? String(dispoCalc) : "—"}
-            note="à contacter (jamais démarchés)"
-          />
-        </div>
-
-        {calcMetier && (
-          <div className={"mt-3 rounded-lg border px-3 py-2 text-sm " + (dispoCalc >= volumeCalc ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
-            {dispoCalc >= volumeCalc
-              ? `✅ OK : démarche ${volumeCalc} « ${calcMetier} » (sur ${dispoCalc} dispo) pour viser ${calcObjectif} recrue(s).`
-              : `⚠️ Volume insuffisant : ${dispoCalc} « ${calcMetier} » dispo, il en faudrait ${volumeCalc}. Importe-en ${volumeCalc - dispoCalc} de plus, ou baisse l'objectif.`}
-          </div>
-        )}
-      </div>
-
-      {/* Objectifs par métier */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-          <HardHat size={16} className="text-blue-600" /> Objectifs par métier
-        </div>
-        <p className="mb-3 mt-1 text-xs text-slate-400">
-          Dis combien de sous-traitants tu veux recruter par semaine, métier par métier. Le moteur pioche dans la bonne base (le métier des sous-traitants) et ne démarre que ce qu'il faut.
+          Ajoute autant de campagnes que tu veux (une par corps). Dis le nombre voulu : le logiciel calcule le volume
+          à démarcher à partir du taux de conversion réel ({FENETRE_JOURS} derniers jours) + marge. Un artisan
+          multi-corps compte dans chacun de ses corps.
         </p>
 
         <div className="space-y-2">
-          {objectifs.map((o) => (
-            <div key={o.id} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2">
-              <span className="flex-1 truncate text-sm font-medium text-slate-700">{o.metier}</span>
-              <input
-                type="number"
-                min={0}
-                defaultValue={o.objectifHebdo}
-                onBlur={(e) => {
-                  const v = Math.max(0, parseInt(e.target.value) || 0)
-                  if (v !== o.objectifHebdo) changerObjectif(o, { objectifHebdo: v })
-                }}
-                className={champ + " w-20"}
-                title="Nombre à recruter par semaine"
-              />
-              <span className="text-xs text-slate-400">/sem</span>
-              <label className="flex items-center gap-1 text-xs text-slate-500">
-                <input type="checkbox" checked={o.actif} onChange={(e) => changerObjectif(o, { actif: e.target.checked })} />
-                actif
-              </label>
-              <button onClick={() => retirerObjectif(o)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Supprimer">
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-          {objectifs.length === 0 && <p className="py-2 text-xs text-slate-400">Aucun objectif. Ajoute un métier ci-dessous.</p>}
+          {objectifs.map((o) => {
+            const vol = volumeADemarcher(o.objectifHebdo, tg.taux)
+            const dispo = dispoAContacter(liste, o.metier)
+            const assez = dispo >= vol
+            return (
+              <div key={o.id} className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 truncate text-sm font-medium text-slate-700">{corpsLabel(o.metier)}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    defaultValue={o.objectifHebdo}
+                    onBlur={(e) => {
+                      const v = Math.max(0, parseInt(e.target.value) || 0)
+                      if (v !== o.objectifHebdo) changerObjectif(o, { objectifHebdo: v })
+                    }}
+                    className={champ + " w-16"}
+                    title="Nombre à recruter"
+                  />
+                  <span className="text-xs text-slate-400">voulus</span>
+                  <label className="flex items-center gap-1 text-xs text-slate-500">
+                    <input type="checkbox" checked={o.actif} onChange={(e) => changerObjectif(o, { actif: e.target.checked })} />
+                    actif
+                  </label>
+                  <button onClick={() => retirerObjectif(o)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Supprimer">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  → démarcher ~<b className="text-slate-700">{vol}</b> ·{" "}
+                  <span className={assez ? "text-emerald-600" : "text-amber-600"}>
+                    {dispo} dispo{assez ? "" : ` (manque ${vol - dispo})`}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+          {objectifs.length === 0 && <p className="py-2 text-xs text-slate-400">Aucune campagne. Ajoute un corps de métier ci-dessous.</p>}
         </div>
 
-        {/* Ajout */}
+        {/* Ajout d'une campagne */}
         <div className="mt-3 flex items-end gap-2 border-t border-slate-100 pt-3">
           <label className="flex-1">
-            <span className="mb-1 block text-xs text-slate-500">Métier</span>
-            <input
-              list="metiers-base"
-              value={nvMetier}
-              onChange={(e) => setNvMetier(e.target.value)}
-              placeholder="Plombier, Peintre, Électricien…"
-              className={champ}
-            />
-            <datalist id="metiers-base">
-              {metiers.map((m) => <option key={m} value={m} />)}
-            </datalist>
+            <span className="mb-1 block text-xs text-slate-500">Corps de métier</span>
+            <select value={nvMetier} onChange={(e) => setNvMetier(e.target.value)} className={champ}>
+              <option value="">— choisir —</option>
+              {CORPS_METIERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
           </label>
           <label className="w-24">
-            <span className="mb-1 block text-xs text-slate-500">Par sem.</span>
+            <span className="mb-1 block text-xs text-slate-500">Nb voulu</span>
             <input type="number" min={0} value={nvObjectif} onChange={(e) => setNvObjectif(Math.max(0, parseInt(e.target.value) || 0))} className={champ} />
           </label>
           <button onClick={ajouterObjectif} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700">
@@ -291,13 +238,7 @@ export default function PilotageST() {
 
         {objectifs.length > 0 && (
           <p className="mt-3 text-xs text-slate-500">
-            Total visé : <b className="text-slate-700">{totalHebdo}</b> sous-traitant(s)/semaine, tous métiers actifs confondus.
-          </p>
-        )}
-        {metiers.length === 0 && (
-          <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-600">
-            <Info size={13} className="mt-0.5 shrink-0" />
-            Astuce : importe d'abord tes bases (onglet Base) en leur donnant un métier — les métiers seront alors suggérés ici.
+            Total visé : <b className="text-slate-700">{totalHebdo}</b> recrue(s), toutes campagnes actives confondues.
           </p>
         )}
       </div>
@@ -357,13 +298,7 @@ export default function PilotageST() {
   )
 }
 
-// Petite tuile chiffre + légende (calculateur de recrutement).
-function Kpi({ label, valeur, note, accent = "text-slate-800" }: { label: string; valeur: string; note?: string; accent?: string }) {
-  return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2.5">
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={"mt-0.5 text-xl font-bold " + accent}>{valeur}</div>
-      {note && <div className="mt-0.5 text-[11px] leading-snug text-slate-400">{note}</div>}
-    </div>
-  )
+// Libellé court d'un corps de métier (repli sur la valeur brute si inconnu).
+function corpsLabel(value: string): string {
+  return CORPS_METIERS.find((c) => c.value === value)?.label ?? value
 }
