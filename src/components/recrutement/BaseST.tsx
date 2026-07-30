@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   MousePointerClick,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import type { SousTraitant, StatutST } from "../../recrutement"
 import { libelleStatutST } from "../../recrutement"
@@ -37,6 +39,7 @@ export default function BaseST() {
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState("")
   const [recherche, setRecherche] = useState("")
+  const [page, setPage] = useState(0)
   const [modal, setModal] = useState<{ st: Partial<SousTraitant>; id?: string } | null>(null)
   const [importEnCours, setImportEnCours] = useState(false)
   const [info, setInfo] = useState("")
@@ -133,6 +136,12 @@ export default function BaseST() {
       .includes(t)
   })
 
+  // Pagination : pages de 50.
+  const PAR_PAGE = 50
+  const nbPages = Math.max(1, Math.ceil(filtree.length / PAR_PAGE))
+  const pageCourante = Math.min(page, nbPages - 1)
+  const filtreePage = filtree.slice(pageCourante * PAR_PAGE, pageCourante * PAR_PAGE + PAR_PAGE)
+
   // Résumé du tunnel (compteurs simples ; le détail vit dans l'onglet Suivi).
   const nb = {
     total: liste.length,
@@ -149,7 +158,7 @@ export default function BaseST() {
     )
 
   return (
-    <div className="mx-auto max-w-5xl px-8 pb-10">
+    <div className="w-full px-6 pb-10">
       {/* Compteurs du tunnel */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Compteur label="Dans la base" valeur={nb.total} />
@@ -164,7 +173,7 @@ export default function BaseST() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={recherche}
-            onChange={(e) => setRecherche(e.target.value)}
+            onChange={(e) => { setRecherche(e.target.value); setPage(0) }}
             placeholder="Rechercher (entreprise, contact, métier…)"
             className={champ + " pl-9"}
           />
@@ -220,7 +229,7 @@ export default function BaseST() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtree.map((st) => (
+            {filtreePage.map((st) => (
               <tr key={st.id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-800">{st.entreprise || "—"}</div>
@@ -269,6 +278,26 @@ export default function BaseST() {
           </tbody>
         </table>
       </div>
+
+      {nbPages > 1 && (
+        <div className="mt-4 flex items-center justify-center gap-4 text-sm text-slate-600">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={pageCourante <= 0}
+            className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <ChevronLeft size={15} /> Précédent
+          </button>
+          <span>Page <b>{pageCourante + 1}</b> / {nbPages} · {filtree.length} sous-traitants</span>
+          <button
+            onClick={() => setPage((p) => Math.min(nbPages - 1, p + 1))}
+            disabled={pageCourante >= nbPages - 1}
+            className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50 disabled:opacity-40"
+          >
+            Suivant <ChevronRight size={15} />
+          </button>
+        </div>
+      )}
 
       {modal && <ModalST donnee={modal} onFermer={() => setModal(null)} onEnregistrer={enregistrer} />}
     </div>

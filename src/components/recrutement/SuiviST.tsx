@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { Loader2, AlertTriangle, Send, MousePointerClick, FileCheck2, Target, FileText, Flame } from "lucide-react"
+import { Loader2, AlertTriangle, Send, MousePointerClick, FileCheck2, Target, FileText, Flame, Phone } from "lucide-react"
 import type { SousTraitant, PilotageST } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
 import { chargerPilotage } from "../../lib/pilotageStDb"
+import { lancerAppelRingover } from "../../lib/ringover"
 
 const JOUR_MS = 86_400_000
 
@@ -50,6 +51,14 @@ export default function SuiviST() {
   const candidatSansDepot = liste
     .filter((s) => s.candidatureClicLe && !aDepose(s))
     .sort((a, b) => new Date(b.candidatureClicLe!).getTime() - new Date(a.candidatureClicLe!).getTime())
+
+  // Appel Ringover en 1 clic depuis les listes d'intéressés.
+  const appeler = async (s: SousTraitant) => {
+    if (!s.telephone) { setErreur("Ce sous-traitant n'a pas de numéro de téléphone."); return }
+    setErreur("")
+    const r = await lancerAppelRingover(s.telephone)
+    if (!r.ok) setErreur(r.message || "Appel impossible pour le moment.")
+  }
 
   // Objectif de la semaine (7 jours glissants).
   const depuis7j = Date.now() - 7 * JOUR_MS
@@ -128,6 +137,7 @@ export default function SuiviST() {
           items={baremeVus}
           dateOf={(s) => s.baremeVuLe ?? null}
           vide="Personne n'a encore ouvert le barème."
+          onAppel={appeler}
         />
         <ListeInteresses
           titre="« Candidater » cliqué, sans dépôt"
@@ -135,6 +145,7 @@ export default function SuiviST() {
           items={candidatSansDepot}
           dateOf={(s) => s.candidatureClicLe ?? null}
           vide="Aucun intéressé en attente de dépôt."
+          onAppel={appeler}
         />
       </div>
     </div>
@@ -149,12 +160,14 @@ function ListeInteresses({
   items,
   dateOf,
   vide,
+  onAppel,
 }: {
   titre: string
   icone: ReactNode
   items: SousTraitant[]
   dateOf: (s: SousTraitant) => string | null
   vide: string
+  onAppel: (s: SousTraitant) => void
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -165,21 +178,27 @@ function ListeInteresses({
       {items.length === 0 ? (
         <p className="text-xs text-slate-400">{vide}</p>
       ) : (
-        <ul className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+        <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
           {items.map((s) => {
             const d = dateOf(s)
             return (
-              <li
-                key={s.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-1.5 text-[13px]"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium text-slate-800">{s.entreprise || s.contact || "—"}</span>
-                  <span className="block truncate text-[11px] text-slate-400">
-                    {[s.metier, s.telephone || s.email].filter(Boolean).join(" · ") || "—"}
+              <li key={s.id}>
+                <button
+                  onClick={() => onAppel(s)}
+                  disabled={!s.telephone}
+                  title={s.telephone ? `Appeler ${s.telephone}` : "Pas de numéro"}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-1.5 text-left text-[13px] transition-colors hover:border-blue-300 hover:bg-blue-50/70 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-slate-800">{s.entreprise || s.contact || "—"}</span>
+                    <span className="block truncate text-[11px] text-slate-400">
+                      {[s.metier, d ? new Date(d).toLocaleDateString("fr-FR") : null].filter(Boolean).join(" · ") || "—"}
+                    </span>
                   </span>
-                </span>
-                {d && <span className="shrink-0 text-[11px] text-slate-400">{new Date(d).toLocaleDateString("fr-FR")}</span>}
+                  <span className="flex shrink-0 items-center gap-1 font-semibold text-blue-700">
+                    <Phone size={13} /> {s.telephone || "—"}
+                  </span>
+                </button>
               </li>
             )
           })}
