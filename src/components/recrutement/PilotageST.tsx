@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react"
-import { Loader2, AlertTriangle, Power, Save, CheckCircle2, Info, Plus, Trash2, HardHat } from "lucide-react"
-import type { PilotageST as Pilotage, SequenceST, ObjectifMetier } from "../../recrutement"
+import { Loader2, AlertTriangle, Power, Save, CheckCircle2, Info, Plus, Trash2, HardHat, Calculator } from "lucide-react"
+import type { PilotageST as Pilotage, SequenceST, ObjectifMetier, SousTraitant } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
 import { chargerPilotage, majPilotage } from "../../lib/pilotageStDb"
 import { chargerSequences } from "../../lib/sequencesStDb"
 import { chargerObjectifs, creerObjectif, majObjectif, supprimerObjectif } from "../../lib/objectifsStDb"
-import { metiersDistincts } from "../../lib/sousTraitantsDb"
+import { metiersDistincts, chargerSousTraitants } from "../../lib/sousTraitantsDb"
+import { tauxGlobal, volumeADemarcher, dispoAContacter, FENETRE_JOURS } from "../../lib/recrutementCalc"
 
 const champ =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
@@ -27,6 +28,10 @@ export default function PilotageST() {
   // Formulaire d'ajout d'un objectif
   const [nvMetier, setNvMetier] = useState("")
   const [nvObjectif, setNvObjectif] = useState(1)
+  // Calculateur de recrutement
+  const [liste, setListe] = useState<SousTraitant[]>([])
+  const [calcMetier, setCalcMetier] = useState("")
+  const [calcObjectif, setCalcObjectif] = useState(5)
 
   useEffect(() => {
     if (!supabaseConfigure) {
@@ -34,12 +39,13 @@ export default function PilotageST() {
       setChargement(false)
       return
     }
-    Promise.all([chargerPilotage(), chargerSequences(), chargerObjectifs(), metiersDistincts()])
-      .then(([pil, seqs, objs, mets]) => {
+    Promise.all([chargerPilotage(), chargerSequences(), chargerObjectifs(), metiersDistincts(), chargerSousTraitants()])
+      .then(([pil, seqs, objs, mets, sts]) => {
         setP(pil)
         setSequences(seqs)
         setObjectifs(objs)
         setMetiers(mets)
+        setListe(sts)
       })
       .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
       .finally(() => setChargement(false))
@@ -123,6 +129,11 @@ export default function PilotageST() {
   const seqActive = p.sequenceId ? sequences.find((s) => s.id === p.sequenceId) : sequences.find((s) => s.actif)
   const totalHebdo = objectifs.filter((o) => o.actif).reduce((n, o) => n + o.objectifHebdo, 0)
 
+  // Calculateur de recrutement (taux global sur 60 j, repli sur défaut prudent).
+  const tg = tauxGlobal(liste)
+  const volumeCalc = volumeADemarcher(calcObjectif, tg.taux)
+  const dispoCalc = calcMetier ? dispoAContacter(liste, calcMetier) : 0
+
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-8 pb-10">
       {erreur && (
@@ -151,6 +162,70 @@ export default function PilotageST() {
         >
           {p.actif ? "Arrêter" : "Lancer"}
         </button>
+      </div>
+
+      {/* Calculateur de recrutement (calcul seul, aucun envoi) */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <Calculator size={16} className="text-blue-600" /> Combien démarcher pour recruter&nbsp;?
+        </div>
+        <p className="mb-3 mt-1 text-xs text-slate-400">
+          Choisis un métier et le nombre voulu : le logiciel calcule le volume à démarcher à partir du taux de
+          conversion réel ({FENETRE_JOURS} derniers jours, tous métiers). C'est un <b>calcul seul</b> — rien n'est envoyé.
+        </p>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-[180px] flex-1">
+            <span className="mb-1 block text-xs text-slate-500">Métier recherché</span>
+            <input
+              list="metiers-calc"
+              value={calcMetier}
+              onChange={(e) => setCalcMetier(e.target.value)}
+              placeholder="Plombier, Peintre, Électricien…"
+              className={champ}
+            />
+            <datalist id="metiers-calc">{metiers.map((m) => <option key={m} value={m} />)}</datalist>
+          </label>
+          <label className="w-28">
+            <span className="mb-1 block text-xs text-slate-500">J'en veux</span>
+            <input
+              type="number"
+              min={1}
+              value={calcObjectif}
+              onChange={(e) => setCalcObjectif(Math.max(1, parseInt(e.target.value) || 1))}
+              className={champ}
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Kpi
+            label="Taux de conversion utilisé"
+            valeur={(tg.taux * 100).toFixed(1) + " %"}
+            note={tg.fiable
+              ? `réel : ${tg.depots} dépôts / ${tg.contactes} contactés`
+              : `défaut prudent (pas encore assez de données : ${tg.depots} dépôt(s))`}
+          />
+          <Kpi
+            label="À démarcher (marge 25 % incl.)"
+            valeur={String(volumeCalc)}
+            note={`pour viser ${calcObjectif} recrue(s)`}
+            accent="text-blue-700"
+          />
+          <Kpi
+            label={`Dispo en base « ${calcMetier || "—"} »`}
+            valeur={calcMetier ? String(dispoCalc) : "—"}
+            note="à contacter (jamais démarchés)"
+          />
+        </div>
+
+        {calcMetier && (
+          <div className={"mt-3 rounded-lg border px-3 py-2 text-sm " + (dispoCalc >= volumeCalc ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
+            {dispoCalc >= volumeCalc
+              ? `✅ OK : démarche ${volumeCalc} « ${calcMetier} » (sur ${dispoCalc} dispo) pour viser ${calcObjectif} recrue(s).`
+              : `⚠️ Volume insuffisant : ${dispoCalc} « ${calcMetier} » dispo, il en faudrait ${volumeCalc}. Importe-en ${volumeCalc - dispoCalc} de plus, ou baisse l'objectif.`}
+          </div>
+        )}
       </div>
 
       {/* Objectifs par métier */}
@@ -278,6 +353,17 @@ export default function PilotageST() {
         </button>
         {ok && <span className="flex items-center gap-1.5 text-sm text-emerald-600"><CheckCircle2 size={15} /> Enregistré</span>}
       </div>
+    </div>
+  )
+}
+
+// Petite tuile chiffre + légende (calculateur de recrutement).
+function Kpi({ label, valeur, note, accent = "text-slate-800" }: { label: string; valeur: string; note?: string; accent?: string }) {
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={"mt-0.5 text-xl font-bold " + accent}>{valeur}</div>
+      {note && <div className="mt-0.5 text-[11px] leading-snug text-slate-400">{note}</div>}
     </div>
   )
 }
