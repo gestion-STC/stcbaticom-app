@@ -4,11 +4,9 @@
 // (secret RINGOVER_API_KEY), jamais dans le navigateur. Utilisée par le séquenceur
 // de recrutement des sous-traitants (sequenceur-st) et testable à la main.
 //
-// ⚠️ À CONFIRMER quand l'offre SMS Ringover est active : l'URL et le format exact du
-// corps de la requête SMS. D'après l'API publique Ringover, l'envoi de SMS se fait via
-// POST /v2/push/sms avec { from_number, to_number, content } (numéros au format E.164
-// en chiffres, comme pour /callback). Si Ringover renvoie une erreur de format, il n'y
-// a QUE la constante URL_SMS et le corps « payload » ci-dessous à ajuster.
+// Format CONFIRMÉ (OpenAPI Ringover) : POST /v2/push/sms, body JSON
+// { from_number, to_number, content } avec les numéros en E.164 sous forme de
+// CHAÎNE (« +33… »). L'API refuse les entiers ou les numéros sans « + » (« Bad body »).
 //
 // Secret nécessaire : RINGOVER_API_KEY (déjà en place, partagé avec rapid-task).
 // Un numéro Ringover activé pour l'envoi de SMS est requis (côté compte Ringover).
@@ -60,8 +58,10 @@ Deno.serve(async (req: Request) => {
     const from = Deno.env.get("RINGOVER_SMS_FROM") || corps?.from || ""
     const dFrom = normaliser(String(from))
 
-    const payload: Record<string, number | string> = { to_number: Number(dTo), content: message }
-    if (numeroOk(dFrom)) payload.from_number = Number(dFrom)
+    // Format EXIGÉ par l'API Ringover (/push/sms) : numéros en E.164 (« + » + indicatif),
+    // en CHAÎNE — pas en entier (sinon « Bad body »).
+    const payload: Record<string, string> = { to_number: "+" + dTo, content: message }
+    if (numeroOk(dFrom)) payload.from_number = "+" + dFrom
 
     const r = await fetch(URL_SMS, {
       method: "POST",
