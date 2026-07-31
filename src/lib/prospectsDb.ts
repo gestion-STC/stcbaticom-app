@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { lireParLots } from "./pagination"
 import type { Prospect, Priorite } from "../data"
 
 // Ligne telle qu'elle est stockée dans Supabase (colonnes en snake_case).
@@ -57,14 +58,24 @@ function versLigne(p: Prospect) {
 }
 
 // Récupère tous les prospects, triés par entreprise.
+// Lu PAR LOTS : sans ça, Supabase plafonne à 1000 lignes et la base est
+// silencieusement tronquée (compteurs faux, file d'appels incomplète).
 export async function chargerProspects(): Promise<Prospect[]> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { data, error } = await supabase
-    .from("prospects")
-    .select("*")
-    .order("entreprise", { ascending: true })
-  if (error) throw new Error(error.message)
-  return (data as LigneDb[]).map(versProspect)
+  const sb = supabase
+  const lignes = await lireParLots<LigneDb>((debut, fin) =>
+    sb
+      .from("prospects")
+      .select("*")
+      .order("entreprise", { ascending: true })
+      // Tri secondaire OBLIGATOIRE : deux fiches de même entreprise pourraient
+      // sinon changer d'ordre d'un lot à l'autre, et une fiche se retrouverait
+      // en double (ou serait sautée) au moment de recoller les lots.
+      .order("id", { ascending: true })
+      .range(debut, fin)
+      .then(({ data, error }) => ({ data: data as LigneDb[] | null, error })),
+  )
+  return lignes.map(versProspect)
 }
 
 // Insère une liste de prospects (import) et renvoie les lignes créées.

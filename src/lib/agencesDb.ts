@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { lireParLots } from "./pagination"
 import type { Agence } from "../agences"
 import type { Prospect } from "../data"
 
@@ -26,17 +27,32 @@ function vers(a: LigneAgence, nb = 0): Agence {
 // Toutes les agences, avec le nombre de gestionnaires reliés.
 export async function chargerAgences(): Promise<Agence[]> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { data, error } = await supabase
-    .from("agences")
-    .select("*")
-    .order("nom", { ascending: true })
-  if (error) throw new Error(error.message)
-  const liens = await supabase.from("prospect_agence").select("agence_id")
+  const sb = supabase
+  // Les DEUX lectures sont paginées : au-delà de 1000 lignes, Supabase tronque
+  // en silence — on perdrait des agences, et surtout le nombre de gestionnaires
+  // par agence serait faux (le compte se fait sur la table de liens).
+  const lignes = await lireParLots<LigneAgence>((debut, fin) =>
+    sb
+      .from("agences")
+      .select("*")
+      .order("nom", { ascending: true })
+      .order("id", { ascending: true })
+      .range(debut, fin)
+      .then(({ data, error }) => ({ data: data as LigneAgence[] | null, error })),
+  )
+  const liens = await lireParLots<{ agence_id: string }>((debut, fin) =>
+    sb
+      .from("prospect_agence")
+      .select("agence_id")
+      .order("agence_id", { ascending: true })
+      .range(debut, fin)
+      .then(({ data, error }) => ({ data: data as { agence_id: string }[] | null, error })),
+  )
   const compte: Record<string, number> = {}
-  ;(liens.data ?? []).forEach((l: { agence_id: string }) => {
+  liens.forEach((l) => {
     compte[l.agence_id] = (compte[l.agence_id] ?? 0) + 1
   })
-  return (data as LigneAgence[]).map((a) => vers(a, compte[a.id] ?? 0))
+  return lignes.map((a) => vers(a, compte[a.id] ?? 0))
 }
 
 // Agences reliées à un gestionnaire (prospect).

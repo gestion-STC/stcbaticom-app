@@ -48,7 +48,7 @@ import { secteursDisponibles, memeSecteur } from "../lib/secteurs"
 import { numeroValide, formaterTelephone, chiffresTel } from "../lib/telephone"
 import { lancerAppelRingover, statutAppelsRingover, detailAppelRingover } from "../lib/ringover"
 import { entrantActif } from "../lib/appelEntrantActif"
-import { enregistrerAppel } from "../lib/appelsDb"
+import { enregistrerAppel, chargerAppelsDuJour } from "../lib/appelsDb"
 import { resultatsNonJoint, RESULTAT_DECROCHE, RESULTAT_FAUX_NUMERO } from "../appels"
 import NouveauRdvModal from "./NouveauRdvModal"
 import EnvoyerEmailModal from "./EnvoyerEmailModal"
@@ -143,6 +143,10 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   // et fusion en cours (pour éviter le double clic).
   const [nonDoublons, setNonDoublons] = useState<Set<string>>(new Set())
   const [fusionEnCours, setFusionEnCours] = useState(false)
+  // Fiches et numéros DÉJÀ APPELÉS aujourd'hui : sans ça, un « Pas de réponse »
+  // ne changeant pas l'état, la personne revenait dans la session suivante.
+  const [idsAppelesAuj, setIdsAppelesAuj] = useState<Set<string>>(new Set())
+  const [eviterDejaAppeles, setEviterDejaAppeles] = useState(true)
   const [ordreAppel, setOrdreAppel] = useState<"base" | "meilleurs" | "melange">("melange") // ordre de la file (mélangé par défaut)
   // Priorités à INCLURE dans la session (cochées par défaut). Permet ex. « aujourd'hui
   // je n'appelle que les Haute + Moyenne ». Une priorité inconnue/vide passe toujours.
@@ -219,8 +223,24 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     lireParametre("script_appel").then((v) => v && setScript(v)).catch(() => {})
     chargerNumeros().then(setNumerosPool).catch(() => {})
     chargerNonDoublons().then(setNonDoublons).catch(() => {})
+    rechargerAppelsDuJour()
     rechargerRdvJour()
   }, [])
+
+  // Qui a déjà été appelé aujourd'hui (sortants uniquement).
+  function rechargerAppelsDuJour() {
+    chargerAppelsDuJour()
+      .then((rows) =>
+        setIdsAppelesAuj(
+          new Set(
+            rows
+              .filter((a) => a.sens !== "entrant" && a.prospectId)
+              .map((a) => a.prospectId as string),
+          ),
+        ),
+      )
+      .catch(() => {})
+  }
 
   // Le composant restant monté en permanence, les données ne se rechargent plus toutes
   // seules à chaque visite. On rafraîchit donc à chaque RETOUR sur l'onglet, SANS
@@ -246,6 +266,8 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       .then((rows) => setCreneaux(rows.filter((c) => c.actif)))
       .catch(() => {})
 
+    rechargerAppelsDuJour()
+
     // Ce qui suit REMPLACERAIT la file d'appels : jamais pendant une session.
     if (enCours) return
     chargerProspects()
@@ -254,6 +276,31 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     rechargerRdvJour()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actif])
+
+  // Numéros déjà composés aujourd'hui, déduits des fiches appelées. On raisonne
+  // aussi par NUMÉRO (et pas seulement par fiche) : deux fiches en double, ou
+  // deux gestionnaires derrière le même standard, tomberaient sinon sur la même
+  // personne deux fois dans la journée.
+  const telsAppelesAuj = useMemo(() => {
+    const tels = new Set<string>()
+    for (const p of prospects) {
+      if (!p.id || !idsAppelesAuj.has(p.id)) continue
+      const t = chiffresTel(p.telephone || "")
+      if (t) tels.add(t)
+    }
+    return tels
+  }, [prospects, idsAppelesAuj])
+
+  const dejaAppeleAuj = (p: Prospect): boolean => {
+    if (p.id && idsAppelesAuj.has(p.id)) return true
+    const t = chiffresTel(p.telephone || "")
+    return Boolean(t) && telsAppelesAuj.has(t)
+  }
+
+  // Retient qu'on vient d'appeler cette fiche (effet immédiat, sans recharger).
+  function noterAppele(id: string) {
+    setIdsAppelesAuj((s) => (s.has(id) ? s : new Set(s).add(id)))
+  }
 
   // Évite d'appeler 2 fois le même numéro dans une session
   function dedupTelephone(liste: Prospect[]): Prospect[] {
@@ -281,7 +328,21 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
 
   // File d'une session MANUELLE : état + secteur choisi à l'écran + priorités cochées.
   const fileManuelle = (libelle: string): Prospect[] =>
-    prospectsEtatSecteur(libelle, secteurFiltre).filter(prioriteOk)
+    prospectsEtatSecteur(libelle, secteurFiltre)
+      .filter(prioriteOk)
+      .filter((p) => !eviterDejaAppeles || !dejaAppeleAuj(p))
+
+  // Combien de prospects sont mis de côté parce qu'ils ont déjà été appelés
+  // aujourd'hui (affiché pour que rien ne soit écarté en silence).
+  const nbDejaAppelesEcartes = useMemo(
+    () =>
+      eviterDejaAppeles
+        ? prospectsEtatSecteur(fileStatut, secteurFiltre).filter(prioriteOk).filter(dejaAppeleAuj)
+            .length
+        : 0,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [prospects, fileStatut, secteurFiltre, prioritesActives, idsAppelesAuj, eviterDejaAppeles],
+  )
 
   // Ordonne la file selon le choix de l'utilisateur (fait au démarrage de session).
   function ordonnerFile(liste: Prospect[]): Prospect[] {
@@ -311,7 +372,15 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const st = statuts.find((s) => s.id === cr.etatId)
     if (!st) return
     // Un créneau appelle SON secteur (arrondissement), indépendamment des filtres à l'écran.
-    const file = ordonnerFile(dedupTelephone(prospectsEtatSecteur(st.libelle, cr.arrondissement ?? "")))
+    // Le garde-fou anti-rappel s'applique aussi ici, sinon lancer une session par
+    // créneau retomberait sur des personnes déjà appelées dans la journée.
+    const file = ordonnerFile(
+      dedupTelephone(
+        prospectsEtatSecteur(st.libelle, cr.arrondissement ?? "").filter(
+          (p) => !eviterDejaAppeles || !dejaAppeleAuj(p),
+        ),
+      ),
+    )
     if (file.length === 0) return
     verrouRef.current = false // repartir propre
     setFileStatut(st.libelle)
@@ -685,6 +754,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
         }).catch(echec("Sauvegarde"))
         // Changer l'état = la personne a été jointe (décroché)
         enregistrerAppel(cible.id, RESULTAT_DECROCHE, nouveauStatut).catch(echec("Enregistrement de l'appel"))
+        noterAppele(cible.id)
       }
       const estObjectif = statuts.find((s) => s.libelle === nouveauStatut)?.estObjectif
       setStats((s) => ({ appels: s.appels + 1, decroches: s.decroches + 1, os: s.os + (estObjectif ? 1 : 0) }))
@@ -722,6 +792,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       const id = courant.id
       const com = commentaireCourant
       enregistrerAppel(id, resultat, cible.statut).catch(echec("Enregistrement de l'appel"))
+      noterAppele(id)
       majProspect(id, { commentaire: com }).catch(echec("Enregistrement du commentaire"))
       setProspects((arr) =>
         arr.map((x) => (x.id === cible.id ? { ...x, commentaire: com } : x)),
@@ -1014,7 +1085,10 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
             }
           }
         }
-        if (s.prospectId) enregistrerAppel(s.prospectId, resultat, s.statut ?? "").catch(echec("Enregistrement de l'appel"))
+        if (s.prospectId) {
+          enregistrerAppel(s.prospectId, resultat, s.statut ?? "").catch(echec("Enregistrement de l'appel"))
+          noterAppele(s.prospectId)
+        }
       })()
     }
     const iv = setInterval(async () => {
@@ -1501,6 +1575,33 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
                 Aucune priorité cochée → aucun prospect à appeler. Coche au moins une priorité.
               </p>
             )}
+
+            {/* Anti-rappel : ne pas retomber sur quelqu'un déjà appelé aujourd'hui.
+                Un « Pas de réponse » ne changeant pas l'état, la personne
+                reviendrait sinon dans la session suivante. */}
+            <label className="mt-5 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3">
+              <input
+                type="checkbox"
+                checked={eviterDejaAppeles}
+                onChange={(e) => setEviterDejaAppeles(e.target.checked)}
+                className="mt-0.5 h-4 w-4"
+              />
+              <span className="flex-1">
+                <span className="block text-sm font-medium text-slate-700">
+                  Ne pas rappeler les personnes déjà appelées aujourd'hui
+                </span>
+                <span className="block text-xs text-slate-400">
+                  Évite de tomber deux fois sur la même personne dans la journée (y compris via
+                  une fiche en double ou le standard d'une agence).
+                </span>
+                {eviterDejaAppeles && nbDejaAppelesEcartes > 0 && (
+                  <span className="mt-1 block text-xs font-medium text-amber-600">
+                    {nbDejaAppelesEcartes} déjà appelé{nbDejaAppelesEcartes > 1 ? "s" : ""} aujourd'hui
+                    {" "}— mis de côté pour cette session
+                  </span>
+                )}
+              </span>
+            </label>
 
             <label className="mt-5 block text-sm font-medium text-slate-700">
               Délai avant l'appel automatique : {cadence} s

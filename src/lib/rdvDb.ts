@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { lireParLots } from "./pagination"
 import type { Rdv } from "../rdv"
 
 type LigneRdv = {
@@ -31,15 +32,22 @@ function vers(r: LigneRdv): Rdv {
   }
 }
 
+// Lu par lots : la table grossit à chaque RDV pris, et au-delà de 1000 lignes
+// Supabase tronque en silence (des RDV disparaîtraient du calendrier).
 export async function chargerRdv(): Promise<Rdv[]> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { data, error } = await supabase
-    .from("rdv")
-    .select("id, prospect_id, titre, telephone, type, date, heure, note, fait, prospects(entreprise, telephone, contact)")
-    .order("date", { ascending: true })
-    .order("heure", { ascending: true })
-  if (error) throw new Error(error.message)
-  return (data as unknown as LigneRdv[]).map(vers)
+  const sb = supabase
+  const lignes = await lireParLots<LigneRdv>((debut, fin) =>
+    sb
+      .from("rdv")
+      .select("id, prospect_id, titre, telephone, type, date, heure, note, fait, prospects(entreprise, telephone, contact)")
+      .order("date", { ascending: true })
+      .order("heure", { ascending: true })
+      .order("id", { ascending: true })
+      .range(debut, fin)
+      .then(({ data, error }) => ({ data: data as unknown as LigneRdv[] | null, error })),
+  )
+  return lignes.map(vers)
 }
 
 export async function creerRdv(r: {
