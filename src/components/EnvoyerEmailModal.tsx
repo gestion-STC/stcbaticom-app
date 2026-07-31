@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react"
-import { X, Send, Check, Loader2, AlertTriangle, PenLine } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { X, Send, Check, Loader2, AlertTriangle, PenLine, Paperclip, Trash2 } from "lucide-react"
 import type { Prospect } from "../data"
-import { variables, type Email } from "../emails"
+import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
 import { lireParametre } from "../lib/parametresDb"
+import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
 
 // Envoi d'un e-mail à un prospect.
@@ -28,6 +29,10 @@ export default function EnvoyerEmailModal({
   const [envoi, setEnvoi] = useState(false)
   const [fait, setFait] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
+  // Pièces jointes de CET envoi : celles du modèle choisi + celles ajoutées ici.
+  const [pieces, setPieces] = useState<PieceJointe[]>([])
+  const [televersement, setTeleversement] = useState(false)
+  const fichierRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     chargerEmails()
@@ -38,6 +43,7 @@ export default function EnvoyerEmailModal({
           setModeleId(e[0].id ?? "")
           setObjet(e[0].objet)
           setCorps(e[0].corps)
+          setPieces(e[0].pieces ?? [])
         }
       })
       .catch(() => {})
@@ -46,8 +52,8 @@ export default function EnvoyerEmailModal({
 
   // Ce qui part réellement : le contenu affiché à l'écran, pas le modèle d'origine.
   const aEnvoyer = useMemo<Email>(
-    () => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces: piecesDu(emails, modeleId) }),
-    [emails, modeleId, objet, corps],
+    () => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces }),
+    [emails, modeleId, objet, corps, pieces],
   )
   const apercu = useMemo(
     () => composer(aEnvoyer, prospect, signature),
@@ -60,11 +66,37 @@ export default function EnvoyerEmailModal({
     if (m) {
       setObjet(m.objet)
       setCorps(m.corps)
+      setPieces(m.pieces ?? [])
     } else {
       // « Écrire un message » : on repart d'une page blanche.
       setObjet("")
       setCorps("")
+      setPieces([])
     }
+  }
+
+  // Ajout d'un document à joindre. Le fichier est déposé dans le stockage et
+  // c'est son LIEN qui part dans le message (voir la note sous la liste).
+  async function ajouterFichier(file: File) {
+    setErreur(null)
+    setTeleversement(true)
+    try {
+      const pj = await televerser(file)
+      setPieces((l) => [...l, pj])
+    } catch (e) {
+      setErreur("Ajout du document impossible — " + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setTeleversement(false)
+      if (fichierRef.current) fichierRef.current.value = "" // permet de re-choisir le même fichier
+    }
+  }
+
+  function retirerFichier(pj: PieceJointe) {
+    setPieces((l) => l.filter((x) => x.chemin !== pj.chemin))
+    // On ne supprime du stockage QUE les fichiers ajoutés pour cet envoi : ceux
+    // qui viennent d'un modèle enregistré doivent y rester.
+    const vientDuModele = emails.some((e) => (e.pieces ?? []).some((x) => x.chemin === pj.chemin))
+    if (!vientDuModele) supprimerFichier(pj.chemin).catch(() => {})
   }
 
   function insererVariable(cle: string) {
@@ -175,6 +207,64 @@ export default function EnvoyerEmailModal({
             ))}
           </div>
 
+          {/* Pièces jointes */}
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500">Pièces jointes</span>
+              <button
+                onClick={() => fichierRef.current?.click()}
+                disabled={televersement}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {televersement ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Paperclip size={13} />
+                )}
+                {televersement ? "Ajout…" : "Ajouter un document"}
+              </button>
+            </div>
+            <input
+              ref={fichierRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) ajouterFichier(f)
+              }}
+            />
+            {pieces.length > 0 ? (
+              <ul className="mt-2 space-y-1">
+                {pieces.map((pj) => (
+                  <li
+                    key={pj.chemin}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
+                  >
+                    <Paperclip size={13} className="shrink-0 text-slate-400" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-slate-700">{pj.nom}</span>
+                    <span className="shrink-0 text-[11px] text-slate-400">
+                      {formatTaille(pj.taille)}
+                    </span>
+                    <button
+                      onClick={() => retirerFichier(pj)}
+                      title="Retirer"
+                      className="shrink-0 rounded p-1 text-slate-300 hover:text-red-500"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-400">Aucun document joint.</p>
+            )}
+            {pieces.length > 0 && (
+              <p className="mt-1 text-[11px] text-slate-400">
+                Les documents sont envoyés sous forme de liens cliquables en bas du message.
+              </p>
+            )}
+          </div>
+
           <div>
             <span className="text-xs font-medium text-slate-500">
               Aperçu (tel qu'il sera reçu, signature comprise)
@@ -226,10 +316,4 @@ export default function EnvoyerEmailModal({
 // sinon une mention explicite (utile pour s'y retrouver plus tard).
 function nomPourJournal(emails: Email[], modeleId: string): string {
   return emails.find((e) => e.id === modeleId)?.nom ?? "Message personnalisé"
-}
-
-// Les pièces jointes du modèle choisi sont conservées (elles ne sont pas
-// éditables ici) ; une page blanche part sans pièce jointe.
-function piecesDu(emails: Email[], modeleId: string) {
-  return emails.find((e) => e.id === modeleId)?.pieces ?? []
 }
