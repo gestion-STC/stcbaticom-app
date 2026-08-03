@@ -1,14 +1,35 @@
-# Publication automatique : chaque push sur main reconstruit l'app (Vite) et
-# la deploie sur GitHub Pages (gestion-stc.github.io/stcbaticom-app).
+# Publication automatique : chaque push sur main verifie la qualite (tests +
+# lint), reconstruit l'app (Vite) et la deploie sur GitHub Pages
+# (gestion-stc.github.io/stcbaticom-app).
 name: pages
 on:
   push:
     branches: [main]
+  workflow_dispatch:      # permet de relancer a la main depuis l'onglet Actions
 permissions:
   contents: read
   pages: write
   id-token: write
 jobs:
+
+  # ETAPE 1 — Qualite : fait tourner les tests (vitest) et le lint (eslint).
+  # Tant que "build-deploy" ne porte pas "needs: qualite", ce job est
+  # informatif : il signale les problemes sans empecher la mise en ligne.
+  # On le passera bloquant une fois qu'on l'aura vu vert une premiere fois.
+  qualite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Tests (vitest)
+        run: npm run test
+      - name: Lint (eslint)
+        run: npm run lint
+        continue-on-error: true   # a passer bloquant une fois le lint au propre
+
+  # ETAPE 2 — Build et mise en ligne.
   build-deploy:
     runs-on: ubuntu-latest
     environment:
