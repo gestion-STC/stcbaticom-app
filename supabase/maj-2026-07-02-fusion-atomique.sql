@@ -75,4 +75,4 @@ end;
 $$;
 
 -- Autoriser l'appli (clé anon) à appeler la fonction.
-grant execute on function public.fusionner_prospects(uuid, uuid[], jsonb) to anon, authenticated;
+grant execute on function public.fusionner_prospects(uuid, uuid[], jsonb) to authenticated;

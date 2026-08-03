@@ -18,11 +18,13 @@ create table if not exists public.prospects (
 -- Sécurité au niveau des lignes (RLS)
 alter table public.prospects enable row level security;
 
--- Prototype : on autorise l'accès complet (lecture/écriture) sans authentification.
--- À remplacer par des règles liées à l'utilisateur connecté quand on ajoutera l'auth.
+-- Accès réservé aux utilisateurs connectés. Le rôle anon n'a aucun droit :
+-- la clé publiable est publique (dépôt public + bundle JS), elle ne doit donc
+-- jamais suffire à lire ou écrire la base.
 drop policy if exists "acces_prototype" on public.prospects;
-create policy "acces_prototype" on public.prospects
+drop policy if exists "acces_connecte"  on public.prospects;
+create policy "acces_connecte" on public.prospects
   for all
-  to anon, authenticated
+  to authenticated
   using (true)
   with check (true);

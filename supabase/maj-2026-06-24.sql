@@ -19,8 +19,9 @@ alter table public.statuts add column if not exists email_rattache text default 
 alter table public.statuts add column if not exists relance_jours int;
 alter table public.statuts enable row level security;
 drop policy if exists "acces_prototype_statuts" on public.statuts;
-create policy "acces_prototype_statuts" on public.statuts
-  for all to anon, authenticated using (true) with check (true);
+drop policy if exists "acces_connecte"          on public.statuts;
+create policy "acces_connecte" on public.statuts
+  for all to authenticated using (true) with check (true);
 
 insert into public.statuts (libelle, couleur, ordre)
 select * from (values

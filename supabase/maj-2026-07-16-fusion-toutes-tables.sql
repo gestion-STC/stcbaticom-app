@@ -96,4 +96,4 @@ begin
 end;
 $$;
 
-grant execute on function public.fusionner_prospects(uuid, uuid[], jsonb) to anon, authenticated;
+grant execute on function public.fusionner_prospects(uuid, uuid[], jsonb) to authenticated;

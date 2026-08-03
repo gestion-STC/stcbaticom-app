@@ -12,9 +12,11 @@ create table if not exists public.statuts (
 
 alter table public.statuts enable row level security;
 
+-- Accès réservé aux utilisateurs connectés (voir schema.sql).
 drop policy if exists "acces_prototype_statuts" on public.statuts;
-create policy "acces_prototype_statuts" on public.statuts
-  for all to anon, authenticated
+drop policy if exists "acces_connecte"          on public.statuts;
+create policy "acces_connecte" on public.statuts
+  for all to authenticated
   using (true) with check (true);
 
 -- États de départ (vous pourrez tout modifier ensuite dans l'appli)
