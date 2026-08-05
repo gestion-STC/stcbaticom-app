@@ -71,9 +71,17 @@ function ecartJours(debut: string, fin: string): number | null {
 
 // Découpe l'historique au moment du 1er OS et compte ce qui a précédé.
 // `events` peut arriver dans n'importe quel ordre : on retrie ici.
-export function analyserParcours(events: Evenement[], objectifLibelles: string[]): Parcours {
+//
+// `dateOSSaisie` : date renseignée à la main. Elle PRIME sur la déduction par
+// l'appel, car l'OS arrive souvent hors du logiciel — c'est alors la seule
+// information fiable.
+export function analyserParcours(
+  events: Evenement[],
+  objectifLibelles: string[],
+  dateOSSaisie?: string | null,
+): Parcours {
   const tries = events.filter((e) => e.date).sort((a, b) => (a.date < b.date ? -1 : 1))
-  const dateOS = trouverMomentOS(tries, objectifLibelles)
+  const dateOS = dateOSSaisie || trouverMomentOS(tries, objectifLibelles)
 
   // Sans marqueur d'appel, on ne sait pas dater l'OS : on rend tout l'historique
   // plutôt que rien, mais sans prétendre analyser un déclencheur.

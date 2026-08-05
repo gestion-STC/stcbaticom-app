@@ -83,6 +83,28 @@ describe("analyserParcours", () => {
     expect(p.avant).toHaveLength(1)
   })
 
+  it("une date saisie a la main prime sur la deduction par l'appel", () => {
+    // l'OS est arrive par mail le 25 juillet, avant l'appel du 4 aout
+    const p = analyserParcours(parcoursReel, OBJECTIFS, "2026-07-25T23:59:59.999Z")
+    expect(p.dateOS).toBe("2026-07-25T23:59:59.999Z")
+    expect(p.comptes.appelsSortants).toBe(1) // seul celui du 21 juillet precede
+    expect(p.comptes.emailsEnvoyes).toBe(3)
+    expect(p.comptes.emailsRecus).toBe(1)
+    expect(p.nbApres).toBe(3)
+  })
+
+  it("date saisie : le parcours reste datable meme sans appel marqueur", () => {
+    const ev: Evenement[] = [
+      { type: "email", date: "2026-07-01T10:00:00Z", sens: "sortant", libelle: "Email envoyé" },
+      { type: "email", date: "2026-07-10T10:00:00Z", sens: "entrant", libelle: "Email reçu" },
+    ]
+    const p = analyserParcours(ev, OBJECTIFS, "2026-07-10T23:59:59.999Z")
+    expect(p.dateOS).toBe("2026-07-10T23:59:59.999Z")
+    expect(p.delaiJours).toBe(10)
+    expect(p.comptes.emailsEnvoyes).toBe(1)
+    expect(p.comptes.emailsRecus).toBe(1)
+  })
+
   it("ignore les evenements sans date", () => {
     const ev = [...parcoursReel, { type: "email", date: "", sens: "sortant", libelle: "x" } as Evenement]
     expect(analyserParcours(ev, OBJECTIFS).comptes.emailsEnvoyes).toBe(3)
