@@ -75,7 +75,7 @@ Deno.serve(async (req: Request) => {
       else maj.candidature_clic_le = now
       await supabase.from("st_sous_traitants").update(maj).eq("id", st.id)
     }
-  } catch (_e) {
+  } catch {
     // On avale l'erreur : la redirection prime sur le tracking.
   }
 

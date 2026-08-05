@@ -278,7 +278,7 @@ async function importerXlsx(file: File): Promise<ResultatImport> {
 }
 
 export function parseCsv(texte: string): string[][] {
-  const t = texte.replace(/^﻿/, "")
+  const t = texte.replace(/^\uFEFF/, "") // retire le BOM UTF-8 éventuel
   const premiere = t.split(/\r?\n/)[0] ?? ""
   const sep =
     (premiere.match(/;/g)?.length ?? 0) >= (premiere.match(/,/g)?.length ?? 0)
@@ -323,6 +323,7 @@ export async function importerProspects(file: File): Promise<ResultatImport> {
     const raison = err instanceof Error ? err.message : String(err)
     throw new Error(
       `Le fichier « ${file.name} » n'a pas pu être lu comme un Excel (.xlsx). Détail : ${raison}`,
+      { cause: err },
     )
   }
 }

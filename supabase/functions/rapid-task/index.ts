@@ -67,8 +67,9 @@ Deno.serve(async (req: Request) => {
       } catch {
         /* réponse illisible → total 0 */
       }
-      // deno-lint-ignore no-explicit-any
-      const d = data as any
+      // Réponse Ringover non typée : lecture tolérante champ par champ.
+      type AppelRingover = Record<string, unknown>
+      const d = data as { total_current_calls_count?: number; current_calls_list?: AppelRingover[] }
       const total =
         typeof d?.total_current_calls_count === "number"
           ? d.total_current_calls_count
@@ -80,11 +81,9 @@ Deno.serve(async (req: Request) => {
       const actif = corps.callId ? texte.includes(String(corps.callId)) : total > 0
       // Appels ENTRANTS en cours (direction IN) : qui appelle, et l'état (RINGING/ANSWERED).
       const liste = Array.isArray(d?.current_calls_list) ? d.current_calls_list : []
-      // deno-lint-ignore no-explicit-any
       const entrants = liste
-        .filter((c: any) => String(c?.direction || "").toUpperCase() === "IN")
-        // deno-lint-ignore no-explicit-any
-        .map((c: any) => ({
+        .filter((c: Record<string, unknown>) => String(c?.direction || "").toUpperCase() === "IN")
+        .map((c: Record<string, unknown>) => ({
           callId: String(c?.call_id ?? ""),
           from: String(c?.from_number ?? ""),
           to: String(c?.to_number ?? ""),

@@ -173,6 +173,6 @@ export async function importerSousTraitants(file: File): Promise<ResultatImportS
     return await importerXlsx(file)
   } catch (err) {
     const raison = err instanceof Error ? err.message : String(err)
-    throw new Error(`Le fichier « ${file.name} » n'a pas pu être lu (.xlsx). Détail : ${raison}`)
+    throw new Error(`Le fichier « ${file.name} » n'a pas pu être lu (.xlsx). Détail : ${raison}`, { cause: err })
   }
 }

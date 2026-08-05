@@ -32,8 +32,9 @@ Deno.serve(async (req: Request) => {
     }
     // Extraction TOLÉRANTE : selon l'événement, Ringover met les champs à la racine
     // ou sous « data ». On garde aussi le payload complet (brut) pour diagnostiquer.
-    // deno-lint-ignore no-explicit-any
-    const racine = data as any
+    // Payload Ringover non typé : lecture tolérante champ par champ.
+    type Souple = Record<string, unknown> & { data?: Record<string, unknown> }
+    const racine = data as Souple
     const d = racine?.data && typeof racine.data === "object" ? racine.data : racine
     const ligne = {
       call_id: callId,
