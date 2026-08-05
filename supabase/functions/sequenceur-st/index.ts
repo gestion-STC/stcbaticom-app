@@ -85,7 +85,17 @@ Deno.serve(async (req: Request) => {
   const sb: SupabaseClient = createClient(base, service)
   const now = new Date()
   const nowIso = now.toISOString()
-  const bilan = { conversions: 0, demarrages: 0, envois: 0, erreurs: 0, saut: "" as string | null }
+  const bilan = { conversions: 0, demarrages: 0, envois: 0, erreurs: 0, sms_sautes_fixe: 0, saut: "" as string | null }
+
+  // SMS uniquement vers les MOBILES français (06/07 → 336/337 en international).
+  // Un fixe (01-05, 09) ne reçoit jamais de SMS mais l'envoi serait facturé.
+  function estMobileFR(n: string): boolean {
+    let d = String(n || "").replace(/\D/g, "")
+    if (d.startsWith("00")) d = d.slice(2)
+    if (d.length === 12 && d.startsWith("330")) d = "33" + d.slice(3)
+    else if (d.length === 10 && d.startsWith("0")) d = "33" + d.slice(1)
+    return /^33[67]\d{8}$/.test(d)
+  }
 
   try {
     // --- Pilotage ------------------------------------------------------------
@@ -229,6 +239,22 @@ Deno.serve(async (req: Request) => {
 
       if (due.canal === "sms") {
         if (!st.telephone) envoi = { ok: false, erreur: "pas de téléphone" }
+        else if (!estMobileFR(st.telephone)) {
+          // Numéro FIXE (01-05, 09…) : le SMS ne sera jamais remis mais l'envoi
+          // serait facturé quand même (demande Mahdi 05/08/2026). On SAUTE
+          // l'étape sans rien consommer — la séquence continue (e-mails suivants).
+          await sb.from("st_envois").insert({
+            sous_traitant_id: st.id,
+            etape_id: due.id,
+            canal: due.canal,
+            statut: "saute",
+            erreur: `numéro non mobile (${st.telephone}) — SMS non envoyé, étape sautée`,
+          })
+          traite.add(`${st.id}:${due.id}`)
+          await sb.from("st_sous_traitants").update({ etape_courante: etapes.indexOf(due) + 1 }).eq("id", st.id)
+          bilan.sms_sautes_fixe++
+          continue
+        }
         else {
           const r = await invoquer(base, service, "envoyer-sms", { to: st.telephone, message: contenu })
           envoi = { ok: r.ok, erreur: r.ok ? undefined : String(r.data?.error || "envoi SMS échoué") }

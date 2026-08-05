@@ -53,6 +53,14 @@ Deno.serve(async (req: Request) => {
     const dTo = normaliser(to)
     if (!numeroOk(dTo)) return reponse({ error: "Numéro du destinataire invalide (après normalisation)." }, 400)
 
+    // GARDE-FOU (demande Mahdi 05/08/2026) : SMS uniquement vers les MOBILES
+    // français (06/07 → 336/337). Un numéro fixe (01-05, 09) ne recevra jamais
+    // le SMS mais l'envoi serait facturé quand même → refus propre, code
+    // "non_mobile", AVANT d'appeler Ringover (zéro consommation).
+    if (dTo.startsWith("33") && !/^33[67]\d{8}$/.test(dTo)) {
+      return reponse({ error: "Numéro non mobile (fixe 01-05/09) — SMS non envoyé pour ne pas consommer un envoi perdu.", code: "non_mobile" }, 400)
+    }
+
     // Numéro émetteur : imposé côté serveur via le secret RINGOVER_SMS_FROM si présent
     // (numéro Ringover activé pour le SMS), sinon celui fourni dans l'appel.
     const from = Deno.env.get("RINGOVER_SMS_FROM") || corps?.from || ""
