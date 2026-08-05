@@ -35,6 +35,7 @@ import { calculerSante } from "../../lib/santeBase"
 import { chargerNonDoublons } from "../../lib/nonDoublons"
 import { lireParametre, ecrireParametre } from "../../lib/parametresDb"
 import BandeauErreur from "../BandeauErreur"
+import ParcoursSignatures from "./ParcoursSignatures"
 
 // Objectif par défaut, tant que l'utilisateur n'a pas saisi le sien.
 const OBJECTIF_MENSUEL = 20
@@ -369,9 +370,13 @@ export default function Dashboard() {
           </p>
           <p className="mt-1 text-sm text-slate-500">
             Nombre moyen d'appels avant qu'un gestionnaire envoie son 1er ordre de service
+            {" "}({labelPeriode})
           </p>
         </div>
       </div>
+
+      {/* Le détail derrière la moyenne : le parcours réel de chaque signature. */}
+      <ParcoursSignatures prospects={prospects} statuts={statuts} />
 
       {/* Avancement du nettoyage de la base (au fil des appels) */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

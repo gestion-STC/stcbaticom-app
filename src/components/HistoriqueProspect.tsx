@@ -1,31 +1,7 @@
 import { useEffect, useState } from "react"
-import { Phone, PhoneIncoming, PhoneOutgoing, Mail, MailOpen, CalendarClock, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { chargerHistorique, type Evenement } from "../lib/historiqueDb"
-
-const styles = {
-  appel: { icon: Phone, teinte: "bg-violet-50 text-violet-600" },
-  email: { icon: Mail, teinte: "bg-blue-50 text-blue-600" },
-  rdv: { icon: CalendarClock, teinte: "bg-emerald-50 text-emerald-600" },
-}
-
-// Icône + couleur selon le type ET le sens (entrant = vert, sortant = violet).
-function apparence(e: Evenement) {
-  if (e.type === "appel") {
-    return e.sens === "entrant"
-      ? { icon: PhoneIncoming, teinte: "bg-emerald-50 text-emerald-600" }
-      : { icon: PhoneOutgoing, teinte: "bg-violet-50 text-violet-600" }
-  }
-  if (e.type === "email" && e.sens === "entrant")
-    return { icon: MailOpen, teinte: "bg-emerald-50 text-emerald-600" }
-  return styles[e.type]
-}
-
-function dateLisible(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ""
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) +
-    " · " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-}
+import { apparence, dateLisible } from "../lib/historiqueAffichage"
 
 export default function HistoriqueProspect({
   prospectId,
