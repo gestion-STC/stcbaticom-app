@@ -205,13 +205,18 @@ Deno.serve(async (req: Request) => {
       const aDemarrer = Math.min(vagueDispo, Math.max(0, volumeHebdo - (demarresRecents ?? 0)))
       if (aDemarrer <= 0) continue
 
-      const { data: aContacter } = await sb
+      // PROFIL ARTISAN uniquement (règle Mahdi 05/08/2026) : on ne démarre que
+      // les prospects à numéro MOBILE (06/07) — un fixe = standard d'entreprise,
+      // pas le profil recherché. On sur-échantillonne puis on filtre en JS
+      // (les formats en base varient : 06…, +336…, 0033 6…).
+      const { data: candidats } = await sb
         .from("st_sous_traitants")
-        .select("id")
+        .select("id, telephone")
         .eq("statut", "a_contacter")
         .ilike("metier", `%${metier}%`)
         .order("cree_le", { ascending: true })
-        .limit(aDemarrer)
+        .limit(aDemarrer * 4 + 20)
+      const aContacter = (candidats ?? []).filter((s) => estMobileFR(String(s.telephone || ""))).slice(0, aDemarrer)
       for (const s of aContacter ?? []) {
         await sb
           .from("st_sous_traitants")
