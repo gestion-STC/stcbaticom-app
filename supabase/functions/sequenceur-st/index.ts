@@ -158,10 +158,13 @@ Deno.serve(async (req: Request) => {
       const cible = Number(o.objectif_hebdo ?? 0)
       if (!metier || cible <= 0) continue
 
+      // Éligibilité « CONTIENT » : les prospects ont souvent plusieurs métiers
+      // (« Peinture / Plomberie / Électricité ») — un match exact raterait
+      // presque toute la base (constaté le 05/08 : Électricité exact = 1 seul).
       const { count: demarresRecents } = await sb
         .from("st_sous_traitants")
         .select("id", { count: "exact", head: true })
-        .ilike("metier", metier)
+        .ilike("metier", `%${metier}%`)
         .gte("demarre_le", depuis7j)
       const aDemarrer = Math.max(0, cible - (demarresRecents ?? 0))
       if (aDemarrer <= 0) continue
@@ -170,7 +173,7 @@ Deno.serve(async (req: Request) => {
         .from("st_sous_traitants")
         .select("id")
         .eq("statut", "a_contacter")
-        .ilike("metier", metier)
+        .ilike("metier", `%${metier}%`)
         .order("cree_le", { ascending: true })
         .limit(aDemarrer)
       for (const s of aContacter ?? []) {

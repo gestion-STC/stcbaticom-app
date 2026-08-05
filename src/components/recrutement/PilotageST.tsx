@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Loader2, AlertTriangle, Power, Save, CheckCircle2, Info, Plus, Trash2, HardHat } from "lucide-react"
 import type { PilotageST as Pilotage, SequenceST, ObjectifMetier, SousTraitant } from "../../recrutement"
-import { supabaseConfigure } from "../../lib/supabase"
+import { supabase, supabaseConfigure } from "../../lib/supabase"
 import { chargerPilotage, majPilotage } from "../../lib/pilotageStDb"
 import { chargerSequences } from "../../lib/sequencesStDb"
 import { chargerObjectifs, creerObjectif, majObjectif, supprimerObjectif } from "../../lib/objectifsStDb"
@@ -29,6 +29,9 @@ export default function PilotageST() {
   const [nvObjectif, setNvObjectif] = useState(1)
   // Base des sous-traitants (pour calculer le volume de chaque campagne)
   const [liste, setListe] = useState<SousTraitant[]>([])
+  // Suivi : envois des dernières 24 h + dernier passage du moteur
+  const [envois24h, setEnvois24h] = useState<number | null>(null)
+  const [dernierEnvoi, setDernierEnvoi] = useState<string | null>(null)
 
   useEffect(() => {
     if (!supabaseConfigure) {
@@ -45,7 +48,30 @@ export default function PilotageST() {
       })
       .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
       .finally(() => setChargement(false))
+    // Suivi des envois (24 h glissantes + dernier envoi) — informatif, non bloquant.
+    if (supabase) {
+      const depuis = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+      supabase.from("st_envois").select("id", { count: "exact", head: true }).eq("statut", "envoye").gte("envoye_le", depuis)
+        .then(({ count }) => setEnvois24h(count ?? 0))
+      supabase.from("st_envois").select("envoye_le").order("envoye_le", { ascending: false }).limit(1)
+        .then(({ data }) => setDernierEnvoi((data as { envoye_le: string }[] | null)?.[0]?.envoye_le ?? null))
+    }
   }, [])
+
+  // ── Suivi d'un objectif : réalisé vs voulu (même règle « contient » que le moteur) ──
+  const SEMAINE_MS = 7 * 24 * 3600 * 1000
+  const contientMetier = (st: SousTraitant, metier: string) =>
+    (st.metier || "").toLowerCase().includes(metier.trim().toLowerCase())
+  const suiviDe = (o: ObjectifMetier) => {
+    const depuis = Date.now() - SEMAINE_MS
+    const dans = liste.filter((s) => contientMetier(s, o.metier))
+    return {
+      demarres7j: dans.filter((s) => s.demarreLe && new Date(s.demarreLe).getTime() >= depuis).length,
+      enSequence: dans.filter((s) => s.statut === "en_sequence").length,
+      deposes7j: dans.filter((s) => s.deposeLe && new Date(s.deposeLe).getTime() >= depuis).length,
+      deposesTotal: dans.filter((s) => s.statut === "depose").length,
+    }
+  }
 
   const set = <K extends keyof Pilotage>(k: K, v: Pilotage[K]) => {
     setP((prev) => (prev ? { ...prev, [k]: v } : prev))
@@ -157,6 +183,52 @@ export default function PilotageST() {
           {p.actif ? "Arrêter" : "Lancer"}
         </button>
       </div>
+
+      {/* ── SUIVI DES OBJECTIFS : réalisé vs voulu ─────────────────────────── */}
+      {objectifs.some((o) => o.actif) && (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <CheckCircle2 size={16} className="text-emerald-600" /> Suivi des objectifs (7 derniers jours)
+            </span>
+            <span className="text-[11px] text-slate-400">
+              {envois24h !== null && <>Envois 24 h : <b className="text-slate-600">{envois24h}</b> / {p.plafondJour}</>}
+              {dernierEnvoi && <> · dernier envoi {new Date(dernierEnvoi).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</>}
+            </span>
+          </div>
+          <div className="mt-3 space-y-2.5">
+            {objectifs.filter((o) => o.actif).map((o) => {
+              const s = suiviDe(o)
+              const pct = o.objectifHebdo > 0 ? Math.min(100, Math.round((s.demarres7j / o.objectifHebdo) * 100)) : 0
+              return (
+                <div key={o.id} className="rounded-lg border border-slate-100 px-3 py-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">{corpsLabel(o.metier)}</span>
+                    <span className={pct >= 100 ? "font-semibold text-emerald-600" : "font-semibold text-slate-700"}>
+                      {s.demarres7j} / {o.objectifHebdo} démarré{s.demarres7j > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={"h-full rounded-full transition-all " + (pct >= 100 ? "bg-emerald-500" : "bg-blue-500")}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="mt-1 flex gap-3 text-[11px] text-slate-500">
+                    <span>🔄 {s.enSequence} en séquence</span>
+                    <span>📥 {s.deposes7j} déposé{s.deposes7j > 1 ? "s" : ""} cette semaine</span>
+                    <span>🏁 {s.deposesTotal} déposé{s.deposesTotal > 1 ? "s" : ""} au total</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">
+            « Démarrés » = mis en séquence par le moteur cette semaine. Le dépôt du dossier arrive après les
+            relances (e-mails + SMS), c'est lui qui compte comme recrue.
+          </p>
+        </div>
+      )}
 
       {/* Campagnes par corps de métier */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
