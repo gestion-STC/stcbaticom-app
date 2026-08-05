@@ -68,14 +68,25 @@ function remplir(
 }
 
 async function invoquer(base: string, cle: string, fonction: string, body: unknown) {
-  const r = await fetch(`${base}/functions/v1/${fonction}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cle}` },
-    body: JSON.stringify(body),
-  })
-  const data = await r.json().catch(() => ({}))
-  return { ok: r.ok && data?.ok !== false, data }
+  // try/catch : une erreur réseau/limite de débit sur UN envoi ne doit jamais
+  // faire planter tout le passage du séquenceur (constaté le 05/08 : rafale
+  // d'e-mails → rate limit → 500 global à mi-course).
+  try {
+    const r = await fetch(`${base}/functions/v1/${fonction}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cle}` },
+      body: JSON.stringify(body),
+    })
+    const data = await r.json().catch(() => ({}))
+    return { ok: r.ok && data?.ok !== false, data }
+  } catch (e) {
+    return { ok: false, data: { error: String(e) } }
+  }
 }
+
+// Cadence entre deux envois : Resend limite à ~2 requêtes/seconde.
+const PAUSE_ENVOI_MS = 700
+const pause = (ms: number) => new Promise((res) => setTimeout(res, ms))
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
@@ -148,15 +159,40 @@ Deno.serve(async (req: Request) => {
       heure >= String(pil.heure_min ?? "09:00").slice(0, 5) &&
       heure <= String(pil.heure_max ?? "18:00").slice(0, 5)
 
-    // --- 2) DÉMARRAGE piloté par le volume, MÉTIER PAR MÉTIER ----------------
-    // Pour chaque objectif actif (ex. Plombier: 2/sem), on démarre juste ce qu'il
-    // faut de ST de CE métier (7 jours glissants). Insensible à la casse (ilike).
+    // --- 2) DÉMARRAGE ADAPTATIF, MÉTIER PAR MÉTIER (phase 2, 05/08/2026) ------
+    // L'objectif saisi = nombre de RECRUES voulues (dépôts). Le moteur démarre
+    // donc le VOLUME nécessaire : objectif ÷ taux de conversion × 1,25 de marge
+    // (même formule que l'écran Pilotage / recrutementCalc.ts). Le taux est le
+    // taux GLOBAL observé sur 60 j si ≥ 15 dépôts, sinon 3 % prudent.
+    // Les démarrages se font PAR VAGUES : jamais plus que le budget d'envois
+    // restant du jour, pour que chaque démarré reçoive sa 1re touche sans
+    // creuser une file d'attente incontrôlée.
+    const TAUX_DEFAUT = 0.03, MARGE = 0.25, FENETRE_JOURS = 60, MIN_DEPOTS_FIABLE = 15
+    const depuis60j = new Date(now.getTime() - FENETRE_JOURS * JOUR_MS).toISOString()
+    const { count: contactes60 } = await sb.from("st_sous_traitants")
+      .select("id", { count: "exact", head: true }).gte("demarre_le", depuis60j)
+    const { count: depots60 } = await sb.from("st_sous_traitants")
+      .select("id", { count: "exact", head: true }).gte("depose_le", depuis60j)
+    const tauxFiable = (depots60 ?? 0) >= MIN_DEPOTS_FIABLE && (contactes60 ?? 0) > 0
+    const taux = tauxFiable ? (depots60 ?? 0) / (contactes60 ?? 1) : TAUX_DEFAUT
+
+    // Budget d'envois du jour (calculé ICI pour caper aussi les démarrages).
+    const depuis24h = new Date(now.getTime() - JOUR_MS).toISOString()
+    const { count: faits24h } = await sb
+      .from("st_envois")
+      .select("id", { count: "exact", head: true })
+      .eq("statut", "envoye")
+      .gte("envoye_le", depuis24h)
+    let budget = Math.max(0, Number(pil.plafond_jour ?? 20) - (faits24h ?? 0))
+    let vagueDispo = budget // démarrages autorisés sur ce passage
+
     const depuis7j = new Date(now.getTime() - 7 * JOUR_MS).toISOString()
     const { data: objectifs } = await sb.from("st_objectifs").select("*").eq("actif", true)
     for (const o of objectifs ?? []) {
       const metier = String(o.metier || "").trim()
-      const cible = Number(o.objectif_hebdo ?? 0)
-      if (!metier || cible <= 0) continue
+      const voulu = Number(o.objectif_hebdo ?? 0) // recrues voulues / semaine
+      if (!metier || voulu <= 0 || vagueDispo <= 0) continue
+      const volumeHebdo = Math.ceil((voulu / taux) * (1 + MARGE)) // à démarcher / semaine
 
       // Éligibilité « CONTIENT » : les prospects ont souvent plusieurs métiers
       // (« Peinture / Plomberie / Électricité ») — un match exact raterait
@@ -166,7 +202,7 @@ Deno.serve(async (req: Request) => {
         .select("id", { count: "exact", head: true })
         .ilike("metier", `%${metier}%`)
         .gte("demarre_le", depuis7j)
-      const aDemarrer = Math.max(0, cible - (demarresRecents ?? 0))
+      const aDemarrer = Math.min(vagueDispo, Math.max(0, volumeHebdo - (demarresRecents ?? 0)))
       if (aDemarrer <= 0) continue
 
       const { data: aContacter } = await sb
@@ -182,6 +218,7 @@ Deno.serve(async (req: Request) => {
           .update({ statut: "en_sequence", demarre_le: nowIso, etape_courante: 0, sequence_id: sequenceId })
           .eq("id", s.id)
         bilan.demarrages++
+        vagueDispo--
       }
     }
 
@@ -196,15 +233,13 @@ Deno.serve(async (req: Request) => {
       .order("ordre", { ascending: true })
     if (!etapes || etapes.length === 0) return json({ ...bilan, saut: "séquence sans étape active" })
 
-    // Plafond du jour (24 h glissantes) : combien d'envois réussis déjà faits.
-    const depuis24h = new Date(now.getTime() - JOUR_MS).toISOString()
-    const { count: faits24h } = await sb
-      .from("st_envois")
-      .select("id", { count: "exact", head: true })
-      .eq("statut", "envoye")
-      .gte("envoye_le", depuis24h)
-    let budget = Math.max(0, Number(pil.plafond_jour ?? 20) - (faits24h ?? 0))
+    // Plafond du jour : `budget` déjà calculé plus haut (il cape aussi les vagues
+    // de démarrage). Ici on vérifie juste qu'il reste de quoi envoyer.
     if (budget <= 0) return json({ ...bilan, saut: "plafond du jour atteint" })
+    // Borne PAR PASSAGE : avec la cadence anti rate-limit (0,7 s/envoi), un gros
+    // budget dépasserait le temps maximal d'exécution de la fonction. Le cron
+    // (toutes les 15 min) draine le reste : 25 × 4 = jusqu'à 100 envois/heure.
+    budget = Math.min(budget, 25)
 
     // Les ST actuellement en séquence sur cette séquence.
     const { data: stEnSeq } = await sb
@@ -294,6 +329,7 @@ Deno.serve(async (req: Request) => {
           .from("st_sous_traitants")
           .update({ etape_courante: etapes.indexOf(due) + 1 })
           .eq("id", st.id)
+        await pause(PAUSE_ENVOI_MS) // cadence anti rate-limit (Resend ~2 req/s)
       } else {
         bilan.erreurs++
       }
