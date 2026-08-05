@@ -47,9 +47,16 @@ function compter(events: Evenement[]): Comptes {
     rdv: 0,
   }
   for (const e of events) {
-    if (e.type === "appel") e.sens === "entrant" ? c.appelsEntrants++ : c.appelsSortants++
-    else if (e.type === "email") e.sens === "entrant" ? c.emailsRecus++ : c.emailsEnvoyes++
-    else if (e.type === "rdv") c.rdv++
+    const entrant = e.sens === "entrant"
+    if (e.type === "appel") {
+      if (entrant) c.appelsEntrants++
+      else c.appelsSortants++
+    } else if (e.type === "email") {
+      if (entrant) c.emailsRecus++
+      else c.emailsEnvoyes++
+    } else if (e.type === "rdv") {
+      c.rdv++
+    }
   }
   return c
 }
