@@ -13,9 +13,9 @@ permissions:
 jobs:
 
   # ETAPE 1 — Qualite : fait tourner les tests (vitest) et le lint (eslint).
-  # Tant que "build-deploy" ne porte pas "needs: qualite", ce job est
-  # informatif : il signale les problemes sans empecher la mise en ligne.
-  # On le passera bloquant une fois qu'on l'aura vu vert une premiere fois.
+  # BLOQUANT : "build-deploy" porte "needs: qualite", donc un test ou un lint
+  # en echec empeche la mise en ligne. Le site reste alors dans sa derniere
+  # version publiee, celle qui fonctionne.
   qualite:
     runs-on: ubuntu-latest
     steps:
@@ -27,10 +27,10 @@ jobs:
         run: npm run test
       - name: Lint (eslint)
         run: npm run lint
-        continue-on-error: true   # a passer bloquant une fois le lint au propre
 
-  # ETAPE 2 — Build et mise en ligne.
+  # ETAPE 2 — Build et mise en ligne. Ne demarre que si "qualite" est vert.
   build-deploy:
+    needs: qualite
     runs-on: ubuntu-latest
     environment:
       name: github-pages
