@@ -1,5 +1,12 @@
-import { useEffect, useRef } from "react"
-import { Bold, Italic, Underline, Link as LinkIcon, Image as ImageIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Bold, Italic, Underline, Link as LinkIcon, Image as ImageIcon, Loader2 } from "lucide-react"
+import {
+  nettoyerHtmlSignature,
+  sortImage,
+  messageApresCollage,
+  imageTropLourde,
+  POIDS_MAX_IMAGE,
+} from "../lib/signatureCollage"
 
 // Éditeur de signature "à la Gmail" : zone de saisie riche.
 // On colle sa signature (mise en forme + image conservées), elle est stockée en HTML.
@@ -12,6 +19,8 @@ export default function SignatureEditor({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const fichierRef = useRef<HTMLInputElement>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [rapatriement, setRapatriement] = useState(false)
   // Dernière position du curseur DANS l'éditeur. On la mémorise en continu, car une
   // boîte de dialogue (choix de fichier) ou une invite (lien) fait perdre le curseur.
   const rangeRef = useRef<Range | null>(null)
@@ -97,8 +106,8 @@ export default function SignatureEditor({
   // Intègre une image (fichier) sous forme de data URL, pour qu'elle persiste.
   function insererImage(file: File) {
     if (!file.type.startsWith("image/")) return
-    if (file.size > 1_500_000) {
-      alert("Image trop lourde (max ~1,5 Mo). Utilisez un logo plus léger.")
+    if (file.size > POIDS_MAX_IMAGE) {
+      setMessage("Image trop lourde (max ~1,5 Mo). Utilise un logo plus léger.")
       return
     }
     const reader = new FileReader()
@@ -110,11 +119,70 @@ export default function SignatureEditor({
     reader.readAsDataURL(file)
   }
 
-  // Au collage : si une image est dans le presse-papier, on l'intègre.
+  // Rapatrie une image distante dans la signature (data URL), pour qu'elle survive
+  // à la disparition du site qui l'héberge. Rend null si le site refuse la copie
+  // (protection CORS) — fréquent, et sans gravité : l'image reste affichée par son
+  // adresse d'origine.
+  async function rapatrier(src: string): Promise<string | null> {
+    try {
+      const rep = await fetch(src, { mode: "cors" })
+      if (!rep.ok) return null
+      const blob = await rep.blob()
+      if (!blob.type.startsWith("image/")) return null
+      if (blob.size > POIDS_MAX_IMAGE) return null
+      const dataUrl = await new Promise<string>((ok, ko) => {
+        const r = new FileReader()
+        r.onload = () => ok(String(r.result))
+        r.onerror = () => ko(r.error)
+        r.readAsDataURL(blob)
+      })
+      return imageTropLourde(dataUrl) ? null : dataUrl
+    } catch {
+      return null
+    }
+  }
+
+  // Parcourt les images de l'éditeur et tente de rapatrier celles qui sont distantes.
+  async function integrerImagesDistantes() {
+    const el = ref.current
+    if (!el) return
+    const imgs = [...el.querySelectorAll("img")]
+    const distantes = imgs.filter((i) => sortImage(i.getAttribute("src") || "") === "distante")
+    const impossibles = imgs.filter(
+      (i) => sortImage(i.getAttribute("src") || "") === "impossible",
+    ).length
+
+    let reussies = 0
+    if (distantes.length) {
+      setRapatriement(true)
+      for (const img of distantes) {
+        const dataUrl = await rapatrier(img.getAttribute("src") || "")
+        if (dataUrl) {
+          img.setAttribute("src", dataUrl)
+          reussies++
+        }
+      }
+      setRapatriement(false)
+    }
+
+    // Une signature d'email ne doit pas déborder de la largeur du message.
+    for (const img of imgs) {
+      if (!img.style.maxWidth) img.style.maxWidth = "220px"
+      if (!img.style.height) img.style.height = "auto"
+    }
+
+    maj()
+    setMessage(messageApresCollage(reussies, distantes.length - reussies, impossibles))
+  }
+
+  // Au collage : d'abord le cas d'une image seule dans le presse-papier, puis le cas
+  // d'une signature complète copiée depuis un logiciel de mail.
   function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
-    const items = e.clipboardData?.items
-    if (!items) return
-    for (const it of items) {
+    const dt = e.clipboardData
+    if (!dt) return
+    setMessage(null)
+
+    for (const it of dt.items) {
       if (it.kind === "file" && it.type.startsWith("image/")) {
         const file = it.getAsFile()
         if (file) {
@@ -125,7 +193,19 @@ export default function SignatureEditor({
         }
       }
     }
-    // sinon : collage normal (texte/HTML avec mise en forme et images hébergées conservés)
+
+    // Signature copiée depuis Outlook / Gmail : on nettoie AVANT d'insérer.
+    // Sans ce ménage, un bloc <style> collé s'applique à tout le logiciel.
+    const html = dt.getData("text/html")
+    if (html) {
+      e.preventDefault()
+      sauverSelection()
+      insererHtml(nettoyerHtmlSignature(html))
+      void integrerImagesDistantes()
+      return
+    }
+
+    // Texte simple : collage normal.
     requestAnimationFrame(() => {
       maj()
       sauverSelection()
@@ -200,6 +280,26 @@ export default function SignatureEditor({
         data-placeholder="Collez ici votre signature (logo, nom, téléphone, lien…)"
         className="signature-edit min-h-28 px-3 py-2 text-sm text-slate-700 outline-none"
       />
+
+      {rapatriement && (
+        <div className="flex items-center gap-2 border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={13} className="animate-spin" />
+          Intégration des images à la signature…
+        </div>
+      )}
+
+      {message && !rapatriement && (
+        <div className="flex items-start justify-between gap-2 border-t border-slate-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <span>{message}</span>
+          <button
+            type="button"
+            onClick={() => setMessage(null)}
+            className="shrink-0 font-medium underline"
+          >
+            fermer
+          </button>
+        </div>
+      )}
     </div>
   )
 }
