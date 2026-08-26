@@ -94,26 +94,33 @@ export function trierImages(srcs: string[]): {
   return { integrees, distantes, impossibles }
 }
 
+export type BilanCollage = {
+  reussies: number // rapatriées : autonomes, elles ne dépendent plus de rien
+  affichables: number // pas rapatriables, mais l'adresse fonctionne encore
+  cassees: number // l'adresse ne mène à rien depuis ici : rien ne s'affichera
+}
+
 // Message à afficher après un collage. null = tout va bien, on ne dit rien.
-export function messageApresCollage(
-  reussies: number,
-  echouees: number,
-  impossibles: number,
-): string | null {
+//
+// La distinction « affichable » / « cassée » est le point important : dire à
+// quelqu'un que son image « restera affichée » alors qu'elle est visiblement
+// cassée, c'est pire que ne rien dire.
+export function messageApresCollage(b: BilanCollage): string | null {
   const bouts: string[] = []
-  if (reussies > 0) {
+  if (b.reussies > 0) {
+    const p = b.reussies > 1
+    bouts.push(`${b.reussies} image${p ? "s" : ""} intégrée${p ? "s" : ""} à la signature`)
+  }
+  if (b.affichables > 0) {
+    const p = b.affichables > 1
     bouts.push(
-      `${reussies} image${reussies > 1 ? "s" : ""} intégrée${reussies > 1 ? "s" : ""} à la signature`,
+      `${b.affichables} image${p ? "s" : ""} n'a pas pu être copiée${p ? "s" : ""} mais reste affichée depuis son site d'origine`,
     )
   }
-  if (echouees > 0) {
+  if (b.cassees > 0) {
+    const p = b.cassees > 1
     bouts.push(
-      `${echouees} image${echouees > 1 ? "s" : ""} n'a pas pu être rapatriée${echouees > 1 ? "s" : ""} (le site qui l'héberge refuse la copie) — elle restera affichée tant que son adresse fonctionne`,
-    )
-  }
-  if (impossibles > 0) {
-    bouts.push(
-      `${impossibles} image${impossibles > 1 ? "s" : ""} vient de ton logiciel de mail et ne s'affichera pas ici — réinsère-la avec le bouton image`,
+      `${b.cassees} image${p ? "s" : ""} ne s'affiche${p ? "nt" : ""} pas : elle${p ? "s" : ""} n'existe${p ? "nt" : ""} que dans ton logiciel de mail. Remplace-la${p ? "s" : ""} par le fichier de ton logo avec le bouton image`,
     )
   }
   return bouts.length ? bouts.join(". ") + "." : null

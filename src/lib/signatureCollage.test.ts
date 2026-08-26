@@ -109,22 +109,41 @@ describe("trierImages", () => {
 
 describe("messageApresCollage", () => {
   it("ne dit rien quand tout s'est bien passe", () => {
-    expect(messageApresCollage(0, 0, 0)).toBeNull()
+    expect(messageApresCollage({ reussies: 0, affichables: 0, cassees: 0 })).toBeNull()
   })
 
   it("annonce les images integrees", () => {
-    expect(messageApresCollage(2, 0, 0)).toContain("2 images intégrées")
+    const m = messageApresCollage({ reussies: 2, affichables: 0, cassees: 0 }) as string
+    expect(m).toContain("2 images intégrées")
   })
 
-  it("explique le cas des images du logiciel de mail", () => {
-    const m = messageApresCollage(0, 0, 1) as string
+  it("ne pretend PAS qu'une image cassee reste affichee", () => {
+    // le bug corrige : on annoncait « restera affichée » sur une image visiblement cassee
+    const m = messageApresCollage({ reussies: 0, affichables: 0, cassees: 1 }) as string
+    expect(m).toContain("ne s'affiche pas")
+    expect(m).not.toContain("reste affichée")
     expect(m).toContain("bouton image")
   })
 
+  it("distingue une image affichable d'une image cassee", () => {
+    const affichable = messageApresCollage({
+      reussies: 0,
+      affichables: 1,
+      cassees: 0,
+    }) as string
+    expect(affichable).toContain("reste affichée")
+    expect(affichable).not.toContain("bouton image")
+  })
+
+  it("accorde au pluriel", () => {
+    const m = messageApresCollage({ reussies: 0, affichables: 0, cassees: 2 }) as string
+    expect(m).toContain("2 images ne s'affichent pas")
+  })
+
   it("cumule les trois cas", () => {
-    const m = messageApresCollage(1, 1, 1) as string
+    const m = messageApresCollage({ reussies: 1, affichables: 1, cassees: 1 }) as string
     expect(m).toContain("intégrée")
-    expect(m).toContain("rapatriée")
+    expect(m).toContain("reste affichée")
     expect(m).toContain("bouton image")
   })
 })

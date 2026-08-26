@@ -21,6 +21,7 @@ export default function SignatureEditor({
   const fichierRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [rapatriement, setRapatriement] = useState(false)
+  const [nbCassees, setNbCassees] = useState(0)
   // Dernière position du curseur DANS l'éditeur. On la mémorise en continu, car une
   // boîte de dialogue (choix de fichier) ou une invite (lien) fait perdre le curseur.
   const rangeRef = useRef<Range | null>(null)
@@ -31,7 +32,9 @@ export default function SignatureEditor({
   }, [])
 
   function maj() {
-    if (ref.current) onChange(ref.current.innerHTML)
+    // `data-cassee` est un repère interne à l'éditeur : il n'a rien à faire dans
+    // la signature enregistrée, ni dans les emails envoyés.
+    if (ref.current) onChange(ref.current.innerHTML.replace(/\sdata-cassee="[^"]*"/g, ""))
   }
 
   // Mémorise le curseur s'il est bien à l'intérieur de l'éditeur.
@@ -112,8 +115,22 @@ export default function SignatureEditor({
     }
     const reader = new FileReader()
     reader.onload = () => {
-      // On restaure le curseur mémorisé AVANT l'ouverture de la boîte de fichier,
-      // sinon l'image s'insérerait « dans le vide ».
+      // S'il y a une image cassée (adresse venue du logiciel de mail), on la
+      // REMPLACE : le logo reprend sa place exacte dans la mise en page, au lieu
+      // de s'ajouter à côté d'une icône d'image brisée.
+      const cassee = ref.current?.querySelector<HTMLImageElement>("img[data-cassee]")
+      if (cassee) {
+        cassee.setAttribute("src", String(reader.result))
+        delete cassee.dataset.cassee
+        cassee.style.maxWidth = cassee.style.maxWidth || "220px"
+        cassee.style.height = "auto"
+        setNbCassees(ref.current?.querySelectorAll("img[data-cassee]").length ?? 0)
+        setMessage(null)
+        maj()
+        return
+      }
+      // Sinon : insertion au curseur mémorisé AVANT l'ouverture de la boîte de
+      // fichier, sinon l'image s'insérerait « dans le vide ».
       insererHtml(`<img src="${reader.result}" style="max-width:220px;height:auto;" />`)
     }
     reader.readAsDataURL(file)
@@ -142,28 +159,59 @@ export default function SignatureEditor({
     }
   }
 
-  // Parcourt les images de l'éditeur et tente de rapatrier celles qui sont distantes.
+  // L'adresse mène-t-elle vraiment à une image AFFICHABLE depuis ici ?
+  // On ne le suppose pas : beaucoup d'adresses de signature ne fonctionnent que
+  // dans la boîte mail de leur propriétaire, et afficheraient une image cassée.
+  function imageAffichable(src: string): Promise<boolean> {
+    return new Promise((ok) => {
+      if (!src) return ok(false)
+      const img = new Image()
+      const fini = (v: boolean) => ok(v)
+      img.onload = () => fini(img.naturalWidth > 0)
+      img.onerror = () => fini(false)
+      img.src = src
+      // Sécurité : ni onload ni onerror ne se déclenchent parfois.
+      setTimeout(() => fini(false), 8000)
+    })
+  }
+
+  // Parcourt les images de l'éditeur : rapatrie ce qui peut l'être, puis vérifie
+  // ce que le reste donne réellement à l'écran.
   async function integrerImagesDistantes() {
     const el = ref.current
     if (!el) return
     const imgs = [...el.querySelectorAll("img")]
-    const distantes = imgs.filter((i) => sortImage(i.getAttribute("src") || "") === "distante")
-    const impossibles = imgs.filter(
-      (i) => sortImage(i.getAttribute("src") || "") === "impossible",
-    ).length
+    if (!imgs.length) return
 
+    setRapatriement(true)
     let reussies = 0
-    if (distantes.length) {
-      setRapatriement(true)
-      for (const img of distantes) {
-        const dataUrl = await rapatrier(img.getAttribute("src") || "")
+    const restantes: HTMLImageElement[] = []
+
+    for (const img of imgs) {
+      const src = img.getAttribute("src") || ""
+      if (sortImage(src) === "integree") continue
+      if (sortImage(src) === "distante") {
+        const dataUrl = await rapatrier(src)
         if (dataUrl) {
           img.setAttribute("src", dataUrl)
           reussies++
+          continue
         }
       }
-      setRapatriement(false)
+      restantes.push(img)
     }
+
+    // Ce qui n'a pas pu être rapatrié : s'affiche-t-il au moins ?
+    let affichables = 0
+    let cassees = 0
+    for (const img of restantes) {
+      if (await imageAffichable(img.getAttribute("src") || "")) affichables++
+      else {
+        cassees++
+        img.dataset.cassee = "1" // repéré pour le bouton « retirer »
+      }
+    }
+    setRapatriement(false)
 
     // Une signature d'email ne doit pas déborder de la largeur du message.
     for (const img of imgs) {
@@ -171,8 +219,21 @@ export default function SignatureEditor({
       if (!img.style.height) img.style.height = "auto"
     }
 
+    setNbCassees(cassees)
     maj()
-    setMessage(messageApresCollage(reussies, distantes.length - reussies, impossibles))
+    setMessage(messageApresCollage({ reussies, affichables, cassees }))
+  }
+
+  // Retire les images qui ne s'afficheront jamais : mieux vaut une signature sans
+  // logo qu'une signature avec une icône d'image cassée.
+  function retirerImagesCassees() {
+    const el = ref.current
+    if (!el) return
+    el.querySelectorAll("img[data-cassee]").forEach((i) => i.remove())
+    setNbCassees(0)
+    setMessage(null)
+    maj()
+    caretFin()
   }
 
   // Au collage : d'abord le cas d'une image seule dans le presse-papier, puis le cas
@@ -289,15 +350,40 @@ export default function SignatureEditor({
       )}
 
       {message && !rapatriement && (
-        <div className="flex items-start justify-between gap-2 border-t border-slate-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <span>{message}</span>
-          <button
-            type="button"
-            onClick={() => setMessage(null)}
-            className="shrink-0 font-medium underline"
-          >
-            fermer
-          </button>
+        <div className="border-t border-slate-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="flex items-start justify-between gap-2">
+            <span>{message}</span>
+            <button
+              type="button"
+              onClick={() => setMessage(null)}
+              className="shrink-0 font-medium underline"
+            >
+              fermer
+            </button>
+          </div>
+          {nbCassees > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  sauverSelection()
+                  fichierRef.current?.click()
+                }}
+                className="rounded-md bg-amber-700 px-2.5 py-1 font-medium text-white hover:bg-amber-800"
+              >
+                Choisir le fichier du logo
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={retirerImagesCassees}
+                className="rounded-md border border-amber-700 px-2.5 py-1 font-medium text-amber-800 hover:bg-amber-100"
+              >
+                Retirer l'image cassée
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
