@@ -7,6 +7,7 @@ import {
   imageTropLourde,
   POIDS_MAX_IMAGE,
 } from "../lib/signatureCollage"
+import { balisesLogoSignature, avertissementImagesIntegrees } from "../lib/signatureLogo"
 
 // Éditeur de signature "à la Gmail" : zone de saisie riche.
 // On colle sa signature (mise en forme + image conservées), elle est stockée en HTML.
@@ -22,19 +23,43 @@ export default function SignatureEditor({
   const [message, setMessage] = useState<string | null>(null)
   const [rapatriement, setRapatriement] = useState(false)
   const [nbCassees, setNbCassees] = useState(0)
+  const [avertissement, setAvertissement] = useState<string | null>(null)
   // Dernière position du curseur DANS l'éditeur. On la mémorise en continu, car une
   // boîte de dialogue (choix de fichier) ou une invite (lien) fait perdre le curseur.
   const rangeRef = useRef<Range | null>(null)
 
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = valeurInitiale || ""
+    setAvertissement(avertissementImagesIntegrees(valeurInitiale || ""))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function maj() {
     // `data-cassee` est un repère interne à l'éditeur : il n'a rien à faire dans
     // la signature enregistrée, ni dans les emails envoyés.
-    if (ref.current) onChange(ref.current.innerHTML.replace(/\sdata-cassee="[^"]*"/g, ""))
+    if (!ref.current) return
+    const html = ref.current.innerHTML.replace(/\sdata-cassee="[^"]*"/g, "")
+    setAvertissement(avertissementImagesIntegrees(html))
+    onChange(html)
+  }
+
+  // Insère le logo STC hébergé sur le site : c'est la seule forme qui survive
+  // à l'envoi, les messageries bloquant les images intégrées.
+  //
+  // S'il y a déjà une image à remplacer — cassée, ou intégrée donc condamnée à
+  // l'être — le logo prend sa place EXACTE : la mise en page est préservée.
+  function insererLogoHeberge() {
+    const aRemplacer =
+      ref.current?.querySelector<HTMLImageElement>("img[data-cassee]") ??
+      ref.current?.querySelector<HTMLImageElement>('img[src^="data:"]')
+    if (aRemplacer) {
+      aRemplacer.outerHTML = balisesLogoSignature()
+      setNbCassees(ref.current?.querySelectorAll("img[data-cassee]").length ?? 0)
+      setMessage(null)
+      maj()
+      return
+    }
+    insererHtml(balisesLogoSignature())
   }
 
   // Mémorise le curseur s'il est bien à l'intérieur de l'éditeur.
@@ -318,6 +343,15 @@ export default function SignatureEditor({
         >
           <ImageIcon size={15} />
         </Btn>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={insererLogoHeberge}
+          title="Insérer le logo STC (hébergé : il s'affichera dans les emails reçus)"
+          className="ml-1 rounded-md px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50"
+        >
+          Logo STC
+        </button>
         <input
           ref={fichierRef}
           type="file"
@@ -341,6 +375,20 @@ export default function SignatureEditor({
         data-placeholder="Collez ici votre signature (logo, nom, téléphone, lien…)"
         className="signature-edit min-h-28 px-3 py-2 text-sm text-slate-700 outline-none"
       />
+
+      {avertissement && !rapatriement && (
+        <div className="border-t border-slate-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          <p>{avertissement}</p>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={insererLogoHeberge}
+            className="mt-2 rounded-md bg-red-700 px-2.5 py-1 font-medium text-white hover:bg-red-800"
+          >
+            Remplacer par le logo hébergé
+          </button>
+        </div>
+      )}
 
       {rapatriement && (
         <div className="flex items-center gap-2 border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
