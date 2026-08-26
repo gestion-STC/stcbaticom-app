@@ -4,6 +4,7 @@ import {
   balisesLogoSignature,
   compterImagesIntegrees,
   avertissementImagesIntegrees,
+  estLogoHeberge,
 } from "./signatureLogo"
 
 describe("balisesLogoSignature", () => {
@@ -13,13 +14,30 @@ describe("balisesLogoSignature", () => {
     expect(balisesLogoSignature()).toContain(LOGO_SIGNATURE_URL)
   })
 
-  it("borne la largeur pour ne pas deborder du message", () => {
-    expect(balisesLogoSignature()).toContain("max-width:200px")
+  it("fixe une largeur alignee sur le bloc de coordonnees (3 lignes)", () => {
+    expect(balisesLogoSignature()).toContain("max-width:150px")
     expect(balisesLogoSignature()).toContain("height:auto")
+  })
+
+  it("porte AUSSI l'attribut width : Outlook ignore une partie du CSS", () => {
+    expect(balisesLogoSignature()).toContain('width="150"')
   })
 
   it("porte un texte de remplacement", () => {
     expect(balisesLogoSignature()).toContain('alt="STC Bâtiment"')
+  })
+})
+
+describe("estLogoHeberge", () => {
+  it("reconnait le logo deja insere, pour le remplacer et non le dupliquer", () => {
+    expect(estLogoHeberge(LOGO_SIGNATURE_URL)).toBe(true)
+    expect(estLogoHeberge(` ${LOGO_SIGNATURE_URL} `)).toBe(true)
+  })
+
+  it("ne confond pas avec une autre image", () => {
+    expect(estLogoHeberge("https://autre.fr/logo.png")).toBe(false)
+    expect(estLogoHeberge("data:image/png;base64,AAA")).toBe(false)
+    expect(estLogoHeberge("")).toBe(false)
   })
 })
 

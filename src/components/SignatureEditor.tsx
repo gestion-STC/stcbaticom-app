@@ -7,7 +7,11 @@ import {
   imageTropLourde,
   POIDS_MAX_IMAGE,
 } from "../lib/signatureCollage"
-import { balisesLogoSignature, avertissementImagesIntegrees } from "../lib/signatureLogo"
+import {
+  balisesLogoSignature,
+  avertissementImagesIntegrees,
+  estLogoHeberge,
+} from "../lib/signatureLogo"
 
 // Éditeur de signature "à la Gmail" : zone de saisie riche.
 // On colle sa signature (mise en forme + image conservées), elle est stockée en HTML.
@@ -49,9 +53,13 @@ export default function SignatureEditor({
   // S'il y a déjà une image à remplacer — cassée, ou intégrée donc condamnée à
   // l'être — le logo prend sa place EXACTE : la mise en page est préservée.
   function insererLogoHeberge() {
+    const dejaLa = [...(ref.current?.querySelectorAll("img") ?? [])].find((i) =>
+      estLogoHeberge(i.getAttribute("src") || ""),
+    )
     const aRemplacer =
       ref.current?.querySelector<HTMLImageElement>("img[data-cassee]") ??
-      ref.current?.querySelector<HTMLImageElement>('img[src^="data:"]')
+      ref.current?.querySelector<HTMLImageElement>('img[src^="data:"]') ??
+      dejaLa
     if (aRemplacer) {
       aRemplacer.outerHTML = balisesLogoSignature()
       setNbCassees(ref.current?.querySelectorAll("img[data-cassee]").length ?? 0)

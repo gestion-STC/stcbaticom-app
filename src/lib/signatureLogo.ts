@@ -12,10 +12,22 @@
 export const LOGO_SIGNATURE_URL =
   "https://gestion-stc.github.io/stcbaticom-app/logo-stc.png"
 
-export const LARGEUR_LOGO_SIGNATURE = 200
+// Le logo mesure 477 x 221 px. À 150 px de large il fait 69 px de haut, soit
+// exactement la hauteur des trois lignes de coordonnées à côté : le bloc est
+// aligné, le logo lisible sans écraser le reste. À 200 px il faisait 93 px et
+// dominait la signature.
+export const LARGEUR_LOGO_SIGNATURE = 150
 
 export function balisesLogoSignature(): string {
-  return `<img src="${LOGO_SIGNATURE_URL}" alt="STC Bâtiment" style="max-width:${LARGEUR_LOGO_SIGNATURE}px;height:auto;" />`
+  // L'attribut `width` en plus du style : Outlook ignore une partie du CSS mais
+  // respecte l'attribut HTML. Sans lui, le logo s'affiche en taille réelle.
+  return `<img src="${LOGO_SIGNATURE_URL}" alt="STC Bâtiment" width="${LARGEUR_LOGO_SIGNATURE}" style="width:${LARGEUR_LOGO_SIGNATURE}px;max-width:${LARGEUR_LOGO_SIGNATURE}px;height:auto;" />`
+}
+
+// Reconnaît le logo hébergé déjà présent, pour le remplacer au lieu d'en ajouter
+// un deuxième quand on reclique sur le bouton.
+export function estLogoHeberge(src: string): boolean {
+  return (src || "").trim() === LOGO_SIGNATURE_URL
 }
 
 // Y a-t-il des images intégrées ? Ce sont elles qui casseront à la réception.
