@@ -1065,7 +1065,10 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   // puisque c'est lui qui le modifie — et remettrait le suivi à zéro en boucle.
   const debutSuivi = suivi?.debut
   useEffect(() => {
-    if (!debutSuivi) return
+    // Recopié dans une constante locale : sans ça, TypeScript ne garde pas la
+    // garantie « défini » à l'intérieur de la fonction asynchrone plus bas.
+    const debut = debutSuivi
+    if (!debut) return
     let annule = false
     let vuActif = false
     const callId = suiviCallIdRef.current
@@ -1087,7 +1090,7 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
         vuActif,
         sondageOk: st.ok,
         actif: st.ok && st.actif,
-        depuisMs: Date.now() - debutSuivi,
+        depuisMs: Date.now() - debut,
       })
       if (!doitContinuer(etape)) arreter()
       setSuivi((s) => (!s || s.etape === etape ? s : { ...s, etape }))
