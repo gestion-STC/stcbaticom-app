@@ -54,6 +54,7 @@ import {
   doitContinuer,
   type EtapeAppel,
 } from "../lib/suiviAppel"
+import { composerDepuisLogiciel, surEvenementAppel } from "../lib/sdkRingover"
 import { entrantActif } from "../lib/appelEntrantActif"
 import { enregistrerAppel, chargerAppelsDuJour } from "../lib/appelsDb"
 import { resultatsNonJoint, RESULTAT_DECROCHE, RESULTAT_FAUX_NUMERO } from "../appels"
@@ -882,6 +883,27 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
         majProspect(id, { numero_emission: res.numero }).catch(echec("Enregistrement du numéro d'émission"))
       }
     }
+    // 1) On tente d'abord le téléphone EMBARQUÉ : l'appel part dans le logiciel,
+    //    et Ringover prévient en direct du décroché / raccroché.
+    if (composerDepuisLogiciel(p.telephone, from)) {
+      dernierCallIdRef.current = undefined
+      suiviCallIdRef.current = undefined
+      setSuivi({ etape: "attente", debut: Date.now() })
+      if (autoRef.current) {
+        if (goTimerRef.current) {
+          clearTimeout(goTimerRef.current)
+          goTimerRef.current = null
+        }
+        setCompte(null)
+        surveillanceRef.current = {
+          actif: true, vuActif: false, prospectId: p.id, statut: p.statut, entreprise: p.entreprise,
+        }
+        setSurveille(true)
+      }
+      return
+    }
+
+    // 2) Sinon (téléphone non chargé) : relais serveur, Ringover fait sonner ton poste.
     const r = await lancerAppelRingover(p.telephone, from)
     if (r.ok) {
       dernierCallIdRef.current = r.callId // pour vérifier plus tard que CET appel est bien fini
@@ -1104,6 +1126,22 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
       clearInterval(horloge)
     }
   }, [debutSuivi])
+
+  // Le téléphone embarqué prévient en DIRECT du décroché et du raccrochage.
+  // Plus fiable et plus réactif que d'interroger Ringover toutes les 3 secondes.
+  useEffect(
+    () =>
+      surEvenementAppel((e) => {
+        if (e.direction === "in") return // un appel entrant n'est pas l'appel qu'on passe
+        setSuivi((s) => {
+          if (!s) return s
+          if (e.type === "decroche") return { ...s, etape: "en_cours" }
+          if (e.type === "raccroche") return { ...s, etape: "termine" }
+          return s
+        })
+      }),
+    [],
+  )
 
   // On quitte la fiche ou on arrête la session → le suivi n'a plus d'objet.
   useEffect(() => {
