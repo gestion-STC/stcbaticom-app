@@ -1065,9 +1065,9 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
   // puisque c'est lui qui le modifie — et remettrait le suivi à zéro en boucle.
   const debutSuivi = suivi?.debut
   useEffect(() => {
-    // Recopié dans une constante locale : sans ça, TypeScript ne garde pas la
-    // garantie « défini » à l'intérieur de la fonction asynchrone plus bas.
-    const debut = debutSuivi
+    // Typée `number` d'emblée (0 = pas de suivi) : TypeScript ne propage pas une
+    // garantie « défini » jusque dans la fonction asynchrone de sondage, plus bas.
+    const debut: number = debutSuivi ?? 0
     if (!debut) return
     let annule = false
     let vuActif = false
