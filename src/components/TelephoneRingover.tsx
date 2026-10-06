@@ -31,6 +31,7 @@ export default function TelephoneRingover() {
   const [entrant, setEntrant] = useState<{ callId: string; from: string; prospect: Prospect | null } | null>(null)
   const [fiche, setFiche] = useState<Prospect | null>(null)
   const [ficheOuverte, setFicheOuverte] = useState(false)
+  const [popupBloquee, setPopupBloquee] = useState(false)
 
   // call_id déjà signalés → ce qu'on savait (prospect reconnu ? numéro exploitable ?).
   // Permet la « mise à niveau » : si une source plus précise arrive après coup
@@ -272,6 +273,45 @@ export default function TelephoneRingover() {
 
   return (
     <>
+      {/* Secours : ouvrir le téléphone dans SA PROPRE fenêtre.
+          Safari (et Chrome sans autorisation explicite) cloisonne les sessions des
+          sites affichés DANS un autre site : le téléphone embarqué reste alors
+          blanc, faute d'accès à la session Ringover. Dans une fenêtre à part, ce
+          cloisonnement ne s'applique pas — la session fonctionne normalement. */}
+      <button
+        type="button"
+        onClick={() => {
+          const f = window.open(
+            "https://app.ringover.com",
+            "telephone-ringover",
+            "width=430,height=760,menubar=no,toolbar=no,location=no",
+          )
+          if (!f) setPopupBloquee(true)
+          else {
+            setPopupBloquee(false)
+            f.focus()
+          }
+        }}
+        title="Ouvre le téléphone Ringover dans une fenêtre séparée — à utiliser si le panneau embarqué reste blanc"
+        className="fixed bottom-[88px] right-4 z-40 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-lg hover:bg-slate-50"
+      >
+        Téléphone en fenêtre
+      </button>
+
+      {popupBloquee && (
+        <div className="fixed bottom-[132px] right-4 z-40 max-w-xs rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-lg">
+          Ton navigateur a bloqué la fenêtre. Autorise les fenêtres surgissantes pour ce site, puis
+          réessaie.
+          <button
+            type="button"
+            onClick={() => setPopupBloquee(false)}
+            className="ml-2 font-medium underline"
+          >
+            fermer
+          </button>
+        </div>
+      )}
+
       {/* Bannière d'appel entrant (bas-GAUCHE, pour ne pas gêner le téléphone Ringover à droite) */}
       {entrant && (
         <div className="fixed bottom-4 left-4 z-[95] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-green-300 bg-white shadow-xl">
