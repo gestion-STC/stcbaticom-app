@@ -47,6 +47,13 @@ import { relanceAutoEntreeEtat } from "../lib/relanceAuto"
 import { secteursDisponibles, memeSecteur } from "../lib/secteurs"
 import { numeroValide, formaterTelephone, chiffresTel } from "../lib/telephone"
 import { lancerAppelRingover, statutAppelsRingover, detailAppelRingover } from "../lib/ringover"
+import {
+  prochaineEtape,
+  dureeLisible,
+  texteEtape,
+  doitContinuer,
+  type EtapeAppel,
+} from "../lib/suiviAppel"
 import { entrantActif } from "../lib/appelEntrantActif"
 import { enregistrerAppel, chargerAppelsDuJour } from "../lib/appelsDb"
 import { resultatsNonJoint, RESULTAT_DECROCHE, RESULTAT_FAUX_NUMERO } from "../appels"
@@ -194,6 +201,16 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     entreprise?: string // nom pour le message de résultat
   }>({ actif: false, vuActif: false })
   const [surveille, setSurveille] = useState(false) // pour l'affichage "en attente de fin d'appel"
+
+  // Suivi VISIBLE de l'appel en cours, mode manuel compris. Jusqu'ici l'écran
+  // restait figé après « Appeler » : on ne savait pas si l'appel était parti.
+  const [suivi, setSuivi] = useState<{
+    etape: EtapeAppel
+    debut: number
+    callId?: string
+  } | null>(null)
+  const [maintenant, setMaintenant] = useState(Date.now()) // pour la durée affichée
+  const suiviCallIdRef = useRef<string | undefined>(undefined)
 
   function rechargerRdvJour() {
     const auj = dateAujourdhui()
@@ -868,8 +885,9 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     const r = await lancerAppelRingover(p.telephone, from)
     if (r.ok) {
       dernierCallIdRef.current = r.callId // pour vérifier plus tard que CET appel est bien fini
-      setAppelMsg({ ok: true, texte: "Appel lancé via Ringover — décrochez sur votre appli Ringover." })
-      setTimeout(() => setAppelMsg(null), 5000)
+      // Suivi visible : l'écran ne reste plus figé après le clic, quel que soit le mode.
+      suiviCallIdRef.current = r.callId
+      setSuivi({ etape: "attente", debut: Date.now(), callId: r.callId })
       if (autoRef.current) {
         // L'appel est parti : on annule tout compte à rebours encore programmé
         // (ex. clic manuel « Appeler » pendant le décompte → sinon double appel).
@@ -1037,6 +1055,57 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
     // ont le même id / pas d'id, et se relance bien à chaque changement de fiche.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto, enCours, index, cadence])
+
+  // Suivi VISIBLE de l'appel : interroge Ringover toutes les 3 s et fait avancer
+  // l'étape affichée. Indépendant du mode auto et du téléphone embarqué : il passe
+  // par le même relais que le lancement de l'appel, donc il marche dès que l'appel
+  // part. Sans identifiant d'appel, on se rabat sur « y a-t-il un appel en ligne ».
+  // Ne dépend QUE de l'instant de lancement : un identifiant unique par appel.
+  // Dépendre de `suivi` entier relancerait l'effet à chaque changement d'étape,
+  // puisque c'est lui qui le modifie — et remettrait le suivi à zéro en boucle.
+  const debutSuivi = suivi?.debut
+  useEffect(() => {
+    if (!debutSuivi) return
+    let annule = false
+    let vuActif = false
+    const callId = suiviCallIdRef.current
+
+    const horloge = setInterval(() => setMaintenant(Date.now()), 1000)
+    let sondage: ReturnType<typeof setInterval> | null = null
+
+    function arreter() {
+      if (sondage) clearInterval(sondage)
+      sondage = null
+    }
+
+    async function sonder() {
+      if (annule) return
+      const st = await statutAppelsRingover(callId)
+      if (annule) return
+      if (st.ok && st.actif) vuActif = true
+      const etape = prochaineEtape({
+        vuActif,
+        sondageOk: st.ok,
+        actif: st.ok && st.actif,
+        depuisMs: Date.now() - debutSuivi,
+      })
+      if (!doitContinuer(etape)) arreter()
+      setSuivi((s) => (!s || s.etape === etape ? s : { ...s, etape }))
+    }
+
+    sondage = setInterval(sonder, 3000)
+    void sonder()
+    return () => {
+      annule = true
+      arreter()
+      clearInterval(horloge)
+    }
+  }, [debutSuivi])
+
+  // On quitte la fiche ou on arrête la session → le suivi n'a plus d'objet.
+  useEffect(() => {
+    setSuivi(null)
+  }, [index, enCours])
 
   // Couper le mode auto arrête toute surveillance en cours (évite un log fantôme au ré-activage).
   useEffect(() => {
@@ -1734,19 +1803,63 @@ export default function SessionsCall({ actif = true }: { actif?: boolean }) {
         </div>
       )}
 
-      {/* Surveillance de fin d'appel (mode auto mains libres) */}
-      {auto && surveille && compte === null && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3">
-          <Phone size={18} className="shrink-0 animate-pulse text-emerald-600" />
-          <span className="text-sm font-medium text-emerald-900">
-            Appel en cours — je passe au suivant automatiquement dès que tu raccroches.
-          </span>
-          <button
-            onClick={() => avancer()}
-            className="ml-auto rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+      {/* Suivi de l'appel — visible en manuel comme en auto. */}
+      {suivi && compte === null && (
+        <div
+          className={`mb-4 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 ${
+            suivi.etape === "en_cours"
+              ? "border-emerald-300 bg-emerald-50"
+              : suivi.etape === "termine"
+                ? "border-violet-300 bg-violet-50"
+                : "border-slate-300 bg-slate-50"
+          }`}
+        >
+          <Phone
+            size={18}
+            className={`shrink-0 ${
+              suivi.etape === "en_cours"
+                ? "animate-pulse text-emerald-600"
+                : suivi.etape === "termine"
+                  ? "text-violet-600"
+                  : "text-slate-500"
+            }`}
+          />
+          <span
+            className={`text-sm font-medium ${
+              suivi.etape === "en_cours"
+                ? "text-emerald-900"
+                : suivi.etape === "termine"
+                  ? "text-violet-900"
+                  : "text-slate-700"
+            }`}
           >
-            Passer maintenant
-          </button>
+            {texteEtape(suivi.etape)}
+            {suivi.etape === "en_cours" && (
+              <span className="ml-2 font-mono text-emerald-700">
+                {dureeLisible(maintenant - suivi.debut)}
+              </span>
+            )}
+            {auto && suivi.etape === "en_cours" && (
+              <span className="ml-2 font-normal text-emerald-700">
+                — je passe au suivant dès que tu raccroches.
+              </span>
+            )}
+          </span>
+          {auto && surveille ? (
+            <button
+              onClick={() => avancer()}
+              className="ml-auto rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+            >
+              Passer maintenant
+            </button>
+          ) : (
+            <button
+              onClick={() => setSuivi(null)}
+              className="ml-auto rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Masquer
+            </button>
+          )}
         </div>
       )}
 
