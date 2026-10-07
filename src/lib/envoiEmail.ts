@@ -10,14 +10,16 @@ import { supabase, supabaseConfigure } from "./supabase"
 export const emailConfigure = supabaseConfigure
 
 // Remplace les variables par les vraies données du prospect.
-export function remplir(texte: string, p: Prospect): string {
+// `prenomCommercial` : le prénom du compte connecté (Mahdi, 07/10/2026) ; sans lui,
+// le profil par défaut (mode démo).
+export function remplir(texte: string, p: Prospect, prenomCommercial: string = commercial.prenom): string {
   return texte
     .split("{{entreprise}}").join(p.entreprise || "")
     .split("{{contact}}").join(p.contact || "")
     .split("{{telephone}}").join(p.telephone || "")
     .split("{{email}}").join(p.email || "")
     .split("{{arrondissement}}").join(p.arrondissement || "")
-    .split("{{commercial}}").join(commercial.prenom)
+    .split("{{commercial}}").join(prenomCommercial)
 }
 
 // Nettoie les artefacts d'une variable vide : « Bonjour {{contact}}, » sans nom
@@ -39,12 +41,13 @@ export function composer(
   modele: Email,
   prospect: Prospect,
   signature: string,
+  prenomCommercial?: string,
 ): { objet: string; corpsHtml: string } {
   // Nettoyage uniquement sur l'objet et le corps (PAS la signature, dont le HTML
   // contient des espaces avant « : » qu'on doit préserver).
-  const objet = nettoyerTexte(remplir(modele.objet, prospect))
-  let corpsHtml = nettoyerTexte(remplir(modele.corps, prospect)).replace(/\n/g, "<br>")
-  if (signature) corpsHtml += "<br><br>" + remplir(signature, prospect)
+  const objet = nettoyerTexte(remplir(modele.objet, prospect, prenomCommercial))
+  let corpsHtml = nettoyerTexte(remplir(modele.corps, prospect, prenomCommercial)).replace(/\n/g, "<br>")
+  if (signature) corpsHtml += "<br><br>" + remplir(signature, prospect, prenomCommercial)
   if (modele.pieces && modele.pieces.length) {
     corpsHtml +=
       "<br><br>Pièces jointes :<br>" +
@@ -70,10 +73,11 @@ export async function envoyerEmail(
   prospect: Prospect,
   modele: Email,
   signature: string,
+  prenomCommercial?: string,
 ): Promise<void> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
   if (!prospect.email) throw new Error("Ce prospect n'a pas d'adresse email.")
-  const { objet, corpsHtml } = composer(modele, prospect, signature)
+  const { objet, corpsHtml } = composer(modele, prospect, signature, prenomCommercial)
 
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
     body: { to: prospect.email, subject: objet, html: corpsHtml },

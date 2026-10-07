@@ -119,6 +119,11 @@ export async function creerCompte(c: NouveauCompte): Promise<Compte> {
   return r.compte
 }
 
+export async function renommerCompte(id: string, nom: string): Promise<Compte> {
+  const r = await appeler<{ compte: Compte }>("renommer", { id, nom: nom.trim() })
+  return r.compte
+}
+
 export async function changerRole(id: string, role: Role): Promise<Compte> {
   const r = await appeler<{ compte: Compte }>("changer_role", { id, role })
   return r.compte

@@ -22,7 +22,7 @@ export const variables: { cle: string; label: string; exemple: string }[] = [
   { cle: "{{telephone}}", label: "Téléphone", exemple: "01 84 80 02 40" },
   { cle: "{{email}}", label: "Email", exemple: "contact@cabinetdupont.fr" },
   { cle: "{{arrondissement}}", label: "Arrondissement", exemple: "75001" },
-  { cle: "{{commercial}}", label: "Commercial", exemple: "Horlann" },
+  { cle: "{{commercial}}", label: "Commercial", exemple: "Prénom" },
 ]
 
 // Remplace les variables par un exemple (pour l'aperçu).

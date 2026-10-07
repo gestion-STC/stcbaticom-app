@@ -3,7 +3,9 @@ import { X, Send, Check, Loader2, AlertTriangle, PenLine, Paperclip, Trash2 } fr
 import type { Prospect } from "../data"
 import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
-import { lireParametre } from "../lib/parametresDb"
+import { useSession } from "../lib/auth"
+import { nomAffiche } from "../lib/comptes"
+import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
 
@@ -22,7 +24,12 @@ export default function EnvoyerEmailModal({
   onClose: () => void
 }) {
   const [emails, setEmails] = useState<Email[]>([])
-  const [signature, setSignature] = useState("")
+  // Signature STC Bâtiment au nom du compte connecté (Mahdi, 07/10/2026) :
+  // plus de HTML collé commun à tout le monde, chacun signe de son nom.
+  const session = useSession()
+  const nomSignataire = nomAffiche(session)
+  const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
+  const prenomCommercial = prenomDe(nomSignataire)
   const [modeleId, setModeleId] = useState("")
   const [objet, setObjet] = useState("")
   const [corps, setCorps] = useState("")
@@ -47,7 +54,6 @@ export default function EnvoyerEmailModal({
         }
       })
       .catch(() => {})
-    lireParametre("signature").then((v) => v && setSignature(v)).catch(() => {})
   }, [])
 
   // Ce qui part réellement : le contenu affiché à l'écran, pas le modèle d'origine.
@@ -56,8 +62,8 @@ export default function EnvoyerEmailModal({
     [emails, modeleId, objet, corps, pieces],
   )
   const apercu = useMemo(
-    () => composer(aEnvoyer, prospect, signature),
-    [aEnvoyer, prospect, signature],
+    () => composer(aEnvoyer, prospect, signature, prenomCommercial),
+    [aEnvoyer, prospect, signature, prenomCommercial],
   )
 
   function choisirModele(id: string) {
@@ -110,7 +116,7 @@ export default function EnvoyerEmailModal({
     setErreur(null)
     setEnvoi(true)
     try {
-      await envoyerEmail(prospect, aEnvoyer, signature)
+      await envoyerEmail(prospect, aEnvoyer, signature, prenomCommercial)
       setFait(true)
       setTimeout(onClose, 1000)
     } catch (e) {

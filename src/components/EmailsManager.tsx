@@ -112,13 +112,17 @@ export default function EmailsManager() {
           />
         )}
 
-        {/* Signature (ajoutée automatiquement à la fin de chaque email) */}
+        {/* Signature des envois AUTOMATIQUES (règles d'envoi). Depuis le 07/10/2026,
+            les e-mails envoyés depuis le logiciel (après un appel, réponses de la
+            boîte) portent la signature STC Bâtiment au nom du compte connecté. */}
         <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex items-center gap-2">
             <PenLine size={16} className="text-blue-600" />
             <p className="text-sm font-medium text-slate-800">Ma signature</p>
             <span className="text-xs text-slate-400">
-              — ajoutée automatiquement à la fin de chaque email
+              — sert aux envois automatiques des règles. Les e-mails envoyés depuis le
+              logiciel (après un appel, réponses de la boîte) portent la signature STC
+              Bâtiment au nom du compte connecté.
             </span>
           </div>
           {sigChargee && (

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 import type { Session } from "@supabase/supabase-js"
-import { KeyRound, Loader2, Plus, RefreshCw, Copy, Check, ShieldCheck, Headset } from "lucide-react"
+import { KeyRound, Loader2, Plus, RefreshCw, Copy, Check, ShieldCheck, Headset, PenLine } from "lucide-react"
 import {
   ROLES,
   LIBELLE_ROLE,
@@ -8,6 +8,7 @@ import {
   listerComptes,
   creerCompte,
   changerRole,
+  renommerCompte,
   validerNouveauCompte,
   genererMotDePasse,
   type Compte,
@@ -33,6 +34,8 @@ export default function Comptes({ session }: { session: Session | null }) {
   const [chargement, setChargement] = useState(admin)
   const [erreur, setErreur] = useState<string | null>(null)
   const [enCours, setEnCours] = useState<string | null>(null) // id du compte dont le rôle change
+  // Le compte dont on est en train de modifier le nom (celui qui signe les e-mails).
+  const [renommage, setRenommage] = useState<{ id: string; nom: string } | null>(null)
 
   // Formulaire de création
   const [nom, setNom] = useState("")
@@ -87,6 +90,26 @@ export default function Comptes({ session }: { session: Session | null }) {
       setComptes((liste) => liste.map((c) => (c.id === maj.id ? maj : c)))
     } catch (err) {
       setErreur(err instanceof Error ? err.message : "Changement impossible")
+    } finally {
+      setEnCours(null)
+    }
+  }
+
+  async function renommer() {
+    if (!renommage) return
+    const nom = renommage.nom.trim()
+    if (!nom) {
+      setErreur("Le nom ne peut pas être vide.")
+      return
+    }
+    setEnCours(renommage.id)
+    setErreur(null)
+    try {
+      const maj = await renommerCompte(renommage.id, nom)
+      setComptes((liste) => liste.map((c) => (c.id === maj.id ? maj : c)))
+      setRenommage(null)
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Renommage impossible")
     } finally {
       setEnCours(null)
     }
@@ -153,8 +176,45 @@ export default function Comptes({ session }: { session: Session | null }) {
                 return (
                   <tr key={c.id} className="border-t border-slate-100">
                     <td className="px-5 py-2.5 font-medium text-slate-900">
-                      {c.nom || <span className="text-slate-400">—</span>}
-                      {moi && <span className="ml-2 text-xs text-slate-400">(toi)</span>}
+                      {renommage?.id === c.id ? (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault()
+                            void renommer()
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <input
+                            id={`nom-${c.id}`}
+                            aria-label={`Nom de ${c.email}`}
+                            autoFocus
+                            value={renommage.nom}
+                            onChange={(e) => setRenommage({ id: c.id, nom: e.target.value })}
+                            onKeyDown={(e) => e.key === "Escape" && setRenommage(null)}
+                            className="w-44 rounded-lg border border-slate-200 px-2 py-1 text-sm focus:border-violet-400 focus:outline-none"
+                          />
+                          <button type="submit" disabled={enCours === c.id} className="rounded-lg bg-violet-600 px-2 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-60">
+                            {enCours === c.id ? "…" : "OK"}
+                          </button>
+                          <button type="button" onClick={() => setRenommage(null)} className="text-xs text-slate-500 hover:text-slate-800">
+                            Annuler
+                          </button>
+                        </form>
+                      ) : (
+                        <span className="inline-flex items-center gap-2">
+                          {c.nom || <span className="text-slate-400">—</span>}
+                          {moi && <span className="text-xs text-slate-400">(toi)</span>}
+                          <button
+                            type="button"
+                            title="Modifier le nom (celui qui signe les e-mails)"
+                            aria-label={`Modifier le nom de ${c.email}`}
+                            onClick={() => setRenommage({ id: c.id, nom: c.nom })}
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          >
+                            <PenLine size={13} />
+                          </button>
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-2.5 text-slate-700">{c.email}</td>
                     <td className="px-5 py-2.5">

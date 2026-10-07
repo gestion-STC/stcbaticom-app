@@ -11,6 +11,7 @@
 //   lister        → { comptes: [...] }
 //   creer         → { email, motDePasse, role, nom? } → { compte }
 //   changer_role  → { id, role } → { compte }
+//   renommer      → { id, nom } → { compte }   (le nom qui signe les e-mails)
 //
 // Secrets : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 
@@ -124,7 +125,18 @@ Deno.serve(async (req: Request) => {
       return reponse({ compte: versCompte(data.user) })
     }
 
-    return reponse({ error: "Action inconnue (lister, creer, changer_role)." }, 400)
+    // 5. Renommer un compte : le nom qui signe les e-mails et s'affiche en bas de la barre.
+    if (action === "renommer") {
+      const id = String(corps?.id ?? "")
+      const nom = String(corps?.nom ?? "").trim().slice(0, 80)
+      if (!id) return reponse({ error: "Compte manquant." }, 400)
+      if (!nom) return reponse({ error: "Le nom ne peut pas être vide." }, 400)
+      const { data, error } = await admin.auth.admin.updateUserById(id, { user_metadata: { nom } })
+      if (error) return reponse({ error: error.message }, 500)
+      return reponse({ compte: versCompte(data.user) })
+    }
+
+    return reponse({ error: "Action inconnue (lister, creer, changer_role, renommer)." }, 400)
   } catch (e) {
     return reponse({ error: e instanceof Error ? e.message : String(e) }, 500)
   }

@@ -107,14 +107,18 @@ export async function lienPieceJointe(chemin: string): Promise<string> {
 }
 
 // Répond à un message via le relais serveur (contrat « moteur » de envoyer-email :
-// composition côté serveur — signature ajoutée automatiquement, fil de discussion
-// conservé grâce à in_reply_to). Le relais journalise lui-même le message sortant.
+// composition côté serveur, fil de discussion conservé grâce à in_reply_to). Le
+// relais journalise lui-même le message sortant. `signatureHtml` / `commercial`
+// (07/10/2026) : la signature STC Bâtiment et le prénom du compte connecté ;
+// sans eux, le serveur garde la signature des paramètres.
 export async function repondreMessage(r: {
   to: string
   objet: string
   corps: string
   inReplyTo?: string | null
   prospectId?: string | null
+  signatureHtml?: string
+  commercial?: string
 }): Promise<void> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
@@ -124,6 +128,8 @@ export async function repondreMessage(r: {
       corps: r.corps,
       ...(r.inReplyTo ? { in_reply_to: r.inReplyTo } : {}),
       ...(r.prospectId ? { prospect_id: r.prospectId } : {}),
+      ...(r.signatureHtml ? { signature_html: r.signatureHtml } : {}),
+      ...(r.commercial ? { commercial: r.commercial } : {}),
     },
   })
   if (error) {

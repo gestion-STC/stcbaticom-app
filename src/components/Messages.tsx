@@ -20,6 +20,9 @@ import {
   repondreMessage,
   type Message,
 } from "../lib/messagesDb"
+import { useSession } from "../lib/auth"
+import { nomAffiche } from "../lib/comptes"
+import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { chargerEmailsEnvoyes, type EmailEnvoye } from "../lib/emailsEnvoyesDb"
 import { chargerSousTraitants } from "../lib/sousTraitantsDb"
 import {
@@ -202,6 +205,11 @@ function MessageCard({
 }
 
 export default function Messages() {
+  // Signature STC Bâtiment au nom du compte connecté, pour les réponses et transferts.
+  const session = useSession()
+  const nomSignataire = nomAffiche(session)
+  const signatureHtml = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
+  const prenomCommercial = prenomDe(nomSignataire)
   const [messages, setMessages] = useState<Message[]>([])
   const [campagnes, setCampagnes] = useState<EmailEnvoye[]>([])
   const [prospects, setProspects] = useState<Record<string, string>>({})
@@ -398,6 +406,8 @@ export default function Messages() {
         corps: reponseTexte.trim(),
         inReplyTo: dernier.messageId,
         prospectId: ouvert.prospectId,
+        signatureHtml,
+        commercial: prenomCommercial,
       })
       setEnvoiOk(true)
       setReponseTexte("")
@@ -421,6 +431,8 @@ export default function Messages() {
         corps: transfertCorps.trim(),
         inReplyTo: null,
         prospectId: null,
+        signatureHtml,
+        commercial: prenomCommercial,
       })
       setEnvoiOk(true)
       setTransfertTo("")
