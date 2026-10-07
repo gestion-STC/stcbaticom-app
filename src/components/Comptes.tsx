@@ -9,6 +9,7 @@ import {
   creerCompte,
   changerRole,
   renommerCompte,
+  nouveauMotDePasse,
   validerNouveauCompte,
   genererMotDePasse,
   type Compte,
@@ -45,7 +46,7 @@ export default function Comptes({ session }: { session: Session | null }) {
   const [creation, setCreation] = useState(false)
   const [erreurForm, setErreurForm] = useState<string | null>(null)
   // Le dernier compte créé, avec son mot de passe : affiché UNE fois, à transmettre.
-  const [dernier, setDernier] = useState<{ email: string; motDePasse: string } | null>(null)
+  const [dernier, setDernier] = useState<{ email: string; motDePasse: string; mode: "cree" | "reinitialise" } | null>(null)
   const [copie, setCopie] = useState(false)
 
   useEffect(() => {
@@ -69,7 +70,7 @@ export default function Comptes({ session }: { session: Session | null }) {
     try {
       const compte = await creerCompte(candidat)
       setComptes((liste) => [...liste, compte].sort((a, b) => a.email.localeCompare(b.email)))
-      setDernier({ email: compte.email, motDePasse })
+      setDernier({ email: compte.email, motDePasse, mode: "cree" })
       setNom("")
       setEmail("")
       setRole("telepro")
@@ -90,6 +91,21 @@ export default function Comptes({ session }: { session: Session | null }) {
       setComptes((liste) => liste.map((c) => (c.id === maj.id ? maj : c)))
     } catch (err) {
       setErreur(err instanceof Error ? err.message : "Changement impossible")
+    } finally {
+      setEnCours(null)
+    }
+  }
+
+  // Un mot de passe perdu ne se retrouve pas : on en pose un nouveau, affiché une fois.
+  async function reinitialiser(compte: Compte) {
+    const motDePasse = genererMotDePasse()
+    setEnCours(compte.id)
+    setErreur(null)
+    try {
+      await nouveauMotDePasse(compte.id, motDePasse)
+      setDernier({ email: compte.email, motDePasse, mode: "reinitialise" })
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Nouveau mot de passe impossible")
     } finally {
       setEnCours(null)
     }
@@ -168,6 +184,7 @@ export default function Comptes({ session }: { session: Session | null }) {
                 <th className="px-5 py-2 font-medium">Rôle</th>
                 <th className="px-5 py-2 font-medium">Dernière connexion</th>
                 <th className="px-5 py-2 font-medium">Créé le</th>
+                <th className="px-5 py-2 font-medium">Mot de passe</th>
               </tr>
             </thead>
             <tbody>
@@ -245,6 +262,18 @@ export default function Comptes({ session }: { session: Session | null }) {
                     </td>
                     <td className="px-5 py-2.5 text-slate-600">{dateHeure(c.derniereConnexion)}</td>
                     <td className="px-5 py-2.5 text-slate-600">{dateCourte(c.creeLe)}</td>
+                    <td className="px-5 py-2.5">
+                      <button
+                        type="button"
+                        title="Poser un nouveau mot de passe (l'ancien ne se relit pas)"
+                        aria-label={`Nouveau mot de passe pour ${c.email}`}
+                        disabled={enCours === c.id}
+                        onClick={() => void reinitialiser(c)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        <KeyRound size={12} /> Nouveau
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
@@ -264,7 +293,10 @@ export default function Comptes({ session }: { session: Session | null }) {
 
         {dernier && (
           <div className="mx-5 mt-4 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm">
-            <p className="font-medium text-violet-900">Compte créé : {dernier.email}</p>
+            <p className="font-medium text-violet-900">
+              {dernier.mode === "cree" ? "Compte créé : " : "Nouveau mot de passe pour "}
+              {dernier.email}
+            </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="text-violet-800">Mot de passe :</span>
               <code className="select-all rounded bg-white px-2 py-0.5 font-mono text-violet-900">{dernier.motDePasse}</code>

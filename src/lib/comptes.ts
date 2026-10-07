@@ -124,6 +124,12 @@ export async function renommerCompte(id: string, nom: string): Promise<Compte> {
   return r.compte
 }
 
+/** Pose un nouveau mot de passe (un mot de passe perdu ne se relit pas, il se remplace). */
+export async function nouveauMotDePasse(id: string, motDePasse: string): Promise<Compte> {
+  const r = await appeler<{ compte: Compte }>("nouveau_mot_de_passe", { id, motDePasse })
+  return r.compte
+}
+
 export async function changerRole(id: string, role: Role): Promise<Compte> {
   const r = await appeler<{ compte: Compte }>("changer_role", { id, role })
   return r.compte

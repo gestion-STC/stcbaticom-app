@@ -12,6 +12,7 @@
 //   creer         → { email, motDePasse, role, nom? } → { compte }
 //   changer_role  → { id, role } → { compte }
 //   renommer      → { id, nom } → { compte }   (le nom qui signe les e-mails)
+//   nouveau_mot_de_passe → { id, motDePasse } → { compte }   (un mot de passe perdu ne se relit pas, il se remplace)
 //
 // Secrets : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 
@@ -136,7 +137,19 @@ Deno.serve(async (req: Request) => {
       return reponse({ compte: versCompte(data.user) })
     }
 
-    return reponse({ error: "Action inconnue (lister, creer, changer_role, renommer)." }, 400)
+    // 6. Nouveau mot de passe. Un mot de passe perdu ne se retrouve pas (il est
+    //    chiffré) : l'administrateur en pose un nouveau et le transmet.
+    if (action === "nouveau_mot_de_passe") {
+      const id = String(corps?.id ?? "")
+      const motDePasse = String(corps?.motDePasse ?? "")
+      if (!id) return reponse({ error: "Compte manquant." }, 400)
+      if (motDePasse.length < 10) return reponse({ error: "Le mot de passe doit faire au moins 10 caractères." }, 400)
+      const { data, error } = await admin.auth.admin.updateUserById(id, { password: motDePasse })
+      if (error) return reponse({ error: error.message }, 500)
+      return reponse({ compte: versCompte(data.user) })
+    }
+
+    return reponse({ error: "Action inconnue (lister, creer, changer_role, renommer, nouveau_mot_de_passe)." }, 400)
   } catch (e) {
     return reponse({ error: e instanceof Error ? e.message : String(e) }, 500)
   }
