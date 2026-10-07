@@ -11,11 +11,14 @@ import {
   Handshake,
   Inbox,
   HardHat,
+  KeyRound,
   LogOut,
 } from "lucide-react"
+import type { Session } from "@supabase/supabase-js"
 import { commercial } from "../data"
 import { compterNonLus } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
+import { estAdmin, initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
 
 export type PageId =
@@ -30,6 +33,7 @@ export type PageId =
   | "recrutement"
   | "calendrier"
   | "parametrage"
+  | "comptes"
 
 type NavItem = { id: PageId; label: string; icon: typeof Users }
 
@@ -45,17 +49,31 @@ const items: NavItem[] = [
   { id: "recrutement", label: "Recrutement ST", icon: HardHat },
   { id: "calendrier", label: "Calendrier", icon: Calendar },
   { id: "parametrage", label: "Paramétrage", icon: SlidersHorizontal },
+  // Réservé aux administrateurs (Mahdi, 07/10/2026) : filtré plus bas selon la session.
+  { id: "comptes", label: "Comptes", icon: KeyRound },
 ]
+
+/** Les onglets visibles pour une session : « Comptes » n'apparaît qu'aux administrateurs. */
+function ongletsVisibles(session: Session | null | undefined): NavItem[] {
+  return items.filter((i) => i.id !== "comptes" || estAdmin(session))
+}
 
 // Barre latérale sombre : dégradé noir → violet + trame de petits points,
 // même recette que la section « Vision » du site vitrine (qui l'a en rouge).
 export default function Sidebar({
   active,
   onNavigate,
+  session,
 }: {
   active: PageId
   onNavigate: (id: PageId) => void
+  session?: Session | null
 }) {
+  // Qui est connecté : nom et rôle du compte, sinon le profil par défaut (mode démo).
+  const role = roleDeSession(session)
+  const nom = session ? nomAffiche(session) : commercial.prenom
+  const libelleRole = role ? LIBELLE_ROLE[role] : commercial.role
+  const initiales = session ? initialesDe(nom) : commercial.initiales
   // Pastille « non lus » de la boîte de réception, rafraîchie toutes les 60 s
   // (et quand on quitte la boîte, pour qu'elle retombe après lecture).
   const [nonLus, setNonLus] = useState(0)
@@ -82,7 +100,7 @@ export default function Sidebar({
 
       {/* Navigation */}
       <nav className="relative mt-1 flex-1 space-y-0.5 overflow-y-auto px-3">
-        {items.map(({ id, label, icon: Icon }) => {
+        {ongletsVisibles(session).map(({ id, label, icon: Icon }) => {
           const isActive = id === active
           return (
             <button
@@ -114,11 +132,11 @@ export default function Sidebar({
       {/* Profil */}
       <div className="relative mt-2 flex items-center gap-3 border-t border-white/10 px-5 py-4">
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
-          {commercial.initiales}
+          {initiales}
         </div>
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-sm font-medium text-white">{commercial.prenom}</p>
-          <p className="text-xs text-white/50">{commercial.role}</p>
+          <p className="truncate text-sm font-medium text-white">{nom}</p>
+          <p className="text-xs text-white/50">{libelleRole}</p>
         </div>
         <button
           onClick={seDeconnecter}

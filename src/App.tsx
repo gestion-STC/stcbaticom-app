@@ -14,6 +14,7 @@ import Messages from "./components/Messages"
 import RecrutementST from "./components/recrutement/RecrutementST"
 import Calendrier from "./components/Calendrier"
 import Parametrage from "./components/Parametrage"
+import Comptes from "./components/Comptes"
 import RappelsRdv from "./components/RappelsRdv"
 import TelephoneRingover from "./components/TelephoneRingover"
 import Connexion from "./components/Connexion"
@@ -31,6 +32,7 @@ const titres: Record<PageId, string> = {
   recrutement: "Recrutement sous-traitants",
   calendrier: "Calendrier",
   parametrage: "Paramétrage",
+  comptes: "Comptes",
 }
 
 function App() {
@@ -50,7 +52,7 @@ function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">
-      <Sidebar active={page} onNavigate={setPage} />
+      <Sidebar active={page} onNavigate={setPage} session={session} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-4">
@@ -78,6 +80,7 @@ function App() {
           {page === "recrutement" && <RecrutementST />}
           {page === "calendrier" && <Calendrier />}
           {page === "parametrage" && <Parametrage />}
+          {page === "comptes" && <Comptes session={session} />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant
