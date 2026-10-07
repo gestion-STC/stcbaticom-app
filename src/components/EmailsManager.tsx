@@ -4,8 +4,10 @@ import { apercu, type Email } from "../emails"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerEmails, creerEmail, majEmail, supprimerEmail } from "../lib/emailsDb"
 import { lireParametre, ecrireParametre } from "../lib/parametresDb"
+import { useSession } from "../lib/auth"
+import { nomAffiche } from "../lib/comptes"
+import { signatureStc } from "../lib/signatureStc"
 import EmailModal from "./EmailModal"
-import SignatureEditor from "./SignatureEditor"
 
 type ModalState = { mode: "create" } | { mode: "edit"; email: Email } | null
 
@@ -14,9 +16,15 @@ export default function EmailsManager() {
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
-  const [signature, setSignature] = useState("")
-  const [sigChargee, setSigChargee] = useState(false)
-  const [sigSauvee, setSigSauvee] = useState(false)
+  // Signature STC Bâtiment du compte connecté : c'est elle qui part avec chaque
+  // e-mail envoyé depuis le logiciel (après un appel, boîte de réception).
+  const session = useSession()
+  const signatureCompte = signatureStc({ nom: nomAffiche(session) })
+  // Les envois AUTOMATIQUES (règles) n'ont pas de compte connecté : ils signent
+  // du nom réglé ici (paramètre « commercial »), dans le même format.
+  const [nomAuto, setNomAuto] = useState("")
+  const [nomAutoCharge, setNomAutoCharge] = useState(false)
+  const [nomAutoSauve, setNomAutoSauve] = useState(false)
 
   useEffect(() => {
     if (!supabaseConfigure) {
@@ -33,24 +41,21 @@ export default function EmailsManager() {
         ),
       )
       .finally(() => setChargement(false))
-    lireParametre("signature")
+    lireParametre("commercial")
       .then((v) => {
-        if (v) setSignature(v)
+        if (v) setNomAuto(v)
       })
       .catch(() => {})
-      .finally(() => setSigChargee(true))
+      .finally(() => setNomAutoCharge(true))
   }, [])
 
-  async function enregistrerSignature() {
+  async function enregistrerNomAuto() {
     try {
-      await ecrireParametre("signature", signature)
-      setSigSauvee(true)
-      setTimeout(() => setSigSauvee(false), 2000)
+      await ecrireParametre("commercial", nomAuto.trim())
+      setNomAutoSauve(true)
+      setTimeout(() => setNomAutoSauve(false), 2000)
     } catch (e) {
-      setErreur(
-        "Signature non enregistrée. Avez-vous créé la table « parametres » ? Détail : " +
-          (e instanceof Error ? e.message : String(e)),
-      )
+      setErreur("Nom non enregistré. Détail : " + (e instanceof Error ? e.message : String(e)))
     }
   }
 
@@ -106,37 +111,61 @@ export default function EmailsManager() {
           <EmailModal
             email={modal.mode === "edit" ? modal.email : null}
             ordreParDefaut={(emails.at(-1)?.ordre ?? 0) + 1}
-            signature={signature}
+            signature={signatureCompte}
             onClose={() => setModal(null)}
             onSave={enregistrer}
           />
         )}
 
-        {/* Signature des envois AUTOMATIQUES (règles d'envoi). Depuis le 07/10/2026,
-            les e-mails envoyés depuis le logiciel (après un appel, réponses de la
-            boîte) portent la signature STC Bâtiment au nom du compte connecté. */}
+        {/* Une seule signature dans tout le logiciel : celle de STC Bâtiment
+            (Mahdi, 07/10/2026). Pour le compte connecté, elle porte son nom ;
+            pour les envois automatiques des règles, le nom réglé ci-dessous. */}
         <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex items-center gap-2">
             <PenLine size={16} className="text-blue-600" />
             <p className="text-sm font-medium text-slate-800">Ma signature</p>
             <span className="text-xs text-slate-400">
-              — sert aux envois automatiques des règles. Les e-mails envoyés depuis le
-              logiciel (après un appel, réponses de la boîte) portent la signature STC
-              Bâtiment au nom du compte connecté.
+              — signature STC Bâtiment, à ton nom. Elle part avec chaque e-mail envoyé
+              depuis le logiciel. Pour changer le nom : onglet Comptes.
             </span>
           </div>
-          {sigChargee && (
-            <SignatureEditor valeurInitiale={signature} onChange={setSignature} />
-          )}
-          <div className="mt-2 flex justify-end">
+          <div
+            className="signature-edit rounded-lg border border-slate-100 bg-slate-50 px-4 pb-4 text-sm"
+            dangerouslySetInnerHTML={{ __html: signatureCompte }}
+          />
+        </div>
+
+        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center gap-2">
+            <PenLine size={16} className="text-blue-600" />
+            <p className="text-sm font-medium text-slate-800">Envois automatiques</p>
+            <span className="text-xs text-slate-400">
+              — les règles d'envoi n'ont pas de compte connecté : elles signent du nom
+              ci-dessous, même format. Ce nom remplit aussi {"{{commercial}}"}.
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="nom-envois-automatiques"
+              value={nomAuto}
+              onChange={(e) => setNomAuto(e.target.value)}
+              placeholder="L'équipe STC"
+              disabled={!nomAutoCharge}
+              className="w-72 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
             <button
-              onClick={enregistrerSignature}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              onClick={enregistrerNomAuto}
+              disabled={!nomAutoCharge}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {sigSauvee ? <Check size={16} /> : null}
-              {sigSauvee ? "Enregistrée" : "Enregistrer la signature"}
+              {nomAutoSauve ? <Check size={16} /> : null}
+              {nomAutoSauve ? "Enregistré" : "Enregistrer"}
             </button>
           </div>
+          <div
+            className="signature-edit mt-3 rounded-lg border border-slate-100 bg-slate-50 px-4 pb-4 text-sm"
+            dangerouslySetInnerHTML={{ __html: signatureStc({ nom: nomAuto }) }}
+          />
         </div>
 
         {chargement ? (
@@ -178,11 +207,9 @@ export default function EmailsManager() {
                 <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-slate-400">
                   {apercu(em.corps)}
                 </p>
-                {signature && (
-                  <p className="mt-2 border-t border-slate-100 pt-1.5 text-[11px] text-slate-400">
-                    + votre signature
-                  </p>
-                )}
+                <p className="mt-2 border-t border-slate-100 pt-1.5 text-[11px] text-slate-400">
+                  + la signature STC Bâtiment
+                </p>
               </div>
             ))}
             {emails.length === 0 && !erreur && (

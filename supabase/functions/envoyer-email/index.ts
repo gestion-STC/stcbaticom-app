@@ -8,8 +8,8 @@
 //     jointes) + journalise messages ET emails_envoyes.
 //     · signature_html / commercial (07/10/2026) : la boîte de réception envoie la
 //       signature STC Bâtiment AU NOM DU COMPTE CONNECTÉ et son prénom ; sans eux
-//       (moteur de règles, automatique), on garde la signature et le commercial
-//       des paramètres, comme avant.
+//       (moteur de règles, automatique), la signature STC Bâtiment au nom du
+//       paramètre « commercial » (réglé dans Paramétrage › Emails).
 // Expéditeur : secret RESEND_FROM sinon contact@crm.stcbatiment.fr.
 //
 // ⚠ Ce fichier est LA version déployée (v4 du 09/07/2026 + le point ci-dessus).
@@ -24,6 +24,27 @@ const cors = {
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const adresse = (raw: unknown) => { const s = String(raw ?? "").trim(); const m = s.match(/<([^>]+)>/); return (m ? m[1] : s).toLowerCase().trim(); };
+
+// Signature STC Bâtiment (même format que src/lib/signatureStc.ts côté interface) :
+// sert aux envois AUTOMATIQUES, qui n'ont pas de compte connecté. Nom = paramètre
+// « commercial », sinon « L'équipe STC ». Le fixe toujours, jamais de mobile.
+const F = "-apple-system,'Segoe UI',Helvetica,Arial,sans-serif";
+const prenomDe = (nom: string) => nom.trim().split(/\s+/)[0] || "";
+function signatureStc(nomBrut: string): string {
+  const nom = nomBrut.trim() || "L'équipe STC";
+  return `
+<div style="margin-top:30px;border-top:1px solid #ececec;padding-top:16px;font-family:${F};">
+  <img src="https://stcbatiment.com/stc-logo-email.png" alt="STC B&acirc;timent - r&eacute;nover | innover" width="128" style="display:block;margin:0 0 12px;max-width:128px;height:auto;" />
+  <p style="margin:0;font-size:13.5px;color:#1a1a1a;font-weight:600;font-family:${F};">${nom} <span style="font-weight:400;color:#b0b0b0;">&middot;</span> <span style="font-weight:400;color:#6b6b6b;">Gestion</span></p>
+  <p style="margin:4px 0 0;font-size:12.5px;color:#444;line-height:1.7;font-family:${F};">
+    <a href="tel:+33184806128" style="color:#444;text-decoration:none;">01 84 80 61 28</a><br>
+    <a href="mailto:contact@crm.stcbatiment.fr" style="color:#444;text-decoration:none;">contact@crm.stcbatiment.fr</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://stcbatiment.fr" style="color:#D32F2F;text-decoration:none;">stcbatiment.fr</a>
+  </p>
+  <p style="margin:14px 0 0;font-size:11px;color:#b0b0b0;font-family:${F};">STC B&acirc;timent &middot; 7 rue Oscar Niemeyer, 78280 Guyancourt</p>
+</div>`;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -77,10 +98,12 @@ Deno.serve(async (req: Request) => {
       if (!objetFinal || !corpsTextFinal) return json({ error: "Objet et corps requis (directs ou via modèle)." }, 400);
       const { data: params } = await admin.from("parametres").select("cle, valeur").in("cle", ["signature", "commercial"]);
       const param = (k: string) => (params as Array<{ cle: string; valeur: string }> | null)?.find((x) => x.cle === k)?.valeur ?? "";
-      // Le compte connecté l'emporte sur les paramètres communs (boîte de réception) ;
-      // sans lui (moteur de règles), les paramètres s'appliquent comme avant.
-      const prenomCommercial = typeof commercial === "string" && commercial.trim() ? commercial.trim() : String(param("commercial"));
-      const signature = typeof signature_html === "string" && signature_html.trim() ? signature_html : String(param("signature"));
+      // Le compte connecté l'emporte (boîte de réception : signature_html + commercial).
+      // Sans lui (moteur de règles) : la signature STC Bâtiment au nom du paramètre
+      // « commercial ». Le HTML collé « signature » n'est plus lu (07/10/2026).
+      const nomAuto = String(param("commercial")).trim();
+      const prenomCommercial = typeof commercial === "string" && commercial.trim() ? commercial.trim() : prenomDe(nomAuto);
+      const signature = typeof signature_html === "string" && signature_html.trim() ? signature_html : signatureStc(nomAuto);
       const subst = (s: string) => s
         .split("{{contact}}").join(prospect?.contact || "")
         .split("{{entreprise}}").join(prospect?.entreprise || "")
