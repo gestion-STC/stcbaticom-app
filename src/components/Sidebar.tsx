@@ -10,17 +10,24 @@ import {
   SlidersHorizontal,
   Handshake,
   Inbox,
+  Gauge,
   HardHat,
+  ListOrdered,
+  BarChart3,
+  FolderCheck,
   KeyRound,
   LogOut,
 } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
 import { commercial } from "../data"
-import { compterNonLus } from "../lib/messagesDb"
+import { compterNonLus, type Espace } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
 import { estAdmin, initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
 
+// DEUX ESPACES (Mahdi, 08/10/2026) : le démarchage commercial (prospects,
+// agences, appels) et le recrutement des sous-traitants. Chacun a son menu,
+// sa boîte de réception, son adresse d'envoi. Les réglages sont communs, en bas.
 export type PageId =
   | "dashboard"
   | "prospects"
@@ -30,14 +37,19 @@ export type PageId =
   | "pipeline"
   | "sessions"
   | "messages"
-  | "recrutement"
   | "calendrier"
+  | "st_machine"
+  | "st_base"
+  | "st_sequences"
+  | "st_suivi"
+  | "st_boite"
+  | "st_dossiers"
   | "parametrage"
   | "comptes"
 
 type NavItem = { id: PageId; label: string; icon: typeof Users }
 
-const items: NavItem[] = [
+const menuDemarchage: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "prospects", label: "Prospects", icon: Users },
   { id: "gestionnaires", label: "Gestionnaires", icon: UserCheck },
@@ -46,40 +58,46 @@ const items: NavItem[] = [
   { id: "pipeline", label: "Pipeline", icon: Columns3 },
   { id: "sessions", label: "Sessions de call", icon: PhoneCall },
   { id: "messages", label: "Boîte de réception", icon: Inbox },
-  { id: "recrutement", label: "Recrutement ST", icon: HardHat },
   { id: "calendrier", label: "Calendrier", icon: Calendar },
-  { id: "parametrage", label: "Paramétrage", icon: SlidersHorizontal },
-  // Réservé aux administrateurs (Mahdi, 07/10/2026) : filtré plus bas selon la session.
-  { id: "comptes", label: "Comptes", icon: KeyRound },
 ]
 
-/** Les onglets visibles pour une session : « Comptes » n'apparaît qu'aux administrateurs. */
-function ongletsVisibles(session: Session | null | undefined): NavItem[] {
-  return items.filter((i) => i.id !== "comptes" || estAdmin(session))
-}
+const menuRecrutement: NavItem[] = [
+  { id: "st_machine", label: "Machine", icon: Gauge },
+  { id: "st_base", label: "Base d'artisans", icon: HardHat },
+  { id: "st_sequences", label: "Séquences", icon: ListOrdered },
+  { id: "st_suivi", label: "Suivi", icon: BarChart3 },
+  { id: "st_boite", label: "Boîte de réception", icon: Inbox },
+  { id: "st_dossiers", label: "Dossiers déposés", icon: FolderCheck },
+]
 
 // Barre latérale sombre : dégradé noir → violet + trame de petits points,
 // même recette que la section « Vision » du site vitrine (qui l'a en rouge).
 export default function Sidebar({
   active,
+  espace,
   onNavigate,
   session,
 }: {
   active: PageId
+  espace: Espace // l'espace affiché (tenu par l'application : il survit à un passage par Réglages)
   onNavigate: (id: PageId) => void
   session?: Session | null
 }) {
+  const items = espace === "recrutement" ? menuRecrutement : menuDemarchage
+
   // Qui est connecté : nom et rôle du compte, sinon le profil par défaut (mode démo).
   const role = roleDeSession(session)
   const nom = session ? nomAffiche(session) : commercial.prenom
   const libelleRole = role ? LIBELLE_ROLE[role] : commercial.role
   const initiales = session ? initialesDe(nom) : commercial.initiales
-  // Pastille « non lus » de la boîte de réception, rafraîchie toutes les 60 s
-  // (et quand on quitte la boîte, pour qu'elle retombe après lecture).
-  const [nonLus, setNonLus] = useState(0)
+
+  // Pastilles « non lus » des DEUX boîtes, rafraîchies toutes les 60 s
+  // (et quand on change de page, pour qu'elles retombent après lecture).
+  const [nonLus, setNonLus] = useState<Record<Espace, number>>({ demarchage: 0, recrutement: 0 })
   useEffect(() => {
     let annule = false
-    const maj = () => compterNonLus().then((n) => !annule && setNonLus(n))
+    const maj = () =>
+      Promise.all([compterNonLus("demarchage"), compterNonLus("recrutement")]).then(([d, r]) => !annule && setNonLus({ demarchage: d, recrutement: r }))
     maj()
     const t = setInterval(maj, 60_000)
     return () => {
@@ -94,14 +112,37 @@ export default function Sidebar({
       <div className="pointer-events-none absolute inset-0 opacity-[0.1] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" />
 
       {/* Logo STCbaticom (version blanche sur fond sombre) */}
-      <div className="relative px-5 pb-4 pt-6">
+      <div className="relative px-5 pb-3 pt-6">
         <LogoBaticom clair className="text-[22px]" />
       </div>
 
-      {/* Navigation */}
+      {/* Le sélecteur d'espace */}
+      <div className="relative mx-3 mb-3 grid grid-cols-2 gap-0.5 rounded-lg bg-white/10 p-0.5 text-xs font-semibold">
+        {(
+          [
+            ["demarchage", "Démarchage", "dashboard"],
+            ["recrutement", "Recrutement ST", "st_machine"],
+          ] as [Espace, string, PageId][]
+        ).map(([id, label, premierePage]) => (
+          <button
+            key={id}
+            onClick={() => onNavigate(premierePage)}
+            className={
+              "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 transition-colors " +
+              (espace === id ? "bg-white text-[#1d1038]" : "text-white/65 hover:bg-white/10 hover:text-white")
+            }
+          >
+            {label}
+            {nonLus[id] > 0 && espace !== id ? <span className="h-1.5 w-1.5 rounded-full bg-violet-400" /> : null}
+          </button>
+        ))}
+      </div>
+
+      {/* Navigation de l'espace */}
       <nav className="relative mt-1 flex-1 space-y-0.5 overflow-y-auto px-3">
-        {ongletsVisibles(session).map(({ id, label, icon: Icon }) => {
+        {items.map(({ id, label, icon: Icon }) => {
           const isActive = id === active
+          const badge = id === "messages" ? nonLus.demarchage : id === "st_boite" ? nonLus.recrutement : 0
           return (
             <button
               key={id}
@@ -119,15 +160,32 @@ export default function Sidebar({
                 className={isActive ? "text-white" : "text-white/40"}
               />
               <span className="flex-1 text-left">{label}</span>
-              {id === "messages" && nonLus > 0 && (
+              {badge > 0 && (
                 <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-semibold text-white">
-                  {nonLus}
+                  {badge}
                 </span>
               )}
             </button>
           )
         })}
       </nav>
+
+      {/* Réglages, communs aux deux espaces ; Comptes réservé aux administrateurs (07/10/2026) */}
+      <div className="relative space-y-0.5 px-3 pt-2">
+        {([["parametrage", "Réglages", SlidersHorizontal], ...(estAdmin(session) ? [["comptes", "Comptes", KeyRound]] : [])] as [PageId, string, typeof Users][]).map(([id, label, Icon]) => (
+          <button
+            key={id}
+            onClick={() => onNavigate(id)}
+            className={
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
+              (active === id ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/10 hover:text-white")
+            }
+          >
+            <Icon size={17} strokeWidth={2} className={active === id ? "text-white" : "text-white/40"} />
+            <span className="flex-1 text-left">{label}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Profil */}
       <div className="relative mt-2 flex items-center gap-3 border-t border-white/10 px-5 py-4">

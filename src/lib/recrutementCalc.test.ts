@@ -4,7 +4,7 @@ import type { SousTraitant } from "../recrutement"
 
 const base = (o: Partial<SousTraitant>): SousTraitant => ({
   entreprise: "", contact: "", email: "", telephone: "", metier: "", zone: "",
-  statut: "a_contacter", etapeCourante: 0, nbClics: 0, ...o,
+  statut: "a_contacter", etapeCourante: 0, nbClics: 0, nbEnvoisOk: 0, nbEnvoisErreur: 0, ...o,
 })
 const iso = (joursAvant: number) => new Date(Date.now() - joursAvant * 86_400_000).toISOString()
 
