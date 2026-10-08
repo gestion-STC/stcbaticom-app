@@ -237,3 +237,7 @@ update public.st_sous_traitants s
 update public.st_etapes
    set contenu = replace(contenu, 'Repondez STOP pour vous desinscrire.', 'Pour ne plus recevoir : {{lien_desinscription}}')
  where canal = 'sms' and contenu like '%Repondez STOP pour vous desinscrire.%';
+
+-- 11) Les dossiers déjà déposés ont déjà été signalés (e-mail à service-travaux@
+--     au moment du dépôt) : on ne les re-signale pas au premier passage.
+update public.dossiers_st set notifie_le = coalesce(notifie_le, created_at) where notifie_le is null;
