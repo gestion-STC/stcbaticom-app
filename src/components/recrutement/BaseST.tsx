@@ -109,7 +109,7 @@ export default function BaseST() {
   const sousTitre = `${pluriel(compte.tous, "fiche")} · ${compte.a_contacter} à contacter · ${compte.en_sequence} en séquence · ${pluriel(arretees, "arrêtée")}`
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-6">
+    <div className="page">
       <EnTetePage
         titre="Base d'artisans"
         sousTitre={sousTitre}

@@ -17,11 +17,28 @@
 //
 // Installation (une fois) : GET ?action=installer avec la clé service_role en
 // Authorization crée le webhook chez Resend par l'API et renvoie le secret de
-// signature à poser dans les secrets Supabase.
+// signature à poser dans les secrets Supabase. Ré-exécutable : si un webhook
+// pointe déjà sur cette fonction, il est réutilisé, pas dupliqué.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const EVENEMENTS = ["email.delivered", "email.opened", "email.bounced", "email.complained"]
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
+
+// La clé serveur est-elle celle qui frappe ? Soit elle est identique à celle de
+// l'environnement, soit c'est un JWT de rôle service_role que la base accepte
+// (la signature est vérifiée par PostgREST, pas par nous).
+async function estCleServeur(jeton: string, base: string, service: string): Promise<boolean> {
+  if (!jeton) return false
+  if (jeton === service) return true
+  try {
+    const payload = JSON.parse(atob(jeton.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")))
+    if (payload?.role !== "service_role") return false
+    const r = await fetch(`${base}/rest/v1/st_pilotage?select=id&limit=1`, { headers: { apikey: jeton, Authorization: `Bearer ${jeton}` } })
+    return r.ok
+  } catch {
+    return false
+  }
+}
 
 async function signatureValide(req: Request, corps: string, secret: string): Promise<boolean> {
   const id = req.headers.get("svix-id") || ""
@@ -44,17 +61,28 @@ Deno.serve(async (req: Request) => {
   // ── Installation du webhook chez Resend (réservée à la clé service_role) ──
   if (req.method === "GET" && url.searchParams.get("action") === "installer") {
     const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
-    if (!jeton || jeton !== service) return json({ error: "réservé au serveur" }, 403)
+    if (!(await estCleServeur(jeton, base, service))) return json({ error: "réservé au serveur" }, 403)
     const cle = Deno.env.get("RESEND_API_KEY")
     if (!cle) return json({ error: "RESEND_API_KEY manquante" }, 500)
     const endpoint = `${base}/functions/v1/resend-evenements`
-    const r = await fetch("https://api.resend.com/webhooks", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${cle}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint, events: EVENEMENTS }),
-    })
-    const texte = await r.text()
-    return json({ ok: r.ok, status: r.status, reponse: texte, endpoint })
+    const entetes = { Authorization: `Bearer ${cle}`, "Content-Type": "application/json" }
+    // Déjà installé ? On réutilise plutôt que de doubler.
+    const liste = await fetch("https://api.resend.com/webhooks", { headers: entetes })
+    const existants: { id?: string; endpoint?: string }[] = liste.ok ? ((await liste.json())?.data ?? []) : []
+    const deja = existants.find((w) => w.endpoint === endpoint)
+    let id = deja?.id ?? ""
+    let cree = false
+    if (!id) {
+      const r = await fetch("https://api.resend.com/webhooks", { method: "POST", headers: entetes, body: JSON.stringify({ endpoint, events: EVENEMENTS }) })
+      const corpsR = await r.json().catch(() => ({}))
+      if (!r.ok) return json({ ok: false, status: r.status, reponse: corpsR, endpoint }, 502)
+      id = corpsR.id ?? ""
+      cree = true
+    }
+    // Le secret de signature (whsec_…) vient de la fiche du webhook.
+    const fiche = id ? await fetch(`https://api.resend.com/webhooks/${id}`, { headers: entetes }) : null
+    const detail = fiche?.ok ? await fiche.json() : {}
+    return json({ ok: true, cree, id, endpoint, events: detail?.events ?? EVENEMENTS, status: detail?.status ?? "", signing_secret: detail?.signing_secret ?? "" })
   }
 
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405)

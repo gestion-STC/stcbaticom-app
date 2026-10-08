@@ -117,7 +117,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
     finally { setOccupe(false) }
   }
 
-  if (!d || !calc) return <div className="mx-auto max-w-[1200px] px-8 py-6">{erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : <Chargement texte="Lecture de la machine…" />}</div>
+  if (!d || !calc) return <div className="page">{erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : <Chargement texte="Lecture de la machine…" />}</div>
 
   const { pilotage: pil } = d
   const { aujourdhui, passages } = calc
@@ -135,7 +135,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
   if (pil.actif && !calc.sequence) alertes.push({ role: "alerte", texte: "Aucune séquence n'est choisie : la machine ne peut rien envoyer.", action: { label: "Choisir", page: "st_sequences" } })
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-6">
+    <div className="page">
       <EnTetePage
         titre="Machine"
         sousTitre={<span className="flex flex-wrap items-center gap-2">{pil.adresseEnvoi}{calc.sequence ? <> · séquence <b className="font-medium text-encre">{calc.sequence.nom}</b></> : null}<span className="text-encre-3">· actualisé {depuis(maintenant - d.lu)}, automatique toutes les 30 s</span></span>}

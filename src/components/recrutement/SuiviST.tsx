@@ -109,7 +109,7 @@ export default function SuiviST() {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-6">
+    <div className="page">
       <EnTetePage titre="Suivi" sousTitre={`${periode.libelle}${corps ? ` · ${CORPS_METIERS.find((c) => c.value === corps)?.label ?? corps}` : ""}`} />
 
       {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" onClick={() => { setChargement(true); charger().finally(() => setChargement(false)) }}>Réessayer</Bouton>}>{erreur}</Bandeau> : null}

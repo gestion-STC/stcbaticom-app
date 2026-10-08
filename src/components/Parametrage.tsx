@@ -53,7 +53,7 @@ export default function Parametrage() {
         {onglet === "regles" && <ReglesManager />}
         {onglet === "creneaux" && <CreneauxManager />}
         {onglet === "numeros" && <NumerosManager />}
-        {onglet === "recrutement" && <div className="mx-auto max-w-[1100px] px-8 py-4"><ReglagesRecrutement /></div>}
+        {onglet === "recrutement" && <div className="page"><ReglagesRecrutement /></div>}
       </div>
     </div>
   )

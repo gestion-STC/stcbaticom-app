@@ -90,6 +90,14 @@
 /* Les chiffres s'alignent en colonne. */
 .chiffres { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 
+/* Une page de l'espace Recrutement prend TOUTE la largeur (Mahdi, 08/10 : pas
+   de bloc centré avec du vide des deux côtés). Les marges se règlent ici, à un
+   seul endroit : 40 px sur les côtés, 28 px en haut, 40 px en bas. */
+@utility page {
+  width: 100%;
+  padding: 28px 40px 40px;
+}
+
 html,
 body,
 #root {

@@ -97,7 +97,7 @@ export default function DossiersST() {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-6">
+    <div className="page">
       <EnTetePage
         titre="Dossiers déposés"
         sousTitre={`${pluriel(compte.tous, "dossier")} · ${compte.a_traiter} à traiter · ${compte.sans_fiche} sans fiche rattachée`}

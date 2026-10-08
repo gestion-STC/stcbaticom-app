@@ -167,7 +167,7 @@ export default function SequencesST() {
   }, [etapes])
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-6">
+    <div className="page">
       <EnTetePage
         titre="Séquences"
         sousTitre="La suite d'e-mails et de SMS que reçoit chaque artisan démarré"
