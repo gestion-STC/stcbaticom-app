@@ -111,7 +111,7 @@ function App() {
           {page === "st_base" && <BaseST />}
           {page === "st_sequences" && <SequencesST />}
           {page === "st_suivi" && <SuiviST />}
-          {page === "st_boite" && <div className="py-6"><Messages espace="recrutement" /></div>}
+          {page === "st_boite" && <Messages espace="recrutement" />}
           {page === "st_dossiers" && <DossiersST />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
