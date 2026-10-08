@@ -1,209 +1,229 @@
-import { useEffect, useState, type ReactNode } from "react"
-import { Loader2, AlertTriangle, Send, MousePointerClick, FileCheck2, Target, FileText, Flame, Phone } from "lucide-react"
-import type { SousTraitant, PilotageST } from "../../recrutement"
+// ════════════════════════════════════════════════════════════════════════════
+// LE SUIVI — le tunnel, l'objectif de la semaine, et qui relancer à la main
+//
+// Une page de la trousse STC. Le tunnel compte ceux qui ont été DÉMARRÉS sur
+// la période (puis joints, ont cliqué, ont déposé), chaque étape rapportée à
+// la précédente. En dessous, deux listes d'artisans « chauds » : ceux qui ont
+// cliqué candidater sans déposer, ceux qui ont consulté le barème. Un bouton
+// « Appeler » sur chaque ligne ; la ligne ouvre la fiche.
+// ════════════════════════════════════════════════════════════════════════════
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Phone } from "lucide-react"
+import type { ObjectifMetier, SousTraitant } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
-import { chargerPilotage } from "../../lib/pilotageStDb"
+import { chargerObjectifs } from "../../lib/objectifsStDb"
+import { CORPS_METIERS, exerceCorps } from "../../lib/recrutementCalc"
+import { pourcent, tunnel } from "../../lib/statsMachine"
 import { lancerAppelRingover } from "../../lib/ringover"
+import { Bandeau, BarreFiltres, Bouton, Carte, Chargement, EnTetePage, Pastille, Selecteur, TitreCarte, Vide } from "../../ui"
+import FicheArtisan from "./FicheArtisan"
 
 const JOUR_MS = 86_400_000
+const PERIODES: { jours: number; libelle: string }[] = [
+  { jours: 7, libelle: "7 derniers jours" },
+  { jours: 30, libelle: "30 derniers jours" },
+  { jours: 60, libelle: "60 derniers jours" },
+  { jours: 90, libelle: "90 derniers jours" },
+  { jours: 0, libelle: "Tout l'historique" },
+]
+const dateCourte = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-export default function SuiviST() {
-  const [liste, setListe] = useState<SousTraitant[]>([])
-  const [pilotage, setPilotage] = useState<PilotageST | null>(null)
-  const [chargement, setChargement] = useState(true)
-  const [erreur, setErreur] = useState("")
-
-  useEffect(() => {
-    if (!supabaseConfigure) {
-      setErreur("Base non configurée.")
-      setChargement(false)
-      return
-    }
-    Promise.all([chargerSousTraitants(), chargerPilotage()])
-      .then(([l, p]) => {
-        setListe(l)
-        setPilotage(p)
-      })
-      .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
-      .finally(() => setChargement(false))
-  }, [])
-
-  if (chargement)
-    return (
-      <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400">
-        <Loader2 size={18} className="animate-spin" /> Chargement…
-      </div>
-    )
-
-  // Étapes du tunnel (mesures cumulées, pas des statuts exclusifs).
-  const base = liste.length
-  const contactes = liste.filter((s) => s.demarreLe).length // entrés en séquence (au moins un envoi programmé)
-  const impressions = liste.filter((s) => s.dernierClicLe).length // ont cliqué le lien
-  const conversions = liste.filter((s) => s.deposeLe || s.statut === "depose").length // ont déposé
-
-  // Signaux d'intérêt à relancer À LA MAIN.
-  const aDepose = (s: SousTraitant) => !!s.deposeLe || s.statut === "depose"
-  const baremeVus = liste
-    .filter((s) => s.baremeVuLe)
-    .sort((a, b) => new Date(b.baremeVuLe!).getTime() - new Date(a.baremeVuLe!).getTime())
-  // Intéressés « chauds » : ont cliqué candidater mais N'ONT PAS déposé leur dossier.
-  const candidatSansDepot = liste
-    .filter((s) => s.candidatureClicLe && !aDepose(s))
-    .sort((a, b) => new Date(b.candidatureClicLe!).getTime() - new Date(a.candidatureClicLe!).getTime())
-
-  // Appel Ringover en 1 clic depuis les listes d'intéressés.
-  const appeler = async (s: SousTraitant) => {
-    if (!s.telephone) { setErreur("Ce sous-traitant n'a pas de numéro de téléphone."); return }
-    setErreur("")
-    const r = await lancerAppelRingover(s.telephone)
-    if (!r.ok) setErreur(r.message || "Appel impossible pour le moment.")
-  }
-
-  // Objectif de la semaine (7 jours glissants).
-  const depuis7j = Date.now() - 7 * JOUR_MS
-  const convSemaine = liste.filter((s) => s.deposeLe && new Date(s.deposeLe).getTime() >= depuis7j).length
-  const objectif = pilotage?.objectifHebdo ?? 0
-
-  const pct = (n: number, base: number) => (base > 0 ? Math.round((n / base) * 100) : 0)
-
-  const etapes = [
-    { label: "Contactés", valeur: contactes, ref: base, icone: <Send size={16} />, couleur: "bg-blue-500", texte: "text-blue-700" },
-    { label: "Impressions (clics)", valeur: impressions, ref: contactes, icone: <MousePointerClick size={16} />, couleur: "bg-amber-500", texte: "text-amber-600" },
-    { label: "Conversions (dossiers déposés)", valeur: conversions, ref: impressions, icone: <FileCheck2 size={16} />, couleur: "bg-emerald-500", texte: "text-emerald-600" },
-  ]
-
+/** Une barre proportionnelle, fond doux, remplissage signature (10 px, rayon 3). */
+function Barre({ pct }: { pct: number }) {
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-8 pb-10">
-      {erreur && (
-        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {erreur}
-        </div>
-      )}
-
-      {/* Objectif de la semaine */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-          <Target size={16} className="text-blue-600" /> Objectif de la semaine
-        </div>
-        <div className="mt-2 flex items-end gap-2">
-          <span className="text-3xl font-bold text-slate-900">{convSemaine}</span>
-          <span className="mb-1 text-sm text-slate-500">/ {objectif} sous-traitant(s) recruté(s) (7 derniers jours)</span>
-        </div>
-        <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-all"
-            style={{ width: `${objectif > 0 ? Math.min(100, (convSemaine / objectif) * 100) : 0}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Le tunnel */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="mb-1 text-sm font-semibold text-slate-700">Tunnel de conversion</h3>
-        <p className="mb-4 text-xs text-slate-400">
-          Sur {base} sous-traitant(s) dans la base. Chaque pourcentage compare une étape à la précédente.
-        </p>
-        <div className="space-y-4">
-          {etapes.map((e) => (
-            <div key={e.label}>
-              <div className="mb-1 flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2 text-slate-600">
-                  <span className={e.texte}>{e.icone}</span> {e.label}
-                </span>
-                <span className="text-slate-500">
-                  <b className="text-slate-800">{e.valeur}</b>
-                  <span className="ml-2 text-xs text-slate-400">{pct(e.valeur, e.ref)}% de l'étape précédente</span>
-                </span>
-              </div>
-              <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
-                <div className={"h-full rounded-full transition-all " + e.couleur} style={{ width: `${pct(e.valeur, base)}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Taux global base → dépôt */}
-        <div className="mt-5 border-t border-slate-100 pt-4 text-sm text-slate-600">
-          Taux global : <b className="text-emerald-600">{pct(conversions, base)}%</b> de la base a déposé un dossier.
-        </div>
-      </div>
-
-      {/* Signaux d'intérêt — à relancer À LA MAIN */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <ListeInteresses
-          titre="Ont consulté le barème"
-          icone={<FileText size={16} className="text-blue-600" />}
-          items={baremeVus}
-          dateOf={(s) => s.baremeVuLe ?? null}
-          vide="Personne n'a encore ouvert le barème."
-          onAppel={appeler}
-        />
-        <ListeInteresses
-          titre="« Candidater » cliqué, sans dépôt"
-          icone={<Flame size={16} className="text-orange-500" />}
-          items={candidatSansDepot}
-          dateOf={(s) => s.candidatureClicLe ?? null}
-          vide="Aucun intéressé en attente de dépôt."
-          onAppel={appeler}
-        />
-      </div>
+    <div className="h-[10px] w-full overflow-hidden rounded-3 bg-fond-3" role="presentation">
+      <i className="block h-full rounded-3 bg-signature transition-[width]" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
     </div>
   )
 }
 
-// Carte listant des sous-traitants « intéressés » (barème vu / candidature cliquée
-// sans dépôt) — la matière à relancer à la main.
-function ListeInteresses({
-  titre,
-  icone,
-  items,
-  dateOf,
-  vide,
-  onAppel,
-}: {
+export default function SuiviST() {
+  const [fiches, setFiches] = useState<SousTraitant[]>([])
+  const [objectifs, setObjectifs] = useState<ObjectifMetier[]>([])
+  // L'heure de la dernière lecture : tous les calculs de période s'y rapportent
+  // (et le rendu reste pur : pas de Date.now() pendant qu'on dessine).
+  const [maintenant, setMaintenant] = useState(0)
+  const [chargement, setChargement] = useState(!!supabaseConfigure)
+  const [erreur, setErreur] = useState(supabaseConfigure ? "" : "Base non configurée.")
+  const [avis, setAvis] = useState("")
+  const [jours, setJours] = useState(30)
+  const [corps, setCorps] = useState("")
+  const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
+
+  // Une lecture = les fiches + les objectifs, et l'heure de la lecture.
+  const charger = useCallback(
+    () =>
+      Promise.all([chargerSousTraitants(), chargerObjectifs()])
+        .then(([f, o]) => { setFiches(f); setObjectifs(o); setMaintenant(Date.now()); setErreur("") })
+        .catch((e) => setErreur(message(e))),
+    [],
+  )
+  useEffect(() => {
+    if (!supabaseConfigure) return
+    Promise.all([chargerSousTraitants(), chargerObjectifs()])
+      .then(([f, o]) => { setFiches(f); setObjectifs(o); setMaintenant(Date.now()); setErreur("") })
+      .catch((e) => setErreur(message(e)))
+      .finally(() => setChargement(false))
+  }, [])
+
+  const periode = PERIODES.find((p) => p.jours === jours) ?? PERIODES[1]
+  const depuis = jours > 0 ? maintenant - jours * JOUR_MS : 0
+  const dans = (iso?: string | null) => !!iso && new Date(iso).getTime() >= depuis
+  const duCorps = (f: SousTraitant) => !corps || exerceCorps(f, corps)
+
+  // ── Le tunnel ──
+  const t = useMemo(() => tunnel(fiches, jours, corps, maintenant), [fiches, jours, corps, maintenant])
+  const etapes = [
+    { libelle: "Démarrés", n: t.demarres, precedent: t.demarres },
+    { libelle: "Joints", n: t.joints, precedent: t.demarres },
+    { libelle: "Ont cliqué", n: t.cliques, precedent: t.joints },
+    { libelle: "Ont déposé", n: t.deposes, precedent: t.cliques },
+  ]
+
+  // ── L'objectif de la semaine : les objectifs actifs (du corps choisi, sinon tous) contre les dépôts de 7 jours ──
+  const objectifSemaine = objectifs.filter((o) => o.actif && (!corps || o.metier === corps)).reduce((s, o) => s + o.objectifHebdo, 0)
+  const depuis7j = maintenant - 7 * JOUR_MS
+  const depots7j = fiches.filter((f) => duCorps(f) && !!f.deposeLe && new Date(f.deposeLe).getTime() >= depuis7j).length
+  const objectifAtteint = objectifSemaine > 0 && depots7j >= objectifSemaine
+
+  // ── Qui relancer à la main ──
+  const parDateDesc = (cle: (f: SousTraitant) => string | null | undefined) => (a: SousTraitant, b: SousTraitant) => ((cle(b) ?? "") > (cle(a) ?? "") ? 1 : -1)
+  const interesses = useMemo(
+    () => fiches.filter((f) => duCorps(f) && dans(f.candidatureClicLe) && !f.deposeLe && f.statut !== "depose" && f.statut !== "desinscrit").sort(parDateDesc((f) => f.candidatureClicLe)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- duCorps et dans dérivent de corps et depuis
+    [fiches, corps, depuis],
+  )
+  const baremeVus = useMemo(
+    () => fiches.filter((f) => duCorps(f) && dans(f.baremeVuLe)).sort(parDateDesc((f) => f.baremeVuLe)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- idem
+    [fiches, corps, depuis],
+  )
+
+  const appeler = async (f: SousTraitant) => {
+    if (!f.telephone) { setAvis("Cette fiche n'a pas de numéro de téléphone."); return }
+    setAvis("")
+    const r = await lancerAppelRingover(f.telephone)
+    if (!r.ok) setAvis(r.message || "Appel impossible pour le moment.")
+  }
+
+  return (
+    <div className="mx-auto max-w-[1200px] px-8 py-6">
+      <EnTetePage titre="Suivi" sousTitre={`${periode.libelle}${corps ? ` · ${CORPS_METIERS.find((c) => c.value === corps)?.label ?? corps}` : ""}`} />
+
+      {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" onClick={() => { setChargement(true); charger().finally(() => setChargement(false)) }}>Réessayer</Bouton>}>{erreur}</Bandeau> : null}
+      {avis ? <Bandeau role="attention" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setAvis("")}>Fermer</Bouton>}>{avis}</Bandeau> : null}
+
+      {chargement ? <Chargement texte="Chargement du suivi…" /> : null}
+
+      {!chargement && !erreur ? (
+        <>
+          <BarreFiltres className="mb-4">
+            <Selecteur className="w-[190px]" value={String(jours)} onChange={(e) => setJours(Number(e.target.value))} aria-label="Période">
+              {PERIODES.map((p) => <option key={p.jours} value={p.jours}>{p.libelle}</option>)}
+            </Selecteur>
+            <Selecteur className="w-[190px]" value={corps} onChange={(e) => setCorps(e.target.value)} aria-label="Corps de métier">
+              <option value="">Tous les corps</option>
+              {CORPS_METIERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </Selecteur>
+          </BarreFiltres>
+
+          <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+            <Carte>
+              <TitreCarte droite={<span className="text-legende text-encre-2">chaque % se lit par rapport à l'étape d'avant</span>}>Tunnel</TitreCarte>
+              <div className="px-5 pb-5">
+                {t.demarres === 0 ? (
+                  <Vide titre="Personne n'a été démarré sur cette période" texte="Élargissez la période, ou lancez la machine depuis le pilotage." />
+                ) : (
+                  <ol className="space-y-4">
+                    {etapes.map((e, i) => (
+                      <li key={e.libelle}>
+                        <div className="mb-1.5 flex items-baseline justify-between gap-3 text-legende">
+                          <span className="font-medium text-encre">{e.libelle}</span>
+                          <span className="chiffres text-encre-2">
+                            <span className="font-semibold text-encre">{e.n}</span>
+                            {i > 0 ? <span className="ml-2">{pourcent(e.n, e.precedent)} %</span> : null}
+                          </span>
+                        </div>
+                        <Barre pct={pourcent(e.n, t.demarres)} />
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </Carte>
+
+            <Carte>
+              <TitreCarte droite={objectifSemaine > 0 ? <Pastille role={objectifAtteint ? "fait" : "attente"} point>{objectifAtteint ? "atteint" : "en cours"}</Pastille> : null}>Objectif de la semaine</TitreCarte>
+              <div className="px-5 pb-5">
+                {objectifSemaine === 0 ? (
+                  <Vide titre="Aucun objectif actif" texte={corps ? "Aucun objectif pour ce corps de métier : réglez-le dans le pilotage." : "Réglez un objectif par corps de métier dans le pilotage."} />
+                ) : (
+                  <>
+                    <div className="flex items-baseline gap-2">
+                      <span className="chiffres text-section font-semibold text-encre">{depots7j}</span>
+                      <span className="chiffres text-legende text-encre-2">/ {objectifSemaine} dépôt{objectifSemaine > 1 ? "s" : ""} voulu{objectifSemaine > 1 ? "s" : ""}</span>
+                    </div>
+                    <p className="mb-3 mt-1 text-legende text-encre-2">Dossiers déposés sur les 7 derniers jours, contre la somme des objectifs actifs.</p>
+                    <Barre pct={pourcent(depots7j, objectifSemaine)} />
+                  </>
+                )}
+              </div>
+            </Carte>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <ListeARelancer titre="Ont cliqué candidater sans déposer" fiches={interesses} date={(f) => f.candidatureClicLe} vide="Personne en attente de dépôt sur cette période." onAppeler={appeler} onOuvrir={setFicheOuverte} />
+            <ListeARelancer titre="Ont consulté le barème" fiches={baremeVus} date={(f) => f.baremeVuLe} vide="Personne n'a ouvert le barème sur cette période." onAppeler={appeler} onOuvrir={setFicheOuverte} />
+          </div>
+        </>
+      ) : null}
+
+      {ficheOuverte ? <FicheArtisan id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={charger} /> : null}
+    </div>
+  )
+}
+
+/** Une carte-liste d'artisans à relancer à la main : entreprise, corps, date, et un bouton d'appel. */
+function ListeARelancer({ titre, fiches, date, vide, onAppeler, onOuvrir }: {
   titre: string
-  icone: ReactNode
-  items: SousTraitant[]
-  dateOf: (s: SousTraitant) => string | null
+  fiches: SousTraitant[]
+  date: (f: SousTraitant) => string | null | undefined
   vide: string
-  onAppel: (s: SousTraitant) => void
+  onAppeler: (f: SousTraitant) => void
+  onOuvrir: (id: string) => void
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">{icone} {titre}</span>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">{items.length}</span>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-xs text-slate-400">{vide}</p>
+    <Carte>
+      <TitreCarte droite={<span className="chiffres text-legende text-encre-2">{fiches.length}</span>}>{titre}</TitreCarte>
+      {fiches.length === 0 ? (
+        <Vide titre="Rien à relancer" texte={vide} />
       ) : (
-        <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-          {items.map((s) => {
-            const d = dateOf(s)
+        <ul className="max-h-[420px] overflow-y-auto border-t border-trait">
+          {fiches.map((f) => {
+            const d = date(f)
             return (
-              <li key={s.id}>
-                <button
-                  onClick={() => onAppel(s)}
-                  disabled={!s.telephone}
-                  title={s.telephone ? `Appeler ${s.telephone}` : "Pas de numéro"}
-                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-1.5 text-left text-[13px] transition-colors hover:border-blue-300 hover:bg-blue-50/70 disabled:cursor-not-allowed disabled:opacity-60"
+              <li key={f.id} className="border-b border-fond-4 last:border-b-0">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => f.id && onOuvrir(f.id)}
+                  onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && f.id) { e.preventDefault(); onOuvrir(f.id) } }}
+                  className="flex cursor-pointer items-center gap-3 px-5 py-2.5 text-legende transition-colors hover:bg-fond-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature"
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-slate-800">{s.entreprise || s.contact || "—"}</span>
-                    <span className="block truncate text-[11px] text-slate-400">
-                      {[s.metier, d ? new Date(d).toLocaleDateString("fr-FR") : null].filter(Boolean).join(" · ") || "—"}
-                    </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-encre">{f.entreprise || f.contact || f.email || "—"}</span>
+                    <span className="block truncate text-encre-2">{f.metier || "—"}</span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-1 font-semibold text-blue-700">
-                    <Phone size={13} /> {s.telephone || "—"}
-                  </span>
-                </button>
+                  <span className="chiffres shrink-0 text-encre-2" title={d ? new Date(d).toLocaleString("fr-FR") : undefined}>{d ? dateCourte(d) : "—"}</span>
+                  <Bouton variante="discret" taille="sm" icone={<Phone />} disabled={!f.telephone} title={f.telephone ? `Appeler ${f.telephone}` : "Pas de numéro"} onClick={(e) => { e.stopPropagation(); onAppeler(f) }}>Appeler</Bouton>
+                </div>
               </li>
             )
           })}
         </ul>
       )}
-    </div>
+    </Carte>
   )
 }

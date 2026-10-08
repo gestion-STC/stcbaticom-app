@@ -40,7 +40,55 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-2xl: 18px;
+
+  /* ═══ La trousse « STC » de l'espace Recrutement (08/10/2026) ═══
+     Mahdi : « reprends le design système du logiciel STC Bâtiment, mêmes formes,
+     mêmes boutons, juste la couleur de STC Baticom ». Les jetons ci-dessous
+     sont ceux du bureau STC (gris purs, trois rayons 3·4·6, deux ombres, corps
+     13,5 px, en-têtes de colonne 11 px espacées), avec le VIOLET à la place du
+     rouge signature. L'action est anthracite ; le violet ne remplit jamais. */
+  --color-encre: #171717;        /* texte */
+  --color-encre-2: #737373;      /* texte secondaire (4,74:1) */
+  --color-encre-3: #9e9e9e;      /* traits, décoratif — jamais du contenu */
+  --color-fond: #ffffff;
+  --color-fond-2: #fafafa;       /* surface : en-têtes de tableau, filtres */
+  --color-fond-3: #f5f5f5;       /* survol, pastille inerte */
+  --color-fond-4: #f0f0f0;       /* filet entre lignes, survol appuyé */
+  --color-trait: #e3e3e3;        /* bordure (89 %) */
+  --color-trait-fort: #d1d1d1;   /* bordure au survol (82 %) */
+  --color-action: #1c1c1c;       /* le bouton plein : anthracite */
+  --color-action-survol: #333333;
+  --color-signature: #7c3aed;    /* le violet, en ligne seulement */
+  --color-signature-doux: #f5f3ff;
+  --color-ok: #15803d;
+  --color-ok-fond: #f0fdf4;
+  --color-attention: #b45309;
+  --color-attention-fond: #fffbeb;
+  --color-alerte: #dc2626;
+  --color-alerte-fond: #fef2f2;
+  --color-info: #2563eb;
+  --color-info-fond: #eff6ff;
+  --radius-3: 3px;               /* étiquette */
+  --radius-4: 4px;               /* champ, bouton, badge */
+  --radius-6: 6px;               /* carte, panneau, dialogue */
+  --shadow-posee: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-flottante: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.06);
+  --text-colonne: 11px;          /* en-tête de colonne, pastille */
+  --text-colonne--line-height: 16px;
+  --text-legende: 12px;          /* légende, bouton, champ, cellule dense */
+  --text-legende--line-height: 18px;
+  --text-corps: 13.5px;          /* corps, cellule */
+  --text-corps--line-height: 20px;
+  --text-sous-titre: 15px;
+  --text-sous-titre--line-height: 24px;
+  --text-section: 20px;
+  --text-section--line-height: 28px;
+  --text-h1: 30px;
+  --text-h1--line-height: 38px;
 }
+
+/* Les chiffres s'alignent en colonne. */
+.chiffres { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 
 html,
 body,

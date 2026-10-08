@@ -52,13 +52,19 @@ Deno.serve(async (req: Request) => {
   try {
     const cle = Deno.env.get("RESEND_API_KEY");
     if (!cle) return json({ error: "Clé Resend non configurée (secret RESEND_API_KEY)." }, 500);
-    const from = Deno.env.get("RESEND_FROM") || "STC Bâtiment <contact@crm.stcbatiment.fr>";
     const corps = await req.json();
+    // DEUX ESPACES (08/10/2026) : le recrutement écrit depuis SA propre adresse,
+    // sur le même domaine ; les réponses lui reviennent dans sa propre boîte.
+    const espace: "demarchage" | "recrutement" = corps?.espace === "recrutement" ? "recrutement" : "demarchage";
+    const from = espace === "recrutement"
+      ? (Deno.env.get("RESEND_FROM_RECRUTEMENT") || "STC Bâtiment <recrutement@crm.stcbatiment.fr>")
+      : (Deno.env.get("RESEND_FROM") || "STC Bâtiment <contact@crm.stcbatiment.fr>");
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     let payload: Record<string, unknown>;
     let journalEmailsEnvoyes: { prospect_id: string; modele_nom: string; objet: string } | null = null;
     let prospectIdPourMessage: string | null = null;
+    let sousTraitantIdPourMessage: string | null = null;
     let objetFinal = "", corpsTextFinal = "", corpsHtmlFinal = "", destinataire = "";
 
     if (typeof corps?.subject === "string" || typeof corps?.html === "string") {
@@ -71,8 +77,16 @@ Deno.serve(async (req: Request) => {
       destinataire = adresse(Array.isArray(to) ? to[0] : to);
       payload = { from, to: Array.isArray(to) ? to : [to], subject: objetFinal, html: corpsHtmlFinal };
       if (typeof corps?.reply_to === "string" && corps.reply_to) payload.reply_to = corps.reply_to;
-      const { data: p } = await admin.from("prospects").select("id").ilike("email", destinataire).limit(1).maybeSingle();
-      prospectIdPourMessage = p?.id ?? null;
+      // En-têtes (désinscription en un clic) et étiquettes, posés par le moteur de recrutement.
+      if (corps?.headers && typeof corps.headers === "object") payload.headers = corps.headers;
+      if (Array.isArray(corps?.tags)) payload.tags = corps.tags;
+      if (espace === "demarchage") {
+        const { data: p } = await admin.from("prospects").select("id").ilike("email", destinataire).limit(1).maybeSingle();
+        prospectIdPourMessage = p?.id ?? null;
+      } else {
+        const { data: s } = await admin.from("st_sous_traitants").select("id").ilike("email", destinataire).limit(1).maybeSingle();
+        sousTraitantIdPourMessage = s?.id ?? null;
+      }
     } else {
       // ── Contrat B (moteur / boîte) : composition serveur ──
       const { prospect_id, to, email_id, modele_nom, objet, corps: corpsDirect, in_reply_to, signature_html, commercial } = corps ?? {};
@@ -143,6 +157,7 @@ Deno.serve(async (req: Request) => {
       sens: "sortant", de: adresse(from), a: destinataire, objet: objetFinal,
       corps_text: corpsTextFinal, corps_html: corpsHtmlFinal, message_id: id || null,
       in_reply_to: (corps?.in_reply_to as string) ?? null, prospect_id: prospectIdPourMessage, lu: true,
+      espace, sous_traitant_id: sousTraitantIdPourMessage,
     });
     if (journalEmailsEnvoyes) await admin.from("emails_envoyes").insert(journalEmailsEnvoyes);
 

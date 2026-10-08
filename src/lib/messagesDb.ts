@@ -1,6 +1,9 @@
 import { supabase } from "./supabase"
 
 export type SensMessage = "entrant" | "sortant"
+// DEUX ESPACES (08/10/2026) : la boîte du démarchage et celle du recrutement
+// sont deux boîtes. Chaque message appartient à l'une des deux.
+export type Espace = "demarchage" | "recrutement"
 
 // Pièce jointe d'un e-mail reçu (fichier archivé dans le bucket privé « mails-recus »).
 export type PieceRecue = { nom: string; chemin: string; taille: number; type: string }
@@ -8,6 +11,8 @@ export type PieceRecue = { nom: string; chemin: string; taille: number; type: st
 export type Message = {
   id: string
   sens: SensMessage
+  espace: Espace
+  sousTraitantId: string | null
   de: string
   a: string
   objet: string
@@ -24,6 +29,8 @@ export type Message = {
 type Ligne = {
   id: string
   sens: SensMessage
+  espace: Espace | null
+  sous_traitant_id: string | null
   de: string
   a: string
   objet: string
@@ -41,6 +48,8 @@ function vers(l: Ligne): Message {
   return {
     id: l.id,
     sens: l.sens,
+    espace: l.espace ?? "demarchage",
+    sousTraitantId: l.sous_traitant_id,
     de: l.de,
     a: l.a,
     objet: l.objet,
@@ -55,27 +64,25 @@ function vers(l: Ligne): Message {
   }
 }
 
-export async function chargerMessages(): Promise<Message[]> {
+const COLONNES =
+  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at, pieces_jointes"
+
+// Sans `espace`, on lit tout (ancien comportement).
+export async function chargerMessages(espace?: Espace): Promise<Message[]> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { data, error } = await supabase
-    .from("messages")
-    .select(
-      "id, sens, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at, pieces_jointes",
-    )
-    .order("created_at", { ascending: false })
-    .limit(500)
+  let q = supabase.from("messages").select(COLONNES).order("created_at", { ascending: false }).limit(500)
+  if (espace) q = q.eq("espace", espace)
+  const { data, error } = await q
   if (error) throw new Error(error.message)
   return (data as Ligne[]).map(vers)
 }
 
-// Nombre de messages reçus non lus (pour la pastille de la barre latérale).
-export async function compterNonLus(): Promise<number> {
+// Nombre de messages reçus non lus (pour la pastille de la barre latérale), par espace.
+export async function compterNonLus(espace?: Espace): Promise<number> {
   if (!supabase) return 0
-  const { count, error } = await supabase
-    .from("messages")
-    .select("id", { count: "exact", head: true })
-    .eq("sens", "entrant")
-    .eq("lu", false)
+  let q = supabase.from("messages").select("id", { count: "exact", head: true }).eq("sens", "entrant").eq("lu", false)
+  if (espace) q = q.eq("espace", espace)
+  const { count, error } = await q
   if (error) {
     console.error("Compter non lus :", error.message)
     return 0
@@ -110,7 +117,8 @@ export async function lienPieceJointe(chemin: string): Promise<string> {
 // composition côté serveur, fil de discussion conservé grâce à in_reply_to). Le
 // relais journalise lui-même le message sortant. `signatureHtml` / `commercial`
 // (07/10/2026) : la signature STC Bâtiment et le prénom du compte connecté ;
-// sans eux, le serveur garde la signature des paramètres.
+// sans eux, le serveur garde la signature des paramètres. `espace` (08/10) :
+// une réponse du recrutement part de l'adresse du recrutement.
 export async function repondreMessage(r: {
   to: string
   objet: string
@@ -119,6 +127,7 @@ export async function repondreMessage(r: {
   prospectId?: string | null
   signatureHtml?: string
   commercial?: string
+  espace?: Espace
 }): Promise<void> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
@@ -130,6 +139,7 @@ export async function repondreMessage(r: {
       ...(r.prospectId ? { prospect_id: r.prospectId } : {}),
       ...(r.signatureHtml ? { signature_html: r.signatureHtml } : {}),
       ...(r.commercial ? { commercial: r.commercial } : {}),
+      ...(r.espace ? { espace: r.espace } : {}),
     },
   })
   if (error) {

@@ -1,6 +1,8 @@
 import { lazy, Suspense, useState } from "react"
 import { Loader2 } from "lucide-react"
 import Sidebar, { type PageId } from "./components/Sidebar"
+import { espaceDe, horsEspace } from "./lib/espaces"
+import type { Espace } from "./lib/messagesDb"
 // Le Dashboard embarque la librairie de graphiques (lourde) → chargé en différé :
 // le logiciel s'ouvre tout de suite, les graphiques arrivent une fraction de seconde après.
 const Dashboard = lazy(() => import("./components/dashboard/Dashboard"))
@@ -11,14 +13,19 @@ import AgencesView from "./components/AgencesView"
 import Pipeline from "./components/Pipeline"
 import SessionsCall from "./components/SessionsCall"
 import Messages from "./components/Messages"
-import RecrutementST from "./components/recrutement/RecrutementST"
 import Calendrier from "./components/Calendrier"
 import Parametrage from "./components/Parametrage"
-import Comptes from "./components/Comptes"
 import RappelsRdv from "./components/RappelsRdv"
 import TelephoneRingover from "./components/TelephoneRingover"
 import Connexion from "./components/Connexion"
+import Comptes from "./components/Comptes"
 import { useSession } from "./lib/auth"
+// L'espace Recrutement ST : chaque page porte son propre en-tête (trousse STC).
+import MachineST from "./components/recrutement/MachineST"
+import BaseST from "./components/recrutement/BaseST"
+import SequencesST from "./components/recrutement/SequencesST"
+import SuiviST from "./components/recrutement/SuiviST"
+import DossiersST from "./components/recrutement/DossiersST"
 
 const titres: Record<PageId, string> = {
   dashboard: "Dashboard",
@@ -29,14 +36,26 @@ const titres: Record<PageId, string> = {
   pipeline: "Pipeline",
   sessions: "Sessions de call",
   messages: "Boîte de réception",
-  recrutement: "Recrutement sous-traitants",
   calendrier: "Calendrier",
-  parametrage: "Paramétrage",
+  st_machine: "Machine",
+  st_base: "Base d'artisans",
+  st_sequences: "Séquences",
+  st_suivi: "Suivi",
+  st_boite: "Boîte de réception · recrutement",
+  st_dossiers: "Dossiers déposés",
+  parametrage: "Réglages",
   comptes: "Comptes",
 }
 
 function App() {
   const [page, setPage] = useState<PageId>("dashboard")
+  // L'espace affiché dans la barre : celui de la page, et il survit à un
+  // passage par Réglages ou Comptes (qui sont hors espace).
+  const [espace, setEspace] = useState<Espace>("demarchage")
+  const naviguer = (p: PageId) => {
+    setPage(p)
+    if (!horsEspace(p)) setEspace(espaceDe(p))
+  }
   const session = useSession()
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
@@ -50,16 +69,23 @@ function App() {
   // Pas connecté → écran de connexion (la base est protégée, voir Lot 5 sécurité).
   if (!session) return <Connexion />
 
+  // Les pages du recrutement dessinent leur propre en-tête ; celles du démarchage
+  // gardent le bandeau commun. La boîte de réception du recrutement reprend
+  // l'écran Messages, limité à son espace.
+  const recrutement = espaceDe(page) === "recrutement"
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">
-      <Sidebar active={page} onNavigate={setPage} session={session} />
+      <Sidebar active={page} espace={espace} onNavigate={naviguer} session={session} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-4">
-          <h1 className="text-xl font-bold text-slate-900">{titres[page]}</h1>
-        </header>
+        {!recrutement && (
+          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-4">
+            <h1 className="text-xl font-bold text-slate-900">{titres[page]}</h1>
+          </header>
+        )}
 
-        <main className="min-h-0 flex-1 overflow-y-auto py-6">
+        <main className={"min-h-0 flex-1 overflow-y-auto " + (recrutement ? "bg-fond-2" : "py-6")}>
           {page === "dashboard" && (
             <Suspense
               fallback={
@@ -76,11 +102,17 @@ function App() {
           {page === "apporteurs" && <ApporteursView />}
           {page === "agences" && <AgencesView />}
           {page === "pipeline" && <Pipeline />}
-          {page === "messages" && <Messages />}
-          {page === "recrutement" && <RecrutementST />}
+          {page === "messages" && <Messages espace="demarchage" />}
           {page === "calendrier" && <Calendrier />}
           {page === "parametrage" && <Parametrage />}
           {page === "comptes" && <Comptes session={session} />}
+
+          {page === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "parametrage" : p)} />}
+          {page === "st_base" && <BaseST />}
+          {page === "st_sequences" && <SequencesST />}
+          {page === "st_suivi" && <SuiviST />}
+          {page === "st_boite" && <div className="py-6"><Messages espace="recrutement" /></div>}
+          {page === "st_dossiers" && <DossiersST />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant

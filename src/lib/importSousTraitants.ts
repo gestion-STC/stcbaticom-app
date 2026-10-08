@@ -176,3 +176,79 @@ export async function importerSousTraitants(file: File): Promise<ResultatImportS
     throw new Error(`Le fichier « ${file.name} » n'a pas pu être lu (.xlsx). Détail : ${raison}`, { cause: err })
   }
 }
+
+// ── Dédoublonnage avant insertion ────────────────────────────────────────────
+// Le même artisan arrive souvent plusieurs fois : deux fichiers Pages Jaunes,
+// une adresse en majuscules d'un côté, un numéro en +33 de l'autre. On compare
+// donc sur des formes NORMALISÉES, par e-mail OU par téléphone, contre la base
+// déjà en place, contre la liste d'exclusion (« ne plus contacter »), et à
+// l'intérieur même du fichier importé.
+
+/** E-mail comparable : minuscules, sans aucun espace. */
+export function normaliserEmail(email: unknown): string {
+  return String(email ?? "").toLowerCase().replace(/\s+/g, "")
+}
+
+/** Téléphone comparable : chiffres seulement, 0033 / +33 / 33 ramenés au 0 initial. */
+export function normaliserTelephone(telephone: unknown): string {
+  let d = String(telephone ?? "").replace(/\D/g, "")
+  if (d.startsWith("0033")) d = "0" + d.slice(4)
+  else if (d.length === 11 && d.startsWith("33")) d = "0" + d.slice(2)
+  else if (d.length === 9) d = "0" + d // le 0 initial perdu par Excel
+  return d
+}
+
+export type ResultatDedoublonnage = {
+  aAjouter: Partial<SousTraitant>[]
+  doublons: number // déjà dans la base, ou déjà vus plus haut dans le fichier
+  exclus: number // dans la liste d'exclusion
+}
+
+/**
+ * Trie les fiches d'un fichier : celles à insérer, celles déjà connues, celles
+ * exclues. L'exclusion prime sur le doublon : un artisan « ne plus contacter »
+ * est aussi dans la base (désinscrit), on veut savoir qu'il est EXCLU.
+ */
+export function dedoublonner(
+  nouvelles: Partial<SousTraitant>[],
+  existantes: { email?: string; telephone?: string }[],
+  exclusions: { email: string; telephone: string }[],
+): ResultatDedoublonnage {
+  const emailsConnus = new Set<string>()
+  const telsConnus = new Set<string>()
+  for (const e of existantes) {
+    const m = normaliserEmail(e.email)
+    const t = normaliserTelephone(e.telephone)
+    if (m) emailsConnus.add(m)
+    if (t) telsConnus.add(t)
+  }
+  const emailsExclus = new Set<string>()
+  const telsExclus = new Set<string>()
+  for (const x of exclusions) {
+    const m = normaliserEmail(x.email)
+    const t = normaliserTelephone(x.telephone)
+    if (m) emailsExclus.add(m)
+    if (t) telsExclus.add(t)
+  }
+
+  const aAjouter: Partial<SousTraitant>[] = []
+  let doublons = 0
+  let exclus = 0
+  for (const n of nouvelles) {
+    const m = normaliserEmail(n.email)
+    const t = normaliserTelephone(n.telephone)
+    if ((m && emailsExclus.has(m)) || (t && telsExclus.has(t))) {
+      exclus++
+      continue
+    }
+    if ((m && emailsConnus.has(m)) || (t && telsConnus.has(t))) {
+      doublons++
+      continue
+    }
+    aAjouter.push(n)
+    // Retenue tout de suite : la ligne suivante du fichier peut être la même.
+    if (m) emailsConnus.add(m)
+    if (t) telsConnus.add(t)
+  }
+  return { aAjouter, doublons, exclus }
+}

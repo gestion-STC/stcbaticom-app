@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import {
   chargerMessages,
+  type Espace,
   lienPieceJointe,
   marquerLus,
   marquerNonLus,
@@ -24,7 +25,6 @@ import { useSession } from "../lib/auth"
 import { nomAffiche } from "../lib/comptes"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { chargerEmailsEnvoyes, type EmailEnvoye } from "../lib/emailsEnvoyesDb"
-import { chargerSousTraitants } from "../lib/sousTraitantsDb"
 import {
   adresseCorrespondant,
   apercuTexte,
@@ -39,7 +39,6 @@ import { formatTaille } from "../lib/stockage"
 import { supabase } from "../lib/supabase"
 
 type Onglet = "recus" | "envoyes"
-type Canal = "tous" | "recrutement" | "demarchage"
 type ModeCompo = "repondre" | "transferer" | null
 
 // Un élément affiché dans la liste : soit un message (reçu/envoyé, avec contenu),
@@ -204,7 +203,10 @@ function MessageCard({
   )
 }
 
-export default function Messages() {
+// DEUX BOÎTES (08/10/2026) : la même interface sert au démarchage et au
+// recrutement, mais chacune ne voit que les messages de son espace, et répond
+// depuis l'adresse de son espace.
+export default function Messages({ espace }: { espace: Espace }) {
   // Signature STC Bâtiment au nom du compte connecté, pour les réponses et transferts.
   const session = useSession()
   const nomSignataire = nomAffiche(session)
@@ -217,8 +219,6 @@ export default function Messages() {
   const [erreur, setErreur] = useState("")
 
   const [onglet, setOnglet] = useState<Onglet>("recus")
-  const [canal, setCanal] = useState<Canal>("tous")
-  const [stEmails, setStEmails] = useState<Set<string>>(new Set())
   const [recherche, setRecherche] = useState("")
   const [filOuvert, setFilOuvert] = useState<string | null>(null)
   const [campagneOuverte, setCampagneOuverte] = useState<EmailEnvoye | null>(null)
@@ -237,14 +237,13 @@ export default function Messages() {
     setChargement(true)
     setErreur("")
     try {
-      const [liste, envois, sts] = await Promise.all([
-        chargerMessages(),
-        chargerEmailsEnvoyes().catch(() => [] as EmailEnvoye[]),
-        chargerSousTraitants().catch(() => []),
+      const [liste, envois] = await Promise.all([
+        chargerMessages(espace),
+        // Les campagnes commerciales (emails_envoyes) n'existent que côté démarchage.
+        espace === "demarchage" ? chargerEmailsEnvoyes().catch(() => [] as EmailEnvoye[]) : Promise.resolve([] as EmailEnvoye[]),
       ])
       setMessages(liste)
       setCampagnes(envois)
-      setStEmails(new Set(sts.map((s) => (s.email || "").trim().toLowerCase()).filter(Boolean)))
       const ids = [
         ...new Set(
           [...liste.map((m) => m.prospectId), ...envois.map((e) => e.prospectId)].filter(Boolean),
@@ -266,7 +265,7 @@ export default function Messages() {
     } finally {
       setChargement(false)
     }
-  }, [])
+  }, [espace])
 
   useEffect(() => {
     charger()
@@ -297,21 +296,8 @@ export default function Messages() {
   }, [messages, campagnes, onglet])
 
   const itemsVisibles = useMemo(() => {
-    // Recrutement = le correspondant est un sous-traitant de la base ; sinon démarchage.
-    const estRecrut = (m: Message) => {
-      const e = (adresseCorrespondant(m) || "").toLowerCase()
-      return !!e && stEmails.has(e)
-    }
-    let base = items
-    if (canal !== "tous") {
-      base = base.filter((it) =>
-        it.type === "campagne"
-          ? canal === "demarchage" // les campagnes commerciales = démarchage
-          : estRecrut(it.msg)
-            ? canal === "recrutement"
-            : canal === "demarchage",
-      )
-    }
+    // Chaque boîte ne montre que son espace : le tri est fait à la source.
+    const base = items
     const q = recherche.trim().toLowerCase()
     if (!q) return base
     const contient = (...vals: (string | null | undefined)[]) =>
@@ -327,7 +313,7 @@ export default function Messages() {
           )
         : contient(prospects[it.env.prospectId], it.env.objet, it.env.modeleNom),
     )
-  }, [items, recherche, prospects, canal, stEmails])
+  }, [items, recherche, prospects])
 
   const ouvert: Fil<Message> | null = useMemo(
     () => fils.find((f) => f.cle === filOuvert) ?? null,
@@ -408,6 +394,7 @@ export default function Messages() {
         prospectId: ouvert.prospectId,
         signatureHtml,
         commercial: prenomCommercial,
+        espace,
       })
       setEnvoiOk(true)
       setReponseTexte("")
@@ -433,6 +420,7 @@ export default function Messages() {
         prospectId: null,
         signatureHtml,
         commercial: prenomCommercial,
+        espace,
       })
       setEnvoiOk(true)
       setTransfertTo("")
@@ -489,29 +477,6 @@ export default function Messages() {
             )
           })}
         </div>
-
-        {!enLecture && (
-          <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 text-sm">
-            {(
-              [
-                ["tous", "Tous"],
-                ["recrutement", "Recrutement"],
-                ["demarchage", "Démarchage"],
-              ] as [Canal, string][]
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setCanal(id)}
-                className={
-                  "rounded-lg px-3 py-2 font-medium transition-colors " +
-                  (canal === id ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100")
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
 
         {!enLecture && (
           <div className="relative min-w-56 flex-1">

@@ -1,370 +1,502 @@
-import { useEffect, useState } from "react"
-import {
-  Loader2,
-  Plus,
-  Trash2,
-  Pencil,
-  X,
-  AlertTriangle,
-  Mail,
-  MessageSquare,
-  CheckCircle2,
-  Power,
-} from "lucide-react"
-import type { SequenceST, EtapeST, CanalEtape } from "../../recrutement"
+// ════════════════════════════════════════════════════════════════════════════
+// SÉQUENCES — la suite d'e-mails et de SMS que reçoit chaque artisan démarré
+//
+// À gauche, les séquences (une seule est « utilisée » : celle que la machine
+// prend pour démarrer les artisans). À droite, les étapes de la séquence
+// choisie, dans l'ordre d'envoi. Chaque étape est contrôlée AVANT d'être
+// enregistrée (verifierEtape) : rien ne part sans lien de désinscription.
+// L'éditeur montre l'étape telle que l'artisan la recevra (aperçu rempli avec
+// un artisan d'exemple), et un test peut partir vers une adresse ou un mobile.
+// ════════════════════════════════════════════════════════════════════════════
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown, ArrowUp, Copy, Pencil, Plus, Power, Send, Trash2 } from "lucide-react"
+import type { CanalEtape, EtapeST, SequenceST } from "../../recrutement"
 import { etapeVide, variablesST } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
+import { chargerSequences, creerSequence, majSequence, supprimerSequence, chargerEtapes, creerEtape, majEtape, supprimerEtape } from "../../lib/sequencesStDb"
+import { chargerPilotage, majPilotage } from "../../lib/pilotageStDb"
+import { envoyerEmailTest, envoyerSmsTest } from "../../lib/machineDb"
+import { numeroValide } from "../../lib/telephone"
 import {
-  chargerSequences,
-  creerSequence,
-  majSequence,
-  supprimerSequence,
-  chargerEtapes,
-  creerEtape,
-  majEtape,
-  supprimerEtape,
-} from "../../lib/sequencesStDb"
+  apercuTexte, aUnBloquant, estHtml, exempleObjet, exempleRemplissage, htmlPourEnvoi, libelleSms,
+  LIENS_EXEMPLE, LIENS_TAILLE_REELLE, segmentsSms, verifierEtape,
+} from "../../lib/sequencesOutils"
+import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Onglets, Panneau, Pastille, Selecteur, TitreCarte, Vide, Zone } from "../../ui"
 
-const champ =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const libelleCanal = (c: CanalEtape) => (c === "sms" ? "SMS" : "E-mail")
+
+type Dial =
+  | { type: "nouvelle" }
+  | { type: "renommer"; seq: SequenceST }
+  | { type: "supprimerSeq"; seq: SequenceST }
+  | { type: "supprimerEtape"; etape: EtapeST }
 
 export default function SequencesST() {
   const [sequences, setSequences] = useState<SequenceST[]>([])
   const [selId, setSelId] = useState<string | null>(null)
   const [etapes, setEtapes] = useState<EtapeST[]>([])
-  const [chargement, setChargement] = useState(true)
-  const [erreur, setErreur] = useState("")
-  const [modalEtape, setModalEtape] = useState<EtapeST | null>(null)
+  const [chargement, setChargement] = useState(!!supabaseConfigure)
+  const [erreur, setErreur] = useState(supabaseConfigure ? "" : "Base non configurée.")
+  const [info, setInfo] = useState("")
+  const [occupe, setOccupe] = useState(false)
+  // Les réglages de la machine : l'adresse des tests, et la séquence qu'elle prend.
+  const [emailTest, setEmailTest] = useState("")
+  const [seqReglagesId, setSeqReglagesId] = useState<string | null>(null)
+  const [dialogue, setDialogue] = useState<Dial | null>(null)
+  const [nom, setNom] = useState("")
+  const [editeur, setEditeur] = useState<EtapeST | null>(null)
+  const [test, setTest] = useState<EtapeST | null>(null)
 
-  useEffect(() => {
-    if (!supabaseConfigure) {
-      setErreur("Base non configurée.")
-      setChargement(false)
-      return
-    }
-    chargerSequences()
-      .then((s) => {
-        setSequences(s)
-        setSelId(s[0]?.id ?? null)
+  const choisir = (id: string | null) => { setSelId(id); setEtapes([]) }
+
+  const charger = useCallback(() =>
+    Promise.all([chargerSequences(), chargerPilotage().catch(() => null)])
+      .then(([seqs, pil]) => {
+        setSequences(seqs)
+        setEmailTest(pil?.emailTest ?? "")
+        setSeqReglagesId(pil?.sequenceId ?? null)
+        const parDefaut = (pil?.sequenceId && seqs.some((s) => s.id === pil.sequenceId) ? pil.sequenceId : null) ?? seqs.find((s) => s.actif)?.id ?? seqs[0]?.id ?? null
+        setSelId((cur) => cur ?? parDefaut)
       })
-      .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
-      .finally(() => setChargement(false))
-  }, [])
+      .catch((e) => setErreur(msg(e)))
+      .finally(() => setChargement(false)),
+  [])
+  useEffect(() => { if (supabaseConfigure) charger() }, [charger])
 
+  // Les étapes de la séquence choisie (on ignore une réponse arrivée après un changement de choix).
   useEffect(() => {
-    if (!selId) {
-      setEtapes([])
-      return
-    }
-    chargerEtapes(selId)
-      .then(setEtapes)
-      .catch((e) => setErreur(String(e)))
+    if (!selId) return
+    let vivant = true
+    chargerEtapes(selId).then((l) => { if (vivant) setEtapes(l) }).catch((e) => { if (vivant) setErreur(msg(e)) })
+    return () => { vivant = false }
   }, [selId])
 
-  async function ajouterSequence() {
-    const nom = prompt("Nom de la séquence :", "Nouvelle séquence")
-    if (!nom) return
-    try {
-      const s = await creerSequence(nom)
-      setSequences((l) => [...l, s])
-      setSelId(s.id ?? null)
-    } catch (e) {
-      setErreur(String(e))
-    }
-  }
+  // La séquence que la machine utilise : celle des réglages, sinon celle marquée active.
+  const idUtilisee = useMemo(
+    () => (seqReglagesId && sequences.some((s) => s.id === seqReglagesId) ? seqReglagesId : sequences.find((s) => s.actif)?.id ?? null),
+    [seqReglagesId, sequences],
+  )
+  const seq = sequences.find((s) => s.id === selId) ?? null
 
-  async function activer(s: SequenceST) {
-    // Une seule séquence active à la fois (celle utilisée pour démarrer les ST).
-    try {
-      await Promise.all(
-        sequences.filter((x) => x.actif && x.id !== s.id).map((x) => majSequence(x.id!, { actif: false })),
-      )
-      await majSequence(s.id!, { actif: !s.actif })
-      setSequences((l) => l.map((x) => ({ ...x, actif: x.id === s.id ? !s.actif : false })))
-    } catch (e) {
-      setErreur(String(e))
-    }
+  const agir = async (f: () => Promise<void>, message?: string) => {
+    setOccupe(true); setErreur(""); setInfo("")
+    try { await f(); if (message) setInfo(message) }
+    catch (e) { setErreur(msg(e)) }
+    finally { setOccupe(false) }
   }
+  const ouvrirDialogue = (d: Dial) => { setNom(d.type === "renommer" ? d.seq.nom : d.type === "nouvelle" ? "Nouvelle séquence" : ""); setDialogue(d) }
 
-  async function renommer(s: SequenceST) {
-    const nom = prompt("Renommer la séquence :", s.nom)
-    if (!nom || nom === s.nom) return
-    await majSequence(s.id!, { nom }).catch((e) => setErreur(String(e)))
-    setSequences((l) => l.map((x) => (x.id === s.id ? { ...x, nom } : x)))
+  // ── Les séquences ──────────────────────────────────────────────────────────
+  const creerNouvelle = () => agir(async () => {
+    const s = await creerSequence(nom.trim() || "Nouvelle séquence")
+    setSequences((l) => [...l, s]); choisir(s.id ?? null); setDialogue(null)
+  })
+  const renommer = (s: SequenceST) => agir(async () => {
+    const n = nom.trim()
+    if (n && n !== s.nom) { await majSequence(s.id!, { nom: n }); setSequences((l) => l.map((x) => (x.id === s.id ? { ...x, nom: n } : x))) }
+    setDialogue(null)
+  })
+  // Une seule séquence utilisée : on l'écrit dans les réglages (c'est là que
+  // la machine regarde d'abord) ET sur le drapeau « actif », pour que les deux
+  // sources racontent la même chose.
+  const utiliser = (s: SequenceST) => agir(async () => {
+    await Promise.all(sequences.filter((x) => x.actif && x.id !== s.id).map((x) => majSequence(x.id!, { actif: false })))
+    if (!s.actif) await majSequence(s.id!, { actif: true })
+    await majPilotage({ sequenceId: s.id })
+    setSequences((l) => l.map((x) => ({ ...x, actif: x.id === s.id })))
+    setSeqReglagesId(s.id ?? null)
+  }, `La machine démarre désormais les artisans avec « ${s.nom} ».`)
+  const dupliquer = (s: SequenceST) => agir(async () => {
+    const copie = await creerSequence(`${s.nom} (copie)`)
+    const source = s.id === selId ? etapes : await chargerEtapes(s.id!)
+    for (const e of source) await creerEtape({ ...e, id: undefined, sequenceId: copie.id! })
+    setSequences((l) => [...l, copie]); choisir(copie.id ?? null)
+  }, `« ${s.nom} » dupliquée avec ses étapes.`)
+  const validerNom = () => {
+    if (dialogue?.type === "nouvelle") creerNouvelle()
+    else if (dialogue?.type === "renommer") renommer(dialogue.seq)
   }
+  const supprimerSeq = (s: SequenceST) => agir(async () => {
+    await supprimerSequence(s.id!)
+    const reste = sequences.filter((x) => x.id !== s.id)
+    setSequences(reste)
+    if (selId === s.id) choisir(reste[0]?.id ?? null)
+    setDialogue(null)
+  })
 
-  async function supprimerSeq(s: SequenceST) {
-    if (!confirm(`Supprimer la séquence « ${s.nom} » et toutes ses étapes ?`)) return
-    await supprimerSequence(s.id!).catch((e) => setErreur(String(e)))
-    setSequences((l) => l.filter((x) => x.id !== s.id))
-    if (selId === s.id) setSelId(null)
+  // ── Les étapes ─────────────────────────────────────────────────────────────
+  const rechargerEtapes = async () => { if (selId) setEtapes(await chargerEtapes(selId).catch(() => etapes)) }
+  const trier = (l: EtapeST[]) => [...l].sort((a, b) => a.ordre - b.ordre)
+  const enregistrer = async (e: EtapeST) => {
+    if (e.id) { await majEtape(e.id, e); setEtapes((l) => trier(l.map((x) => (x.id === e.id ? e : x)))) }
+    else { const cree = await creerEtape(e); setEtapes((l) => trier([...l, cree])) }
+    setEditeur(null)
   }
-
-  async function enregistrerEtape(e: EtapeST) {
-    try {
-      if (e.id) {
-        await majEtape(e.id, e)
-        setEtapes((l) => l.map((x) => (x.id === e.id ? e : x)))
-      } else {
-        const cree = await creerEtape(e)
-        setEtapes((l) => [...l, cree])
-      }
-      setModalEtape(null)
-    } catch (err) {
-      setErreur(String(err))
-    }
+  const deplacer = (i: number, sens: -1 | 1) => {
+    const j = i + sens
+    if (j < 0 || j >= etapes.length) return
+    const liste = [...etapes]
+    ;[liste[i], liste[j]] = [liste[j], liste[i]]
+    // L'ordre redevient 0, 1, 2… : seules les deux étapes échangées changent
+    // (davantage si la numérotation en base avait des trous — on en profite).
+    const renum = liste.map((e, k) => ({ ...e, ordre: k }))
+    const changees = renum.filter((e, k) => e.ordre !== liste[k].ordre)
+    return agir(async () => {
+      try { for (const e of changees) await majEtape(e.id!, e); setEtapes(renum) }
+      catch (err) { await rechargerEtapes(); throw err }
+    })
   }
-
-  async function supprimerEt(e: EtapeST) {
-    if (!confirm("Supprimer cette étape ?")) return
-    await supprimerEtape(e.id!).catch((err) => setErreur(String(err)))
+  const basculer = (e: EtapeST) => agir(async () => {
+    const maj = { ...e, actif: !e.actif }
+    await majEtape(e.id!, maj)
+    setEtapes((l) => l.map((x) => (x.id === e.id ? maj : x)))
+  })
+  const supprimerEt = (e: EtapeST) => agir(async () => {
+    await supprimerEtape(e.id!)
     setEtapes((l) => l.filter((x) => x.id !== e.id))
-  }
+    setDialogue(null)
+  })
 
-  const seq = sequences.find((s) => s.id === selId)
-
-  if (chargement)
-    return (
-      <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400">
-        <Loader2 size={18} className="animate-spin" /> Chargement…
-      </div>
-    )
+  const resume = useMemo(() => {
+    if (etapes.length === 0) return "Aucune étape : rien ne part encore."
+    const actives = etapes.filter((e) => e.actif)
+    const jours = actives.map((e) => e.delaiJours)
+    const plage = jours.length ? ` · de J+${Math.min(...jours)} à J+${Math.max(...jours)}` : ""
+    return `${etapes.length} étape${etapes.length > 1 ? "s" : ""} · ${actives.length} active${actives.length > 1 ? "s" : ""}${plage}`
+  }, [etapes])
 
   return (
-    <div className="mx-auto flex max-w-5xl gap-6 px-8 pb-10">
-      {/* Colonne : liste des séquences */}
-      <div className="w-56 shrink-0">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700">Séquences</h3>
-          <button onClick={ajouterSequence} className="rounded-lg p-1 text-blue-600 hover:bg-blue-50" title="Nouvelle séquence">
-            <Plus size={17} />
-          </button>
-        </div>
-        <div className="space-y-1">
-          {sequences.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setSelId(s.id ?? null)}
-              className={
-                "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm " +
-                (s.id === selId ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")
-              }
-            >
-              <span className="flex-1 truncate">{s.nom}</span>
-              {s.actif && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">active</span>}
-            </button>
-          ))}
-          {sequences.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">Aucune séquence.</p>}
-        </div>
-      </div>
+    <div className="mx-auto max-w-[1200px] px-8 py-6">
+      <EnTetePage
+        titre="Séquences"
+        sousTitre="La suite d'e-mails et de SMS que reçoit chaque artisan démarré"
+        droite={<Bouton icone={<Plus />} disabled={!supabaseConfigure} onClick={() => ouvrirDialogue({ type: "nouvelle" })}>Nouvelle séquence</Bouton>}
+      />
 
-      {/* Colonne : détail de la séquence sélectionnée */}
-      <div className="min-w-0 flex-1">
-        {erreur && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {erreur}
-          </div>
-        )}
+      {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton variante="discret" taille="sm" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
+      {info ? <Bandeau role="ok" className="mb-4" action={<Bouton variante="discret" taille="sm" onClick={() => setInfo("")}>Fermer</Bouton>}>{info}</Bandeau> : null}
 
-        {!seq ? (
-          <div className="py-16 text-center text-sm text-slate-400">
-            Crée une séquence pour composer les relances (SMS et e-mails).
-          </div>
-        ) : (
-          <>
-            <div className="mb-4 flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-slate-800">{seq.nom}</h2>
-              <button onClick={() => renommer(seq)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Renommer">
-                <Pencil size={14} />
-              </button>
-              <div className="flex-1" />
-              <button
-                onClick={() => activer(seq)}
-                className={
-                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium " +
-                  (seq.actif
-                    ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                    : "border border-slate-200 text-slate-600 hover:bg-slate-50")
-                }
-              >
-                <Power size={14} /> {seq.actif ? "Séquence active" : "Activer"}
-              </button>
-              <button onClick={() => supprimerSeq(seq)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Supprimer la séquence">
-                <Trash2 size={15} />
-              </button>
-            </div>
+      {chargement ? <Chargement /> : (
+        <div className="flex items-start gap-6">
+          {/* ── Colonne de gauche : les séquences ── */}
+          <Carte className="w-[300px] shrink-0">
+            <TitreCarte>Séquences</TitreCarte>
+            {sequences.length === 0 ? (
+              <Vide titre="Aucune séquence" texte="Créez-en une pour composer les relances." />
+            ) : (
+              <ul className="divide-y divide-fond-4 border-t border-trait">
+                {sequences.map((s) => {
+                  const sel = s.id === selId
+                  return (
+                    <li key={s.id} className={sel ? "bg-fond-2" : ""}>
+                      <button
+                        type="button"
+                        onClick={() => choisir(s.id ?? null)}
+                        className={`flex w-full items-center gap-2 px-5 py-3 text-left text-legende transition-colors hover:bg-fond-3 ${sel ? "font-semibold text-encre" : "text-encre-2"}`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{s.nom}</span>
+                        {s.id === idUtilisee ? <Pastille role="info" point>utilisée</Pastille> : null}
+                      </button>
+                      {sel ? (
+                        <div className="flex flex-wrap gap-1 px-3 pb-3">
+                          <Bouton variante="discret" taille="sm" icone={<Pencil />} onClick={() => ouvrirDialogue({ type: "renommer", seq: s })}>Renommer</Bouton>
+                          {s.id !== idUtilisee ? <Bouton variante="discret" taille="sm" icone={<Power />} disabled={occupe} onClick={() => utiliser(s)}>Utiliser celle-ci</Bouton> : null}
+                          <Bouton variante="discret" taille="sm" icone={<Copy />} disabled={occupe} onClick={() => dupliquer(s)}>Dupliquer</Bouton>
+                          <Bouton variante="discret" taille="sm" icone={<Trash2 />} disabled={occupe} onClick={() => ouvrirDialogue({ type: "supprimerSeq", seq: s })}>Supprimer</Bouton>
+                        </div>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </Carte>
 
-            <p className="mb-4 text-xs text-slate-500">
-              Chaque étape part à <b>J+X</b> après l'entrée du sous-traitant dans la séquence. Utilise les variables{" "}
-              {variablesST.map((v) => (
-                <code key={v.cle} className="mx-0.5 rounded bg-slate-100 px-1 text-[11px] text-slate-600">{v.cle}</code>
-              ))}
-              — dont <code className="rounded bg-slate-100 px-1 text-[11px] text-slate-600">{"{{lien}}"}</code> (lien tracké vers le dépôt de dossier).
-            </p>
-
-            <div className="space-y-2">
-              {etapes.map((e, i) => (
-                <div key={e.id} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
-                    {i + 1}
+          {/* ── À droite : les étapes de la séquence choisie ── */}
+          <div className="min-w-0 flex-1">
+            {!seq ? (
+              <Carte><Vide titre="Choisissez une séquence" texte="Ou créez-en une : chaque étape part à J+X après le démarrage de l'artisan, dans la plage horaire de la machine." /></Carte>
+            ) : (
+              <>
+                <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-section font-semibold tracking-[-0.015em] text-encre">{seq.nom}</h2>
+                    <p className="mt-1 text-legende text-encre-2">{resume}</p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      {e.canal === "sms" ? (
-                        <span className="flex items-center gap-1 font-medium text-violet-700"><MessageSquare size={14} /> SMS</span>
-                      ) : (
-                        <span className="flex items-center gap-1 font-medium text-blue-700"><Mail size={14} /> E-mail</span>
-                      )}
-                      <span className="text-slate-400">·</span>
-                      <span className="text-slate-500">J+{e.delaiJours}</span>
-                      {!e.actif && <span className="rounded bg-slate-100 px-1.5 text-[11px] text-slate-400">désactivée</span>}
-                    </div>
-                    {e.canal === "email" && e.objet && <div className="mt-0.5 truncate text-sm font-medium text-slate-700">{e.objet}</div>}
-                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{e.contenu || <span className="italic">Vide</span>}</div>
-                  </div>
-                  <div className="flex gap-1">
-                    <button onClick={() => setModalEtape(e)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Modifier">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => supprimerEt(e)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Supprimer">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  <Bouton variante="plein" icone={<Plus />} onClick={() => setEditeur(etapeVide(seq.id!, etapes.length))}>Ajouter une étape</Bouton>
                 </div>
-              ))}
-            </div>
 
-            <button
-              onClick={() => setModalEtape(etapeVide(seq.id!, etapes.length))}
-              className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm text-slate-500 hover:border-blue-400 hover:text-blue-600"
-            >
-              <Plus size={15} /> Ajouter une étape
-            </button>
-          </>
-        )}
-      </div>
+                {etapes.length === 0 ? (
+                  <Carte><Vide titre="Aucune étape" texte="Ajoutez un premier e-mail ou SMS : il partira le jour du démarrage (J+0)." /></Carte>
+                ) : (
+                  <div className="space-y-3">
+                    {etapes.map((e, i) => {
+                      const avert = verifierEtape(e)
+                      return (
+                        <Carte key={e.id} className={`p-4 ${e.actif ? "" : "opacity-70"}`}>
+                          <div className="flex items-start gap-4">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-legende font-semibold text-encre">Étape {i + 1}</span>
+                                <Pastille role={e.canal === "sms" ? "info" : "actif"}>{libelleCanal(e.canal)}</Pastille>
+                                <span className="chiffres text-legende text-encre-2">J+{e.delaiJours}</span>
+                                {!e.actif ? <Pastille role="inerte">désactivée</Pastille> : null}
+                              </div>
+                              {e.canal === "email" ? (
+                                <div className="mt-1.5 truncate text-corps font-medium text-encre">{e.objet || <span className="italic text-encre-2">Sans objet</span>}</div>
+                              ) : null}
+                              <p className="mt-1 line-clamp-3 whitespace-pre-line text-legende text-encre-2">{apercuTexte(e.contenu) || "Vide"}</p>
+                              {avert.map((a, k) => (
+                                <Bandeau key={k} role={a.niveau === "bloquant" ? "alerte" : "attention"} className="mt-2">{a.texte}</Bandeau>
+                              ))}
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                              <Bouton variante="discret" taille="icone" icone={<ArrowUp />} aria-label="Monter" title="Monter" disabled={occupe || i === 0} onClick={() => deplacer(i, -1)} />
+                              <Bouton variante="discret" taille="icone" icone={<ArrowDown />} aria-label="Descendre" title="Descendre" disabled={occupe || i === etapes.length - 1} onClick={() => deplacer(i, 1)} />
+                              <Bouton variante="discret" taille="sm" icone={<Pencil />} onClick={() => setEditeur(e)}>Modifier</Bouton>
+                              <Bouton variante="discret" taille="sm" icone={<Power />} disabled={occupe} onClick={() => basculer(e)}>{e.actif ? "Désactiver" : "Activer"}</Bouton>
+                              <Bouton variante="discret" taille="sm" icone={<Send />} onClick={() => setTest(e)}>Envoyer un test</Bouton>
+                              <Bouton variante="discret" taille="sm" icone={<Trash2 />} disabled={occupe} onClick={() => ouvrirDialogue({ type: "supprimerEtape", etape: e })}>Supprimer</Bouton>
+                            </div>
+                          </div>
+                        </Carte>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
-      {modalEtape && <ModalEtape etape={modalEtape} onFermer={() => setModalEtape(null)} onEnregistrer={enregistrerEtape} />}
+      {/* ── L'éditeur d'étape ── */}
+      {editeur ? <EditeurEtape etape={editeur} emailTest={emailTest} onFermer={() => setEditeur(null)} onEnregistrer={enregistrer} /> : null}
+
+      {/* ── Le test depuis la liste ── */}
+      {test ? <DialogueTest etape={test} emailTest={emailTest} onFermer={() => setTest(null)} /> : null}
+
+      {/* ── Les questions ── */}
+      {dialogue?.type === "nouvelle" || dialogue?.type === "renommer" ? (
+        <Dialogue
+          titre={dialogue.type === "nouvelle" ? "Nouvelle séquence" : "Renommer la séquence"}
+          onFermer={() => setDialogue(null)}
+          pied={<>
+            <Bouton onClick={() => setDialogue(null)}>Annuler</Bouton>
+            <Bouton variante="plein" chargement={occupe} disabled={!nom.trim()} onClick={validerNom}>
+              {dialogue.type === "nouvelle" ? "Créer" : "Renommer"}
+            </Bouton>
+          </>}
+        >
+          <Etiquette texte="Nom">
+            <Champ autoFocus value={nom} onChange={(e) => setNom(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && nom.trim() && !occupe) validerNom() }} placeholder="Ex. : Relance artisans 2026" />
+          </Etiquette>
+        </Dialogue>
+      ) : null}
+      {dialogue?.type === "supprimerSeq" ? (
+        dialogue.seq.id === idUtilisee ? (
+          <Dialogue
+            titre="Cette séquence est utilisée"
+            description={`« ${dialogue.seq.nom} » est celle que la machine prend pour démarrer les artisans. Choisissez-en une autre (« Utiliser celle-ci ») avant de la supprimer.`}
+            onFermer={() => setDialogue(null)}
+            pied={<Bouton onClick={() => setDialogue(null)}>Fermer</Bouton>}
+          />
+        ) : (
+          <Dialogue
+            titre={`Supprimer « ${dialogue.seq.nom} » ?`}
+            description="La séquence et toutes ses étapes disparaissent. Les artisans déjà démarrés avec elle ne recevront plus la suite."
+            onFermer={() => setDialogue(null)}
+            pied={<><Bouton onClick={() => setDialogue(null)}>Annuler</Bouton><Bouton variante="danger" chargement={occupe} onClick={() => supprimerSeq(dialogue.seq)}>Supprimer</Bouton></>}
+          />
+        )
+      ) : null}
+      {dialogue?.type === "supprimerEtape" ? (
+        <Dialogue
+          titre="Supprimer cette étape ?"
+          description={`${libelleCanal(dialogue.etape.canal)} à J+${dialogue.etape.delaiJours}${dialogue.etape.objet ? ` · ${dialogue.etape.objet}` : ""}. Pour la suspendre sans la perdre, préférez « Désactiver ».`}
+          onFermer={() => setDialogue(null)}
+          pied={<><Bouton onClick={() => setDialogue(null)}>Annuler</Bouton><Bouton variante="danger" chargement={occupe} onClick={() => supprimerEt(dialogue.etape)}>Supprimer</Bouton></>}
+        />
+      ) : null}
     </div>
   )
 }
 
-function ModalEtape({
-  etape,
-  onFermer,
-  onEnregistrer,
-}: {
+// ════════════════════════════════════════════════════════════════════════════
+// L'ÉDITEUR D'ÉTAPE — un panneau : canal, délai, objet, contenu, variables,
+// compteur SMS, aperçu rempli ; les contrôles sous le contenu, un bloquant
+// empêche d'enregistrer.
+// ════════════════════════════════════════════════════════════════════════════
+function EditeurEtape({ etape, emailTest, onFermer, onEnregistrer }: {
   etape: EtapeST
+  emailTest: string
   onFermer: () => void
-  onEnregistrer: (e: EtapeST) => void
+  onEnregistrer: (e: EtapeST) => Promise<void>
 }) {
   const [f, setF] = useState<EtapeST>({ ...etape })
+  const [onglet, setOnglet] = useState<"contenu" | "apercu">("contenu")
+  const [enregistrement, setEnregistrement] = useState(false)
+  const [erreur, setErreur] = useState("")
+  const [test, setTest] = useState(false)
+  // La Zone de la trousse ne prend pas de ref : on retrouve le textarea par son cadre.
+  const cadreZone = useRef<HTMLDivElement>(null)
   const set = <K extends keyof EtapeST>(k: K, v: EtapeST[K]) => setF((p) => ({ ...p, [k]: v }))
 
+  const sms = f.canal === "sms"
+  const avertissements = useMemo(() => verifierEtape(f), [f])
+  const bloque = aUnBloquant(avertissements)
+  // Le SMS se compte tel qu'il partira : variables remplies, liens à la taille réelle.
+  const compte = sms ? segmentsSms(exempleRemplissage(f, LIENS_TAILLE_REELLE)) : null
+  const html = estHtml(f.contenu)
+
+  // La variable s'insère là où est le curseur, pas en fin de texte.
+  const inserer = (cle: string) => {
+    const ta = cadreZone.current?.querySelector("textarea") ?? null
+    const debut = ta?.selectionStart ?? f.contenu.length
+    const fin = ta?.selectionEnd ?? debut
+    set("contenu", f.contenu.slice(0, debut) + cle + f.contenu.slice(fin))
+    setOnglet("contenu")
+    requestAnimationFrame(() => { if (ta) { ta.focus(); ta.setSelectionRange(debut + cle.length, debut + cle.length) } })
+  }
+
+  const enregistrer = async () => {
+    setEnregistrement(true); setErreur("")
+    try { await onEnregistrer(f) }
+    catch (e) { setErreur(msg(e)) }
+    finally { setEnregistrement(false) }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onFermer}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
-          <h3 className="font-semibold text-slate-800">{etape.id ? "Modifier l'étape" : "Nouvelle étape"}</h3>
-          <button onClick={onFermer} className="text-slate-400 hover:text-slate-700">
-            <X size={18} />
-          </button>
-        </div>
+    <Panneau
+      titre={etape.id ? "Modifier l'étape" : "Nouvelle étape"}
+      sousTitre={`${libelleCanal(f.canal)} à J+${f.delaiJours} après le démarrage de l'artisan`}
+      onFermer={() => { if (!test) onFermer() }}
+      largeur="w-[720px]"
+      pied={<>
+        <Bouton onClick={onFermer}>Annuler</Bouton>
+        <Bouton icone={<Send />} disabled={bloque} onClick={() => setTest(true)}>Envoyer un test</Bouton>
+        <Bouton variante="plein" chargement={enregistrement} disabled={bloque} onClick={enregistrer}>Enregistrer</Bouton>
+      </>}
+    >
+      {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
 
-        <div className="space-y-4 px-5 py-4">
-          {/* Canal */}
-          <div>
-            <span className="mb-1.5 block text-xs font-medium text-slate-500">Canal</span>
-            <div className="flex gap-2">
-              {(["email", "sms"] as CanalEtape[]).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => set("canal", c)}
-                  className={
-                    "flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium " +
-                    (f.canal === c ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-600 hover:bg-slate-50")
-                  }
-                >
-                  {c === "sms" ? <MessageSquare size={15} /> : <Mail size={15} />}
-                  {c === "sms" ? "SMS" : "E-mail"}
-                </button>
-              ))}
-            </div>
-          </div>
+      <div className="grid grid-cols-[160px_140px_1fr] gap-3">
+        <Etiquette texte="Canal">
+          <Selecteur value={f.canal} onChange={(e) => set("canal", e.target.value as CanalEtape)}>
+            <option value="email">E-mail</option>
+            <option value="sms">SMS</option>
+          </Selecteur>
+        </Etiquette>
+        <Etiquette texte="Délai (jours)" aide={`J+${f.delaiJours}`}>
+          <Champ type="number" min={0} max={365} value={f.delaiJours} onChange={(e) => set("delaiJours", Math.max(0, parseInt(e.target.value) || 0))} />
+        </Etiquette>
+        {!sms ? (
+          <Etiquette texte="Objet">
+            <Champ value={f.objet} onChange={(e) => set("objet", e.target.value)} placeholder="Rejoignez les sous-traitants de STC Bâtiment" />
+          </Etiquette>
+        ) : <div />}
+      </div>
 
-          {/* Délai */}
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Envoyer après (jours)</span>
-            <input
-              type="number"
-              min={0}
-              className={champ + " w-28"}
-              value={f.delaiJours}
-              onChange={(e) => set("delaiJours", Math.max(0, parseInt(e.target.value) || 0))}
-            />
-            <span className="ml-2 text-xs text-slate-400">J+{f.delaiJours} après l'entrée en séquence</span>
-          </label>
+      <Onglets className="mt-5" valeur={onglet} onChange={setOnglet} options={[{ id: "contenu", label: "Contenu" }, { id: "apercu", label: "Aperçu" }]} />
 
-          {/* Objet (e-mail seulement) */}
-          {f.canal === "email" && (
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">Objet de l'e-mail</span>
-              <input className={champ} value={f.objet} onChange={(e) => set("objet", e.target.value)} placeholder="Rejoignez nos sous-traitants" />
-            </label>
-          )}
-
-          {/* Contenu */}
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              {f.canal === "sms" ? "Texte du SMS" : "Message (e-mail)"}
-            </span>
-            <textarea
-              className={champ + " min-h-[130px] resize-y font-mono text-xs"}
+      {onglet === "contenu" ? (
+        <div className="mt-4">
+          <Etiquette texte={sms ? "Texte du SMS" : html ? "Message (HTML)" : "Message"}>
+            <div ref={cadreZone}>
+            <Zone
               value={f.contenu}
               onChange={(e) => set("contenu", e.target.value)}
-              placeholder={
-                f.canal === "sms"
-                  ? "Bonjour {{contact}}, STC Bâtiment recrute des {{metier}}. Déposez votre dossier : {{lien}}"
-                  : "Bonjour {{contact}},\n\nNous recherchons des artisans {{metier}}…\nDéposez votre dossier ici : {{lien}}"
-              }
+              className={`min-h-[260px] resize-y ${html ? "font-mono" : ""}`}
+              placeholder={sms
+                ? "Bonjour {{contact}}, STC Batiment recrute des {{metier}}. Deposez votre dossier : {{lien_candidature}} - Stop : {{lien_desinscription}}"
+                : "Bonjour {{contact}},\n\nNous recherchons des artisans {{metier}}…\nDéposez votre dossier ici : {{lien_candidature}}\n\nPour ne plus recevoir nos messages : {{lien_desinscription}}"}
             />
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {variablesST.map((v) => (
-                <button
-                  key={v.cle}
-                  onClick={() => set("contenu", f.contenu + v.cle)}
-                  title={v.desc}
-                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600 hover:bg-slate-200"
-                >
-                  {v.cle}
-                </button>
-              ))}
             </div>
-            {f.canal === "sms" && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                {f.contenu.length} caractères (≈ {Math.max(1, Math.ceil(f.contenu.length / 160))} SMS)
-              </p>
-            )}
-          </label>
-
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={f.actif} onChange={(e) => set("actif", e.target.checked)} />
-            Étape active (décocher pour la mettre en pause sans la supprimer)
-          </label>
+          </Etiquette>
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <span className="mr-1 text-colonne text-encre-2">Insérer :</span>
+            {variablesST.map((v) => (
+              <Bouton key={v.cle} variante="discret" taille="sm" title={v.desc} className="font-mono" onClick={() => inserer(v.cle)}>{v.cle}</Bouton>
+            ))}
+          </div>
+          {compte ? <p className="chiffres mt-2 text-legende text-encre-2">{libelleSms(compte)}</p> : null}
+          {avertissements.length ? (
+            <div className="mt-3 space-y-2">
+              {avertissements.map((a, k) => <Bandeau key={k} role={a.niveau === "bloquant" ? "alerte" : "attention"}>{a.texte}</Bandeau>)}
+            </div>
+          ) : null}
+          <Case className="mt-4" texte="Étape active (décochez pour la suspendre sans la supprimer)" checked={f.actif} onChange={(e) => set("actif", e.target.checked)} />
         </div>
-
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3.5">
-          <button onClick={onFermer} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-            Annuler
-          </button>
-          <button
-            onClick={() => onEnregistrer(f)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            <CheckCircle2 size={15} /> Enregistrer
-          </button>
+      ) : (
+        <div className="mt-4">
+          <p className="mb-3 text-legende text-encre-2">Rempli avec un artisan d'exemple : Karim Benali, Benali Rénovation, Électricité.</p>
+          {sms ? (
+            <Carte className="max-w-[320px] bg-fond-3 px-4 py-3">
+              <p className="whitespace-pre-wrap break-words text-corps text-encre">{exempleRemplissage(f, LIENS_TAILLE_REELLE) || <span className="italic text-encre-2">Vide</span>}</p>
+              {compte ? <p className="chiffres mt-2 text-colonne text-encre-2">{libelleSms(compte)}</p> : null}
+            </Carte>
+          ) : (
+            <>
+              <p className="mb-2 text-legende text-encre"><span className="text-encre-2">Objet :</span> {exempleObjet(f, LIENS_EXEMPLE) || <span className="italic text-encre-2">Sans objet</span>}</p>
+              <iframe sandbox="" srcDoc={htmlPourEnvoi(exempleRemplissage(f, LIENS_EXEMPLE), LIENS_EXEMPLE)} className="h-[480px] w-full rounded-4 border border-trait bg-white" title="Aperçu" />
+            </>
+          )}
         </div>
-      </div>
-    </div>
+      )}
+
+      {test ? <DialogueTest etape={f} emailTest={emailTest} onFermer={() => setTest(false)} /> : null}
+    </Panneau>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ENVOYER UN TEST — vers une adresse (celle des réglages par défaut) ou un
+// mobile ; le contenu est rempli avec l'artisan d'exemple et des liens qui
+// ne désinscrivent personne.
+// ════════════════════════════════════════════════════════════════════════════
+function DialogueTest({ etape, emailTest, onFermer }: { etape: EtapeST; emailTest: string; onFermer: () => void }) {
+  const sms = etape.canal === "sms"
+  const [dest, setDest] = useState(sms ? "" : emailTest)
+  const [envoi, setEnvoi] = useState(false)
+  const [etat, setEtat] = useState<{ role: "ok" | "alerte"; texte: string } | null>(null)
+  const contenu = exempleRemplissage(etape, LIENS_EXEMPLE)
+  const valide = sms ? numeroValide(dest) : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest.trim())
+
+  const envoyer = async () => {
+    setEnvoi(true); setEtat(null)
+    try {
+      if (sms) await envoyerSmsTest(dest.trim(), contenu)
+      else await envoyerEmailTest(dest.trim(), `[Test] ${exempleObjet(etape, LIENS_EXEMPLE)}`, htmlPourEnvoi(contenu, LIENS_EXEMPLE))
+      setEtat({ role: "ok", texte: `Test envoyé à ${dest.trim()}.` })
+    } catch (e) {
+      setEtat({ role: "alerte", texte: msg(e) })
+    } finally {
+      setEnvoi(false)
+    }
+  }
+
+  return (
+    <Dialogue
+      titre={sms ? "Envoyer un SMS de test" : "Envoyer un e-mail de test"}
+      description="Le message part rempli avec l'artisan d'exemple (Karim Benali, Benali Rénovation) ; le lien de désinscription du test ne mène nulle part."
+      onFermer={onFermer}
+      pied={<>
+        <Bouton onClick={onFermer}>Fermer</Bouton>
+        <Bouton variante="plein" icone={<Send />} chargement={envoi} disabled={!valide} onClick={envoyer}>Envoyer</Bouton>
+      </>}
+    >
+      <Etiquette texte={sms ? "Numéro de mobile" : "Adresse e-mail"} aide={sms ? "Le SMS part réellement par Ringover." : emailTest ? "Par défaut : l'adresse de test des réglages." : "Renseignez une adresse de test dans les réglages pour la retrouver ici."}>
+        <Champ autoFocus type={sms ? "tel" : "email"} value={dest} onChange={(e) => setDest(e.target.value)} placeholder={sms ? "06 12 34 56 78" : "vous@stcbatiment.fr"} onKeyDown={(e) => { if (e.key === "Enter" && valide && !envoi) envoyer() }} />
+      </Etiquette>
+      {sms ? (
+        <Carte className="mt-4 bg-fond-3 px-4 py-3">
+          <p className="whitespace-pre-wrap break-words text-legende text-encre">{contenu}</p>
+        </Carte>
+      ) : (
+        <p className="mt-4 text-legende text-encre"><span className="text-encre-2">Objet :</span> [Test] {exempleObjet(etape, LIENS_EXEMPLE)}</p>
+      )}
+      {etat ? <Bandeau role={etat.role} className="mt-4">{etat.texte}</Bandeau> : null}
+    </Dialogue>
   )
 }
