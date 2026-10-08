@@ -85,6 +85,23 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, cree, id, endpoint, events: detail?.events ?? EVENEMENTS, status: detail?.status ?? "", signing_secret: detail?.signing_secret ?? "" })
   }
 
+  // ── Le sort d'e-mails envoyés (délivré, rebondi…), lu chez Resend ──
+  // GET ?action=statut&id=<id resend>,<id resend>… avec la clé serveur.
+  if (req.method === "GET" && url.searchParams.get("action") === "statut") {
+    const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
+    if (!(await estCleServeur(jeton, base, service))) return json({ error: "réservé au serveur" }, 403)
+    const cle = Deno.env.get("RESEND_API_KEY")
+    if (!cle) return json({ error: "RESEND_API_KEY manquante" }, 500)
+    const ids = (url.searchParams.get("id") || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 20)
+    const resultats = []
+    for (const id of ids) {
+      const r = await fetch(`https://api.resend.com/emails/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${cle}` } })
+      const d = r.ok ? await r.json().catch(() => null) : null
+      resultats.push({ id, ok: r.ok, status: r.status, dernier_evenement: d?.last_event ?? null, a: d?.to ?? null, envoye_le: d?.created_at ?? null })
+    }
+    return json({ ok: true, resultats })
+  }
+
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405)
   try {
     const corps = await req.text()

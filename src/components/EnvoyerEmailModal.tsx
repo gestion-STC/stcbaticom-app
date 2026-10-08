@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, Send, Check, Loader2, AlertTriangle, PenLine, Paperclip, Trash2 } from "lucide-react"
+import { X, Send, Check, Loader2, AlertTriangle, PenLine, Paperclip, Trash2, Users } from "lucide-react"
 import type { Prospect } from "../data"
 import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
@@ -8,6 +8,7 @@ import { nomAffiche } from "../lib/comptes"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
+import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
 
 // Envoi d'un e-mail à un prospect.
 //
@@ -16,6 +17,10 @@ import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
 // modèle. Choisir un modèle ne fait que pré-remplir les deux champs — le modèle
 // enregistré n'est jamais modifié, ce qui permet de le retoucher librement pour
 // un envoi ponctuel.
+//
+// PLUSIEURS DESTINATAIRES (Mahdi, 08/10/2026) : le champ « À » est pré-rempli
+// avec l'adresse de la fiche (ou ses adresses, s'il y en a plusieurs) et on
+// peut en ajouter, séparées par une virgule. Un seul e-mail part, tous en « À ».
 export default function EnvoyerEmailModal({
   prospect,
   onClose,
@@ -31,6 +36,7 @@ export default function EnvoyerEmailModal({
   const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
   const prenomCommercial = prenomDe(nomSignataire)
   const [modeleId, setModeleId] = useState("")
+  const [destinatairesTexte, setDestinatairesTexte] = useState(() => joindreAdresses(decouperAdresses(prospect.email || "")))
   const [objet, setObjet] = useState("")
   const [corps, setCorps] = useState("")
   const [envoi, setEnvoi] = useState(false)
@@ -65,6 +71,8 @@ export default function EnvoyerEmailModal({
     () => composer(aEnvoyer, prospect, signature, prenomCommercial),
     [aEnvoyer, prospect, signature, prenomCommercial],
   )
+  const destinataires = useMemo(() => decouperAdresses(destinatairesTexte), [destinatairesTexte])
+  const invalides = useMemo(() => adressesInvalides(destinataires), [destinataires])
 
   function choisirModele(id: string) {
     setModeleId(id)
@@ -109,14 +117,14 @@ export default function EnvoyerEmailModal({
     setCorps((c) => (c ? c + cle : cle))
   }
 
-  const pret = Boolean(prospect.email) && objet.trim() !== "" && corps.trim() !== ""
+  const pret = destinataires.length > 0 && invalides.length === 0 && objet.trim() !== "" && corps.trim() !== ""
 
   async function envoyer() {
     if (!pret) return
     setErreur(null)
     setEnvoi(true)
     try {
-      await envoyerEmail(prospect, aEnvoyer, signature, prenomCommercial)
+      await envoyerEmail(prospect, aEnvoyer, signature, prenomCommercial, destinataires)
       setFait(true)
       setTimeout(onClose, 1000)
     } catch (e) {
@@ -142,12 +150,7 @@ export default function EnvoyerEmailModal({
 
         <div className="space-y-4 px-5 py-5">
           <p className="text-sm text-slate-600">
-            À <span className="font-medium text-slate-900">{prospect.entreprise}</span>
-            {prospect.email ? (
-              <span className="text-slate-500"> · {prospect.email}</span>
-            ) : (
-              <span className="text-red-500"> · pas d'email</span>
-            )}
+            Fiche <span className="font-medium text-slate-900">{prospect.entreprise}</span>
           </p>
 
           {!emailConfigure && (
@@ -157,6 +160,28 @@ export default function EnvoyerEmailModal({
               fonctionne, mais l'envoi réel sera actif une fois la configuration faite.
             </div>
           )}
+
+          <label className="block">
+            <span className="text-xs font-medium text-slate-500">À</span>
+            <input
+              value={destinatairesTexte}
+              onChange={(e) => setDestinatairesTexte(e.target.value)}
+              onBlur={() => setDestinatairesTexte(joindreAdresses(destinataires))}
+              placeholder="adresse@exemple.fr, collegue@exemple.fr"
+              className={champ + " mt-1"}
+            />
+            <span className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
+              <Users size={11} /> Plusieurs destinataires : séparez les adresses par une virgule.
+              {destinataires.length > 1 && invalides.length === 0 && (
+                <span className="text-slate-500"> Un seul e-mail partira, à {destinataires.length} personnes.</span>
+              )}
+            </span>
+            {invalides.length > 0 && (
+              <span className="mt-1 block text-[11px] text-red-500">
+                Adresse{invalides.length > 1 ? "s" : ""} à corriger : {invalides.join(", ")}
+              </span>
+            )}
+          </label>
 
           <label className="block">
             <span className="text-xs font-medium text-slate-500">
@@ -301,16 +326,26 @@ export default function EnvoyerEmailModal({
             onClick={envoyer}
             disabled={!pret || envoi || fait || !emailConfigure}
             title={
-              !prospect.email
-                ? "Cette fiche n'a pas d'adresse email"
-                : !objet.trim() || !corps.trim()
-                  ? "Renseignez l'objet et le message"
-                  : undefined
+              destinataires.length === 0
+                ? "Indiquez au moins une adresse e-mail"
+                : invalides.length > 0
+                  ? "Une adresse est à corriger"
+                  : !objet.trim() || !corps.trim()
+                    ? "Renseignez l'objet et le message"
+                    : undefined
             }
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {fait ? <Check size={16} /> : envoi ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-            {fait ? "Envoyé !" : envoi ? "Envoi…" : "Envoyer"}
+            {fait
+              ? destinataires.length > 1
+                ? `Envoyé à ${destinataires.length} personnes !`
+                : "Envoyé !"
+              : envoi
+                ? "Envoi…"
+                : destinataires.length > 1
+                  ? `Envoyer à ${destinataires.length} personnes`
+                  : "Envoyer"}
           </button>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { X, CalendarPlus, Send, Handshake, Undo2, Trash2, Loader2 } from "lucide
 import { palette, type Statut } from "../statuts"
 import { toutesPriorites, volumesOs, TYPE_APPORTEUR, estApporteur, type Prospect, type Priorite } from "../data"
 import { formaterTelephone } from "../lib/telephone"
+import { decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
 import { relanceAutoEntreeEtat } from "../lib/relanceAuto"
 import NouveauRdvModal from "./NouveauRdvModal"
 import EnvoyerEmailModal from "./EnvoyerEmailModal"
@@ -97,8 +98,15 @@ export default function ProspectModal({
         type={type}
         value={(f[cle] as string) ?? ""}
         onChange={(e) => set(cle, e.target.value)}
-        // Le téléphone s'espace tout seul quand on quitte le champ (07 69 81 12 15).
-        onBlur={(e) => cle === "telephone" && set(cle, formaterTelephone(e.target.value))}
+        // Plusieurs adresses e-mail acceptées (08/10/2026), séparées par une virgule.
+        multiple={type === "email"}
+        placeholder={type === "email" ? "une ou plusieurs adresses, séparées par une virgule" : undefined}
+        // Le téléphone s'espace tout seul quand on quitte le champ (07 69 81 12 15) ;
+        // les adresses e-mail se rangent proprement (« a@x.fr, b@y.fr »).
+        onBlur={(e) => {
+          if (cle === "telephone") set(cle, formaterTelephone(e.target.value))
+          if (type === "email") set(cle, joindreAdresses(decouperAdresses(e.target.value)))
+        }}
         className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
       />
     </label>

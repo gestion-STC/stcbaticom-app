@@ -65,7 +65,7 @@ Deno.serve(async (req: Request) => {
     let journalEmailsEnvoyes: { prospect_id: string; modele_nom: string; objet: string } | null = null;
     let prospectIdPourMessage: string | null = null;
     let sousTraitantIdPourMessage: string | null = null;
-    let objetFinal = "", corpsTextFinal = "", corpsHtmlFinal = "", destinataire = "";
+    let objetFinal = "", corpsTextFinal = "", corpsHtmlFinal = "", destinataire = "", aPourMessage = "";
 
     if (typeof corps?.subject === "string" || typeof corps?.html === "string") {
       // ── Contrat A (interface) : déjà composé côté client ──
@@ -74,14 +74,22 @@ Deno.serve(async (req: Request) => {
       objetFinal = String(corps.subject ?? "");
       corpsHtmlFinal = String(corps.html ?? "");
       if (!objetFinal && !corpsHtmlFinal) return json({ error: "Email vide (ni objet ni contenu)." }, 400);
-      destinataire = adresse(Array.isArray(to) ? to[0] : to);
-      payload = { from, to: Array.isArray(to) ? to : [to], subject: objetFinal, html: corpsHtmlFinal };
+      // PLUSIEURS DESTINATAIRES (08/10/2026) : un seul e-mail, tous en « À »,
+      // journalisé une fois avec toutes les adresses.
+      const tous = (Array.isArray(to) ? to : [to]).map(adresse).filter((a) => a.includes("@"));
+      if (tous.length === 0) return json({ error: "Aucune adresse de destinataire valide." }, 400);
+      destinataire = tous[0];
+      aPourMessage = tous.join(", ");
+      payload = { from, to: tous, subject: objetFinal, html: corpsHtmlFinal };
       if (typeof corps?.reply_to === "string" && corps.reply_to) payload.reply_to = corps.reply_to;
       // En-têtes (désinscription en un clic) et étiquettes, posés par le moteur de recrutement.
       if (corps?.headers && typeof corps.headers === "object") payload.headers = corps.headers;
       if (Array.isArray(corps?.tags)) payload.tags = corps.tags;
       if (espace === "demarchage") {
-        const { data: p } = await admin.from("prospects").select("id").ilike("email", destinataire).limit(1).maybeSingle();
+        // La fiche peut porter plusieurs adresses dans son champ e-mail : on
+        // cherche l'adresse exacte, sinon la fiche qui la CONTIENT.
+        let { data: p } = await admin.from("prospects").select("id").ilike("email", destinataire).limit(1).maybeSingle();
+        if (!p) ({ data: p } = await admin.from("prospects").select("id").ilike("email", `%${destinataire}%`).limit(1).maybeSingle());
         prospectIdPourMessage = p?.id ?? null;
       } else {
         const { data: s } = await admin.from("st_sous_traitants").select("id").ilike("email", destinataire).limit(1).maybeSingle();
@@ -154,7 +162,7 @@ Deno.serve(async (req: Request) => {
     // Journal de la boîte (les 2 contrats) + suivi des envois (contrat B uniquement,
     // le front journalise lui-même emails_envoyes en contrat A).
     await admin.from("messages").insert({
-      sens: "sortant", de: adresse(from), a: destinataire, objet: objetFinal,
+      sens: "sortant", de: adresse(from), a: aPourMessage || destinataire, objet: objetFinal,
       corps_text: corpsTextFinal, corps_html: corpsHtmlFinal, message_id: id || null,
       in_reply_to: (corps?.in_reply_to as string) ?? null, prospect_id: prospectIdPourMessage, lu: true,
       espace, sous_traitant_id: sousTraitantIdPourMessage,

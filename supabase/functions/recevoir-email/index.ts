@@ -85,7 +85,10 @@ Deno.serve(async (req: Request) => {
 
     let prospectId: string | null = null;
     if (de && espace === "demarchage") {
-      const { data: p } = await admin.from("prospects").select("id").ilike("email", de).limit(1).maybeSingle();
+      // La fiche peut porter plusieurs adresses dans son champ e-mail (08/10/2026) :
+      // l'adresse exacte d'abord, sinon la fiche qui la CONTIENT.
+      let { data: p } = await admin.from("prospects").select("id").ilike("email", de).limit(1).maybeSingle();
+      if (!p) ({ data: p } = await admin.from("prospects").select("id").ilike("email", `%${de}%`).limit(1).maybeSingle());
       prospectId = p?.id ?? null;
     }
 

@@ -1,6 +1,7 @@
 import type { Prospect } from "../data"
 import { commercial } from "../data"
 import type { Email } from "../emails"
+import { decouperAdresses } from "./adressesEmail"
 import { logEmailEnvoye } from "./emailsEnvoyesDb"
 import { supabase, supabaseConfigure } from "./supabase"
 
@@ -74,13 +75,17 @@ export async function envoyerEmail(
   modele: Email,
   signature: string,
   prenomCommercial?: string,
+  destinataires?: string[],
 ): Promise<void> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
-  if (!prospect.email) throw new Error("Ce prospect n'a pas d'adresse email.")
+  // PLUSIEURS DESTINATAIRES (08/10/2026) : la liste donnée par l'écran, sinon
+  // le champ e-mail de la fiche (qui peut en contenir plusieurs).
+  const to = destinataires && destinataires.length ? destinataires : decouperAdresses(prospect.email || "")
+  if (to.length === 0) throw new Error("Ce prospect n'a pas d'adresse email.")
   const { objet, corpsHtml } = composer(modele, prospect, signature, prenomCommercial)
 
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
-    body: { to: prospect.email, subject: objet, html: corpsHtml },
+    body: { to, subject: objet, html: corpsHtml },
   })
   if (error) {
     // Récupère le VRAI message renvoyé par la fonction (souvent dans error.context).
