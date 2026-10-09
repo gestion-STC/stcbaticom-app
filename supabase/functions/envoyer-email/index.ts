@@ -79,8 +79,11 @@ Deno.serve(async (req: Request) => {
       const tous = (Array.isArray(to) ? to : [to]).map(adresse).filter((a) => a.includes("@"));
       if (tous.length === 0) return json({ error: "Aucune adresse de destinataire valide." }, 400);
       destinataire = tous[0];
-      aPourMessage = tous.join(", ");
-      payload = { from, to: tous, subject: objetFinal, html: corpsHtmlFinal };
+      // Cc et Cci (Mahdi, 09/10/2026) : des listes d'adresses, journalisées avec le message.
+      const cc = (Array.isArray(corps?.cc) ? corps.cc : []).map(adresse).filter((a: string) => a.includes("@") && !tous.includes(a));
+      const bcc = (Array.isArray(corps?.bcc) ? corps.bcc : []).map(adresse).filter((a: string) => a.includes("@") && !tous.includes(a) && !cc.includes(a));
+      aPourMessage = tous.join(", ") + (cc.length ? " · cc : " + cc.join(", ") : "") + (bcc.length ? " · cci : " + bcc.join(", ") : "");
+      payload = { from, to: tous, subject: objetFinal, html: corpsHtmlFinal, ...(cc.length ? { cc } : {}), ...(bcc.length ? { bcc } : {}) };
       if (typeof corps?.reply_to === "string" && corps.reply_to) payload.reply_to = corps.reply_to;
       // En-têtes (désinscription en un clic) et étiquettes, posés par le moteur de recrutement.
       if (corps?.headers && typeof corps.headers === "object") payload.headers = corps.headers;

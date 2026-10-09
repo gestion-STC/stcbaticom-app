@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { X, Send, Check, Loader2, AlertTriangle, PenLine, Paperclip, Trash2, Users } from "lucide-react"
+import { AlertTriangle, Check, Loader2, Paperclip, Send, Trash2, Users } from "lucide-react"
 import type { Prospect } from "../data"
 import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
@@ -9,47 +9,43 @@ import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
 import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
+import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Selecteur, Zone } from "../ui"
 
-// Envoi d'un e-mail à un prospect.
+// Envoi d'un e-mail à une agence (ou un contact), dans la trousse STC (09/10/2026).
 //
-// L'objet et le message sont ÉDITABLES directement ici : on peut écrire un
-// message personnalisé sans passer par Paramétrage → Emails pour créer un
-// modèle. Choisir un modèle ne fait que pré-remplir les deux champs — le modèle
-// enregistré n'est jamais modifié, ce qui permet de le retoucher librement pour
-// un envoi ponctuel.
-//
-// PLUSIEURS DESTINATAIRES (Mahdi, 08/10/2026) : le champ « À » est pré-rempli
-// avec l'adresse de la fiche (ou ses adresses, s'il y en a plusieurs) et on
-// peut en ajouter, séparées par une virgule. Un seul e-mail part, tous en « À ».
-export default function EnvoyerEmailModal({
-  prospect,
-  onClose,
-}: {
-  prospect: Prospect
-  onClose: () => void
-}) {
+// L'objet et le message sont ÉDITABLES ici : choisir un modèle ne fait que
+// pré-remplir, le modèle enregistré n'est jamais modifié.
+// Destinataires (Mahdi, 08-09/10) : « À » accepte plusieurs adresses séparées
+// par une virgule ; « Cc » et « Cci » s'ouvrent d'un clic, comme dans Gmail.
+// Un seul e-mail part, avec tout le monde dedans.
+export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Prospect; onClose: () => void }) {
   const [emails, setEmails] = useState<Email[]>([])
-  // Signature STC Bâtiment au nom du compte connecté (Mahdi, 07/10/2026) :
-  // plus de HTML collé commun à tout le monde, chacun signe de son nom.
+  // Signature STC Bâtiment au nom du compte connecté : chacun signe de son nom.
   const session = useSession()
   const nomSignataire = nomAffiche(session)
   const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
   const prenomCommercial = prenomDe(nomSignataire)
   const [modeleId, setModeleId] = useState("")
-  const [destinatairesTexte, setDestinatairesTexte] = useState(() => joindreAdresses(decouperAdresses(prospect.email || "")))
+  const [aTexte, setATexte] = useState(() => joindreAdresses(decouperAdresses(prospect.email || "")))
+  const [ccTexte, setCcTexte] = useState("")
+  const [cciTexte, setCciTexte] = useState("")
+  const [copiesOuvertes, setCopiesOuvertes] = useState(false)
   const [objet, setObjet] = useState("")
   const [corps, setCorps] = useState("")
   const [envoi, setEnvoi] = useState(false)
   const [fait, setFait] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
+  const [apercuOuvert, setApercuOuvert] = useState(false)
   // Pièces jointes de CET envoi : celles du modèle choisi + celles ajoutées ici.
   const [pieces, setPieces] = useState<PieceJointe[]>([])
   const [televersement, setTeleversement] = useState(false)
   const fichierRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    let annule = false
     chargerEmails()
       .then((e) => {
+        if (annule) return
         setEmails(e)
         // On pré-remplit avec le 1er modèle, tout en le laissant modifiable.
         if (e.length) {
@@ -60,19 +56,19 @@ export default function EnvoyerEmailModal({
         }
       })
       .catch(() => {})
+    return () => {
+      annule = true
+    }
   }, [])
 
   // Ce qui part réellement : le contenu affiché à l'écran, pas le modèle d'origine.
-  const aEnvoyer = useMemo<Email>(
-    () => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces }),
-    [emails, modeleId, objet, corps, pieces],
-  )
-  const apercu = useMemo(
-    () => composer(aEnvoyer, prospect, signature, prenomCommercial),
-    [aEnvoyer, prospect, signature, prenomCommercial],
-  )
-  const destinataires = useMemo(() => decouperAdresses(destinatairesTexte), [destinatairesTexte])
-  const invalides = useMemo(() => adressesInvalides(destinataires), [destinataires])
+  const aEnvoyer = useMemo<Email>(() => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces }), [emails, modeleId, objet, corps, pieces])
+  const apercu = useMemo(() => composer(aEnvoyer, prospect, signature, prenomCommercial), [aEnvoyer, prospect, signature, prenomCommercial])
+  const a = useMemo(() => decouperAdresses(aTexte), [aTexte])
+  const cc = useMemo(() => decouperAdresses(ccTexte), [ccTexte])
+  const cci = useMemo(() => decouperAdresses(cciTexte), [cciTexte])
+  const invalides = useMemo(() => adressesInvalides([...a, ...cc, ...cci]), [a, cc, cci])
+  const nbPersonnes = a.length + cc.length + cci.length
 
   function choisirModele(id: string) {
     setModeleId(id)
@@ -82,15 +78,13 @@ export default function EnvoyerEmailModal({
       setCorps(m.corps)
       setPieces(m.pieces ?? [])
     } else {
-      // « Écrire un message » : on repart d'une page blanche.
       setObjet("")
       setCorps("")
       setPieces([])
     }
   }
 
-  // Ajout d'un document à joindre. Le fichier est déposé dans le stockage et
-  // c'est son LIEN qui part dans le message (voir la note sous la liste).
+  // Ajout d'un document à joindre : déposé dans le stockage, c'est son LIEN qui part.
   async function ajouterFichier(file: File) {
     setErreur(null)
     setTeleversement(true)
@@ -98,263 +92,152 @@ export default function EnvoyerEmailModal({
       const pj = await televerser(file)
       setPieces((l) => [...l, pj])
     } catch (e) {
-      setErreur("Ajout du document impossible — " + (e instanceof Error ? e.message : String(e)))
+      setErreur("Ajout du document impossible : " + (e instanceof Error ? e.message : String(e)))
     } finally {
       setTeleversement(false)
-      if (fichierRef.current) fichierRef.current.value = "" // permet de re-choisir le même fichier
+      if (fichierRef.current) fichierRef.current.value = ""
     }
   }
 
   function retirerFichier(pj: PieceJointe) {
     setPieces((l) => l.filter((x) => x.chemin !== pj.chemin))
-    // On ne supprime du stockage QUE les fichiers ajoutés pour cet envoi : ceux
-    // qui viennent d'un modèle enregistré doivent y rester.
+    // On ne supprime du stockage QUE les fichiers ajoutés pour cet envoi.
     const vientDuModele = emails.some((e) => (e.pieces ?? []).some((x) => x.chemin === pj.chemin))
     if (!vientDuModele) supprimerFichier(pj.chemin).catch(() => {})
   }
 
-  function insererVariable(cle: string) {
-    setCorps((c) => (c ? c + cle : cle))
-  }
-
-  const pret = destinataires.length > 0 && invalides.length === 0 && objet.trim() !== "" && corps.trim() !== ""
+  const pret = a.length > 0 && invalides.length === 0 && objet.trim() !== "" && corps.trim() !== ""
 
   async function envoyer() {
-    if (!pret) return
+    if (!pret || envoi) return
     setErreur(null)
     setEnvoi(true)
     try {
-      await envoyerEmail(prospect, aEnvoyer, signature, prenomCommercial, destinataires)
+      await envoyerEmail(prospect, aEnvoyer, signature, prenomCommercial, a, { cc, cci })
       setFait(true)
-      setTimeout(onClose, 1000)
+      setTimeout(onClose, 900)
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e))
       setEnvoi(false)
     }
   }
 
-  const champ =
-    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+  const raisonBloque = a.length === 0 ? "Indique au moins une adresse dans « À »" : invalides.length ? "Une adresse est à corriger" : !objet.trim() || !corps.trim() ? "Renseigne l'objet et le message" : undefined
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-            <Send size={18} className="text-blue-600" /> Envoyer un email
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X size={20} />
-          </button>
+    <Dialogue
+      titre="Envoyer un e-mail"
+      description={<>Fiche <strong className="text-encre">{prospect.entreprise}</strong>{prospect.contact ? <> · {prospect.contact}</> : null}</>}
+      onFermer={onClose}
+      largeur="max-w-2xl"
+      pied={
+        <>
+          {erreur ? <span className="mr-auto flex min-w-0 items-start gap-1.5 text-legende text-alerte"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span className="break-words">{erreur}</span></span> : null}
+          <Bouton variante="discret" onClick={onClose}>Annuler</Bouton>
+          <Bouton variante="plein" icone={fait ? <Check /> : envoi ? <Loader2 className="animate-spin" /> : <Send />} disabled={!pret || envoi || fait || !emailConfigure} title={raisonBloque} onClick={envoyer}>
+            {fait ? (nbPersonnes > 1 ? `Envoyé à ${nbPersonnes} personnes` : "Envoyé") : envoi ? "Envoi…" : nbPersonnes > 1 ? `Envoyer à ${nbPersonnes} personnes` : "Envoyer"}
+          </Bouton>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {!emailConfigure ? <Bandeau role="attention">L'envoi n'est pas configuré (Supabase requis) : l'aperçu fonctionne, pas l'envoi.</Bandeau> : null}
+
+        {/* ── Destinataires ── */}
+        <div className="rounded-6 border border-trait">
+          <label className="flex min-h-[38px] items-center gap-3 border-b border-fond-4 px-3">
+            <span className="w-8 shrink-0 text-legende text-encre-2">À</span>
+            <input value={aTexte} onChange={(e) => setATexte(e.target.value)} onBlur={() => setATexte(joindreAdresses(a))} placeholder="adresse@agence.fr, collegue@agence.fr" aria-label="Destinataires" className="h-9 min-w-0 flex-1 bg-transparent text-corps text-encre outline-none placeholder:text-encre-3" />
+            {!copiesOuvertes ? <button type="button" onClick={() => setCopiesOuvertes(true)} className="shrink-0 text-legende text-encre-2 hover:text-encre">Cc · Cci</button> : null}
+          </label>
+          {copiesOuvertes ? (
+            <>
+              <label className="flex min-h-[38px] items-center gap-3 border-b border-fond-4 px-3">
+                <span className="w-8 shrink-0 text-legende text-encre-2">Cc</span>
+                <input value={ccTexte} onChange={(e) => setCcTexte(e.target.value)} onBlur={() => setCcTexte(joindreAdresses(cc))} placeholder="En copie, visible par tous" aria-label="Copie" autoFocus className="h-9 min-w-0 flex-1 bg-transparent text-corps text-encre outline-none placeholder:text-encre-3" />
+              </label>
+              <label className="flex min-h-[38px] items-center gap-3 px-3">
+                <span className="w-8 shrink-0 text-legende text-encre-2">Cci</span>
+                <input value={cciTexte} onChange={(e) => setCciTexte(e.target.value)} onBlur={() => setCciTexte(joindreAdresses(cci))} placeholder="En copie cachée, invisible des autres" aria-label="Copie cachée" className="h-9 min-w-0 flex-1 bg-transparent text-corps text-encre outline-none placeholder:text-encre-3" />
+              </label>
+            </>
+          ) : null}
         </div>
+        <p className="-mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-colonne text-encre-2">
+          <span className="inline-flex items-center gap-1"><Users size={12} /> Plusieurs adresses : sépare-les par une virgule.</span>
+          {nbPersonnes > 1 && invalides.length === 0 ? <span>Un seul e-mail partira, à {nbPersonnes} personnes.</span> : null}
+          {invalides.length ? <span className="text-alerte">À corriger : {invalides.join(", ")}</span> : null}
+        </p>
 
-        <div className="space-y-4 px-5 py-5">
-          <p className="text-sm text-slate-600">
-            Fiche <span className="font-medium text-slate-900">{prospect.entreprise}</span>
-          </p>
-
-          {!emailConfigure && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-              L'envoi d'email n'est pas encore configuré (Supabase requis). L'aperçu
-              fonctionne, mais l'envoi réel sera actif une fois la configuration faite.
-            </div>
-          )}
-
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">À</span>
-            <input
-              value={destinatairesTexte}
-              onChange={(e) => setDestinatairesTexte(e.target.value)}
-              onBlur={() => setDestinatairesTexte(joindreAdresses(destinataires))}
-              placeholder="adresse@exemple.fr, collegue@exemple.fr"
-              className={champ + " mt-1"}
-            />
-            <span className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
-              <Users size={11} /> Plusieurs destinataires : séparez les adresses par une virgule.
-              {destinataires.length > 1 && invalides.length === 0 && (
-                <span className="text-slate-500"> Un seul e-mail partira, à {destinataires.length} personnes.</span>
-              )}
-            </span>
-            {invalides.length > 0 && (
-              <span className="mt-1 block text-[11px] text-red-500">
-                Adresse{invalides.length > 1 ? "s" : ""} à corriger : {invalides.join(", ")}
-              </span>
-            )}
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">
-              Partir d'un modèle (facultatif)
-            </span>
-            <select
-              value={modeleId}
-              onChange={(e) => choisirModele(e.target.value)}
-              className={champ + " mt-1"}
-            >
-              <option value="">✏️ Écrire un message (page blanche)</option>
-              {emails.map((e) => (
-                <option key={e.id} value={e.id}>{e.nom}</option>
-              ))}
-            </select>
-            <span className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
-              <PenLine size={11} /> Objet et message restent modifiables : le modèle enregistré
-              n'est pas touché.
-            </span>
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Objet</span>
-            <input
-              value={objet}
-              onChange={(e) => setObjet(e.target.value)}
-              placeholder="Ex. Suite à notre échange"
-              className={champ + " mt-1"}
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Message</span>
-            <textarea
-              value={corps}
-              onChange={(e) => setCorps(e.target.value)}
-              rows={8}
-              placeholder={"Bonjour {{contact}},\n\n…"}
-              className={champ + " mt-1 resize-y"}
-            />
-          </label>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-slate-400">Insérer :</span>
-            {variables.map((v) => (
-              <button
-                key={v.cle}
-                onClick={() => insererVariable(v.cle)}
-                title={`Remplacé à l'envoi par : ${v.exemple}`}
-                className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
-              >
-                {v.label}
-              </button>
+        {/* ── Modèle, objet, message ── */}
+        <Etiquette texte="Partir d'un modèle" aide="L'objet et le message restent modifiables : le modèle enregistré n'est pas touché.">
+          <Selecteur value={modeleId} onChange={(e) => choisirModele(e.target.value)}>
+            <option value="">Écrire un message (page blanche)</option>
+            {emails.map((e) => (
+              <option key={e.id} value={e.id}>{e.nom}</option>
             ))}
-          </div>
-
-          {/* Pièces jointes */}
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-500">Pièces jointes</span>
-              <button
-                onClick={() => fichierRef.current?.click()}
-                disabled={televersement}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {televersement ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Paperclip size={13} />
-                )}
-                {televersement ? "Ajout…" : "Ajouter un document"}
-              </button>
-            </div>
-            <input
-              ref={fichierRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) ajouterFichier(f)
-              }}
-            />
-            {pieces.length > 0 ? (
-              <ul className="mt-2 space-y-1">
-                {pieces.map((pj) => (
-                  <li
-                    key={pj.chemin}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
-                  >
-                    <Paperclip size={13} className="shrink-0 text-slate-400" />
-                    <span className="min-w-0 flex-1 truncate text-xs text-slate-700">{pj.nom}</span>
-                    <span className="shrink-0 text-[11px] text-slate-400">
-                      {formatTaille(pj.taille)}
-                    </span>
-                    <button
-                      onClick={() => retirerFichier(pj)}
-                      title="Retirer"
-                      className="shrink-0 rounded p-1 text-slate-300 hover:text-red-500"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-1 text-[11px] text-slate-400">Aucun document joint.</p>
-            )}
-            {pieces.length > 0 && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                Les documents sont envoyés sous forme de liens cliquables en bas du message.
-              </p>
-            )}
-          </div>
-
-          <div>
-            <span className="text-xs font-medium text-slate-500">
-              Aperçu (tel qu'il sera reçu, signature comprise)
-            </span>
-            <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="border-b border-slate-200 pb-2 text-sm font-medium text-slate-800">
-                {apercu.objet || "(objet)"}
-              </p>
-              <div
-                className="signature-edit mt-2 text-sm text-slate-600"
-                dangerouslySetInnerHTML={{ __html: apercu.corpsHtml }}
-              />
-            </div>
-          </div>
-
-          {erreur && (
-            <p className="flex items-start gap-2 whitespace-pre-wrap break-words text-xs text-red-500">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {erreur}
-            </p>
-          )}
+          </Selecteur>
+        </Etiquette>
+        <Etiquette texte="Objet">
+          <Champ value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex. Suite à notre échange" />
+        </Etiquette>
+        <Etiquette texte="Message">
+          <Zone value={corps} onChange={(e) => setCorps(e.target.value)} rows={8} placeholder={"Bonjour {{contact}},\n\n…"} className="resize-y" />
+        </Etiquette>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-colonne text-encre-2">Insérer :</span>
+          {variables.map((v) => (
+            <button key={v.cle} type="button" onClick={() => setCorps((c) => (c ? c + v.cle : v.cle))} title={`Remplacé à l'envoi par : ${v.exemple}`} className="rounded-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">
+              <Pastille role="info">{v.label}</Pastille>
+            </button>
+          ))}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-            Annuler
+        {/* ── Pièces jointes ── */}
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-legende font-medium text-encre">Pièces jointes</span>
+            <Bouton taille="sm" icone={televersement ? <Loader2 className="animate-spin" /> : <Paperclip />} disabled={televersement} onClick={() => fichierRef.current?.click()}>
+              {televersement ? "Ajout…" : "Ajouter un document"}
+            </Bouton>
+          </div>
+          <input ref={fichierRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) ajouterFichier(f) }} />
+          {pieces.length ? (
+            <ul className="mt-2 divide-y divide-fond-4 rounded-4 border border-trait">
+              {pieces.map((pj) => (
+                <li key={pj.chemin} className="flex items-center gap-2 px-3 py-1.5">
+                  <Paperclip size={13} className="shrink-0 text-encre-3" />
+                  <span className="min-w-0 flex-1 truncate text-legende text-encre">{pj.nom}</span>
+                  <span className="shrink-0 text-colonne text-encre-2">{formatTaille(pj.taille)}</span>
+                  <Bouton variante="discret" taille="icone" aria-label="Retirer" title="Retirer" icone={<Trash2 />} onClick={() => retirerFichier(pj)} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-colonne text-encre-2">Aucun document joint.</p>
+          )}
+          {pieces.length ? <p className="mt-1 text-colonne text-encre-2">Les documents partent sous forme de liens cliquables en bas du message.</p> : null}
+        </div>
+
+        {/* ── Aperçu ── */}
+        <div className="rounded-6 border border-trait">
+          <button type="button" onClick={() => setApercuOuvert((v) => !v)} className="flex w-full items-center justify-between px-4 py-2.5 text-left text-legende font-medium text-encre hover:bg-fond-2">
+            Aperçu, tel qu'il sera reçu (signature comprise)
+            <span className="text-encre-3">{apercuOuvert ? "Replier" : "Voir"}</span>
           </button>
-          <button
-            onClick={envoyer}
-            disabled={!pret || envoi || fait || !emailConfigure}
-            title={
-              destinataires.length === 0
-                ? "Indiquez au moins une adresse e-mail"
-                : invalides.length > 0
-                  ? "Une adresse est à corriger"
-                  : !objet.trim() || !corps.trim()
-                    ? "Renseignez l'objet et le message"
-                    : undefined
-            }
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {fait ? <Check size={16} /> : envoi ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-            {fait
-              ? destinataires.length > 1
-                ? `Envoyé à ${destinataires.length} personnes !`
-                : "Envoyé !"
-              : envoi
-                ? "Envoi…"
-                : destinataires.length > 1
-                  ? `Envoyer à ${destinataires.length} personnes`
-                  : "Envoyer"}
-          </button>
+          {apercuOuvert ? (
+            <div className="border-t border-trait bg-fond-2 px-4 py-3">
+              <p className="border-b border-trait pb-2 text-corps font-medium text-encre">{apercu.objet || "(objet)"}</p>
+              <div className="signature-edit mt-2 text-corps text-encre-2" dangerouslySetInnerHTML={{ __html: apercu.corpsHtml }} />
+            </div>
+          ) : null}
         </div>
       </div>
-    </div>
+    </Dialogue>
   )
 }
 
-// Nom retenu dans l'historique des envois : celui du modèle si on en est parti,
-// sinon une mention explicite (utile pour s'y retrouver plus tard).
+// Nom retenu dans l'historique des envois : celui du modèle si on en est parti.
 function nomPourJournal(emails: Email[], modeleId: string): string {
   return emails.find((e) => e.id === modeleId)?.nom ?? "Message personnalisé"
 }
