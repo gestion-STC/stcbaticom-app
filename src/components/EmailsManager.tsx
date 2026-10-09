@@ -1,5 +1,11 @@
+// ════════════════════════════════════════════════════════════════════════════
+// RÉGLAGES › MODÈLES D'E-MAIL — la liste des modèles (nom, objet, corps,
+// pièces jointes, ordre), la signature du compte connecté et le nom qui signe
+// les envois automatiques. Même logique de données qu'avant (table « emails »,
+// paramètre « commercial »), habillage dans la trousse STC (09/10/2026).
+// ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from "react"
-import { Plus, Pencil, Trash2, Mail, Loader2, AlertTriangle, Check, PenLine } from "lucide-react"
+import { Check, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
 import { apercu, type Email } from "../emails"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerEmails, creerEmail, majEmail, supprimerEmail } from "../lib/emailsDb"
@@ -7,15 +13,26 @@ import { lireParametre, ecrireParametre } from "../lib/parametresDb"
 import { useSession } from "../lib/auth"
 import { nomAffiche } from "../lib/comptes"
 import { signatureStc } from "../lib/signatureStc"
+import { Bandeau, Bouton, Carte, Champ, Chargement, Dialogue, Tableau, Td, Th, TitreCarte, Tr, Vide } from "../ui"
 import EmailModal from "./EmailModal"
 
 type ModalState = { mode: "create" } | { mode: "edit"; email: Email } | null
 
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+// Première ligne du corps, coupée court, pour la colonne « Aperçu ».
+function premiereLigne(texte: string, max = 90): string {
+  const l = apercu(texte).split("\n").find((x) => x.trim()) ?? ""
+  return l.length > max ? l.slice(0, max - 1).trimEnd() + "…" : l
+}
+
 export default function EmailsManager() {
   const [emails, setEmails] = useState<Email[]>([])
-  const [chargement, setChargement] = useState(true)
-  const [erreur, setErreur] = useState<string | null>(null)
+  const [chargement, setChargement] = useState(supabaseConfigure)
+  const [erreur, setErreur] = useState<string | null>(supabaseConfigure ? null : "Supabase non configuré.")
   const [modal, setModal] = useState<ModalState>(null)
+  // Le modèle dont on demande la suppression (la question se pose dans un dialogue).
+  const [aSupprimer, setASupprimer] = useState<Email | null>(null)
   // Signature STC Bâtiment du compte connecté : c'est elle qui part avec chaque
   // e-mail envoyé depuis le logiciel (après un appel, boîte de réception).
   const session = useSession()
@@ -27,19 +44,10 @@ export default function EmailsManager() {
   const [nomAutoSauve, setNomAutoSauve] = useState(false)
 
   useEffect(() => {
-    if (!supabaseConfigure) {
-      setErreur("Supabase non configuré.")
-      setChargement(false)
-      return
-    }
+    if (!supabaseConfigure) return
     chargerEmails()
       .then(setEmails)
-      .catch((e) =>
-        setErreur(
-          "Impossible de charger les emails. Avez-vous créé la table « emails » ? Détail : " +
-            (e instanceof Error ? e.message : String(e)),
-        ),
-      )
+      .catch((e) => setErreur("Impossible de charger les modèles. Avez-vous créé la table « emails » ? Détail : " + message(e)))
       .finally(() => setChargement(false))
     lireParametre("commercial")
       .then((v) => {
@@ -49,13 +57,19 @@ export default function EmailsManager() {
       .finally(() => setNomAutoCharge(true))
   }, [])
 
+  // La mention « Enregistré » s'efface seule après 2 s.
+  useEffect(() => {
+    if (!nomAutoSauve) return
+    const t = setTimeout(() => setNomAutoSauve(false), 2000)
+    return () => clearTimeout(t)
+  }, [nomAutoSauve])
+
   async function enregistrerNomAuto() {
     try {
       await ecrireParametre("commercial", nomAuto.trim())
       setNomAutoSauve(true)
-      setTimeout(() => setNomAutoSauve(false), 2000)
     } catch (e) {
-      setErreur("Nom non enregistré. Détail : " + (e instanceof Error ? e.message : String(e)))
+      setErreur("Nom non enregistré. Détail : " + message(e))
     }
   }
 
@@ -68,158 +82,145 @@ export default function EmailsManager() {
         const cree = await creerEmail(em)
         setEmails((arr) => [...arr, cree])
       } catch (e) {
-        setErreur("Création impossible : " + (e instanceof Error ? e.message : String(e)))
+        setErreur("Création impossible : " + message(e))
       }
     }
     setModal(null)
   }
 
   async function supprimer(em: Email) {
-    if (!confirm(`Supprimer le modèle « ${em.nom} » ?`)) return
+    setASupprimer(null)
     setEmails((arr) => arr.filter((x) => x.id !== em.id))
     if (em.id) await supprimerEmail(em.id).catch(console.error)
   }
 
+  const nouveauModele = (
+    <Bouton variante="plein" icone={<Plus />} onClick={() => setModal({ mode: "create" })}>
+      Nouveau modèle
+    </Bouton>
+  )
+
   return (
-    <div className="px-8 pb-10">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-4 flex items-center justify-between">
-          <p className="text-sm text-slate-500">
-            Composez vos modèles d'emails. Vous les rattacherez ensuite à vos
-            états.
-          </p>
-          <button
-            onClick={() => setModal({ mode: "create" })}
-            className="flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            <Plus size={16} strokeWidth={2.3} />
-            Créer un email
-          </button>
-        </div>
+    <div className="space-y-5">
+      <p className="max-w-3xl text-legende text-encre-2">
+        Les modèles d'e-mail que l'on envoie depuis une fiche ou après un appel. Chacun part avec la signature STC Bâtiment ; les variables
+        ({"{{contact}}"}, {"{{entreprise}}"}…) sont remplacées par les informations de l'agence à l'envoi.
+      </p>
 
-        {erreur && (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-500" />
-            <p className="flex-1">{erreur}</p>
-            <button onClick={() => setErreur(null)} className="text-red-500">
-              ✕
-            </button>
-          </div>
-        )}
+      {erreur ? (
+        <Bandeau role="alerte" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur(null)}>Fermer</Bouton>}>
+          {erreur}
+        </Bandeau>
+      ) : null}
 
-        {modal && (
-          <EmailModal
-            email={modal.mode === "edit" ? modal.email : null}
-            ordreParDefaut={(emails.at(-1)?.ordre ?? 0) + 1}
-            signature={signatureCompte}
-            onClose={() => setModal(null)}
-            onSave={enregistrer}
-          />
-        )}
+      {/* Une seule signature dans tout le logiciel : celle de STC Bâtiment
+          (Mahdi, 07/10/2026). Pour le compte connecté, elle porte son nom ;
+          pour les envois automatiques des règles, le nom réglé plus bas. */}
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Carte>
+          <TitreCarte>Ma signature</TitreCarte>
+          <div className="px-5 pb-5">
+            <p className="mb-3 text-legende text-encre-2">
+              La signature STC Bâtiment, à ton nom. Elle part avec chaque e-mail envoyé depuis le logiciel. Pour changer le nom : onglet Comptes.
+            </p>
+            <div className="signature-edit rounded-4 border border-trait bg-fond-2 px-4 pb-4 text-corps" dangerouslySetInnerHTML={{ __html: signatureCompte }} />
+          </div>
+        </Carte>
 
-        {/* Une seule signature dans tout le logiciel : celle de STC Bâtiment
-            (Mahdi, 07/10/2026). Pour le compte connecté, elle porte son nom ;
-            pour les envois automatiques des règles, le nom réglé ci-dessous. */}
-        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center gap-2">
-            <PenLine size={16} className="text-blue-600" />
-            <p className="text-sm font-medium text-slate-800">Ma signature</p>
-            <span className="text-xs text-slate-400">
-              — signature STC Bâtiment, à ton nom. Elle part avec chaque e-mail envoyé
-              depuis le logiciel. Pour changer le nom : onglet Comptes.
-            </span>
+        <Carte>
+          <TitreCarte>Envois automatiques</TitreCarte>
+          <div className="px-5 pb-5">
+            <p className="mb-3 text-legende text-encre-2">
+              Les règles d'envoi n'ont pas de compte connecté : elles signent du nom ci-dessous, même format. Ce nom remplit aussi {"{{commercial}}"}.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Champ
+                id="nom-envois-automatiques"
+                value={nomAuto}
+                onChange={(e) => setNomAuto(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void enregistrerNomAuto() }}
+                placeholder="L'équipe STC"
+                disabled={!nomAutoCharge}
+                className="w-72"
+              />
+              <Bouton icone={nomAutoSauve ? <Check /> : undefined} disabled={!nomAutoCharge} onClick={enregistrerNomAuto}>
+                {nomAutoSauve ? "Enregistré" : "Enregistrer"}
+              </Bouton>
+            </div>
+            <div className="signature-edit mt-3 rounded-4 border border-trait bg-fond-2 px-4 pb-4 text-corps" dangerouslySetInnerHTML={{ __html: signatureStc({ nom: nomAuto }) }} />
           </div>
-          <div
-            className="signature-edit rounded-lg border border-slate-100 bg-slate-50 px-4 pb-4 text-sm"
-            dangerouslySetInnerHTML={{ __html: signatureCompte }}
-          />
-        </div>
-
-        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center gap-2">
-            <PenLine size={16} className="text-blue-600" />
-            <p className="text-sm font-medium text-slate-800">Envois automatiques</p>
-            <span className="text-xs text-slate-400">
-              — les règles d'envoi n'ont pas de compte connecté : elles signent du nom
-              ci-dessous, même format. Ce nom remplit aussi {"{{commercial}}"}.
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              id="nom-envois-automatiques"
-              value={nomAuto}
-              onChange={(e) => setNomAuto(e.target.value)}
-              placeholder="L'équipe STC"
-              disabled={!nomAutoCharge}
-              className="w-72 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            />
-            <button
-              onClick={enregistrerNomAuto}
-              disabled={!nomAutoCharge}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {nomAutoSauve ? <Check size={16} /> : null}
-              {nomAutoSauve ? "Enregistré" : "Enregistrer"}
-            </button>
-          </div>
-          <div
-            className="signature-edit mt-3 rounded-lg border border-slate-100 bg-slate-50 px-4 pb-4 text-sm"
-            dangerouslySetInnerHTML={{ __html: signatureStc({ nom: nomAuto }) }}
-          />
-        </div>
-
-        {chargement ? (
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-8 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin" /> Chargement…
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {emails.map((em) => (
-              <div
-                key={em.id}
-                className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                      <Mail size={16} />
-                    </span>
-                    <p className="font-medium text-slate-800">{em.nom}</p>
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setModal({ mode: "edit", email: em })}
-                      className="rounded-md p-1.5 text-slate-400 hover:text-blue-600"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => supprimer(em)}
-                      className="rounded-md p-1.5 text-slate-300 hover:text-red-500"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-                <p className="mt-2 text-sm font-medium text-slate-600">
-                  {apercu(em.objet)}
-                </p>
-                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-slate-400">
-                  {apercu(em.corps)}
-                </p>
-                <p className="mt-2 border-t border-slate-100 pt-1.5 text-[11px] text-slate-400">
-                  + la signature STC Bâtiment
-                </p>
-              </div>
-            ))}
-            {emails.length === 0 && !erreur && (
-              <p className="col-span-full rounded-xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-400">
-                Aucun modèle. Créez le premier.
-              </p>
-            )}
-          </div>
-        )}
+        </Carte>
       </div>
+
+      <Carte>
+        <TitreCarte droite={nouveauModele}>Modèles</TitreCarte>
+        {chargement ? (
+          <Chargement texte="Lecture des modèles…" />
+        ) : emails.length === 0 ? (
+          <Vide titre="Aucun modèle" texte="Clique sur « Nouveau modèle » pour composer le premier." />
+        ) : (
+          <Tableau className="pb-2">
+            <thead>
+              <tr>
+                <Th num className="w-[60px]">Ordre</Th>
+                <Th>Nom</Th>
+                <Th>Objet</Th>
+                <Th>Aperçu</Th>
+                <Th num className="w-[110px]">Pièces</Th>
+                <Th className="w-[84px]" />
+              </tr>
+            </thead>
+            <tbody>
+              {emails.map((em) => (
+                <Tr key={em.id ?? em.nom}>
+                  <Td num className="text-encre-2">{em.ordre}</Td>
+                  <Td className="font-medium text-encre">{em.nom}</Td>
+                  <Td className="text-encre">{apercu(em.objet)}</Td>
+                  <Td className="max-w-[360px] truncate text-encre-2" title={apercu(em.corps)}>{premiereLigne(em.corps)}</Td>
+                  <Td num className={em.pieces.length ? "text-encre" : "text-encre-3"}>
+                    {em.pieces.length ? (
+                      <span className="inline-flex items-center gap-1"><Paperclip size={14} className="text-encre-2" />{em.pieces.length}</span>
+                    ) : "—"}
+                  </Td>
+                  <Td className="text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <Bouton taille="icone" variante="discret" className="h-7 w-7" aria-label={`Modifier ${em.nom}`} onClick={() => setModal({ mode: "edit", email: em })}><Pencil /></Bouton>
+                      <Bouton taille="icone" variante="discret" className="h-7 w-7 text-encre-2 hover:text-alerte" aria-label={`Supprimer ${em.nom}`} onClick={() => setASupprimer(em)}><Trash2 /></Bouton>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Tableau>
+        )}
+      </Carte>
+
+      {modal ? (
+        <EmailModal
+          email={modal.mode === "edit" ? modal.email : null}
+          ordreParDefaut={(emails.at(-1)?.ordre ?? 0) + 1}
+          signature={signatureCompte}
+          onClose={() => setModal(null)}
+          onSave={enregistrer}
+        />
+      ) : null}
+
+      {aSupprimer ? (
+        <Dialogue
+          titre="Supprimer ce modèle ?"
+          description="Il disparaît de la liste des modèles proposés à l'envoi. Les e-mails déjà envoyés ne changent pas."
+          onFermer={() => setASupprimer(null)}
+          largeur="max-w-md"
+          pied={
+            <>
+              <Bouton onClick={() => setASupprimer(null)}>Annuler</Bouton>
+              <Bouton variante="danger" icone={<Trash2 />} onClick={() => supprimer(aSupprimer)}>Supprimer</Bouton>
+            </>
+          }
+        >
+          <p className="text-legende text-encre">{aSupprimer.nom}</p>
+        </Dialogue>
+      ) : null}
     </div>
   )
 }

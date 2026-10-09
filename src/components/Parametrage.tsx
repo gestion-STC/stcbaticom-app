@@ -34,9 +34,8 @@ export default function Parametrage() {
 
       {onglet === "secteurs" && <div className="page"><SecteursReglage /></div>}
       {onglet === "objectifs" && <div className="page"><ObjectifsReglage /></div>}
-      {/* Ces deux écrans gardent leur ancien habillage et leurs propres marges (un autre lot s'en occupe). */}
-      {onglet === "emails" && <div className="pt-5"><EmailsManager /></div>}
-      {onglet === "numeros" && <div className="pt-5"><NumerosManager /></div>}
+      {onglet === "emails" && <div className="page"><EmailsManager /></div>}
+      {onglet === "numeros" && <div className="page"><NumerosManager /></div>}
       {onglet === "recrutement" && <div className="page"><ReglagesRecrutement /></div>}
     </div>
   )

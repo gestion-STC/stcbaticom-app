@@ -1,7 +1,13 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Le dialogue d'un modèle d'e-mail : nom, objet, corps, variables à insérer
+// au curseur, pièces jointes (stockage Supabase) et aperçu avec la signature.
+// Même logique qu'avant, habillage dans la trousse STC (09/10/2026).
+// ════════════════════════════════════════════════════════════════════════════
 import { useRef, useState } from "react"
-import { X, Paperclip, Loader2, FileText, Trash2 } from "lucide-react"
+import { FileText, Paperclip, Save, Trash2 } from "lucide-react"
 import { variables, apercu, type Email } from "../emails"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
+import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Zone } from "../ui"
 
 export default function EmailModal({
   email,
@@ -16,10 +22,10 @@ export default function EmailModal({
   onClose: () => void
   onSave: (e: Email) => void
 }) {
-  const [f, setF] = useState<Email>(
-    email ?? { nom: "", objet: "", corps: "", ordre: ordreParDefaut, pieces: [] },
-  )
-  const corpsRef = useRef<HTMLTextAreaElement>(null)
+  const [f, setF] = useState<Email>(email ?? { nom: "", objet: "", corps: "", ordre: ordreParDefaut, pieces: [] })
+  // La zone de texte du corps est un composant de la trousse : on retrouve le
+  // <textarea> par son enveloppe pour insérer une variable au curseur.
+  const corpsRef = useRef<HTMLDivElement>(null)
   const pjRef = useRef<HTMLInputElement>(null)
   const [upload, setUpload] = useState(false)
   const [erreurPj, setErreurPj] = useState<string | null>(null)
@@ -32,10 +38,7 @@ export default function EmailModal({
       const pj = await televerser(file)
       setF((p) => ({ ...p, pieces: [...p.pieces, pj] }))
     } catch (e) {
-      setErreurPj(
-        "Envoi du fichier impossible. Le stockage est-il configuré ? Détail : " +
-          (e instanceof Error ? e.message : String(e)),
-      )
+      setErreurPj("Envoi du fichier impossible. Le stockage est-il configuré ? Détail : " + (e instanceof Error ? e.message : String(e)))
     } finally {
       setUpload(false)
     }
@@ -47,17 +50,16 @@ export default function EmailModal({
     if (pj?.chemin) supprimerFichier(pj.chemin).catch(() => {})
   }
 
-  // Insère une variable à la position du curseur dans le corps
+  // Insère une variable à la position du curseur dans le corps.
   function inserer(cle: string) {
-    const ta = corpsRef.current
+    const ta = corpsRef.current?.querySelector("textarea") ?? null
     if (!ta) {
       set("corps", f.corps + cle)
       return
     }
     const debut = ta.selectionStart
     const fin = ta.selectionEnd
-    const nouveau = f.corps.slice(0, debut) + cle + f.corps.slice(fin)
-    set("corps", nouveau)
+    set("corps", f.corps.slice(0, debut) + cle + f.corps.slice(fin))
     requestAnimationFrame(() => {
       ta.focus()
       ta.selectionStart = ta.selectionEnd = debut + cle.length
@@ -65,172 +67,92 @@ export default function EmailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-base font-semibold text-slate-900">
-            {email ? "Modifier l'email" : "Nouvel email"}
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X size={20} />
-          </button>
-        </div>
+    <Dialogue
+      titre={email ? "Modifier le modèle" : "Nouveau modèle"}
+      description="Les variables sont remplacées par les informations de l'agence à l'envoi ; la signature STC Bâtiment est ajoutée à la fin."
+      onFermer={onClose}
+      largeur="max-w-4xl"
+      pied={
+        <>
+          <Bouton onClick={onClose}>Annuler</Bouton>
+          <Bouton variante="plein" icone={<Save />} disabled={!f.nom.trim()} onClick={() => onSave(f)}>Enregistrer</Bouton>
+        </>
+      }
+    >
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Édition */}
+        <div className="space-y-4">
+          <Etiquette texte="Nom du modèle">
+            <Champ value={f.nom} onChange={(e) => set("nom", e.target.value)} placeholder="ex. Annonce d'appel" autoFocus />
+          </Etiquette>
+          <Etiquette texte="Objet">
+            <Champ value={f.objet} onChange={(e) => set("objet", e.target.value)} />
+          </Etiquette>
+          <div ref={corpsRef}>
+            <Etiquette texte="Corps du message">
+              <Zone value={f.corps} onChange={(e) => set("corps", e.target.value)} rows={10} className="resize-y" />
+            </Etiquette>
+          </div>
 
-        <div className="grid grid-cols-1 gap-5 px-5 py-5 lg:grid-cols-2">
-          {/* Édition */}
-          <div className="space-y-4">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-500">Nom du modèle</span>
-              <input
-                value={f.nom}
-                onChange={(e) => set("nom", e.target.value)}
-                placeholder="ex. Annonce d'appel"
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-500">Objet</span>
-              <input
-                value={f.objet}
-                onChange={(e) => set("objet", e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-500">Corps du message</span>
-              <textarea
-                ref={corpsRef}
-                value={f.corps}
-                onChange={(e) => set("corps", e.target.value)}
-                rows={10}
-                className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-              />
-            </label>
-
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-slate-500">
-                Insérer une variable :
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {variables.map((v) => (
-                  <button
-                    key={v.cle}
-                    onClick={() => inserer(v.cle)}
-                    className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                  >
-                    {v.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Pièces jointes */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <p className="text-xs font-medium text-slate-500">
-                  Pièces jointes
-                </p>
-                <button
-                  onClick={() => pjRef.current?.click()}
-                  disabled={upload}
-                  className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                >
-                  {upload ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <Paperclip size={13} />
-                  )}
-                  {upload ? "Envoi…" : "Ajouter un document"}
+          <div>
+            <p className="mb-1.5 text-legende font-medium text-encre">Insérer une variable</p>
+            <div className="flex flex-wrap gap-1.5">
+              {variables.map((v) => (
+                <button key={v.cle} type="button" onClick={() => inserer(v.cle)} title={v.cle} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">
+                  <Pastille role="info" className="cursor-pointer hover:border-signature/50">{v.label}</Pastille>
                 </button>
-                <input
-                  ref={pjRef}
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    e.target.value = ""
-                    if (file) ajouterPiece(file)
-                  }}
-                />
-              </div>
-              {erreurPj && (
-                <p className="mb-1.5 text-xs text-red-500">{erreurPj}</p>
-              )}
-              <div className="space-y-1.5">
+              ))}
+            </div>
+          </div>
+
+          {/* Pièces jointes */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p className="text-legende font-medium text-encre">Pièces jointes</p>
+              <Bouton taille="sm" icone={<Paperclip />} chargement={upload} onClick={() => pjRef.current?.click()}>
+                {upload ? "Envoi…" : "Ajouter un document"}
+              </Bouton>
+              <input
+                ref={pjRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ""
+                  if (file) void ajouterPiece(file)
+                }}
+              />
+            </div>
+            {erreurPj ? <Bandeau role="alerte" className="mb-2">{erreurPj}</Bandeau> : null}
+            {f.pieces.length === 0 ? (
+              <p className="text-colonne text-encre-3">Aucune pièce jointe.</p>
+            ) : (
+              <ul className="divide-y divide-fond-4 rounded-4 border border-trait">
                 {f.pieces.map((pj, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
-                  >
-                    <FileText size={15} className="shrink-0 text-slate-400" />
-                    <a
-                      href={pj.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="min-w-0 flex-1 truncate text-xs text-slate-700 hover:text-blue-600"
-                      title={pj.nom}
-                    >
+                  <li key={pj.chemin || i} className="flex items-center gap-2 px-2.5 py-1.5">
+                    <FileText size={14} className="shrink-0 text-encre-2" />
+                    <a href={pj.url} target="_blank" rel="noreferrer" title={pj.nom} className="min-w-0 flex-1 truncate text-legende text-encre hover:underline">
                       {pj.nom}
                     </a>
-                    <span className="shrink-0 text-[11px] text-slate-400">
-                      {formatTaille(pj.taille)}
-                    </span>
-                    <button
-                      onClick={() => retirerPiece(i)}
-                      className="shrink-0 text-slate-300 hover:text-red-500"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                    <span className="chiffres shrink-0 text-colonne text-encre-2">{formatTaille(pj.taille)}</span>
+                    <Bouton taille="icone" variante="discret" className="h-7 w-7 text-encre-2 hover:text-alerte" aria-label={`Retirer ${pj.nom}`} onClick={() => retirerPiece(i)}><Trash2 /></Bouton>
+                  </li>
                 ))}
-                {f.pieces.length === 0 && (
-                  <p className="text-xs text-slate-400">Aucune pièce jointe.</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Aperçu */}
-          <div>
-            <span className="text-xs font-medium text-slate-500">Aperçu</span>
-            <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="border-b border-slate-200 pb-2 text-sm font-medium text-slate-800">
-                {apercu(f.objet) || "(objet)"}
-              </p>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">
-                {apercu(f.corps) || "(corps du message)"}
-              </p>
-              {signature && (
-                <div
-                  className="signature-edit mt-3 border-t border-slate-200 pt-2 text-sm text-slate-500"
-                  dangerouslySetInnerHTML={{ __html: apercu(signature) }}
-                />
-              )}
-            </div>
-            <p className="mt-2 text-xs text-slate-400">
-              Les variables ({"{{contact}}"}, {"{{entreprise}}"}…) sont
-              remplacées par les infos du prospect à l'envoi.
-              {signature ? " Votre signature est ajoutée automatiquement à la fin." : ""}
-            </p>
+              </ul>
+            )}
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={() => onSave(f)}
-            disabled={!f.nom.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-          >
-            Enregistrer
-          </button>
+        {/* Aperçu */}
+        <div>
+          <p className="mb-1 text-legende font-medium text-encre">Aperçu</p>
+          <div className="rounded-4 border border-trait bg-fond-2 p-4">
+            <p className={"border-b border-trait pb-2 text-corps font-medium " + (f.objet ? "text-encre" : "text-encre-3")}>{apercu(f.objet) || "(objet)"}</p>
+            <p className={"mt-2 whitespace-pre-wrap text-corps " + (f.corps ? "text-encre" : "text-encre-3")}>{apercu(f.corps) || "(corps du message)"}</p>
+            {signature ? <div className="signature-edit text-corps" dangerouslySetInnerHTML={{ __html: apercu(signature) }} /> : null}
+          </div>
         </div>
       </div>
-    </div>
+    </Dialogue>
   )
 }
