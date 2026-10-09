@@ -36,7 +36,7 @@ import {
   enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
-  ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, pastilleEtape,
+  ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
   type Activite, type Agence, type Contact, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
 } from "../../demarchage/modele"
 import {
@@ -309,11 +309,17 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     setChargementFile(true)
     try {
       const m = new Date()
-      const [agences, app] = await Promise.all([chargerFile(file, m, secteurDuJour || null), agencesAppeleesAujourdHui(m)])
+      // Une étape choisie = TOUTES les agences de cette étape, quelle que soit la pile
+      // (Mahdi, 09/10 : « je ne vois pas mes intéressés »). Sinon, la pile.
+      const [agences, app] = await Promise.all([
+        etapeFiltre
+          ? chargerAgences({ etape: etapeFiltre as Agence["etape"], secteur: secteurDuJour || undefined, limite: 3000 }).then((l) => ordonnerAProspecter(l, secteurDuJour || null))
+          : chargerFile(file, m, secteurDuJour || null),
+        agencesAppeleesAujourdHui(m),
+      ])
       if (!enVie.current) return
       setAppelees(app)
       const retenues = agences
-        .filter((a) => !etapeFiltre || a.etape === etapeFiltre)
         .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
       setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees }))
       setIndex(0)
@@ -914,7 +920,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     <div className="page">
       <EnTetePage
         titre="Sessions de call"
-        sousTitre={enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : "Choisis une file, un secteur, et démarre."}
+        sousTitre={enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile.` : "Choisis une pile, un secteur, et démarre."}
         droite={
           <>
             <div className="flex flex-wrap gap-1.5">
