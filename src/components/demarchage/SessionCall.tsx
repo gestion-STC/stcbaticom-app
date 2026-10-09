@@ -120,6 +120,7 @@ function LigneFile({ agence: a, courante, appelee, maintenant, onClick }: { agen
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-colonne text-encre-2">
         <Pastille role={pastilleEtape(a.etape)}>{libelleEtape(a.etape)}</Pastille>
+        {a.nbContacts > 0 ? <Pastille role="info" point>sourcée</Pastille> : null}
         {a.secteurLibelle ? <span>{a.secteurLibelle}</span> : null}
         {a.enseigne ? <span>· {a.enseigne}</span> : null}
       </div>
@@ -177,6 +178,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // Mahdi, 09/10 : « si je veux appeler les gestionnaires joints, je fais comment ? »
   // → un filtre par étape sur la file ("" = toutes les étapes de la file).
   const [etapeFiltre, setEtapeFiltre] = useState("")
+  // Mahdi, 09/10 : « une agence où on a le nom et le mail du gestionnaire est plus
+  // qualitative : il faut différencier les sourcées des non sourcées ».
+  // Sourcée = au moins un gestionnaire connu (un contact sur la fiche).
+  const [sourcage, setSourcage] = useState<"" | "sourcees" | "non_sourcees">("")
   const [inclureDejaAppelees, setInclureDejaAppelees] = useState(false)
   const [auto, setAuto] = useState(false)
   const [cadence, setCadence] = useState(5)
@@ -304,7 +309,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const [agences, app] = await Promise.all([chargerFile(file, m, secteurDuJour || null), agencesAppeleesAujourdHui(m)])
       if (!enVie.current) return
       setAppelees(app)
-      const retenues = etapeFiltre ? agences.filter((a) => a.etape === etapeFiltre) : agences
+      const retenues = agences
+        .filter((a) => !etapeFiltre || a.etape === etapeFiltre)
+        .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
       setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees }))
       setIndex(0)
     } catch (e) {
@@ -312,7 +319,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     } finally {
       if (enVie.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, inclureDejaAppelees])
+  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees])
 
   useEffect(() => {
     enVie.current = true
@@ -935,6 +942,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               {SORTIES.map((s) => (
                 <option key={s.code} value={s.code}>{s.libelle}</option>
               ))}
+            </Selecteur>
+            <Selecteur value={sourcage} onChange={(e) => setSourcage(e.target.value as "" | "sourcees" | "non_sourcees")} disabled={enCours} className="w-52" aria-label="Sourçage" title="Sourcée = on connaît au moins un gestionnaire (nom, ligne directe ou e-mail)">
+              <option value="">Sourcées et non sourcées</option>
+              <option value="sourcees">Sourcées · gestionnaire connu</option>
+              <option value="non_sourcees">Non sourcées · standard seul</option>
             </Selecteur>
             <label className="flex items-center gap-2 text-legende text-encre">
               <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" /> Mode automatique

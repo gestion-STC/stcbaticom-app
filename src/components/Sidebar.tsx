@@ -127,8 +127,8 @@ export default function Sidebar({
         <LogoBaticom className="text-[22px]" />
       </div>
 
-      {/* Le sélecteur d'espace : un interrupteur à deux positions, discret. */}
-      <div className="mx-4 mb-4 grid grid-cols-2 gap-0.5 rounded-4 bg-fond-3 p-0.5 text-legende font-medium" role="tablist" aria-label="Espace">
+      {/* Le sélecteur d'espace : une gélule fine, à la Apple (Mahdi, 09/10 : « plus fin, plus discret »). */}
+      <div className="mx-5 mb-5 inline-grid w-fit grid-cols-2 rounded-full bg-fond-3 p-[2px] text-colonne font-medium" role="tablist" aria-label="Espace">
         {(
           [
             ["demarchage", "Démarchage", "aujourdhui"],
@@ -142,7 +142,7 @@ export default function Sidebar({
             aria-selected={espace === id}
             onClick={() => onNavigate(premierePage)}
             className={
-              "flex items-center justify-center gap-1.5 rounded-3 px-2 py-1.5 transition-colors " +
+              "flex h-6 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 transition-colors " +
               (espace === id ? "bg-fond text-encre shadow-posee" : "text-encre-2 hover:text-encre")
             }
           >
