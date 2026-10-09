@@ -274,9 +274,11 @@ language sql security invoker as $$
   update public.activites set fait_le = case when p_faite then now() else null end where id = p_id and type in ('tache','rdv');
 $$;
 
--- Une activité marque l'agence comme touchée.
+-- Une activité marque l'agence comme touchée (sauf la ligne du journal d'étapes :
+-- elle naît d'une mise à jour de l'agence déjà en cours, et n'est pas un contact réel).
 create or replace function public.activites_touche_agence() returns trigger language plpgsql security definer set search_path = public as $$
 begin
+  if new.type = 'etape' then return new; end if;
   update public.agences set derniere_activite_le = greatest(coalesce(derniere_activite_le, new.date), new.date), maj_le = now() where id = new.agence_id;
   return new;
 end $$;
@@ -308,6 +310,11 @@ begin
     raise notice 'Conversion déjà faite le % : rien à refaire.', deja;
     return;
   end if;
+
+  -- Pendant la conversion, les déclencheurs se taisent : le journal d'étapes est
+  -- écrit à la main (étape l) et la dernière activité est recalculée à la fin.
+  alter table public.agences disable trigger agences_etape_journal;
+  alter table public.activites disable trigger activites_touche_agence;
 
   -- a) Les secteurs qui manquent (codes postaux présents dans les fiches, inconnus de la liste).
   insert into public.secteurs (code, libelle, zone, ordre)
@@ -473,6 +480,9 @@ begin
   insert into public.activites (agence_id, type, date, titre, etape_de, etape_vers, source)
   select id, 'etape', etape_depuis, 'conversion → ' || etape, '', etape, 'conversion' from public.agences where source = 'conversion';
   update public.agences a set derniere_activite_le = (select max(date) from public.activites t where t.agence_id = a.id and t.type in ('appel','email','rdv','note'));
+
+  alter table public.agences enable trigger agences_etape_journal;
+  alter table public.activites enable trigger activites_touche_agence;
 
   select count(*) into n_agences from public.agences;
   select count(*) into n_contacts from public.contacts;
