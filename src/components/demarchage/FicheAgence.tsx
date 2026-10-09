@@ -292,7 +292,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           {c.principal && !c.parti ? <Star size={14} className="fill-current text-attention" aria-label="Contact principal" /> : null}
-                          <span className="font-medium text-encre">{nomContact(c)}</span>
+                          <button type="button" title="Modifier ce contact" onClick={() => setContactEdite({ contact: c })} className="rounded-3 font-medium text-encre underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">{nomContact(c)}</button>
                           <span className="text-encre-2">{libelleRole(c.role)}</span>
                           {c.parti ? <Pastille>parti</Pastille> : null}
                         </div>
@@ -308,7 +308,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                         {c.email ? <Bouton variante="discret" taille="icone" title="Envoyer un e-mail" aria-label="Envoyer un e-mail" icone={<Mail />} onClick={() => setEmailPour(c)} /> : null}
                         {!c.principal && !c.parti ? <Bouton variante="discret" taille="icone" title="En faire le contact principal" aria-label="Contact principal" icone={<Star />} disabled={occupe} onClick={() => agir(() => majContact(c.id, id, { principal: true }), `${nomContact(c)} est le contact principal.`)} /> : null}
                         <Bouton variante="discret" taille="icone" title={c.parti ? "De retour dans l'agence" : "A quitté l'agence"} aria-label={c.parti ? "De retour" : "Parti"} icone={<UserX />} disabled={occupe} onClick={() => agir(() => majContact(c.id, id, { parti: !c.parti, principal: c.parti ? c.principal : false }), c.parti ? `${nomContact(c)} est de retour.` : `${nomContact(c)} a quitté l'agence.`)} />
-                        <Bouton variante="discret" taille="icone" title="Modifier" aria-label="Modifier" icone={<Pencil />} onClick={() => setContactEdite({ contact: c })} />
+                        <Bouton variante="discret" taille="sm" icone={<Pencil />} onClick={() => setContactEdite({ contact: c })}>Modifier</Bouton>
                       </div>
                     </li>
                   ))}

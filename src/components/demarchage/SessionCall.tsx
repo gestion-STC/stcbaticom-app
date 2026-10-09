@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ArrowRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Mail, Mic, MicOff, Phone, PhoneIncoming, PhoneOutgoing,
-  Play, Plus, Search, Square, SquareCheck, StickyNote, type LucideIcon,
+  Pencil, Play, Plus, Search, Square, SquareCheck, StickyNote, type LucideIcon,
   ArrowRightLeft,
 } from "lucide-react"
 import type { Prospect } from "../../data"
@@ -37,7 +37,7 @@ import {
 } from "../../demarchage/db"
 import {
   ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, pastilleEtape,
-  type Activite, type Agence, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
+  type Activite, type Agence, type Contact, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
@@ -48,6 +48,7 @@ import {
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Interrupteur, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
 import BarreResultat from "./BarreResultat"
+import ContactFormulaire from "./ContactFormulaire"
 
 // ── La dictée vocale du navigateur (Chrome / Edge), typée sans `any` ──
 type ResultatDictee = { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }
@@ -205,6 +206,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [ecoute, setEcoute] = useState(false)
   const [formContact, setFormContact] = useState(false)
   const [nouveauContact, setNouveauContact] = useState(CONTACT_VIDE)
+  // Mahdi, 09/10 : « souvent il y a des erreurs, il faut pouvoir modifier les contacts » → depuis la session aussi.
+  const [contactAModifier, setContactAModifier] = useState<Contact | null>(null)
   const [copie, setCopie] = useState("")
 
   // ── L'appel ──
@@ -1173,10 +1176,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                     <div className="divide-y divide-fond-4">
                       {contactsActifs.map((k) => (
                         <div key={k.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 text-legende">
-                          <span className="font-medium text-encre">{nomContact(k)}</span>
+                          <button type="button" title="Modifier ce contact" onClick={() => setContactAModifier(k)} className="rounded-3 font-medium text-encre underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">{nomContact(k)}</button>
                           <span className="text-encre-2">{libelleRole(k.role)}</span>
                           {k.principal ? <Pastille role="info">principal</Pastille> : null}
                           {k.email ? <span className="truncate text-encre-2">· {k.email}</span> : null}
+                          <Bouton variante="discret" taille="sm" icone={<Pencil />} className="ml-auto" onClick={() => setContactAModifier(k)}>Modifier</Bouton>
                         </div>
                       ))}
                     </div>
@@ -1311,6 +1315,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       </div>
 
       {/* ── Dialogues ── */}
+      {contactAModifier && courante ? (
+        <ContactFormulaire agenceId={courante.agence.id} contact={contactAModifier} onFermer={() => setContactAModifier(null)} onEnregistre={() => { setContactAModifier(null); rafraichirCourante() }} />
+      ) : null}
       {dialogue === "tache" || dialogue === "rdv" || dialogue === "note" ? (
         <Dialogue
           titre={dialogue === "tache" ? "Nouvelle tâche" : dialogue === "rdv" ? "Nouveau rendez-vous" : "Nouvelle note"}
