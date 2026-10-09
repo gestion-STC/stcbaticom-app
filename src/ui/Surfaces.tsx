@@ -26,11 +26,11 @@ export function TitreCarte({ children, droite, className = "" }: { children: Rea
 export function EnTetePage({ titre, sousTitre, droite }: { titre: ReactNode; sousTitre?: ReactNode; droite?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div className="relative pb-3 after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-8 after:bg-signature">
+      <div className="relative shrink-0 pb-3 after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-8 after:bg-signature">
         <h1 className="text-h1 font-semibold tracking-[-0.025em] text-encre">{titre}</h1>
         {sousTitre ? <p className="mt-1 text-legende text-encre-2">{sousTitre}</p> : null}
       </div>
-      {droite ? <div className="flex flex-wrap items-center gap-2">{droite}</div> : null}
+      {droite ? <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">{droite}</div> : null}
     </div>
   )
 }
