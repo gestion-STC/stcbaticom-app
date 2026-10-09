@@ -14,6 +14,7 @@ import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
   composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuJour, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuJour, finDuMois,
   grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxJoints, totalStats, type MomentTache,
+  majusculeInitiale,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
@@ -176,7 +177,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     <div className="page">
       <EnTetePage
         titre="Aujourd'hui"
-        sousTitre={<span className="capitalize">{dateLongue(maintenant)}</span>}
+        sousTitre={majusculeInitiale(dateLongue(maintenant))}
         droite={<>
           <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => agir(async () => undefined)}>Actualiser</Bouton>
           <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>

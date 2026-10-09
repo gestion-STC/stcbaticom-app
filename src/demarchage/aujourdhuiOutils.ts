@@ -249,3 +249,8 @@ export async function compterReveils(de: Date, a: Date): Promise<number> {
   return count ?? 0
 }
 const jourIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
+/** « vendredi 9 octobre » → « Vendredi 9 octobre » (seule la première lettre, le français ne met pas de majuscule aux mois). */
+export function majusculeInitiale(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s
+}

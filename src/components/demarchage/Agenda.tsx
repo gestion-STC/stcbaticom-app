@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { ArrowUpRight, CalendarClock, Check, ChevronLeft, ChevronRight, MapPin, Phone, Plus, Trash2, Undo2, Video } from "lucide-react"
 import { chargerAgence, chargerAgences, chargerAgenda, creerRdv, creerTache, deplacerTache, supprimerActivite, terminerTache, type TacheAgenda } from "../../demarchage/db"
 import { nomContact, type Agence, type Contact } from "../../demarchage/modele"
-import { ajouterJours, composerDate, dateLongue, debutDeSemaine, debutDuJour, decomposerDate, estEnRetard, finDeSemaine, finDuJour, grouperParHeure, heureCourte, joursDeLaSemaine, libelleRelatif, libelleSemaine, memeJour } from "../../demarchage/aujourdhuiOutils"
+import { ajouterJours, composerDate, dateLongue, debutDeSemaine, debutDuJour, decomposerDate, estEnRetard, finDeSemaine, finDuJour, grouperParHeure, heureCourte, joursDeLaSemaine, libelleRelatif, libelleSemaine, majusculeInitiale, memeJour } from "../../demarchage/aujourdhuiOutils"
 import { useSession } from "../../lib/auth"
 import { nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Ligne, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
@@ -139,7 +139,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
     <div className="page">
       <EnTetePage
         titre="Agenda"
-        sousTitre={<span className="capitalize">{sousTitre}</span>}
+        sousTitre={majusculeInitiale(sousTitre)}
         droite={<>
           <Bouton onClick={() => setAncre(new Date())}>Aujourd'hui</Bouton>
           <Bouton taille="icone" aria-label={vue === "semaine" ? "Semaine précédente" : "Jour précédent"} icone={<ChevronLeft />} onClick={() => decaler(-1)} />
@@ -210,7 +210,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
       {selection ? (
         <Dialogue
           titre={<span className="flex items-center gap-2">{titreDe(selection)}{selection.type === "rdv" ? <Pastille role="info"><IconeRdv type={selection.rdvType} /> {libelleRdv(selection.rdvType)}</Pastille> : <Pastille>Tâche</Pastille>}</span>}
-          description={selection.echeance ? <span className="capitalize">{dateLongue(new Date(selection.echeance))} à {heureCourte(selection.echeance)} · {libelleRelatif(selection.echeance, maintenant)}</span> : "Sans date"}
+          description={selection.echeance ? <span>{majusculeInitiale(dateLongue(new Date(selection.echeance)))} à {heureCourte(selection.echeance)} · {libelleRelatif(selection.echeance, maintenant)}</span> : "Sans date"}
           onFermer={fermerSelection}
           largeur="max-w-xl"
           pied={<>
