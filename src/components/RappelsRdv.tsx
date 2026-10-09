@@ -1,129 +1,119 @@
-import { useEffect, useRef, useState } from "react"
-import { Clock, Phone, Check, X } from "lucide-react"
-import type { Rdv } from "../rdv"
+// ════════════════════════════════════════════════════════════════════════════
+// RAPPELS DE RDV — un bandeau discret en bas à droite quand l'heure approche.
+//
+// Monté une fois dans App, sans props. Il lit les RDV du jour non faits dans
+// `activites` (via chargerAgenda) toutes les 60 s, et montre chaque RDV de
+// 5 min avant à 20 min après son heure, avec la notification du navigateur si
+// elle est autorisée (une seule par RDV). Il ne peut pas naviguer : il montre
+// l'agence, le contact, le type, et un bouton « Fait ».
+// ════════════════════════════════════════════════════════════════════════════
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Check, Clock, MapPin, Phone, Video, X } from "lucide-react"
 import { supabaseConfigure } from "../lib/supabase"
-import { chargerRdv, majRdvFait } from "../lib/rdvDb"
+import { chargerAgenda, terminerTache, type TacheAgenda } from "../demarchage/db"
+import { dansLaFenetreDeRappel, debutDuJour, finDuJour, heureCourte, libelleRelatif } from "../demarchage/aujourdhuiOutils"
+import { Bouton, Carte, Pastille } from "../ui"
 
-function dateAujourdhui(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+const RELIRE_MS = 60_000
+const HORLOGE_MS = 30_000
+
+function libelleType(type: string): string {
+  if (type === "visio") return "visio"
+  if (type === "sur_place") return "sur place"
+  return "téléphone"
 }
-function minutes(heure: string): number {
-  const [h, m] = heure.split(":").map(Number)
-  return h * 60 + (m || 0)
+function IconeType({ type }: { type: string }) {
+  if (type === "visio") return <Video size={12} />
+  if (type === "sur_place") return <MapPin size={12} />
+  return <Phone size={12} />
 }
 
-// Rappels de RDV : bannière flottante quand l'heure d'un RDV approche.
-// Fenêtre d'affichage : de 5 min avant à 20 min après l'heure du RDV.
 export default function RappelsRdv() {
-  const [rdvs, setRdvs] = useState<Rdv[]>([])
-  const [now, setNow] = useState(() => new Date())
-  const [ignores, setIgnores] = useState<Set<string>>(new Set())
-  // RDV déjà signalés par une notification navigateur (pour ne pas répéter).
+  const [rdvs, setRdvs] = useState<TacheAgenda[]>([])
+  const [maintenant, setMaintenant] = useState(() => new Date())
+  const [ignores, setIgnores] = useState<Set<string>>(() => new Set())
+  // Les RDV déjà signalés par une notification (pour ne pas la répéter), et la
+  // dernière liste lue (l'horloge la relit entre deux lectures de la base).
   const notifiesRef = useRef<Set<string>>(new Set())
+  const rdvsRef = useRef<TacheAgenda[]>([])
+  const enVie = useRef(true)
 
-  function recharger() {
-    if (!supabaseConfigure) return
-    chargerRdv()
-      .then((rows) => setRdvs(rows.filter((r) => !r.fait)))
-      .catch(() => {})
-  }
-
-  useEffect(() => {
-    recharger()
-    // Demande l'autorisation d'afficher des notifications (une seule fois).
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {})
-    }
-    const idR = setInterval(recharger, 60000)
-    const idT = setInterval(() => setNow(new Date()), 30000)
-    return () => {
-      clearInterval(idR)
-      clearInterval(idT)
+  const notifier = useCallback((liste: TacheAgenda[], now: Date) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return
+    for (const r of liste) {
+      if (!r.echeance || !dansLaFenetreDeRappel(r.echeance, now.getTime()) || notifiesRef.current.has(r.id)) continue
+      notifiesRef.current.add(r.id)
+      try {
+        const n = new Notification(`Rappel RDV — ${heureCourte(r.echeance)}`, {
+          body: [r.agenceNom, r.contactNom, r.agenceTelephone].filter(Boolean).join(" · "),
+          tag: r.id,
+        })
+        n.onclick = () => { window.focus(); n.close() }
+      } catch {
+        // Un navigateur qui refuse : le bandeau à l'écran suffit.
+      }
     }
   }, [])
 
-  const today = dateAujourdhui(now)
-  const nowMin = now.getHours() * 60 + now.getMinutes()
-  const actifs = rdvs.filter((r) => {
-    if (r.date !== today || (r.id && ignores.has(r.id))) return false
-    const rm = minutes(r.heure)
-    return nowMin >= rm - 5 && nowMin <= rm + 20
-  })
+  const relire = useCallback(async () => {
+    if (!supabaseConfigure) return
+    const now = new Date()
+    try {
+      const lignes = (await chargerAgenda(debutDuJour(now), finDuJour(now), { seulementOuvertes: true })).filter((t) => t.type === "rdv")
+      if (!enVie.current) return
+      rdvsRef.current = lignes
+      setRdvs(lignes)
+      setMaintenant(now)
+      notifier(lignes, now)
+    } catch {
+      // Silencieux : un rappel ne doit jamais casser l'application.
+    }
+  }, [notifier])
 
-  // Notification navigateur : une seule fois par RDV, dès qu'il entre dans sa fenêtre.
-  const cleActifs = actifs.map((r) => r.id).join(",")
   useEffect(() => {
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return
-    actifs.forEach((r) => {
-      if (r.id && !notifiesRef.current.has(r.id)) {
-        notifiesRef.current.add(r.id)
-        const n = new Notification(`Rappel RDV — ${r.heure}`, {
-          body: `${r.entreprise}${r.telephone ? " · " + r.telephone : ""}`,
-          tag: r.id,
-        })
-        n.onclick = () => {
-          window.focus()
-          n.close()
-        }
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cleActifs])
+    enVie.current = true
+    // L'autorisation des notifications se demande une seule fois.
+    if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {})
+    const premier = setTimeout(relire, 0)
+    const lecture = setInterval(relire, RELIRE_MS)
+    const horloge = setInterval(() => { const now = new Date(); setMaintenant(now); notifier(rdvsRef.current, now) }, HORLOGE_MS)
+    return () => { enVie.current = false; clearTimeout(premier); clearInterval(lecture); clearInterval(horloge) }
+  }, [relire, notifier])
 
+  const actifs = rdvs.filter((r) => !ignores.has(r.id) && dansLaFenetreDeRappel(r.echeance, maintenant.getTime()))
   if (actifs.length === 0) return null
 
-  function ignorer(id?: string) {
-    if (!id) return
-    setIgnores((s) => new Set(s).add(id))
-  }
-  function marquerFait(r: Rdv) {
-    if (r.id) {
-      majRdvFait(r.id, true).catch(() => {})
-      setRdvs((arr) => arr.filter((x) => x.id !== r.id))
-    }
+  const ignorer = (id: string) => setIgnores((x) => new Set(x).add(id))
+  const fait = (r: TacheAgenda) => {
+    setRdvs((liste) => liste.filter((x) => x.id !== r.id))
+    rdvsRef.current = rdvsRef.current.filter((x) => x.id !== r.id)
+    terminerTache(r.id).catch(() => relire())
   }
 
   return (
     <div className="fixed bottom-4 right-4 z-[80] flex w-80 flex-col gap-2">
       {actifs.map((r) => (
-        <div
-          key={r.id}
-          className="rounded-xl border border-emerald-300 bg-white p-3 shadow-lg"
-        >
-          <div className="flex items-start gap-2">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
-              <Clock size={17} />
-            </div>
+        <Carte key={r.id} className="p-3 shadow-flottante">
+          <div className="flex items-start gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-4 bg-signature-doux text-signature"><Clock size={16} /></span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-900">
-                RDV de {r.heure}
+              <p className="text-legende font-semibold text-encre">
+                RDV de {r.echeance ? heureCourte(r.echeance) : "—"}
+                {r.echeance ? <span className="font-normal text-encre-2"> · {libelleRelatif(r.echeance, maintenant)}</span> : null}
               </p>
-              <p className="truncate text-sm text-slate-600">{r.entreprise}</p>
-              {r.note && <p className="truncate text-xs text-slate-400">{r.note}</p>}
+              <p className="truncate text-legende text-encre">{r.agenceNom || "Agence inconnue"}</p>
+              {r.contactNom || r.agenceTelephone ? <p className="chiffres truncate text-legende text-encre-2">{[r.contactNom, r.agenceTelephone].filter(Boolean).join(" · ")}</p> : null}
+              {r.titre && r.titre !== "RDV" ? <p className="truncate text-colonne text-encre-2">{r.titre}</p> : null}
+              <Pastille role="info" className="mt-1.5"><IconeType type={r.rdvType} /> {libelleType(r.rdvType)}</Pastille>
             </div>
-            <button
-              onClick={() => ignorer(r.id)}
-              className="text-slate-300 hover:text-slate-500"
-              title="Ignorer"
-            >
+            <button type="button" onClick={() => ignorer(r.id)} aria-label="Ignorer ce rappel" title="Ignorer" className="rounded-3 p-1 text-encre-2 hover:bg-fond-4 hover:text-encre">
               <X size={16} />
             </button>
           </div>
-          <div className="mt-2 flex gap-2">
-            <a
-              href={`tel:${(r.telephone ?? "").replace(/\s/g, "")}`}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
-            >
-              <Phone size={14} /> Appeler
-            </a>
-            <button
-              onClick={() => marquerFait(r)}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              <Check size={14} /> Fait
-            </button>
+          <div className="mt-2 flex justify-end">
+            <Bouton taille="sm" icone={<Check />} onClick={() => fait(r)}>Fait</Bouton>
           </div>
-        </div>
+        </Carte>
       ))}
     </div>
   )

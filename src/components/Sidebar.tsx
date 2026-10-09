@@ -2,13 +2,11 @@ import { useEffect, useState } from "react"
 import {
   LayoutDashboard,
   Users,
-  UserCheck,
   Building2,
-  Columns3,
   PhoneCall,
   Calendar,
   SlidersHorizontal,
-  Handshake,
+  Archive,
   Inbox,
   Gauge,
   HardHat,
@@ -29,15 +27,12 @@ import LogoBaticom from "./LogoBaticom"
 // agences, appels) et le recrutement des sous-traitants. Chacun a son menu,
 // sa boîte de réception, son adresse d'envoi. Les réglages sont communs, en bas.
 export type PageId =
-  | "dashboard"
-  | "prospects"
-  | "gestionnaires"
-  | "apporteurs"
-  | "agences"
-  | "pipeline"
+  | "aujourdhui"
   | "sessions"
+  | "agences"
+  | "agenda"
   | "messages"
-  | "calendrier"
+  | "apporteurs"
   | "st_machine"
   | "st_base"
   | "st_sequences"
@@ -49,16 +44,15 @@ export type PageId =
 
 type NavItem = { id: PageId; label: string; icon: typeof Users }
 
+// REFONTE du 09/10/2026 (Mahdi) : la fiche, c'est l'agence. Six pages : le jour,
+// les appels, les agences, l'agenda, la boîte, et l'archive des apporteurs.
 const menuDemarchage: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "prospects", label: "Prospects", icon: Users },
-  { id: "gestionnaires", label: "Gestionnaires", icon: UserCheck },
-  { id: "apporteurs", label: "Apporteurs d'affaires", icon: Handshake },
-  { id: "agences", label: "Agences", icon: Building2 },
-  { id: "pipeline", label: "Pipeline", icon: Columns3 },
+  { id: "aujourdhui", label: "Aujourd'hui", icon: LayoutDashboard },
   { id: "sessions", label: "Sessions de call", icon: PhoneCall },
+  { id: "agences", label: "Agences", icon: Building2 },
+  { id: "agenda", label: "Agenda", icon: Calendar },
   { id: "messages", label: "Boîte de réception", icon: Inbox },
-  { id: "calendrier", label: "Calendrier", icon: Calendar },
+  { id: "apporteurs", label: "Apporteurs d'affaires", icon: Archive },
 ]
 
 const menuRecrutement: NavItem[] = [
@@ -120,7 +114,7 @@ export default function Sidebar({
       <div className="relative mx-3 mb-3 grid grid-cols-2 gap-0.5 rounded-lg bg-white/10 p-0.5 text-xs font-semibold">
         {(
           [
-            ["demarchage", "Démarchage", "dashboard"],
+            ["demarchage", "Démarchage", "aujourdhui"],
             ["recrutement", "Recrutement ST", "st_machine"],
           ] as [Espace, string, PageId][]
         ).map(([id, label, premierePage]) => (

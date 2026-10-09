@@ -1,19 +1,16 @@
-import { lazy, Suspense, useState } from "react"
+import { useState } from "react"
 import { Loader2 } from "lucide-react"
 import Sidebar, { type PageId } from "./components/Sidebar"
 import { espaceDe, horsEspace } from "./lib/espaces"
 import type { Espace } from "./lib/messagesDb"
-// Le Dashboard embarque la librairie de graphiques (lourde) → chargé en différé :
-// le logiciel s'ouvre tout de suite, les graphiques arrivent une fraction de seconde après.
-const Dashboard = lazy(() => import("./components/dashboard/Dashboard"))
-import Prospects from "./components/Prospects"
-import GestionnairesView from "./components/GestionnairesView"
-import ApporteursView from "./components/ApporteursView"
-import AgencesView from "./components/AgencesView"
-import Pipeline from "./components/Pipeline"
-import SessionsCall from "./components/SessionsCall"
+// L'espace DÉMARCHAGE, refondu le 09/10/2026 : la fiche, c'est l'agence.
+import Aujourdhui from "./components/demarchage/Aujourdhui"
+import SessionCall from "./components/demarchage/SessionCall"
+import Agences from "./components/demarchage/Agences"
+import Agenda from "./components/demarchage/Agenda"
+import Apporteurs from "./components/demarchage/Apporteurs"
+import FicheAgence from "./components/demarchage/FicheAgence"
 import Messages from "./components/Messages"
-import Calendrier from "./components/Calendrier"
 import Parametrage from "./components/Parametrage"
 import RappelsRdv from "./components/RappelsRdv"
 import TelephoneRingover from "./components/TelephoneRingover"
@@ -27,83 +24,67 @@ import SequencesST from "./components/recrutement/SequencesST"
 import SuiviST from "./components/recrutement/SuiviST"
 import DossiersST from "./components/recrutement/DossiersST"
 
-const titres: Record<PageId, string> = {
-  dashboard: "Dashboard",
-  prospects: "Prospects",
-  gestionnaires: "Gestionnaires",
-  apporteurs: "Apporteurs d'affaires",
-  agences: "Agences",
-  pipeline: "Pipeline",
-  sessions: "Sessions de call",
-  messages: "Boîte de réception",
-  calendrier: "Calendrier",
-  st_machine: "Machine",
-  st_base: "Base d'artisans",
-  st_sequences: "Séquences",
-  st_suivi: "Suivi",
-  st_boite: "Boîte de réception · recrutement",
-  st_dossiers: "Dossiers déposés",
-  parametrage: "Réglages",
-  comptes: "Comptes",
-}
-
 function App() {
-  const [page, setPage] = useState<PageId>("dashboard")
+  const [page, setPage] = useState<PageId>("aujourdhui")
   // L'espace affiché dans la barre : celui de la page, et il survit à un
   // passage par Réglages ou Comptes (qui sont hors espace).
   const [espace, setEspace] = useState<Espace>("demarchage")
+  // L'agence qu'on veut appeler tout de suite (depuis Agences, Aujourd'hui, l'agenda…).
+  const [agencePourSession, setAgencePourSession] = useState<string | null>(null)
+  // La fiche agence ouverte par-dessus n'importe quelle page (depuis le téléphone, l'agenda…).
+  const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
   const naviguer = (p: PageId) => {
     setPage(p)
     if (!horsEspace(p)) setEspace(espaceDe(p))
   }
+  const ouvrirSession = (agenceId: string) => {
+    // Deux fois la même agence de suite : on repasse par « rien » pour que la
+    // session voie bien un changement et la rouvre.
+    setAgencePourSession(null)
+    setTimeout(() => setAgencePourSession(agenceId), 0)
+    setFicheOuverte(null)
+    naviguer("sessions")
+  }
+  const ouvrirAgence = (agenceId: string) => setFicheOuverte(agenceId)
   const session = useSession()
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
   if (session === undefined)
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-100 text-slate-400">
+      <div className="flex h-screen items-center justify-center bg-fond-2 text-encre-3">
         <Loader2 size={22} className="animate-spin" />
       </div>
     )
 
-  // Pas connecté → écran de connexion (la base est protégée, voir Lot 5 sécurité).
+  // Pas connecté → écran de connexion.
   if (!session) return <Connexion />
 
-  // Les pages du recrutement dessinent leur propre en-tête ; celles du démarchage
-  // gardent le bandeau commun. La boîte de réception du recrutement reprend
-  // l'écran Messages, limité à son espace.
-  const recrutement = espaceDe(page) === "recrutement"
-
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-100">
-      <Sidebar active={page} espace={espace} onNavigate={naviguer} session={session} />
+    <div className="flex h-screen overflow-hidden bg-fond-2">
+      <Sidebar
+        active={page}
+        espace={espace}
+        onNavigate={(p) => {
+          // Depuis le menu, « Sessions de call » repart sur la file, pas sur une agence précise.
+          if (p === "sessions") setAgencePourSession(null)
+          naviguer(p)
+        }}
+        session={session}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {!recrutement && (
-          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-4">
-            <h1 className="text-xl font-bold text-slate-900">{titres[page]}</h1>
+        {page === "comptes" && (
+          <header className="flex items-center justify-between border-b border-trait bg-fond px-10 py-4">
+            <h1 className="text-section font-semibold text-encre">Comptes</h1>
           </header>
         )}
 
-        <main className={"min-h-0 flex-1 overflow-y-auto " + (recrutement ? "bg-fond-2" : "py-6")}>
-          {page === "dashboard" && (
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400">
-                  <Loader2 size={18} className="animate-spin" /> Chargement…
-                </div>
-              }
-            >
-              <Dashboard />
-            </Suspense>
-          )}
-          {page === "prospects" && <Prospects />}
-          {page === "gestionnaires" && <GestionnairesView />}
-          {page === "apporteurs" && <ApporteursView />}
-          {page === "agences" && <AgencesView />}
-          {page === "pipeline" && <Pipeline />}
+        <main className="min-h-0 flex-1 overflow-y-auto bg-fond-2">
+          {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} />}
+          {page === "agences" && <Agences onOuvrirSession={ouvrirSession} />}
+          {page === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
+          {page === "apporteurs" && <Apporteurs />}
           {page === "messages" && <Messages espace="demarchage" />}
-          {page === "calendrier" && <Calendrier />}
           {page === "parametrage" && <Parametrage />}
           {page === "comptes" && <Comptes session={session} />}
 
@@ -118,13 +99,14 @@ function App() {
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant
               un appel, puis revenir). Simplement masquée hors de son onglet. */}
           <div className={page === "sessions" ? undefined : "hidden"}>
-            <SessionsCall actif={page === "sessions"} />
+            <SessionCall actif={page === "sessions"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} />
           </div>
         </main>
       </div>
 
+      {ficheOuverte && <FicheAgence id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onOuvrirSession={ouvrirSession} />}
       <RappelsRdv />
-      <TelephoneRingover />
+      <TelephoneRingover onOuvrirAgence={ouvrirAgence} />
     </div>
   )
 }

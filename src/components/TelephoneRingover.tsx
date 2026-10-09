@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import RingoverSDK from "ringover-sdk"
 import { PhoneIncoming, X, User, Building2 } from "lucide-react"
-import type { Prospect } from "../data"
-import { statutsParDefaut, type Statut } from "../statuts"
 import { supabase, supabaseConfigure } from "../lib/supabase"
-import { chargerProspects, majProspectComplet } from "../lib/prospectsDb"
-import { chargerStatuts } from "../lib/statutsDb"
 import { appelsEntrantsRingover, detailAppelRingover } from "../lib/ringover"
 import { cleComparaison, formaterTelephone } from "../lib/telephone"
 import { marquerEntrantActif } from "../lib/appelEntrantActif"
@@ -14,8 +10,11 @@ import {
   debrancherTelephone,
   diffuserEvenementAppel,
 } from "../lib/sdkRingover"
-import { enregistrerAppel } from "../lib/appelsDb"
-import ProspectModal from "./ProspectModal"
+import { useSession } from "../lib/auth"
+import { nomAffiche } from "../lib/comptes"
+import { agenceParTelephone, journaliserAppelEntrant } from "../demarchage/db"
+import { nomContact, type Agence, type Contact } from "../demarchage/modele"
+import { Bouton } from "../ui"
 
 // Téléphone Ringover embarqué + détection des appels ENTRANTS.
 //
@@ -29,22 +28,28 @@ import ProspectModal from "./ProspectModal"
 //       pas configuré) — peut renvoyer le numéro masqué (« Unknown »).
 //    c. DÉTAIL de l'appel (par call_id) : si le numéro est arrivé masqué, on le récupère
 //       via le relevé d'appel (souvent renseigné) et la bannière se corrige toute seule.
-export default function TelephoneRingover() {
-  const [prospects, setProspects] = useState<Prospect[]>([])
-  const [statuts, setStatuts] = useState<Statut[]>(statutsParDefaut)
-  // Appel entrant à signaler (bannière) + fiche éventuellement ouverte.
-  const [entrant, setEntrant] = useState<{ callId: string; from: string; prospect: Prospect | null } | null>(null)
-  const [fiche, setFiche] = useState<Prospect | null>(null)
-  const [ficheOuverte, setFicheOuverte] = useState(false)
+// 3) L'appelant est reconnu dans les AGENCES (09/10/2026) : le standard de l'agence, ou la
+//    ligne directe / le mobile d'un contact (`agenceParTelephone`). L'appel entrant reconnu
+//    est journalisé dans le fil de l'agence, sans toucher à son étape.
+type Reconnu = { agence: Agence; contact: Contact | null }
+type Entrant = { callId: string; from: string; reconnu: Reconnu | null; recherche: boolean }
 
-  // call_id déjà signalés → ce qu'on savait (prospect reconnu ? numéro exploitable ?).
+export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?: (agenceId: string) => void }) {
+  // Appel entrant à signaler (bannière) : le numéro, l'agence reconnue, la recherche en cours.
+  const [entrant, setEntrant] = useState<Entrant | null>(null)
+  // Le compte connecté : c'est lui qui « reçoit » l'appel dans le journal.
+  const session = useSession()
+  const compteNomRef = useRef("Compte")
+  useEffect(() => {
+    compteNomRef.current = nomAffiche(session)
+  }, [session])
+
+  // call_id déjà signalés → ce qu'on savait (agence reconnue ? numéro exploitable ?).
   // Permet la « mise à niveau » : si une source plus précise arrive après coup
   // (ex. le détail dévoile un numéro d'abord masqué), on corrige au lieu d'ignorer.
-  const traitesRef = useRef<Map<string, { prospect: Prospect | null; from: string }>>(new Map())
+  const traitesRef = useRef<Map<string, { reconnu: Reconnu | null; from: string }>>(new Map())
   const resolutionsRef = useRef<Set<string>>(new Set()) // résolutions de numéro masqué en cours
   const journalisesRef = useRef<Set<string>>(new Set()) // appels entrants déjà écrits au journal
-  const prospectsRef = useRef<Prospect[]>([])
-  prospectsRef.current = prospects
   const sdkRef = useRef<RingoverSDK | null>(null)
 
   // Si le numéro est arrivé masqué, tente de le récupérer via le relevé d'appel
@@ -63,85 +68,95 @@ export default function TelephoneRingover() {
     }
   }
 
-  // Traite un appel entrant : reconnaît l'appelant et affiche/corrige la bannière.
-  // Placé dans une ref pour rester à jour sans réabonner les écouteurs à chaque rendu.
-  const signalerRef = useRef<(from: string, callId: string) => void>(() => {})
-  signalerRef.current = (from, callId) => {
-    if (!callId) return
-    // On compare via une clé qui ignore le format (33… vs 0…) : l'appelant Ringover
-    // arrive en « 33783092347 », le prospect est stocké en « 07 83 09 23 47 ».
-    const cleAppelant = cleComparaison(from)
-    const utilisable = cleAppelant.length >= 6 // faux si masqué ("Unknown", vide…)
-    const prospect = utilisable
-      ? prospectsRef.current.find((p) => cleComparaison(p.telephone) === cleAppelant) ?? null
-      : null
-
-    const precedent = traitesRef.current.get(callId)
-    const deja = precedent !== undefined
-    if (deja) {
-      // Cet appel a déjà été signalé : on ne refait quelque chose QUE si on apporte
-      // du neuf (un prospect reconnu, ou un vrai numéro là où c'était masqué).
-      const avaitProspect = Boolean(precedent.prospect)
-      const avaitNumero = cleComparaison(precedent.from).length >= 6
-      const apporteProspect = Boolean(prospect) && !avaitProspect
-      const apporteNumero = utilisable && !avaitNumero
-      if (avaitProspect || (!apporteProspect && !apporteNumero)) return
+  // Notification navigateur (marche même sur un autre onglet). Le tag=callId fait
+  // qu'une mise à niveau REMPLACE la notification au lieu d'en empiler une 2e.
+  function notifier(callId: string, corps: string) {
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("📞 Appel entrant", { body: corps, tag: callId })
+      }
+    } catch {
+      /* notif indisponible */
     }
+  }
 
-    traitesRef.current.set(callId, { prospect, from })
-    // Purge : on borne la taille de l'historique anti-répétition.
-    if (traitesRef.current.size > 100) {
-      traitesRef.current = new Map(Array.from(traitesRef.current.entries()).slice(-50))
+  // Cherche l'agence (ou le contact) qui porte ce numéro, puis corrige la bannière
+  // et journalise l'appel entrant dans son fil (une seule fois par appel).
+  async function reconnaitre(from: string, callId: string) {
+    let reconnu: Reconnu | null
+    try {
+      reconnu = await agenceParTelephone(from)
+    } catch {
+      reconnu = null
     }
-
-    if (!deja) {
-      // Nouvel appel → bannière (le téléphone Ringover reste libre pour décrocher).
-      setEntrant({ callId, from, prospect })
-    } else {
-      // Mise à niveau : on corrige la bannière SI c'est encore celle de cet appel
-      // (on ne rouvre pas une bannière que l'utilisateur a fermée).
-      setEntrant((prev) => (prev && prev.callId === callId ? { callId, from, prospect } : prev))
+    if (!reconnu) {
+      setEntrant((prev) => (prev && prev.callId === callId ? { ...prev, recherche: false } : prev))
+      return
     }
-
-    // Journalise l'appel ENTRANT dans l'historique du prospect reconnu (une seule fois
-    // par appel). On n'écrit rien pour un numéro inconnu (pas de fiche où l'attacher).
-    if (prospect?.id && !journalisesRef.current.has(callId)) {
+    const t = traitesRef.current.get(callId)
+    if (t) t.reconnu = reconnu
+    // On ne corrige la bannière QUE si c'est encore celle de cet appel (jamais rouvrir une bannière fermée).
+    setEntrant((prev) => (prev && prev.callId === callId ? { ...prev, reconnu, recherche: false } : prev))
+    notifier(callId, reconnu.agence.nom + (reconnu.contact ? ` · ${nomContact(reconnu.contact)}` : ""))
+    if (!journalisesRef.current.has(callId)) {
       journalisesRef.current.add(callId)
       if (journalisesRef.current.size > 200) {
         journalisesRef.current = new Set(Array.from(journalisesRef.current).slice(-100))
       }
-      enregistrerAppel(prospect.id, "Appel entrant", "", "entrant").catch(() => {})
-    }
-
-    // Numéro masqué mais call_id connu → on tente de récupérer le vrai numéro.
-    if (!utilisable) void resoudreNumeroMasque(callId)
-
-    // Notification navigateur (marche même sur un autre onglet). Le tag=callId fait
-    // que la mise à niveau REMPLACE la notification au lieu d'en empiler une 2e.
-    if (!deja || prospect) {
-      try {
-        if ("Notification" in window && Notification.permission === "granted") {
-          const nom = prospect?.entreprise || (utilisable ? formaterTelephone(from) || from : "Numéro masqué")
-          new Notification("📞 Appel entrant", { body: nom, tag: callId })
-        }
-      } catch {
-        /* notif indisponible */
-      }
+      journaliserAppelEntrant(reconnu.agence.id, reconnu.contact?.id ?? null, callId, compteNomRef.current).catch(() => {})
     }
   }
 
-  // Charge prospects + états, et rafraîchit les prospects régulièrement (nouveaux numéros).
+  // Traite un appel entrant : affiche/corrige la bannière et lance la reconnaissance.
+  // Placé dans une ref (remplie dans un effet) pour rester à jour sans réabonner les écouteurs.
+  const signalerRef = useRef<(from: string, callId: string) => void>(() => {})
+  useEffect(() => {
+    signalerRef.current = (from, callId) => {
+      if (!callId) return
+      // On compare via une clé qui ignore le format (33… vs 0…) : l'appelant Ringover
+      // arrive en « 33783092347 », l'agence est stockée en « 07 83 09 23 47 ».
+      const utilisable = cleComparaison(from).length >= 6 // faux si masqué ("Unknown", vide…)
+
+      const precedent = traitesRef.current.get(callId)
+      const deja = precedent !== undefined
+      if (deja) {
+        // Cet appel a déjà été signalé : on ne refait quelque chose QUE si on apporte
+        // un vrai numéro là où c'était masqué (l'agence, elle, arrive par la recherche).
+        const avaitNumero = cleComparaison(precedent.from).length >= 6
+        if (precedent.reconnu || avaitNumero || !utilisable) return
+      }
+
+      traitesRef.current.set(callId, { reconnu: precedent?.reconnu ?? null, from })
+      // Purge : on borne la taille de l'historique anti-répétition.
+      if (traitesRef.current.size > 100) {
+        traitesRef.current = new Map(Array.from(traitesRef.current.entries()).slice(-50))
+      }
+
+      if (!deja) {
+        // Nouvel appel → bannière (le téléphone Ringover reste libre pour décrocher).
+        setEntrant({ callId, from, reconnu: null, recherche: utilisable })
+      } else {
+        // Mise à niveau : on corrige la bannière SI c'est encore celle de cet appel.
+        setEntrant((prev) => (prev && prev.callId === callId ? { ...prev, from, recherche: utilisable } : prev))
+      }
+
+      if (!utilisable) {
+        notifier(callId, "Numéro masqué")
+        // Numéro masqué mais call_id connu → on tente de récupérer le vrai numéro.
+        void resoudreNumeroMasque(callId)
+        return
+      }
+      notifier(callId, formaterTelephone(from) || from)
+      void reconnaitre(from, callId)
+    }
+  })
+
+  // Autorisation notifications navigateur (une fois).
   useEffect(() => {
     if (!supabaseConfigure) return
-    const charger = () => chargerProspects().then(setProspects).catch(() => {})
-    charger()
-    chargerStatuts().then((r) => r.length && setStatuts(r)).catch(() => {})
-    const maj = setInterval(charger, 120000) // toutes les 2 min
-    // Autorisation notifications navigateur (une fois).
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {})
     }
-    return () => clearInterval(maj)
   }, [])
 
   // Monte le téléphone Ringover (iframe) pour décrocher / appeler dans le logiciel.
@@ -292,84 +307,64 @@ export default function TelephoneRingover() {
     return () => clearInterval(iv)
   }, [])
 
-  async function enregistrer(p: Prospect) {
-    if (fiche?.id) {
-      const id = fiche.id
-      setProspects((arr) => arr.map((x) => (x.id === id ? { ...p, id } : x)))
-      await majProspectComplet(id, p).catch(() => {})
-    }
-    setFicheOuverte(false)
-  }
+  if (!entrant) return null
+  const numeroAffichable = cleComparaison(entrant.from).length >= 6
+  const reconnu = entrant.reconnu
+  const numero = formaterTelephone(entrant.from) || entrant.from
 
-  const numeroAffichable = Boolean(entrant) && cleComparaison(entrant!.from).length >= 6
-  const estGestionnaire = Boolean(entrant?.prospect?.contact?.trim() && entrant?.prospect?.email?.trim())
-
+  // Bannière d'appel entrant (bas-GAUCHE, pour ne pas gêner le téléphone Ringover à droite).
   return (
-    <>
-      {/* Bannière d'appel entrant (bas-GAUCHE, pour ne pas gêner le téléphone Ringover à droite) */}
-      {entrant && (
-        <div className="fixed bottom-4 left-4 z-[95] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-green-300 bg-white shadow-xl">
-          <div className="flex items-center gap-2 border-b border-green-100 bg-green-50 px-4 py-2.5">
-            <PhoneIncoming size={17} className="shrink-0 animate-pulse text-green-600" />
-            <span className="text-sm font-semibold text-green-900">Appel entrant</span>
-            <button
-              onClick={() => setEntrant(null)}
-              className="ml-auto text-slate-400 hover:text-slate-600"
-              title="Ignorer"
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="px-4 py-3">
-            {entrant.prospect ? (
-              <>
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                  <Building2 size={14} className="shrink-0 text-slate-400" />
-                  {entrant.prospect.entreprise}
-                </p>
-                {entrant.prospect.contact && (
-                  <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                    <User size={12} className="shrink-0 text-slate-400" />
-                    {entrant.prospect.contact}
-                  </p>
-                )}
-                <p className="mt-0.5 text-xs text-slate-500">{formaterTelephone(entrant.from) || entrant.from}</p>
-                <button
-                  onClick={() => {
-                    setFiche(entrant.prospect)
-                    setFicheOuverte(true)
-                  }}
-                  className="mt-3 w-full rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
-                >
-                  Ouvrir la fiche
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-semibold text-slate-900">
-                  {numeroAffichable ? formaterTelephone(entrant.from) || entrant.from : "Numéro masqué"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {numeroAffichable
-                    ? "Ce numéro ne correspond à aucun prospect enregistré."
-                    : "Recherche du numéro en cours — la bannière se mettra à jour si je le retrouve."}
-                </p>
-              </>
+    <div className="fixed bottom-4 left-4 z-[95] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-6 border border-trait bg-fond shadow-flottante">
+      <div className="flex items-center gap-2 border-b border-trait bg-ok-fond px-4 py-2.5">
+        <PhoneIncoming size={16} className="shrink-0 animate-pulse text-ok" />
+        <span className="text-legende font-semibold text-encre">Appel entrant</span>
+        <button
+          type="button"
+          onClick={() => setEntrant(null)}
+          className="ml-auto rounded-3 p-0.5 text-encre-2 hover:bg-fond-4 hover:text-encre"
+          title="Ignorer"
+          aria-label="Ignorer"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <div className="px-4 py-3">
+        {reconnu ? (
+          <>
+            <p className="flex items-center gap-1.5 text-corps font-semibold text-encre">
+              <Building2 size={14} className="shrink-0 text-encre-3" />
+              {reconnu.agence.nom}
+            </p>
+            {reconnu.contact && (
+              <p className="mt-0.5 flex items-center gap-1.5 text-legende text-encre-2">
+                <User size={14} className="shrink-0 text-encre-3" />
+                {nomContact(reconnu.contact)}
+              </p>
             )}
-            <p className="mt-2 text-[11px] text-slate-400">Décroche dans le téléphone Ringover (à droite).</p>
-          </div>
-        </div>
-      )}
-
-      {ficheOuverte && fiche && (
-        <ProspectModal
-          prospect={fiche}
-          statuts={statuts}
-          contexte={estGestionnaire ? "gestionnaire" : "prospect"}
-          onClose={() => setFicheOuverte(false)}
-          onSave={enregistrer}
-        />
-      )}
-    </>
+            <p className="mt-0.5 text-legende text-encre-2">
+              <span className="chiffres">{numero}</span>
+              {reconnu.agence.secteurLibelle ? ` · ${reconnu.agence.secteurLibelle}` : ""}
+            </p>
+            {onOuvrirAgence ? (
+              <Bouton variante="plein" className="mt-3 w-full" onClick={() => onOuvrirAgence(reconnu.agence.id)}>
+                Ouvrir la fiche
+              </Bouton>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <p className="chiffres text-corps font-semibold text-encre">{numeroAffichable ? numero : "Numéro masqué"}</p>
+            <p className="mt-1 text-legende text-encre-2">
+              {!numeroAffichable
+                ? "Recherche du numéro en cours — la bannière se mettra à jour si je le retrouve."
+                : entrant.recherche
+                  ? "Je cherche ce numéro dans les agences…"
+                  : "Ce numéro ne correspond à aucune agence ni à aucun contact connu."}
+            </p>
+          </>
+        )}
+        <p className="mt-2 text-colonne text-encre-3">Décroche dans le téléphone Ringover (à droite).</p>
+      </div>
+    </div>
   )
 }

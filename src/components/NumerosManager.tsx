@@ -4,21 +4,27 @@ import {
   chargerNumerosComplet,
   enregistrerNumerosComplet,
   normaliser,
-  compterAppelsParNumero,
   type NumeroEmission,
 } from "../lib/numerosEmission"
-import { chargerProspects } from "../lib/prospectsDb"
-import { chargerAppelsDuJour } from "../lib/appelsDb"
+import { compterAppelsDuJourParNumero } from "../demarchage/db"
 import { lireParametre, ecrireParametre } from "../lib/parametresDb"
 import { supabaseConfigure } from "../lib/supabase"
 import BandeauErreur from "./BandeauErreur"
 
 const QUOTA_DEFAUT = 100 // appels/jour/numéro recommandés pour rester sous le radar « spam »
 
+// La jauge compare sur les 9 derniers chiffres : « +33 1 84 80 77 86 » et « 01 84 80 77 86 » sont le même numéro.
+const finDeNumero = (n: string) => normaliser(n).slice(-9)
+function parFinDeNumero(m: Map<string, number>): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const [k, v] of m) out.set(k.slice(-9), (out.get(k.slice(-9)) ?? 0) + v)
+  return out
+}
+
 export default function NumerosManager() {
   const [numeros, setNumeros] = useState<NumeroEmission[]>([])
   const [saisie, setSaisie] = useState("")
-  const [chargement, setChargement] = useState(true)
+  const [chargement, setChargement] = useState(supabaseConfigure)
   const [enregistre, setEnregistre] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   // Jauge d'usage : appels passés AUJOURD'HUI par numéro (clé = chiffres du numéro).
@@ -26,10 +32,7 @@ export default function NumerosManager() {
   const [quota, setQuota] = useState(QUOTA_DEFAUT)
 
   useEffect(() => {
-    if (!supabaseConfigure) {
-      setChargement(false)
-      return
-    }
+    if (!supabaseConfigure) return
     chargerNumerosComplet()
       .then(setNumeros)
       .catch((e) => setErreur(e instanceof Error ? e.message : "Erreur inconnue"))
@@ -40,14 +43,12 @@ export default function NumerosManager() {
         if (Number.isFinite(n) && n >= 10) setQuota(n)
       })
       .catch(() => {})
-    // Usage du jour : journal d'appels + numéro attribué à chaque prospect appelé.
-    // Rafraîchi toutes les 60 s (la jauge avance pendant tes sessions).
+    // Usage du jour : les appels SORTANTS réels (les activités du démarchage), par numéro
+    // d'émission vraiment utilisé — plus de déduction depuis la fiche. Un appel entrant ne
+    // « spamme » pas, il n'est pas compté. Rafraîchi toutes les 60 s (la jauge avance pendant tes sessions).
     const majUsage = () =>
-      Promise.all([chargerAppelsDuJour(), chargerProspects()])
-        .then(([appels, prospects]) =>
-          // Seuls les appels SORTANTS consomment un numéro d'émission (un entrant ne « spamme » pas).
-          setUsage(compterAppelsParNumero(appels.filter((a) => a.sens !== "entrant"), prospects)),
-        )
+      compterAppelsDuJourParNumero(new Date())
+        .then((m) => setUsage(parFinDeNumero(m)))
         .catch(() => {})
     majUsage()
     const iv = setInterval(majUsage, 60000)
@@ -95,7 +96,7 @@ export default function NumerosManager() {
   const nbActifs = numeros.filter((n) => !n.pause).length
   // Numéros actifs ayant atteint le seuil du jour (à mettre en pause).
   const auSeuil = useMemo(
-    () => numeros.filter((n) => !n.pause && (usage.get(normaliser(n.numero)) ?? 0) >= quota),
+    () => numeros.filter((n) => !n.pause && (usage.get(finDeNumero(n.numero)) ?? 0) >= quota),
     [numeros, usage, quota],
   )
 
@@ -211,7 +212,7 @@ export default function NumerosManager() {
         ) : (
           <ul className="divide-y divide-slate-100">
             {numeros.map((n) => {
-              const compte = usage.get(normaliser(n.numero)) ?? 0
+              const compte = usage.get(finDeNumero(n.numero)) ?? 0
               const pct = quota > 0 ? Math.min(100, Math.round((compte / quota) * 100)) : 0
               const plein = compte >= quota
               const barre = plein ? "bg-red-500" : pct >= 70 ? "bg-amber-400" : "bg-emerald-500"

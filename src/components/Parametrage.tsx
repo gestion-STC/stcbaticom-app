@@ -1,60 +1,43 @@
 import { useState } from "react"
-import { ListChecks, Mail, GitBranch, Clock, Phone, Gauge } from "lucide-react"
-import EtatsManager from "./EtatsManager"
+import { Onglets } from "../ui"
+import SecteursReglage from "./demarchage/SecteursReglage"
+import ObjectifsReglage from "./demarchage/ObjectifsReglage"
 import EmailsManager from "./EmailsManager"
-import ReglesManager from "./ReglesManager"
-import CreneauxManager from "./CreneauxManager"
 import NumerosManager from "./NumerosManager"
 import ReglagesRecrutement from "./recrutement/ReglagesRecrutement"
 
-type Onglet = "etats" | "emails" | "regles" | "creneaux" | "numeros" | "recrutement"
+type Onglet = "secteurs" | "objectifs" | "emails" | "numeros" | "recrutement"
 
-// Les réglages sont communs aux deux espaces (Mahdi, 08/10/2026) : ceux du
-// démarchage (états, e-mails, règles, créneaux, numéros) et ceux de la machine
-// de recrutement (cadence, plafonds, plages, relances, alertes, exclusions).
-// L'écran Machine, lui, ne garde que l'interrupteur et les campagnes : tout ce
-// qui se règle rarement est ici. Les comptes ont leur propre page (admin).
-const onglets: { id: Onglet; label: string; icon: typeof Mail }[] = [
-  { id: "etats", label: "États", icon: ListChecks },
-  { id: "emails", label: "Emails", icon: Mail },
-  { id: "regles", label: "Règles d'envoi", icon: GitBranch },
-  { id: "creneaux", label: "Créneaux d'appel", icon: Clock },
-  { id: "numeros", label: "Numéros d'appel", icon: Phone },
-  { id: "recrutement", label: "Recrutement", icon: Gauge },
+// Les réglages sont communs aux deux espaces (Mahdi, 08/10/2026). Côté démarchage,
+// depuis la refonte du 09/10 : les secteurs, l'objectif et le script, les modèles
+// d'e-mail, les numéros d'appel. Les états, les règles d'envoi et les créneaux
+// n'ont plus d'onglet : les étapes sont posées par les résultats d'appel, plus
+// jamais à la main. Côté recrutement : la machine (cadence, plafonds, plages,
+// relances, alertes, exclusions). Les comptes ont leur propre page (admin).
+const ONGLETS: { id: Onglet; label: string }[] = [
+  { id: "secteurs", label: "Secteurs" },
+  { id: "objectifs", label: "Objectifs et script" },
+  { id: "emails", label: "Modèles d'e-mail" },
+  { id: "numeros", label: "Numéros d'appel" },
+  { id: "recrutement", label: "Recrutement" },
 ]
 
 export default function Parametrage() {
-  const [onglet, setOnglet] = useState<Onglet>("etats")
+  const [onglet, setOnglet] = useState<Onglet>("secteurs")
 
   return (
     <div>
-      {/* Sous-onglets */}
-      <div className="-mt-6 mb-2 flex gap-1 border-b border-slate-200 px-8">
-        {onglets.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setOnglet(id)}
-            className={
-              "flex items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium transition-colors " +
-              (onglet === id
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-slate-500 hover:text-slate-800")
-            }
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
+      {/* Les onglets en tête, sur toute la largeur. */}
+      <div className="bg-fond px-10 pt-2">
+        <Onglets valeur={onglet} onChange={setOnglet} options={ONGLETS} />
       </div>
 
-      <div className="pt-2">
-        {onglet === "etats" && <EtatsManager />}
-        {onglet === "emails" && <EmailsManager />}
-        {onglet === "regles" && <ReglesManager />}
-        {onglet === "creneaux" && <CreneauxManager />}
-        {onglet === "numeros" && <NumerosManager />}
-        {onglet === "recrutement" && <div className="page"><ReglagesRecrutement /></div>}
-      </div>
+      {onglet === "secteurs" && <div className="page"><SecteursReglage /></div>}
+      {onglet === "objectifs" && <div className="page"><ObjectifsReglage /></div>}
+      {/* Ces deux écrans gardent leur ancien habillage et leurs propres marges (un autre lot s'en occupe). */}
+      {onglet === "emails" && <div className="pt-5"><EmailsManager /></div>}
+      {onglet === "numeros" && <div className="pt-5"><NumerosManager /></div>}
+      {onglet === "recrutement" && <div className="page"><ReglagesRecrutement /></div>}
     </div>
   )
 }
