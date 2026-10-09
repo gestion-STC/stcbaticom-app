@@ -445,7 +445,7 @@ begin
 
   -- j) Les RDV, les e-mails de campagne, les notes d'import, la boîte.
   insert into public.activites (agence_id, type, date, echeance, fait_le, titre, note, rdv_type, source)
-  select c.agence_id, 'rdv', r.cree_le, (r.date::text || ' ' || coalesce(nullif(r.heure, ''), '10:00'))::timestamp at time zone 'Europe/Paris',
+  select c.agence_id, 'rdv', r.cree_le, (r.date::text || ' ' || case when r.heure ~ '^\d{1,2}:\d{2}$' then r.heure else '10:00' end)::timestamp at time zone 'Europe/Paris',
          case when r.fait then r.cree_le else null end, coalesce(nullif(r.titre, ''), 'RDV'), coalesce(r.note, ''),
          case lower(coalesce(r.type, '')) when 'visio' then 'visio' when 'sur place' then 'sur_place' else 'telephone' end, 'conversion'
     from public.rdv r join conv c on c.prospect_id = r.prospect_id where c.agence_id is not null;
