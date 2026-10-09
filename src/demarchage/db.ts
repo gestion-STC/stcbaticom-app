@@ -379,6 +379,26 @@ export async function compterPremiersOs(de: Date, a: Date): Promise<number> {
   return count ?? 0
 }
 
+// Les appels sortants du jour par numéro d'émission (jauge anti-spam : sur les appels réels).
+export async function compterAppelsDuJourParNumero(maintenant: Date): Promise<Map<string, number>> {
+  const debut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).toISOString()
+  const { data, error } = await sb().from("activites").select("numero_utilise").eq("type", "appel").eq("sens", "sortant").gte("date", debut).limit(5000)
+  erreur(error)
+  const out = new Map<string, number>()
+  for (const l of (data ?? []) as { numero_utilise: string }[]) {
+    const n = chiffres(l.numero_utilise)
+    if (n) out.set(n, (out.get(n) ?? 0) + 1)
+  }
+  return out
+}
+// Les agences appelées aujourd'hui (pour ne pas les ressortir dans la file).
+export async function agencesAppeleesAujourdHui(maintenant: Date): Promise<Set<string>> {
+  const debut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).toISOString()
+  const { data, error } = await sb().from("activites").select("agence_id").eq("type", "appel").gte("date", debut).limit(5000)
+  erreur(error)
+  return new Set(((data ?? []) as { agence_id: string }[]).map((l) => l.agence_id))
+}
+
 // ── Reconnaître qui appelle (appels entrants) ──
 export async function agenceParTelephone(tel: string): Promise<{ agence: Agence; contact: Contact | null } | null> {
   const t = chiffres(tel).replace(/^33/, "0").replace(/^0033/, "0")
