@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ArrowRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Mail, Mic, MicOff, Phone, PhoneIncoming, PhoneOutgoing,
-  Play, Plus, Search, SkipForward, Square, SquareCheck, StickyNote, type LucideIcon,
+  Play, Plus, Search, Square, SquareCheck, StickyNote, type LucideIcon,
   ArrowRightLeft,
 } from "lucide-react"
 import type { Prospect } from "../../data"
@@ -36,7 +36,7 @@ import {
   enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
-  FILES, ROLES_CONTACT, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, pastilleEtape,
+  ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, pastilleEtape,
   type Activite, type Agence, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
 } from "../../demarchage/modele"
 import {
@@ -174,6 +174,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [compteurs, setCompteurs] = useState<Record<File, number> | null>(null)
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [secteurDuJour, setSecteurDuJour] = useState("")
+  // Mahdi, 09/10 : « si je veux appeler les gestionnaires joints, je fais comment ? »
+  // → un filtre par étape sur la file ("" = toutes les étapes de la file).
+  const [etapeFiltre, setEtapeFiltre] = useState("")
   const [inclureDejaAppelees, setInclureDejaAppelees] = useState(false)
   const [auto, setAuto] = useState(false)
   const [cadence, setCadence] = useState(5)
@@ -301,14 +304,15 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const [agences, app] = await Promise.all([chargerFile(file, m, secteurDuJour || null), agencesAppeleesAujourdHui(m)])
       if (!enVie.current) return
       setAppelees(app)
-      setFileAgences(constituerFile(agences, { file, appeleesAujourdHui: app, inclureDejaAppelees }))
+      const retenues = etapeFiltre ? agences.filter((a) => a.etape === etapeFiltre) : agences
+      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees }))
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
       if (enVie.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, inclureDejaAppelees])
+  }, [file, secteurDuJour, etapeFiltre, inclureDejaAppelees])
 
   useEffect(() => {
     enVie.current = true
@@ -470,19 +474,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     couperMinuterie()
     setDirecteId(null)
     setIndex(i)
-  }
-  function passer() {
-    if (barreVisible) setDialogue("passer")
-    else avancer()
-  }
-  function confirmerPasser() {
-    setDialogue(null)
-    setAppel(null)
-    setBarreVisible(false)
-    setNote("")
-    setSuggestion(null)
-    setIndice("")
-    avancer()
   }
   function demarrer() {
     if (!fileAgences.length) return
@@ -936,6 +927,15 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 <option key={s.code} value={s.code}>{s.libelle}</option>
               ))}
             </Selecteur>
+            <Selecteur value={etapeFiltre} onChange={(e) => setEtapeFiltre(e.target.value)} disabled={enCours} className="w-48" aria-label="Étape" title="N'appeler que les agences de cette étape (dans la file choisie)">
+              <option value="">Toutes les étapes</option>
+              {ETAPES.map((e) => (
+                <option key={e.code} value={e.code}>{e.libelle}</option>
+              ))}
+              {SORTIES.map((s) => (
+                <option key={s.code} value={s.code}>{s.libelle}</option>
+              ))}
+            </Selecteur>
             <label className="flex items-center gap-2 text-legende text-encre">
               <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" /> Mode automatique
             </label>
@@ -1000,7 +1000,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           <div className="flex flex-wrap items-center gap-1 border-b border-trait px-4 pb-3">
             <Bouton taille="sm" icone={<ChevronLeft />} onClick={reculer} disabled={barreVisible || (index === 0 && !directeId)}>Précédente</Bouton>
             <Bouton taille="sm" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
-            <Bouton taille="sm" variante="discret" icone={<SkipForward />} onClick={passer} disabled={(fileTerminee && !directeId) || !fileAgences.length}>Passer</Bouton>
           </div>
           <div className="border-b border-fond-4 px-4 py-2">
             <Case texte="inclure les agences déjà appelées aujourd'hui" checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours} />
@@ -1300,19 +1299,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       </div>
 
       {/* ── Dialogues ── */}
-      {dialogue === "passer" ? (
-        <Dialogue
-          titre="Passer sans noter l'appel ?"
-          description="Rien ne sera écrit : ni résultat, ni tentative, ni note. L'agence restera telle quelle dans sa file."
-          onFermer={() => setDialogue(null)}
-          pied={
-            <>
-              <Bouton variante="discret" onClick={() => setDialogue(null)}>Rester</Bouton>
-              <Bouton variante="danger" icone={<SkipForward />} onClick={confirmerPasser}>Passer sans noter</Bouton>
-            </>
-          }
-        />
-      ) : null}
       {dialogue === "tache" || dialogue === "rdv" || dialogue === "note" ? (
         <Dialogue
           titre={dialogue === "tache" ? "Nouvelle tâche" : dialogue === "rdv" ? "Nouveau rendez-vous" : "Nouvelle note"}

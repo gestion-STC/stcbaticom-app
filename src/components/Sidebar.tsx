@@ -23,9 +23,9 @@ import { seDeconnecter } from "../lib/auth"
 import { estAdmin, initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
 
-// DEUX ESPACES (Mahdi, 08/10/2026) : le démarchage commercial (prospects,
-// agences, appels) et le recrutement des sous-traitants. Chacun a son menu,
-// sa boîte de réception, son adresse d'envoi. Les réglages sont communs, en bas.
+// DEUX ESPACES (Mahdi, 08/10/2026) : le démarchage commercial (agences,
+// appels) et le recrutement des sous-traitants. Chacun a son menu, sa boîte
+// de réception, son adresse d'envoi. Les réglages sont communs, en bas.
 export type PageId =
   | "aujourdhui"
   | "sessions"
@@ -64,8 +64,29 @@ const menuRecrutement: NavItem[] = [
   { id: "st_dossiers", label: "Dossiers déposés", icon: FolderCheck },
 ]
 
-// Barre latérale sombre : dégradé noir → violet + trame de petits points,
-// même recette que la section « Vision » du site vitrine (qui l'a en rouge).
+// Une ligne du menu : le violet n'est qu'un trait, à gauche de la page ouverte.
+function LigneMenu({ actif, label, Icon, badge, onClick }: { actif: boolean; label: string; Icon: typeof Users; badge?: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={actif ? "page" : undefined}
+      className={
+        "relative flex w-full items-center gap-3 rounded-4 px-3 py-2 text-corps font-medium transition-colors " +
+        (actif ? "bg-fond-3 text-encre" : "text-encre-2 hover:bg-fond-3 hover:text-encre")
+      }
+    >
+      {actif ? <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signature" /> : null}
+      <Icon size={16} strokeWidth={2} className={actif ? "text-signature" : "text-encre-3"} />
+      <span className="flex-1 truncate text-left">{label}</span>
+      {badge ? <span className="chiffres rounded-3 bg-signature-doux px-1.5 py-0.5 text-colonne font-semibold text-signature">{badge}</span> : null}
+    </button>
+  )
+}
+
+// Barre latérale claire et minimaliste (Mahdi, 09/10/2026 : « le violet tape
+// trop ; une touche de violet, mais discrète ») : fond blanc, un trait,
+// le violet seulement sur la page ouverte, les non-lus et l'initiale du compte.
 export default function Sidebar({
   active,
   espace,
@@ -101,17 +122,13 @@ export default function Sidebar({
   }, [active])
 
   return (
-    <aside className="relative flex h-screen w-64 shrink-0 flex-col overflow-hidden bg-gradient-to-b from-[#0b0a12] via-[#1d1038] to-violet-700">
-      {/* Trame de petits points, comme sur le site */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.1] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" />
-
-      {/* Logo STCbaticom (version blanche sur fond sombre) */}
-      <div className="relative px-5 pb-3 pt-6">
-        <LogoBaticom clair className="text-[22px]" />
+    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-trait bg-fond">
+      <div className="px-5 pb-4 pt-6">
+        <LogoBaticom className="text-[22px]" />
       </div>
 
-      {/* Le sélecteur d'espace */}
-      <div className="relative mx-3 mb-3 grid grid-cols-2 gap-0.5 rounded-lg bg-white/10 p-0.5 text-xs font-semibold">
+      {/* Le sélecteur d'espace : un interrupteur à deux positions, discret. */}
+      <div className="mx-4 mb-4 grid grid-cols-2 gap-0.5 rounded-4 bg-fond-3 p-0.5 text-legende font-medium" role="tablist" aria-label="Espace">
         {(
           [
             ["demarchage", "Démarchage", "aujourdhui"],
@@ -120,81 +137,47 @@ export default function Sidebar({
         ).map(([id, label, premierePage]) => (
           <button
             key={id}
+            type="button"
+            role="tab"
+            aria-selected={espace === id}
             onClick={() => onNavigate(premierePage)}
             className={
-              "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 transition-colors " +
-              (espace === id ? "bg-white text-[#1d1038]" : "text-white/65 hover:bg-white/10 hover:text-white")
+              "flex items-center justify-center gap-1.5 rounded-3 px-2 py-1.5 transition-colors " +
+              (espace === id ? "bg-fond text-encre shadow-posee" : "text-encre-2 hover:text-encre")
             }
           >
             {label}
-            {nonLus[id] > 0 && espace !== id ? <span className="h-1.5 w-1.5 rounded-full bg-violet-400" /> : null}
+            {nonLus[id] > 0 && espace !== id ? <span className="h-1.5 w-1.5 rounded-full bg-signature" aria-label="non lus" /> : null}
           </button>
         ))}
       </div>
 
-      {/* Navigation de l'espace */}
-      <nav className="relative mt-1 flex-1 space-y-0.5 overflow-y-auto px-3">
-        {items.map(({ id, label, icon: Icon }) => {
-          const isActive = id === active
-          const badge = id === "messages" ? nonLus.demarchage : id === "st_boite" ? nonLus.recrutement : 0
-          return (
-            <button
-              key={id}
-              onClick={() => onNavigate(id)}
-              className={
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
-                (isActive
-                  ? "bg-white/15 text-white"
-                  : "text-white/55 hover:bg-white/10 hover:text-white")
-              }
-            >
-              <Icon
-                size={17}
-                strokeWidth={2}
-                className={isActive ? "text-white" : "text-white/40"}
-              />
-              <span className="flex-1 text-left">{label}</span>
-              {badge > 0 && (
-                <span className="rounded-full bg-violet-500 px-2 py-0.5 text-xs font-semibold text-white">
-                  {badge}
-                </span>
-              )}
-            </button>
-          )
-        })}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Pages">
+        {items.map(({ id, label, icon }) => (
+          <LigneMenu
+            key={id}
+            actif={id === active}
+            label={label}
+            Icon={icon}
+            badge={id === "messages" ? nonLus.demarchage : id === "st_boite" ? nonLus.recrutement : 0}
+            onClick={() => onNavigate(id)}
+          />
+        ))}
       </nav>
 
-      {/* Réglages, communs aux deux espaces ; Comptes réservé aux administrateurs (07/10/2026) */}
-      <div className="relative space-y-0.5 px-3 pt-2">
-        {([["parametrage", "Réglages", SlidersHorizontal], ...(estAdmin(session) ? [["comptes", "Comptes", KeyRound]] : [])] as [PageId, string, typeof Users][]).map(([id, label, Icon]) => (
-          <button
-            key={id}
-            onClick={() => onNavigate(id)}
-            className={
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
-              (active === id ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/10 hover:text-white")
-            }
-          >
-            <Icon size={17} strokeWidth={2} className={active === id ? "text-white" : "text-white/40"} />
-            <span className="flex-1 text-left">{label}</span>
-          </button>
-        ))}
+      {/* Réglages, communs aux deux espaces ; Comptes réservé aux administrateurs. */}
+      <div className="space-y-0.5 border-t border-trait px-3 pt-3">
+        <LigneMenu actif={active === "parametrage"} label="Réglages" Icon={SlidersHorizontal} onClick={() => onNavigate("parametrage")} />
+        {estAdmin(session) ? <LigneMenu actif={active === "comptes"} label="Comptes" Icon={KeyRound} onClick={() => onNavigate("comptes")} /> : null}
       </div>
 
-      {/* Profil */}
-      <div className="relative mt-2 flex items-center gap-3 border-t border-white/10 px-5 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
-          {initiales}
-        </div>
+      <div className="mt-2 flex items-center gap-3 border-t border-trait px-5 py-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-signature-doux text-legende font-semibold text-signature">{initiales}</div>
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-sm font-medium text-white">{nom}</p>
-          <p className="text-xs text-white/50">{libelleRole}</p>
+          <p className="truncate text-corps font-medium text-encre">{nom}</p>
+          <p className="text-colonne text-encre-2">{libelleRole}</p>
         </div>
-        <button
-          onClick={seDeconnecter}
-          title="Se déconnecter"
-          className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-        >
+        <button type="button" onClick={seDeconnecter} title="Se déconnecter" aria-label="Se déconnecter" className="rounded-4 p-2 text-encre-3 transition-colors hover:bg-fond-3 hover:text-encre">
           <LogOut size={16} />
         </button>
       </div>
