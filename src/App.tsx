@@ -33,6 +33,7 @@ function App() {
   const [agencePourSession, setAgencePourSession] = useState<string | null>(null)
   // La fiche agence ouverte par-dessus n'importe quelle page (depuis le téléphone, l'agenda…).
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
+  const [ficheSurEtape, setFicheSurEtape] = useState(false)
   const naviguer = (p: PageId) => {
     setPage(p)
     if (!horsEspace(p)) setEspace(espaceDe(p))
@@ -45,7 +46,10 @@ function App() {
     setFicheOuverte(null)
     naviguer("sessions")
   }
-  const ouvrirAgence = (agenceId: string) => setFicheOuverte(agenceId)
+  const ouvrirAgence = (agenceId: string, options?: { etape?: boolean }) => {
+    setFicheSurEtape(Boolean(options?.etape))
+    setFicheOuverte(agenceId)
+  }
   const session = useSession()
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
@@ -104,7 +108,7 @@ function App() {
         </main>
       </div>
 
-      {ficheOuverte && <FicheAgence id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onOuvrirSession={ouvrirSession} />}
+      {ficheOuverte && <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => setFicheOuverte(null)} onOuvrirSession={ouvrirSession} />}
       <RappelsRdv />
       <TelephoneRingover onOuvrirAgence={ouvrirAgence} />
     </div>

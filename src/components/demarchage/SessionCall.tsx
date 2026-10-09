@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   ArrowRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Mail, Mic, MicOff, Phone, PhoneIncoming, PhoneOutgoing,
   Play, Plus, Search, SkipForward, Square, SquareCheck, StickyNote, type LucideIcon,
+  ArrowRightLeft,
 } from "lucide-react"
 import type { Prospect } from "../../data"
 import { entrantActif } from "../../lib/appelEntrantActif"
@@ -164,7 +165,7 @@ function LigneMessage({ m }: { m: Message }) {
   )
 }
 
-export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string) => void }) {
+export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string, options?: { etape?: boolean }) => void }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
 
@@ -1062,7 +1063,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                     {fiche.agence.adresse ? <div className="mt-1 text-legende text-encre-2">{fiche.agence.adresse}</div> : null}
                   </div>
                   {onOuvrirAgence ? (
-                    <Bouton variante="discret" icone={<ExternalLink />} onClick={() => onOuvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
+                    <div className="flex items-center gap-1">
+                      <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => onOuvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
+                      <Bouton variante="discret" icone={<ExternalLink />} onClick={() => onOuvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
+                    </div>
                   ) : null}
                 </div>
                 {directeId ? (

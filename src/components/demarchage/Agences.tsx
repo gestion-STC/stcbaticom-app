@@ -40,6 +40,7 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
   const [erreur, setErreur] = useState(supabaseConfigure ? "" : "Base non configurée.")
   const [info, setInfo] = useState("")
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
+  const [ficheSurEtape, setFicheSurEtape] = useState(false) // la fiche s'ouvre sur « Changer l'étape »
   const [nouvelle, setNouvelle] = useState(false)
   const [importOuvert, setImportOuvert] = useState(false)
   const [menuExport, setMenuExport] = useState(false)
@@ -226,7 +227,7 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
                   {visibles.map((a) => {
                     const retard = enRetard(a.prochaineEcheance, maintenant)
                     return (
-                      <Tr key={a.id} onClick={() => setFicheOuverte(a.id)}>
+                      <Tr key={a.id} onClick={() => { setFicheSurEtape(false); setFicheOuverte(a.id) }}>
                         <Td>
                           <div className="font-semibold text-encre">{a.nom}</div>
                           {a.enseigne ? <div className="text-legende text-encre-2">{a.enseigne}</div> : null}
@@ -242,7 +243,9 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
                           ) : <span className="text-encre-2">—</span>}
                         </Td>
                         <Td>
-                          <Pastille role={pastilleEtape(a.etape)} point>{libelleEtape(a.etape)}</Pastille>
+                          <button type="button" title="Changer l'étape" className="rounded-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature" onClick={(e) => { e.stopPropagation(); setFicheSurEtape(true); setFicheOuverte(a.id) }}>
+                            <Pastille role={pastilleEtape(a.etape)} point>{libelleEtape(a.etape)}</Pastille>
+                          </button>
                           <div className="mt-0.5 chiffres text-colonne text-encre-2">{depuisTexte(a.etapeDepuis, maintenant)}</div>
                         </Td>
                         <Td num className={a.tentatives >= SOMMEIL_APRES_TENTATIVES ? "text-alerte font-semibold" : ""}>{a.tentatives} / {SOMMEIL_APRES_TENTATIVES}</Td>
@@ -265,7 +268,7 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
                         <Td className="text-right">
                           <div className="flex justify-end gap-1">
                             <Bouton variante="discret" taille="icone" aria-label="Appeler" title={onOuvrirSession ? "Appeler dans une session" : "Appel indisponible ici"} icone={<Phone />} disabled={!onOuvrirSession} onClick={(e) => { e.stopPropagation(); onOuvrirSession?.(a.id) }} />
-                            <Bouton variante="discret" taille="icone" aria-label="Ouvrir" title="Ouvrir la fiche" icone={<ExternalLink />} onClick={(e) => { e.stopPropagation(); setFicheOuverte(a.id) }} />
+                            <Bouton variante="discret" taille="icone" aria-label="Ouvrir" title="Ouvrir la fiche" icone={<ExternalLink />} onClick={(e) => { e.stopPropagation(); setFicheSurEtape(false); setFicheOuverte(a.id) }} />
                           </div>
                         </Td>
                       </Tr>
@@ -291,7 +294,7 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
         </>
       ) : null}
 
-      {ficheOuverte ? <FicheAgence id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={recharger} onOuvrirSession={onOuvrirSession} /> : null}
+      {ficheOuverte ? <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => { setFicheOuverte(null); setFicheSurEtape(false) }} onChange={recharger} onOuvrirSession={onOuvrirSession} /> : null}
       {nouvelle ? <NouvelleAgence onFermer={() => setNouvelle(false)} onCree={(id) => { setNouvelle(false); setFicheOuverte(id); recharger() }} /> : null}
       {importOuvert ? <ImportAgences onFermer={() => setImportOuvert(false)} onImporte={() => { setImportOuvert(false); setInfo("Import terminé."); recharger() }} /> : null}
     </div>

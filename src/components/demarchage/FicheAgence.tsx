@@ -47,7 +47,9 @@ const ICONES: Record<TypeActivite, ReactNode> = {
 type Compte = { id: string; nom: string }
 type FormIdentite = { nom: string; enseigne: string; type: TypeAgence; secteur: string; adresse: string; telephone: string; email: string; site: string; nbLots: string; commercialId: string }
 
-export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession }: { id: string; onFermer: () => void; onChange?: () => void; onOuvrirSession?: (agenceId: string) => void }) {
+// `ouvrirEtape` : la fiche s'ouvre directement sur « Changer l'étape » (Mahdi, 09/10 :
+// « je vois pas comment changer les états »).
+export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, ouvrirEtape = false }: { id: string; onFermer: () => void; onChange?: () => void; onOuvrirSession?: (agenceId: string) => void; ouvrirEtape?: boolean }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
   const [donnees, setDonnees] = useState<AgenceComplete | null>(null)
@@ -59,7 +61,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession }:
   const [info, setInfo] = useState("")
   const [occupe, setOccupe] = useState(false)
   const [edition, setEdition] = useState<FormIdentite | null>(null)
-  const [dialogue, setDialogue] = useState<"etape" | "premierOs" | null>(null)
+  const [dialogue, setDialogue] = useState<"etape" | "premierOs" | null>(ouvrirEtape ? "etape" : null)
   const [fusionSource, setFusionSource] = useState<Agence | null>(null)
   const [contactEdite, setContactEdite] = useState<{ contact?: Contact } | null>(null)
   const [emailPour, setEmailPour] = useState<Contact | null | undefined>(undefined) // undefined = fermé ; null = l'adresse générique
@@ -151,13 +153,18 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession }:
             {agence.enseigne ? <Pastille>{agence.enseigne}</Pastille> : null}
             {agence.secteurLibelle ? <Pastille>{agence.secteurLibelle}</Pastille> : null}
             <Pastille>{libelleType(agence.type)}</Pastille>
-            <Pastille role={pastilleEtape(agence.etape)} point>{libelleEtape(agence.etape)}</Pastille>
+            <button type="button" title="Changer l'étape" className="rounded-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature" onClick={() => setDialogue("etape")}>
+              <Pastille role={pastilleEtape(agence.etape)} point>{libelleEtape(agence.etape)}</Pastille>
+            </button>
             <span className="text-colonne text-encre-2">{depuisTexte(agence.etapeDepuis, maintenant)}</span>
             <span className="chiffres text-colonne text-encre-2">· {pluriel(agence.tentatives, "tentative")} · joint {agence.jointFois} fois</span>
           </div>
-          {agence.type !== "apporteur" ? (
-            <Bouton variante="plein" icone={<Phone />} disabled={!onOuvrirSession} title={onOuvrirSession ? undefined : "Ouvre une session de call pour appeler"} onClick={() => onOuvrirSession?.(id)}>Appeler</Bouton>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <Bouton icone={<ArrowRightLeft />} disabled={occupe} onClick={() => setDialogue("etape")}>Changer l'étape</Bouton>
+            {agence.type !== "apporteur" ? (
+              <Bouton variante="plein" icone={<Phone />} disabled={!onOuvrirSession} title={onOuvrirSession ? undefined : "Ouvre une session de call pour appeler"} onClick={() => onOuvrirSession?.(id)}>Appeler</Bouton>
+            ) : null}
+          </div>
         </div>
       ) : null}
     >
