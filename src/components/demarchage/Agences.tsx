@@ -25,7 +25,8 @@ import ImportAgences from "./ImportAgences"
 const PAR_PAGE = 50
 const COMPTES_VIDES: Record<File, number> = { a_prospecter: 0, rappels: 0, sans_nouvelle: 0, a_reveiller: 0 }
 
-export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agenceId: string) => void }) {
+// `etapeInitiale` : la page s'ouvre filtrée sur cette étape (depuis Aujourd'hui, « Où en est la base »).
+export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onOuvrirSession?: (agenceId: string) => void; etapeInitiale?: string | null }) {
   const [agences, setAgences] = useState<Agence[]>([])
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [parEtape, setParEtape] = useState<Record<string, number>>({})
@@ -77,6 +78,12 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
     }
   }, [file, filtresServeur])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
+  // Arrivée depuis une autre page avec une étape à montrer.
+  useEffect(() => {
+    if (!etapeInitiale) return
+    const t = setTimeout(() => { setFile("toutes"); setFiltres({ ...FILTRES_VIDES, etape: etapeInitiale as FiltresLocaux["etape"] }); setPage(0) }, 0)
+    return () => clearTimeout(t)
+  }, [etapeInitiale])
   useEffect(() => {
     if (!supabaseConfigure) return
     const t = setTimeout(() => {
@@ -127,7 +134,24 @@ export default function Agences({ onOuvrirSession }: { onOuvrirSession?: (agence
     <div className="page">
       <EnTetePage
         titre="Agences"
-        sousTitre={sousTitreAgences(parEtape)}
+        sousTitre={
+          // Mahdi, 09/10 : « je ne les ai pas vus passer dans Intéressé » → chaque compteur ouvre la liste de cette étape.
+          <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+            <span>{sousTitreAgences(parEtape).split(" · ")[0]} ·</span>
+            {[...ETAPES, ...SORTIES].map((e, i) => {
+              const n = parEtape[e.code] ?? 0
+              const actif = file === "toutes" && filtres.etape === e.code
+              return (
+                <span key={e.code}>
+                  {i > 0 ? <span className="mr-1 text-encre-3">·</span> : null}
+                  <button type="button" onClick={() => { setFile("toutes"); majFiltres({ ...FILTRES_VIDES, etape: actif ? "" : e.code }) }} className={"chiffres rounded-3 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature " + (actif ? "font-semibold text-signature" : n ? "text-encre" : "text-encre-3")} title={`Voir les agences « ${e.libelle} »`}>
+                    {n} {e.libelle.toLowerCase()}
+                  </button>
+                </span>
+              )
+            })}
+          </span>
+        }
         droite={
           <>
             <Bouton icone={<Upload />} onClick={() => setImportOuvert(true)} disabled={!supabaseConfigure}>Importer un fichier</Bouton>

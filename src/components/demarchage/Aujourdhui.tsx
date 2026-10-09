@@ -42,10 +42,11 @@ const MOMENTS: { code: Exclude<MomentTache, "rdv" | "plusTard">; libelle: string
   { code: "cetApresMidi", libelle: "Cet après-midi" },
 ]
 
-export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer }: {
+export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer, onOuvrirEtape }: {
   onOuvrirSession?: (agenceId: string) => void
   onOuvrirAgence?: (agenceId: string) => void
   onNaviguer?: (page: "sessions" | "agences" | "agenda") => void
+  onOuvrirEtape?: (etape: string) => void // ouvre Agences filtrée sur cette étape
 }) {
   const [d, setD] = useState<Donnees | null>(null)
   // L'heure de la dernière lecture : tout (bornes, retards, « dans 2 h ») s'y rapporte,
@@ -272,17 +273,19 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
             <>
               <div className="flex h-7 w-full overflow-hidden rounded-4 border border-trait" role="img" aria-label={segments.map((x) => `${x.libelle} : ${x.n}`).join(", ")}>
                 {segments.filter((x) => x.n > 0).map((x) => (
-                  <div key={x.code} style={{ flexGrow: x.n, flexBasis: 0 }} title={`${x.libelle} : ${x.n} (${x.pct} %)`} className={`chiffres flex min-w-[3px] items-center justify-center overflow-hidden border-r border-fond text-colonne font-semibold last:border-r-0 ${x.fond} ${x.texte}`}>
+                  <button type="button" key={x.code} style={{ flexGrow: x.n, flexBasis: 0 }} title={`${x.libelle} : ${x.n} (${x.pct} %) · voir ces agences`} onClick={() => onOuvrirEtape?.(x.code)} className={`chiffres flex min-w-[3px] cursor-pointer items-center justify-center overflow-hidden border-r border-fond text-colonne font-semibold last:border-r-0 hover:brightness-95 ${x.fond} ${x.texte}`}>
                     {x.pct >= 5 ? x.n : ""}
-                  </div>
+                  </button>
                 ))}
               </div>
               <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-legende">
                 {segments.map((x) => (
-                  <li key={x.code} className="flex items-center gap-1.5">
-                    <span className={`h-2.5 w-2.5 rounded-3 border border-trait ${x.fond}`} />
-                    <span className="text-encre-2">{x.libelle}</span>
-                    <b className="chiffres font-semibold text-encre">{x.n}</b>
+                  <li key={x.code}>
+                    <button type="button" onClick={() => onOuvrirEtape?.(x.code)} title={`Voir les agences « ${x.libelle} »`} className="flex items-center gap-1.5 rounded-3 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">
+                      <span className={`h-2.5 w-2.5 rounded-3 border border-trait ${x.fond}`} />
+                      <span className="text-encre-2">{x.libelle}</span>
+                      <b className="chiffres font-semibold text-encre">{x.n}</b>
+                    </button>
                   </li>
                 ))}
               </ul>

@@ -34,6 +34,8 @@ function App() {
   // La fiche agence ouverte par-dessus n'importe quelle page (depuis le téléphone, l'agenda…).
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
   const [ficheSurEtape, setFicheSurEtape] = useState(false)
+  // Agences, ouverte sur une étape précise (depuis « Où en est la base »).
+  const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
   const naviguer = (p: PageId) => {
     setPage(p)
     if (!horsEspace(p)) setEspace(espaceDe(p))
@@ -45,6 +47,11 @@ function App() {
     setTimeout(() => setAgencePourSession(agenceId), 0)
     setFicheOuverte(null)
     naviguer("sessions")
+  }
+  const ouvrirAgencesEtape = (etape: string) => {
+    setEtapePourAgences(null)
+    setTimeout(() => setEtapePourAgences(etape), 0)
+    naviguer("agences")
   }
   const ouvrirAgence = (agenceId: string, options?: { etape?: boolean }) => {
     setFicheSurEtape(Boolean(options?.etape))
@@ -71,6 +78,7 @@ function App() {
         onNavigate={(p) => {
           // Depuis le menu, « Sessions de call » repart sur la file, pas sur une agence précise.
           if (p === "sessions") setAgencePourSession(null)
+          if (p === "agences") setEtapePourAgences(null)
           naviguer(p)
         }}
         session={session}
@@ -84,8 +92,8 @@ function App() {
         )}
 
         <main className="min-h-0 flex-1 overflow-y-auto bg-fond-2">
-          {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} />}
-          {page === "agences" && <Agences onOuvrirSession={ouvrirSession} />}
+          {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
+          {page === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
           {page === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
           {page === "apporteurs" && <Apporteurs />}
           {page === "messages" && <Messages espace="demarchage" />}
