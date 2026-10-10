@@ -8,6 +8,13 @@
 --  humain qui confirme sur la page Aujourd'hui (Mahdi, 10/10).
 -- ============================================================================
 
+-- 0) Garde-fou : si ce SQL est collé dans le mauvais projet, il s'arrête ici avec un message clair.
+do $$ begin
+  if to_regclass('public.agences') is null or to_regclass('cron.job') is null then
+    raise exception 'MAUVAIS PROJET : ce SQL se colle dans STCBATICOM (ifvrmsiwlwppinfdmeao), pas dans STC Bâtiment.';
+  end if;
+end $$;
+
 create table if not exists public.clients_signales (
   id                 uuid primary key default gen_random_uuid(),
   gestionnaire_id    uuid not null unique,               -- l'identifiant du gestionnaire côté STC Bâtiment

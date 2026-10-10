@@ -8,6 +8,13 @@
 --  une table privée que seul le serveur lit.
 -- ============================================================================
 
+-- 0) Garde-fou : si ce SQL est collé dans le mauvais projet, il s'arrête ici avec un message clair.
+do $$ begin
+  if to_regclass('public.ordres_service') is null then
+    raise exception 'MAUVAIS PROJET : ce SQL se colle dans STC BÂTIMENT (yytpxonzlhdevddpkjzy), pas dans Baticom.';
+  end if;
+end $$;
+
 -- 1) La clé partagée (la même est posée en secret côté Baticom).
 create table if not exists public.passerelle_cles (
   nom      text primary key,
