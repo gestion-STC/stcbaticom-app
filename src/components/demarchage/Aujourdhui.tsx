@@ -20,6 +20,7 @@ import {
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { listerComptes } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
+import ClientsAConfirmer from "./ClientsAConfirmer"
 
 const RAFRAICHIR_MS = 60_000
 const CLE_OBJECTIF = "objectif_os_mensuel"
@@ -198,6 +199,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
           onSelect={() => onNaviguer?.("sessions")}
         />
       </div>
+
+      {/* ── Les ordres de service reçus dans STC Bâtiment : à confirmer par un humain ── */}
+      <ClientsAConfirmer onOuvrirAgence={onOuvrirAgence} onDecision={() => charger()} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
         {/* ── À faire aujourd'hui ── */}

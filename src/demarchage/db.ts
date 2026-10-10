@@ -440,3 +440,59 @@ export async function conversionFaite(): Promise<boolean> {
   const { data } = await sb().from("parametres").select("valeur").eq("cle", "conversion_agences").maybeSingle()
   return Boolean((data as { valeur?: string } | null)?.valeur)
 }
+
+// ── Les clients signés, venus de STC Bâtiment (10/10) ──
+// La fonction serveur `synchro-clients` dépose une proposition par gestionnaire
+// qui a envoyé un ordre de service ; ici on la lit, et un humain tranche.
+export type CandidatClient = { agenceId: string; nom: string; secteur: string | null; score: number; raisons: string[] }
+export type ClientSignale = {
+  id: string; gestionnaireId: string; societe: string; nom: string; email: string; telephones: string[]; premierOsLe: string | null; premierOsNumero: string
+  dernierOsLe: string | null; nbOs: number; nomsAgence: string; codesPostaux: string; candidats: CandidatClient[]; statut: "a_confirmer" | "confirme" | "ignore" | "deja_client"
+  agenceId: string | null; decidePar: string; decideLe: string | null; creeLe: string
+}
+type LigneClientSignale = {
+  id: string; gestionnaire_id: string; societe: string; nom: string; email: string; telephones: string[] | null; premier_os_le: string | null; premier_os_numero: string
+  dernier_os_le: string | null; nb_os: number; noms_agence: string; codes_postaux: string; candidats: CandidatClient[] | null; statut: ClientSignale["statut"]
+  agence_id: string | null; decide_par: string; decide_le: string | null; cree_le: string
+}
+const COLONNES_CLIENT_SIGNALE = "id, gestionnaire_id, societe, nom, email, telephones, premier_os_le, premier_os_numero, dernier_os_le, nb_os, noms_agence, codes_postaux, candidats, statut, agence_id, decide_par, decide_le, cree_le"
+const versClientSignale = (l: LigneClientSignale): ClientSignale => ({
+  id: l.id, gestionnaireId: l.gestionnaire_id, societe: l.societe ?? "", nom: l.nom ?? "", email: l.email ?? "", telephones: l.telephones ?? [], premierOsLe: l.premier_os_le, premierOsNumero: l.premier_os_numero ?? "",
+  dernierOsLe: l.dernier_os_le, nbOs: l.nb_os ?? 0, nomsAgence: l.noms_agence ?? "", codesPostaux: l.codes_postaux ?? "", candidats: l.candidats ?? [], statut: l.statut,
+  agenceId: l.agence_id, decidePar: l.decide_par ?? "", decideLe: l.decide_le, creeLe: l.cree_le,
+})
+export async function chargerClientsAConfirmer(): Promise<ClientSignale[]> {
+  const { data, error } = await sb().from("clients_signales").select(COLONNES_CLIENT_SIGNALE).eq("statut", "a_confirmer").order("premier_os_le", { ascending: false })
+  if (error && /clients_signales/.test(error.message)) return [] // la table n'est pas encore posée : la carte reste vide
+  erreur(error)
+  return ((data ?? []) as LigneClientSignale[]).map(versClientSignale)
+}
+// « C'est elle » : l'agence passe cliente, datée du premier OS ; on garde une trace dans son fil, et le gestionnaire devient un contact s'il manque.
+export async function confirmerClientSignale(c: ClientSignale, agenceId: string, compteNom: string): Promise<void> {
+  const s = sb()
+  const date = (c.premierOsLe ?? new Date().toISOString()).slice(0, 10)
+  const { error: e1 } = await s.rpc("agence_premier_os", { p_agence_id: agenceId, p_date: date, p_source: "stc_batiment" })
+  erreur(e1)
+  if (c.email) {
+    const { data: deja } = await s.from("contacts").select("id").eq("agence_id", agenceId).ilike("email", c.email).limit(1)
+    if (!deja?.length) {
+      const [prenom, ...reste] = c.nom.trim().split(/\s+/)
+      await s.from("contacts").insert({ agence_id: agenceId, prenom: prenom ?? "", nom: reste.join(" "), role: "gestionnaire", email: c.email, ligne_directe: c.telephones[0] ?? "", mobile: c.telephones.find((t) => /^(\+33\s?|0)[67]/.test(t.replace(/[\s.]/g, ""))) ?? "", note: "Gestionnaire relevé sur les ordres de service STC Bâtiment." })
+    }
+  }
+  const quoi = c.premierOsNumero ? `OS ${c.premierOsNumero}` : "ordre de service"
+  await s.from("activites").insert({ agence_id: agenceId, type: "note", note: `Premier ${quoi} reçu dans STC Bâtiment le ${new Date(date).toLocaleDateString("fr-FR")} (${c.nbOs} OS au total). Confirmé par ${compteNom}.`, compte_nom: compteNom, source: "stc_batiment" })
+  const { error: e2 } = await s.from("clients_signales").update({ statut: "confirme", agence_id: agenceId, decide_par: compteNom, decide_le: new Date().toISOString(), maj_le: new Date().toISOString() }).eq("id", c.id)
+  erreur(e2)
+}
+export async function ignorerClientSignale(id: string, compteNom: string): Promise<void> {
+  const { error } = await sb().from("clients_signales").update({ statut: "ignore", decide_par: compteNom, decide_le: new Date().toISOString(), maj_le: new Date().toISOString() }).eq("id", id)
+  erreur(error)
+}
+// « Créer l'agence cliente » : une agence neuve, cliente d'emblée, avec le gestionnaire en contact.
+export async function creerAgenceCliente(c: ClientSignale, compteNom: string, secteur: string | null): Promise<string> {
+  const nom = (c.societe || c.nomsAgence.split("|")[0] || c.nom).trim()
+  const id = await creerAgence({ nom, secteur, telephone: c.telephones[0] ?? "", email: c.email })
+  await confirmerClientSignale(c, id, compteNom)
+  return id
+}
