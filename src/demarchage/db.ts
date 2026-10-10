@@ -7,6 +7,7 @@
 // `tache_terminer`) : une seule définition, côté serveur.
 // ════════════════════════════════════════════════════════════════════════════
 import { supabase } from "../lib/supabase"
+import { lireParLots } from "../lib/pagination"
 import type { Message } from "../lib/messagesDb"
 import {
   type Activite,
@@ -82,49 +83,56 @@ export async function chargerSecteurs(): Promise<Secteur[]> {
 // ── Agences : les listes ──
 export type FiltresAgences = { etape?: Etape | "actives" | ""; secteur?: string; type?: Agence["type"] | ""; enseigne?: string; recherche?: string; jamaisJointe?: boolean; avecContact?: boolean; limite?: number }
 
+// ⚠ PostgREST s'arrête à 1 000 lignes sans le dire (10/10 : « 1000 agences · 8 intéressées »
+// alors qu'il y en a 2 372 et 17). Toute lecture qui peut dépasser passe par lireParLots.
 export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> {
-  let q = sb().from("agences_liste").select(COLONNES_AGENCE).order("nom").limit(f.limite ?? 2000)
-  if (f.etape === "actives") q = q.in("etape", ["a_prospecter", "gestionnaire_joint", "interesse", "rdv_planifie", "client"])
-  else if (f.etape) q = q.eq("etape", f.etape)
-  if (f.secteur) q = q.eq("secteur", f.secteur)
-  if (f.type) q = q.eq("type", f.type)
-  else q = q.neq("type", "apporteur") // les apporteurs sont une archive : jamais dans les listes par défaut
-  if (f.enseigne) q = q.eq("enseigne", f.enseigne)
-  if (f.jamaisJointe) q = q.eq("joint_fois", 0)
-  if (f.avecContact) q = q.gt("nb_contacts", 0)
-  if (f.recherche?.trim()) {
-    const r = f.recherche.trim().replace(/[%,]/g, " ")
-    q = q.or(`nom.ilike.%${r}%,telephone.ilike.%${r}%,email.ilike.%${r}%,adresse.ilike.%${r}%,contact_principal.ilike.%${r}%`)
+  const requete = (de: number, a: number) => {
+    let q = sb().from("agences_liste").select(COLONNES_AGENCE).order("nom").order("id").range(de, a)
+    if (f.etape === "actives") q = q.in("etape", ["a_prospecter", "gestionnaire_joint", "interesse", "rdv_planifie", "client"])
+    else if (f.etape) q = q.eq("etape", f.etape)
+    if (f.secteur) q = q.eq("secteur", f.secteur)
+    if (f.type) q = q.eq("type", f.type)
+    else q = q.neq("type", "apporteur") // les apporteurs sont une archive : jamais dans les listes par défaut
+    if (f.enseigne) q = q.eq("enseigne", f.enseigne)
+    if (f.jamaisJointe) q = q.eq("joint_fois", 0)
+    if (f.avecContact) q = q.gt("nb_contacts", 0)
+    if (f.recherche?.trim()) {
+      const r = f.recherche.trim().replace(/[%,]/g, " ")
+      q = q.or(`nom.ilike.%${r}%,telephone.ilike.%${r}%,email.ilike.%${r}%,adresse.ilike.%${r}%,contact_principal.ilike.%${r}%`)
+    }
+    return q
   }
-  const { data, error } = await q
-  erreur(error)
-  return ((data ?? []) as LigneAgence[]).map(versAgence)
+  const limite = f.limite ?? 5000
+  if (limite <= 1000) {
+    const { data, error } = await requete(0, limite - 1)
+    erreur(error)
+    return ((data ?? []) as LigneAgence[]).map(versAgence)
+  }
+  const lignes = await lireParLots<LigneAgence>(requete)
+  return lignes.slice(0, limite).map(versAgence)
 }
 
 // Les quatre files. Le tri fin se fait ici (secteur du jour, jamais appelées…).
 export async function chargerFile(file: File, maintenant: Date, secteurDuJour: string | null = null): Promise<Agence[]> {
   const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
   const aujourdHui = jourLocal(maintenant)
-  const base = () => sb().from("agences_liste").select(COLONNES_AGENCE).neq("type", "apporteur").limit(3000)
+  // Lecture complète par lots (la file « À prospecter » dépasse 2 000 agences) ; le tri métier se fait en mémoire.
+  const base = (de: number, a: number) => sb().from("agences_liste").select(COLONNES_AGENCE).neq("type", "apporteur").order("id").range(de, a)
   if (file === "a_prospecter") {
-    const r = await base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null)
-    erreur(r.error)
-    return ordonnerAProspecter(((r.data ?? []) as LigneAgence[]).map(versAgence), secteurDuJour)
+    const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null))
+    return ordonnerAProspecter(lignes.map(versAgence), secteurDuJour)
   }
   if (file === "rappels") {
-    const r = await base().neq("etape", "hors_cible").lt("prochaine_echeance", finJour)
-    erreur(r.error)
-    return ordonnerRappels(((r.data ?? []) as LigneAgence[]).map(versAgence))
+    const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).neq("etape", "hors_cible").lt("prochaine_echeance", finJour))
+    return ordonnerRappels(lignes.map(versAgence))
   }
   if (file === "sans_nouvelle") {
     // « Intéressés » (10/10) : toutes les intéressées et les RDV, relance due d'abord.
-    const r = await base().in("etape", ["interesse", "rdv_planifie"])
-    erreur(r.error)
-    return ordonnerInteresses(((r.data ?? []) as LigneAgence[]).map(versAgence), maintenant)
+    const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).in("etape", ["interesse", "rdv_planifie"]))
+    return ordonnerInteresses(lignes.map(versAgence), maintenant)
   }
-  const r = await base().eq("etape", "endormie").lte("reveil_le", aujourdHui).order("reveil_le")
-  erreur(r.error)
-  return ((r.data ?? []) as LigneAgence[]).map(versAgence)
+  const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).eq("etape", "endormie").lte("reveil_le", aujourdHui))
+  return lignes.map(versAgence).sort((x, y) => (x.reveilLe ?? "").localeCompare(y.reveilLe ?? ""))
 }
 
 export async function compterFiles(maintenant: Date): Promise<Record<File, number>> {
@@ -141,11 +149,16 @@ export async function compterFiles(maintenant: Date): Promise<Record<File, numbe
 }
 
 export async function compterParEtape(): Promise<Record<string, number>> {
-  const { data, error } = await sb().from("agences").select("etape").neq("type", "apporteur").limit(10000)
-  erreur(error)
+  const lignes = await lireParLots<{ id: string; etape: string }>((de, a) => sb().from("agences").select("id, etape").neq("type", "apporteur").order("id").range(de, a))
   const out: Record<string, number> = {}
-  for (const l of (data ?? []) as { etape: string }[]) out[l.etape] = (out[l.etape] ?? 0) + 1
+  for (const l of lignes) out[l.etape] = (out[l.etape] ?? 0) + 1
   return out
+}
+// Les apporteurs d'affaires : une archive à part, jamais dans les files ni dans les comptes ci-dessus.
+export async function compterApporteurs(): Promise<number> {
+  const { count, error } = await sb().from("agences").select("id", { count: "exact", head: true }).eq("type", "apporteur")
+  erreur(error)
+  return count ?? 0
 }
 
 // ── Une agence, complète ──
@@ -361,15 +374,14 @@ export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCo
 // dont ce compte est responsable (Mahdi, 10/10 : « un classement, ça donne envie »).
 export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   const s = sb()
+  type LigneAppel = { id: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }
   const [appels, os] = await Promise.all([
-    s.from("activites").select("compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).limit(20000),
-    s.from("agences").select("commercial_id").not("premier_os_le", "is", null).gte("premier_os_le", de.toISOString().slice(0, 10)).lt("premier_os_le", a.toISOString().slice(0, 10)).limit(5000),
+    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
+    lireParLots<{ id: string; commercial_id: string | null }>((d, f) => s.from("agences").select("id, commercial_id").not("premier_os_le", "is", null).gte("premier_os_le", de.toISOString().slice(0, 10)).lt("premier_os_le", a.toISOString().slice(0, 10)).order("id").range(d, f)),
   ])
-  erreur(appels.error)
-  erreur(os.error)
   const par = new Map<string, StatsCompte>()
   const cle = (id: string | null, nom: string) => id ?? `nom:${nom}`
-  for (const l of (appels.data ?? []) as { compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }[]) {
+  for (const l of appels) {
     const nom = l.compte_nom || "(sans compte)"
     const k = cle(l.compte_id, nom)
     const st = par.get(k) ?? STATS_VIDES(l.compte_id, nom)
@@ -381,7 +393,7 @@ export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
     st.dureeS += l.duree_s ?? 0
     par.set(k, st)
   }
-  for (const l of (os.data ?? []) as { commercial_id: string | null }[]) {
+  for (const l of os) {
     if (!l.commercial_id) continue
     const st = par.get(l.commercial_id) ?? STATS_VIDES(l.commercial_id, "")
     st.premiersOs++
@@ -398,10 +410,9 @@ export async function compterPremiersOs(de: Date, a: Date): Promise<number> {
 // Les appels sortants du jour par numéro d'émission (jauge anti-spam : sur les appels réels).
 export async function compterAppelsDuJourParNumero(maintenant: Date): Promise<Map<string, number>> {
   const debut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).toISOString()
-  const { data, error } = await sb().from("activites").select("numero_utilise").eq("type", "appel").eq("sens", "sortant").gte("date", debut).limit(5000)
-  erreur(error)
+  const lignes = await lireParLots<{ id: string; numero_utilise: string }>((de, a) => sb().from("activites").select("id, numero_utilise").eq("type", "appel").eq("sens", "sortant").gte("date", debut).order("id").range(de, a))
   const out = new Map<string, number>()
-  for (const l of (data ?? []) as { numero_utilise: string }[]) {
+  for (const l of lignes) {
     const n = chiffres(l.numero_utilise)
     if (n) out.set(n, (out.get(n) ?? 0) + 1)
   }
@@ -410,9 +421,8 @@ export async function compterAppelsDuJourParNumero(maintenant: Date): Promise<Ma
 // Les agences appelées aujourd'hui (pour ne pas les ressortir dans la file).
 export async function agencesAppeleesAujourdHui(maintenant: Date): Promise<Set<string>> {
   const debut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).toISOString()
-  const { data, error } = await sb().from("activites").select("agence_id").eq("type", "appel").gte("date", debut).limit(5000)
-  erreur(error)
-  return new Set(((data ?? []) as { agence_id: string }[]).map((l) => l.agence_id))
+  const lignes = await lireParLots<{ id: string; agence_id: string }>((de, a) => sb().from("activites").select("id, agence_id").eq("type", "appel").gte("date", debut).order("id").range(de, a))
+  return new Set(lignes.map((l) => l.agence_id))
 }
 
 // ── Reconnaître qui appelle (appels entrants) ──

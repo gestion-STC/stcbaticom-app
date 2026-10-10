@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus, Upload } from "lucide-react"
 import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape, SOMMEIL_APRES_TENTATIVES } from "../../demarchage/modele"
-import { chargerAgences, chargerFile, chargerSecteurs, compterFiles, compterParEtape, type FiltresAgences } from "../../demarchage/db"
+import { chargerAgences, chargerFile, chargerSecteurs, compterApporteurs, compterFiles, compterParEtape, type FiltresAgences } from "../../demarchage/db"
 import {
   FILTRES_VIDES, type CleTri, type FileOuToutes, type FiltresLocaux, type Tri, basculerTri, dateCourte, depuisTexte, enRetard, enseignesDistinctes, filtrerAgences, ilYA, messageErreur, pluriel,
   secteursParZone, sousTitreAgences, trierAgences,
@@ -30,6 +30,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   const [agences, setAgences] = useState<Agence[]>([])
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [parEtape, setParEtape] = useState<Record<string, number>>({})
+  const [apporteurs, setApporteurs] = useState(0)
   const [parFile, setParFile] = useState<Record<File, number>>(COMPTES_VIDES)
   const [file, setFile] = useState<FileOuToutes>("toutes")
   const [filtres, setFiltres] = useState<FiltresLocaux>(FILTRES_VIDES)
@@ -61,7 +62,8 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
 
   const chargerCompteurs = useCallback(async () => {
     const quand = new Date()
-    const [e, f] = await Promise.all([compterParEtape(), compterFiles(quand)])
+    const [e, f, ap] = await Promise.all([compterParEtape(), compterFiles(quand), compterApporteurs().catch(() => 0)])
+    setApporteurs(ap)
     setParEtape(e); setParFile(f)
   }, [])
 
@@ -150,6 +152,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
                 </span>
               )
             })}
+            {apporteurs ? <span className="chiffres text-encre-3"><span className="mr-1">·</span>{apporteurs} apporteurs d'affaires à part</span> : null}
           </span>
         }
         droite={
