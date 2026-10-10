@@ -298,11 +298,17 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     if (!enVie.current) return
     setSecteurs(sect)
     setCompteurs(cpt)
+    // Le matin (Mahdi, 10/10) : d'abord « À rappeler aujourd'hui » s'il y en a, puis « À prospecter ».
+    if (premierReperes.current) {
+      premierReperes.current = false
+      if (cpt.rappels > 0) setFile("rappels")
+    }
     setAppelees(app)
     setCompteursNumero(parNumero)
     if (res) setReserve(res)
     setMaintenant(Date.now())
   }, [])
+  const premierReperes = useRef(true)
 
   // La file : rechargée quand on change de file, de secteur, ou la case des déjà appelées.
   const chargerLaFile = useCallback(async () => {
@@ -1056,7 +1062,16 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           {!agenceCouranteId ? (
             <Carte>
               {fileTerminee ? (
-                <Vide titre="File terminée" texte="Toutes les agences de cette file ont été vues. Change de file ou de secteur, ou reviens en arrière." action={<Bouton icone={<ChevronLeft />} onClick={reculer}>Revenir à la dernière</Bouton>} />
+                <Vide
+                  titre="Pile terminée"
+                  texte={file === "a_prospecter" ? "Toutes les agences de cette pile ont été vues. Change de secteur, ou reviens en arrière." : "Toutes les agences de cette pile ont été vues. Enchaîne sur « À prospecter », ou reviens en arrière."}
+                  action={
+                    <>
+                      {file !== "a_prospecter" ? <Bouton variante="plein" icone={<ChevronRight />} onClick={() => { setFile("a_prospecter"); setEtapeFiltre("") }}>Enchaîner sur « À prospecter »</Bouton> : null}
+                      <Bouton icone={<ChevronLeft />} onClick={reculer}>Revenir à la dernière</Bouton>
+                    </>
+                  }
+                />
               ) : (
                 <Vide titre="Aucune agence en cours" texte={chargementFile ? "La file se charge…" : "Choisis une file à gauche, ou cherche une agence pour l'appeler directement."} />
               )}

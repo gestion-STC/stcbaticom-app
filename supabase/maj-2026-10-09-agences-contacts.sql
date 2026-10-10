@@ -229,7 +229,7 @@ begin
     if p_issue = 'interesse' then
       if a.etape in ('a_prospecter', 'gestionnaire_joint', 'pas_interesse', 'endormie', 'hors_cible') then v_etape := 'interesse'; end if;
       insert into public.activites (agence_id, contact_id, type, date, echeance, compte_id, compte_nom, titre, source)
-      values (p_agence_id, p_contact_id, 'tache', now(), date_trunc('day', now()) + (v_relance_jours || ' days')::interval + interval '10 hours', v_compte, p_compte_nom,
+      values (p_agence_id, p_contact_id, 'tache', now(), (date_trunc('day', now() at time zone 'Europe/Paris') + (v_relance_jours || ' days')::interval + interval '10 hours') at time zone 'Europe/Paris', v_compte, p_compte_nom,
               'Relancer' || case when v_contact <> '' then ' ' || v_contact else '' end, coalesce(p_source, 'session'))
       returning id into v_tache;
     elsif p_issue = 'rdv' then
@@ -241,7 +241,7 @@ begin
     elsif p_issue = 'a_rappeler' then
       if a.etape in ('a_prospecter', 'endormie') then v_etape := 'gestionnaire_joint'; end if;
       insert into public.activites (agence_id, contact_id, type, date, echeance, compte_id, compte_nom, titre, source)
-      values (p_agence_id, p_contact_id, 'tache', now(), coalesce(p_rappel_le, date_trunc('day', now()) + interval '1 day 10 hours'), v_compte, p_compte_nom,
+      values (p_agence_id, p_contact_id, 'tache', now(), coalesce(p_rappel_le, (date_trunc('day', now() at time zone 'Europe/Paris') + interval '1 day 10 hours') at time zone 'Europe/Paris'), v_compte, p_compte_nom,
               'Rappeler' || case when v_contact <> '' then ' ' || v_contact else '' end, coalesce(p_source, 'session'))
       returning id into v_tache;
     elsif p_issue = 'pas_interesse' then
