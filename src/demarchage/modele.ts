@@ -223,10 +223,13 @@ export function numeroParDefaut(agence: Pick<Agence, "telephone">, contacts: Con
 
 // ── Les quatre files ──
 export type File = "a_prospecter" | "rappels" | "sans_nouvelle" | "a_reveiller"
+// Mahdi, 10/10 : « intéressé » ne doit vouloir dire qu'une chose. La pile
+// « Intéressés » = TOUTES les agences intéressées ou en RDV (relance due en
+// premier), plus de condition « sans nouvelle depuis 7 jours » qui les cachait.
 export const FILES: { code: File; libelle: string; aide: string }[] = [
   { code: "a_prospecter", libelle: "À prospecter", aide: "Jamais jointes d'abord, puis la tentative la plus ancienne" },
-  { code: "rappels", libelle: "Rappels du jour", aide: "Les tâches datées d'aujourd'hui ou en retard" },
-  { code: "sans_nouvelle", libelle: "Intéressés sans nouvelle", aide: `Intéressé ou RDV, rien depuis ${SANS_NOUVELLE_JOURS} jours` },
+  { code: "rappels", libelle: "À rappeler aujourd'hui", aide: "Les rappels et relances datés d'aujourd'hui ou en retard" },
+  { code: "sans_nouvelle", libelle: "Intéressés", aide: "Toutes les agences intéressées ou en RDV, relance due d'abord" },
   { code: "a_reveiller", libelle: "À réveiller", aide: "Endormies dont la date de réveil est passée" },
 ]
 
@@ -250,10 +253,7 @@ export function fileDe(a: Agence, maintenant: Date): File | null {
   if (a.etape === "endormie") {
     return a.reveilLe && a.reveilLe.slice(0, 10) <= jourLocal(maintenant) ? "a_reveiller" : null
   }
-  if (a.etape === "interesse" || a.etape === "rdv_planifie") {
-    const derniere = a.derniereActiviteLe ? new Date(a.derniereActiviteLe).getTime() : 0
-    return echeance === null && maintenant.getTime() - derniere >= SANS_NOUVELLE_JOURS * JOUR_MS ? "sans_nouvelle" : null
-  }
+  if (a.etape === "interesse" || a.etape === "rdv_planifie") return "sans_nouvelle"
   if (a.etape === "a_prospecter" || a.etape === "gestionnaire_joint") {
     if (echeance !== null) return null // une tâche future : on attend sa date
     return "a_prospecter"
@@ -282,6 +282,22 @@ export function ordonnerAProspecter(agences: Agence[], secteurDuJour: string | n
 // L'ordre des rappels : en retard d'abord, puis par heure.
 export function ordonnerRappels(agences: Agence[]): Agence[] {
   return [...agences].sort((x, y) => (x.prochaineEcheance ?? "") < (y.prochaineEcheance ?? "") ? -1 : 1)
+}
+
+// L'ordre des intéressés : relance due (en retard ou aujourd'hui) d'abord, puis
+// celles sans rien de prévu (les plus anciennes en premier), puis les relances à venir.
+export function ordonnerInteresses(agences: Agence[], maintenant: Date): Agence[] {
+  const fin = finDeJour(maintenant)
+  const rang = (a: Agence) => {
+    if (!a.prochaineEcheance) return 1
+    return new Date(a.prochaineEcheance).getTime() < fin ? 0 : 2
+  }
+  return [...agences].sort((x, y) => {
+    const rx = rang(x), ry = rang(y)
+    if (rx !== ry) return rx - ry
+    if (rx === 1) return (x.derniereActiviteLe ?? "") < (y.derniereActiviteLe ?? "") ? -1 : 1
+    return (x.prochaineEcheance ?? "") < (y.prochaineEcheance ?? "") ? -1 : 1
+  })
 }
 
 // Une agence déjà appelée aujourd'hui ne ressort pas (sauf tâche datée).

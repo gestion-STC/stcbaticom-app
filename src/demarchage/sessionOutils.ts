@@ -39,7 +39,7 @@ export type OptionsFile = {
 }
 
 // La file telle qu'on l'appelle : l'ordre de `chargerFile` est gardé, on retire
-// celles appelées ce matin (sauf dans « Rappels du jour » : une tâche datée est
+// celles appelées ce matin (sauf dans « À rappeler aujourd'hui » : une tâche datée est
 // une tâche datée) et on ne compose jamais deux fois le même standard dans la
 // même session — deux fiches derrière le même numéro tomberaient sur la même
 // personne deux fois.

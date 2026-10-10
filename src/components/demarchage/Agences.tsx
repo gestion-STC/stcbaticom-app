@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // AGENCES — la liste principale du démarchage.
 //
-// Quatre FILES (À prospecter · Rappels du jour · Intéressés sans nouvelle ·
+// Quatre FILES (À prospecter · À rappeler aujourd'hui · Intéressés ·
 // À réveiller) et « Toutes », en compteurs cliquables ; une barre de filtres ;
 // un tableau paginé (50 par page, comme la boîte de réception). Une ligne
 // s'ouvre dans la fiche (volet à droite) ; « Appeler » envoie dans une session

@@ -18,10 +18,10 @@ import {
   type Motif,
   type Resultat,
   type Secteur,
-  SANS_NOUVELLE_JOURS,
   jourLocal,
   nomCle,
   ordonnerAProspecter,
+  ordonnerInteresses,
   ordonnerRappels,
 } from "./modele"
 
@@ -117,10 +117,10 @@ export async function chargerFile(file: File, maintenant: Date, secteurDuJour: s
     return ordonnerRappels(((r.data ?? []) as LigneAgence[]).map(versAgence))
   }
   if (file === "sans_nouvelle") {
-    const limite = new Date(maintenant.getTime() - SANS_NOUVELLE_JOURS * 24 * 3600 * 1000).toISOString()
-    const r = await base().in("etape", ["interesse", "rdv_planifie"]).is("prochaine_echeance", null).or(`derniere_activite_le.is.null,derniere_activite_le.lt.${limite}`).order("derniere_activite_le", { ascending: true, nullsFirst: true })
+    // « Intéressés » (10/10) : toutes les intéressées et les RDV, relance due d'abord.
+    const r = await base().in("etape", ["interesse", "rdv_planifie"])
     erreur(r.error)
-    return ((r.data ?? []) as LigneAgence[]).map(versAgence)
+    return ordonnerInteresses(((r.data ?? []) as LigneAgence[]).map(versAgence), maintenant)
   }
   const r = await base().eq("etape", "endormie").lte("reveil_le", aujourdHui).order("reveil_le")
   erreur(r.error)
@@ -130,12 +130,11 @@ export async function chargerFile(file: File, maintenant: Date, secteurDuJour: s
 export async function compterFiles(maintenant: Date): Promise<Record<File, number>> {
   const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
   const aujourdHui = jourLocal(maintenant)
-  const limite = new Date(maintenant.getTime() - SANS_NOUVELLE_JOURS * 24 * 3600 * 1000).toISOString()
   const base = () => sb().from("agences_liste").select("id", { count: "exact", head: true }).neq("type", "apporteur")
   const [a, b, c, d] = await Promise.all([
     base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null),
     base().neq("etape", "hors_cible").lt("prochaine_echeance", finJour),
-    base().in("etape", ["interesse", "rdv_planifie"]).is("prochaine_echeance", null).or(`derniere_activite_le.is.null,derniere_activite_le.lt.${limite}`),
+    base().in("etape", ["interesse", "rdv_planifie"]),
     base().eq("etape", "endormie").lte("reveil_le", aujourdHui),
   ])
   return { a_prospecter: a.count ?? 0, rappels: b.count ?? 0, sans_nouvelle: c.count ?? 0, a_reveiller: d.count ?? 0 }

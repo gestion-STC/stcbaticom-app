@@ -333,7 +333,7 @@ function DialogueCreation({ type, compteNom, jourParDefaut, onFermer, onCree }: 
   return (
     <Dialogue
       titre={type === "rdv" ? "Nouveau RDV" : "Nouvelle tâche"}
-      description={type === "rdv" ? "Le rendez-vous ira dans l'agenda et dans le fil de l'agence." : "Une tâche datée : elle ressortira dans « Rappels du jour » à sa date."}
+      description={type === "rdv" ? "Le rendez-vous ira dans l'agenda et dans le fil de l'agence." : "Une tâche datée : elle ressortira dans « À rappeler aujourd'hui » à sa date."}
       onFermer={onFermer}
       largeur="max-w-xl"
       pied={<><Bouton onClick={onFermer}>Annuler</Bouton><Bouton variante="plein" type="submit" form="form-creation" chargement={occupe}>{type === "rdv" ? "Créer le RDV" : "Créer la tâche"}</Bouton></>}

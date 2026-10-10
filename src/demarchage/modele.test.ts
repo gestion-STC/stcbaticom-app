@@ -7,6 +7,7 @@ import {
   nomCle,
   numeroParDefaut,
   ordonnerAProspecter,
+  ordonnerInteresses,
   secteurDepuis,
   type Agence,
   type Contact,
@@ -71,9 +72,19 @@ describe("fileDe", () => {
   it("une tâche future met l'agence en attente, hors des files", () => {
     expect(fileDe(agence({ prochaineEcheance: "2026-10-20T10:00:00" }), midi)).toBeNull()
   })
-  it("une intéressée sans nouvelle depuis 7 jours remonte", () => {
+  it("une intéressée est toujours dans la pile des intéressés (sauf relance due : rappels)", () => {
     expect(fileDe(agence({ etape: "interesse", derniereActiviteLe: "2026-10-01T10:00:00Z" }), midi)).toBe("sans_nouvelle")
-    expect(fileDe(agence({ etape: "interesse", derniereActiviteLe: "2026-10-08T10:00:00Z" }), midi)).toBeNull()
+    expect(fileDe(agence({ etape: "interesse", derniereActiviteLe: "2026-10-08T10:00:00Z", prochaineEcheance: "2026-10-16T12:00:00" }), midi)).toBe("sans_nouvelle")
+    expect(fileDe(agence({ etape: "rdv_planifie", prochaineEcheance: "2026-10-20T10:00:00" }), midi)).toBe("sans_nouvelle")
+  })
+  it("les intéressés se classent : relance due, puis rien de prévu, puis relance à venir", () => {
+    const liste = [
+      agence({ id: "a-venir", etape: "interesse", prochaineEcheance: "2026-10-16T12:00:00" }),
+      agence({ id: "rien-recent", etape: "interesse", derniereActiviteLe: "2026-10-08T10:00:00Z" }),
+      agence({ id: "en-retard", etape: "interesse", prochaineEcheance: "2026-10-07T10:00:00" }),
+      agence({ id: "rien-ancien", etape: "interesse", derniereActiviteLe: "2026-09-01T10:00:00Z" }),
+    ]
+    expect(ordonnerInteresses(liste, midi).map((a) => a.id)).toEqual(["en-retard", "rien-ancien", "rien-recent", "a-venir"])
   })
   it("une endormie ne revient qu'à sa date de réveil", () => {
     expect(fileDe(agence({ etape: "endormie", reveilLe: "2026-12-08" }), midi)).toBeNull()
