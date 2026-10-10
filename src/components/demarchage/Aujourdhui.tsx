@@ -228,15 +228,10 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         </Carte>
 
         <div className="grid content-start gap-4">
-          {/* ── Le classement des commerciaux (tout le monde, même à zéro) ── */}
+          {/* ── L'objectif du mois ── */}
           <Carte>
-            <TitreCarte>Classement des commerciaux</TitreCarte>
-            <div className="px-5 pb-3">
-              <Onglets valeur={periode} onChange={setPeriode} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />
-            </div>
-            <TableauStats stats={d.classements[periode]} vide="Aucun appel sur cette période." />
-            <div className="border-t border-trait px-5 pb-5 pt-4">
-              <div className="mb-2 text-legende text-encre-2">{maintenant.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</div>
+            <TitreCarte droite={<span className="text-legende text-encre-2">{maintenant.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>}>Objectif du mois</TitreCarte>
+            <div className="px-5 pb-5">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-legende font-medium text-encre">Premiers OS reçus</span>
                 {editionObjectif ? (
@@ -264,6 +259,12 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
           </Carte>
         </div>
       </div>
+
+      {/* ── Le classement des commerciaux : tout le monde, même à zéro, pleine largeur ── */}
+      <Carte className="mt-4">
+        <TitreCarte droite={<Onglets valeur={periode} onChange={setPeriode} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />}>Classement des commerciaux</TitreCarte>
+        <TableauStats stats={d.classements[periode]} vide="Aucun appel sur cette période." />
+      </Carte>
 
       {/* ── Où en est la base ── */}
       <Carte className="mt-4">
