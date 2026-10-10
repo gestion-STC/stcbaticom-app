@@ -12,12 +12,14 @@ import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, V
 import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, statsAppels, terminerTache, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
-  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuJour, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuJour, finDuMois,
+  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
   grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxJoints, totalStats, type MomentTache,
+  PERIODES, bornesPeriode, classer, type Periode,
   majusculeInitiale,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
+import { listerComptes } from "../../lib/comptes"
+import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
 
 const RAFRAICHIR_MS = 60_000
 const CLE_OBJECTIF = "objectif_os_mensuel"
@@ -27,8 +29,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 type Donnees = {
   files: Record<File, number>
   taches: TacheAgenda[]
-  statsJour: StatsCompte[]
-  statsMois: StatsCompte[]
+  classements: Record<Periode, StatsCompte[]> // tout le monde, classé, pour chaque période
   osRecus: number
   objectif: number
   parEtape: Record<string, number>
@@ -56,25 +57,28 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const [occupe, setOccupe] = useState(false)
   const [report, setReport] = useState<{ tache: TacheAgenda; jour: string; heure: string } | null>(null)
   const [editionObjectif, setEditionObjectif] = useState(false)
+  const [periode, setPeriode] = useState<Periode>("mois")
   const [saisieObjectif, setSaisieObjectif] = useState("")
   const enVie = useRef(true)
 
   const charger = useCallback(async () => {
     const now = new Date()
     try {
-      const [files, taches, statsJour, statsMois, osRecus, objectifBrut, parEtape, jamaisJointes, reveils] = await Promise.all([
+      // Les comptes du logiciel (réservé aux administrateurs : un télépro verra ceux qui ont des appels).
+      const comptes = await listerComptes().then((l) => l.map((c) => ({ id: c.id, nom: c.nom || c.email }))).catch(() => [] as { id: string; nom: string }[])
+      const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
         compterFiles(now),
         chargerTachesDuJour(now),
-        statsAppels(debutDuJour(now), finDuJour(now)),
-        statsAppels(debutDuMois(now), finDuMois(now)),
         compterPremiersOs(debutDuMois(now), finDuMois(now)),
         lireParametre(CLE_OBJECTIF),
         compterParEtape(),
         compterAgencesJamaisJointes(),
         compterReveils(debutDeSemaine(now), finDeSemaine(now)),
+        ...PERIODES.map((p) => { const b = bornesPeriode(p.code, now); return statsAppels(b.de, b.a) }),
       ])
       if (!enVie.current) return
-      setD({ files, taches, statsJour, statsMois, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
+      const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes)])) as Record<Periode, StatsCompte[]>
+      setD({ files, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
       setMaintenant(now)
       setErreur("")
     } catch (e) {
@@ -224,17 +228,15 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         </Carte>
 
         <div className="grid content-start gap-4">
-          {/* ── Aujourd'hui, par commercial ── */}
+          {/* ── Le classement des commerciaux (tout le monde, même à zéro) ── */}
           <Carte>
-            <TitreCarte>Aujourd'hui, par commercial</TitreCarte>
-            <TableauStats stats={d.statsJour} vide="Aucun appel passé aujourd'hui." />
-          </Carte>
-
-          {/* ── Ce mois-ci + objectif ── */}
-          <Carte>
-            <TitreCarte droite={<span className="text-legende text-encre-2">{maintenant.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>}>Ce mois-ci</TitreCarte>
-            <TableauStats stats={d.statsMois} vide="Aucun appel passé ce mois-ci." />
+            <TitreCarte>Classement des commerciaux</TitreCarte>
+            <div className="px-5 pb-3">
+              <Onglets valeur={periode} onChange={setPeriode} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />
+            </div>
+            <TableauStats stats={d.classements[periode]} vide="Aucun appel sur cette période." />
             <div className="border-t border-trait px-5 pb-5 pt-4">
+              <div className="mb-2 text-legende text-encre-2">{maintenant.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-legende font-medium text-encre">Premiers OS reçus</span>
                 {editionObjectif ? (
@@ -320,27 +322,29 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   )
 }
 
-/** Une ligne par compte : appels, joints (et le taux), intéressés, RDV, pas intéressés, temps de parole. */
+/** Le classement : rang, commercial, appels, joints (et le taux), intéressés, RDV, pas intéressés, premiers OS, temps de parole. */
 function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
   if (stats.length === 0) return <p className="px-5 pb-4 text-legende text-encre-2">{vide}</p>
   const total = totalStats(stats)
-  const ligne = (x: StatsCompte, gras = false) => (
-    <tr key={x.compteNom} className={gras ? "font-semibold" : ""}>
-      <Td className="truncate">{x.compteNom}</Td>
+  const ligne = (x: StatsCompte, rang: number | null) => (
+    <tr key={x.compteId ?? x.compteNom} className={rang === null ? "font-semibold" : rang === 1 && x.appels > 0 ? "bg-signature-doux/40" : ""}>
+      <Td num className="w-10 text-encre-2">{rang === null ? "" : rang === 1 && x.appels > 0 ? <span className="font-semibold text-signature">1er</span> : `${rang}e`}</Td>
+      <Td className="truncate font-medium">{x.compteNom}</Td>
       <Td num>{x.appels}</Td>
       <Td num>{x.joints} <span className="text-encre-2">· {tauxJoints(x)} %</span></Td>
       <Td num>{x.interesses}</Td>
       <Td num>{x.rdv}</Td>
       <Td num>{x.pasInteresses}</Td>
+      <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : ""}>{x.premiersOs}</Td>
       <Td num>{dureeLisible(x.dureeS) || "—"}</Td>
     </tr>
   )
   return (
     <Tableau className="pb-2">
-      <thead><tr><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num>Parole</Th></tr></thead>
+      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num>1ers OS</Th><Th num>Parole</Th></tr></thead>
       <tbody>
-        {stats.map((x) => ligne(x))}
-        {stats.length > 1 ? ligne(total, true) : null}
+        {stats.map((x, i) => ligne(x, i + 1))}
+        {stats.length > 1 ? ligne(total, null) : null}
       </tbody>
     </Tableau>
   )

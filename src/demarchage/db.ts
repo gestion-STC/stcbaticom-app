@@ -354,21 +354,38 @@ export async function chargerTachesDuJour(maintenant: Date): Promise<TacheAgenda
 }
 
 // ── Qui a fait quoi aujourd'hui (et sur une période) ──
-export type StatsCompte = { compteNom: string; appels: number; joints: number; interesses: number; rdv: number; pasInteresses: number; dureeS: number }
+export type StatsCompte = { compteId: string | null; compteNom: string; appels: number; joints: number; interesses: number; rdv: number; pasInteresses: number; premiersOs: number; dureeS: number }
+export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCompte => ({ compteId, compteNom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 })
+
+// Les appels SORTANTS d'une période, par compte, plus les premiers OS des agences
+// dont ce compte est responsable (Mahdi, 10/10 : « un classement, ça donne envie »).
 export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
-  const { data, error } = await sb().from("activites").select("compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).limit(20000)
-  erreur(error)
+  const s = sb()
+  const [appels, os] = await Promise.all([
+    s.from("activites").select("compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).limit(20000),
+    s.from("agences").select("commercial_id").not("premier_os_le", "is", null).gte("premier_os_le", de.toISOString().slice(0, 10)).lt("premier_os_le", a.toISOString().slice(0, 10)).limit(5000),
+  ])
+  erreur(appels.error)
+  erreur(os.error)
   const par = new Map<string, StatsCompte>()
-  for (const l of (data ?? []) as { compte_nom: string; resultat: string; issue: string; duree_s: number | null }[]) {
+  const cle = (id: string | null, nom: string) => id ?? `nom:${nom}`
+  for (const l of (appels.data ?? []) as { compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }[]) {
     const nom = l.compte_nom || "(sans compte)"
-    const s = par.get(nom) ?? { compteNom: nom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, dureeS: 0 }
-    s.appels++
-    if (l.resultat === "joint") s.joints++
-    if (l.issue === "interesse") s.interesses++
-    if (l.issue === "rdv") s.rdv++
-    if (l.issue === "pas_interesse") s.pasInteresses++
-    s.dureeS += l.duree_s ?? 0
-    par.set(nom, s)
+    const k = cle(l.compte_id, nom)
+    const st = par.get(k) ?? STATS_VIDES(l.compte_id, nom)
+    st.appels++
+    if (l.resultat === "joint") st.joints++
+    if (l.issue === "interesse") st.interesses++
+    if (l.issue === "rdv") st.rdv++
+    if (l.issue === "pas_interesse") st.pasInteresses++
+    st.dureeS += l.duree_s ?? 0
+    par.set(k, st)
+  }
+  for (const l of (os.data ?? []) as { commercial_id: string | null }[]) {
+    if (!l.commercial_id) continue
+    const st = par.get(l.commercial_id) ?? STATS_VIDES(l.commercial_id, "")
+    st.premiersOs++
+    par.set(l.commercial_id, st)
   }
   return [...par.values()].sort((x, y) => y.appels - x.appels)
 }

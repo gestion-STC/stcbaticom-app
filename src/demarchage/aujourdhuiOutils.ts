@@ -182,11 +182,49 @@ export function tauxJoints(s: Pick<StatsCompte, "appels" | "joints">): number {
 }
 /** La ligne « Total » d'un tableau par commercial. */
 export function totalStats(stats: StatsCompte[]): StatsCompte {
-  const t: StatsCompte = { compteNom: "Total", appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, dureeS: 0 }
+  const t: StatsCompte = { compteId: null, compteNom: "Total", appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
   for (const s of stats) {
-    t.appels += s.appels; t.joints += s.joints; t.interesses += s.interesses; t.rdv += s.rdv; t.pasInteresses += s.pasInteresses; t.dureeS += s.dureeS
+    t.appels += s.appels; t.joints += s.joints; t.interesses += s.interesses; t.rdv += s.rdv; t.pasInteresses += s.pasInteresses; t.premiersOs += s.premiersOs; t.dureeS += s.dureeS
   }
   return t
+}
+
+// ── Le classement des commerciaux (Mahdi, 10/10 : « qu'on voie les stats de tout le monde ») ──
+export type Periode = "jour" | "semaine" | "mois" | "tout"
+export const PERIODES: { code: Periode; libelle: string }[] = [
+  { code: "jour", libelle: "Aujourd'hui" },
+  { code: "semaine", libelle: "Cette semaine" },
+  { code: "mois", libelle: "Ce mois-ci" },
+  { code: "tout", libelle: "Depuis le début" },
+]
+/** Les bornes [de, a[ d'une période, autour de « maintenant ». */
+export function bornesPeriode(periode: Periode, maintenant: Date): { de: Date; a: Date } {
+  switch (periode) {
+    case "jour": return { de: debutDuJour(maintenant), a: finDuJour(maintenant) }
+    case "semaine": return { de: debutDeSemaine(maintenant), a: finDeSemaine(maintenant) }
+    case "mois": return { de: debutDuMois(maintenant), a: finDuMois(maintenant) }
+    default: return { de: new Date(2020, 0, 1), a: finDuJour(maintenant) }
+  }
+}
+/**
+ * Toutes les personnes au tableau, même à zéro, classées par appels puis joints.
+ * `comptes` = les comptes connus du logiciel ; les stats sans compte (anciens appels)
+ * gardent leur nom. Un compte dont les stats n'ont pas de nom prend le nom du compte.
+ */
+export function classer(stats: StatsCompte[], comptes: { id: string; nom: string }[]): StatsCompte[] {
+  const parId = new Map<string, StatsCompte>()
+  const sansId: StatsCompte[] = []
+  for (const s of stats) {
+    if (s.compteId) parId.set(s.compteId, s)
+    else sansId.push(s)
+  }
+  const lignes: StatsCompte[] = comptes.map((c) => {
+    const s = parId.get(c.id)
+    return s ? { ...s, compteNom: c.nom || s.compteNom } : { compteId: c.id, compteNom: c.nom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
+  })
+  for (const [id, s] of parId) if (!comptes.some((c) => c.id === id)) lignes.push(s.compteNom ? s : { ...s, compteNom: "(compte inconnu)" })
+  lignes.push(...sansId)
+  return lignes.sort((x, y) => y.appels - x.appels || y.joints - x.joints || x.compteNom.localeCompare(y.compteNom, "fr"))
 }
 /** L'objectif lu dans `parametres` : un entier > 0, sinon 0 (= pas d'objectif fixé). */
 export function lireObjectif(valeur: string | null | undefined): number {

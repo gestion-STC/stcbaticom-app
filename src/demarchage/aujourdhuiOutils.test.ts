@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import type { StatsCompte, TacheAgenda } from "./db"
 import {
+  bornesPeriode,
+  classer,
   composerDate,
   dansLaFenetreDeRappel,
   dansNJoursA,
@@ -149,15 +151,28 @@ describe("grouperTaches", () => {
 
 describe("les taux et l'objectif", () => {
   const stats: StatsCompte[] = [
-    { compteNom: "Horlann", appels: 40, joints: 10, interesses: 3, rdv: 1, pasInteresses: 4, dureeS: 1200 },
-    { compteNom: "Mahdi", appels: 10, joints: 5, interesses: 2, rdv: 2, pasInteresses: 0, dureeS: 600 },
+    { compteId: "h", compteNom: "Horlann", appels: 40, joints: 10, interesses: 3, rdv: 1, pasInteresses: 4, premiersOs: 1, dureeS: 1200 },
+    { compteId: "m", compteNom: "Mahdi", appels: 10, joints: 5, interesses: 2, rdv: 2, pasInteresses: 0, premiersOs: 0, dureeS: 600 },
   ]
   it("tauxJoints : joints sur appels, 0 sans appel", () => {
     expect(tauxJoints(stats[0])).toBe(25)
     expect(tauxJoints({ appels: 0, joints: 0 })).toBe(0)
   })
   it("totalStats additionne tout", () => {
-    expect(totalStats(stats)).toEqual({ compteNom: "Total", appels: 50, joints: 15, interesses: 5, rdv: 3, pasInteresses: 4, dureeS: 1800 })
+    expect(totalStats(stats)).toEqual({ compteId: null, compteNom: "Total", appels: 50, joints: 15, interesses: 5, rdv: 3, pasInteresses: 4, premiersOs: 1, dureeS: 1800 })
+  })
+  it("classer : tout le monde au tableau, même à zéro, classé par appels puis joints", () => {
+    const comptes = [{ id: "m", nom: "Mahdi Souissi" }, { id: "h", nom: "Horlann Maunier" }, { id: "n", nom: "Nouveau" }]
+    const anciens: StatsCompte = { compteId: null, compteNom: "(sans compte)", appels: 5, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
+    const c = classer([...stats, anciens], comptes)
+    expect(c.map((x) => `${x.compteNom}:${x.appels}`)).toEqual(["Horlann Maunier:40", "Mahdi Souissi:10", "(sans compte):5", "Nouveau:0"])
+  })
+  it("bornesPeriode : jour, semaine (lundi → lundi), mois, tout", () => {
+    const vendredi = new Date(2026, 9, 9, 15)
+    expect(bornesPeriode("jour", vendredi)).toEqual({ de: new Date(2026, 9, 9), a: new Date(2026, 9, 10) })
+    expect(bornesPeriode("semaine", vendredi)).toEqual({ de: new Date(2026, 9, 5), a: new Date(2026, 9, 12) })
+    expect(bornesPeriode("mois", vendredi).de).toEqual(new Date(2026, 9, 1))
+    expect(bornesPeriode("tout", vendredi).de.getFullYear()).toBe(2020)
   })
   it("lireObjectif : un entier > 0, sinon 0", () => {
     expect(lireObjectif("20")).toBe(20)
