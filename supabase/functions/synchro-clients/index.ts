@@ -37,27 +37,34 @@ Deno.serve(async (req: Request) => {
 
     // 2) Les agences et contacts d'ici, pour le rapprochement.
     const sb = createClient(base, service)
-    const [ag, ct, deja] = await Promise.all([
-      sb.from("agences").select("id, nom, secteur, telephone, email, etape, premier_os_le").limit(10000),
-      sb.from("contacts").select("agence_id, email, ligne_directe, mobile").limit(20000),
-      sb.from("clients_signales").select("gestionnaire_id, statut, agence_id"),
+    // PostgREST s'arrête à 1 000 lignes sans le dire : on lit page par page, dans un ordre stable.
+    const toutes = async <T>(table: string, colonnes: string): Promise<T[]> => {
+      const out: T[] = []
+      for (let de = 0; ; de += 1000) {
+        const { data, error } = await sb.from(table).select(colonnes).order("id").range(de, de + 999)
+        if (error) throw error
+        out.push(...((data ?? []) as T[]))
+        if (!data || data.length < 1000) return out
+      }
+    }
+    const [lignesAgences, lignesContacts, lignesDeja] = await Promise.all([
+      toutes<{ id: string; nom: string; secteur: string | null; telephone: string; email: string; etape: string; premier_os_le: string | null }>("agences", "id, nom, secteur, telephone, email, etape, premier_os_le"),
+      toutes<{ agence_id: string; email: string; ligne_directe: string; mobile: string }>("contacts", "id, agence_id, email, ligne_directe, mobile"),
+      toutes<{ gestionnaire_id: string; statut: string; agence_id: string | null }>("clients_signales", "id, gestionnaire_id, statut, agence_id"),
     ])
-    if (ag.error) throw ag.error
-    if (ct.error) throw ct.error
-    if (deja.error) throw deja.error
     const contactsPar = new Map<string, { emails: string[]; tels: string[] }>()
-    for (const c of (ct.data ?? []) as { agence_id: string; email: string; ligne_directe: string; mobile: string }[]) {
+    for (const c of lignesContacts) {
       const e = contactsPar.get(c.agence_id) ?? { emails: [], tels: [] }
       if (c.email) e.emails.push(c.email)
       if (c.ligne_directe) e.tels.push(c.ligne_directe)
       if (c.mobile) e.tels.push(c.mobile)
       contactsPar.set(c.agence_id, e)
     }
-    const agences: AgenceRef[] = ((ag.data ?? []) as { id: string; nom: string; secteur: string | null; telephone: string; email: string; etape: string; premier_os_le: string | null }[]).map((a) => ({
+    const agences: AgenceRef[] = lignesAgences.map((a) => ({
       id: a.id, nom: a.nom, secteur: a.secteur, telephone: a.telephone, email: a.email, etape: a.etape, premierOsLe: a.premier_os_le,
       contactsEmails: contactsPar.get(a.id)?.emails ?? [], contactsTels: contactsPar.get(a.id)?.tels ?? [],
     }))
-    const dejaPar = new Map(((deja.data ?? []) as { gestionnaire_id: string; statut: string; agence_id: string | null }[]).map((d) => [d.gestionnaire_id, d]))
+    const dejaPar = new Map(lignesDeja.map((d) => [d.gestionnaire_id, d]))
 
     // 3) Une proposition par gestionnaire nouveau ; les décisions prises ne bougent plus.
     let nouvelles = 0, misesAJour = 0, dejaClients = 0
@@ -84,7 +91,7 @@ Deno.serve(async (req: Request) => {
       if (dejaClient) dejaClients++
       else nouvelles++
     }
-    return json({ ok: true, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
+    return json({ ok: true, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
   } catch (e) {
     console.error("[SYNCHRO-CLIENTS]", e)
     return json({ error: String(e) }, 500)

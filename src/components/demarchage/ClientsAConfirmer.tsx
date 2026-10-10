@@ -70,7 +70,11 @@ export default function ClientsAConfirmer({ onOuvrirAgence, onDecision }: { onOu
 function LigneClient({ client: c, occupe, onConfirmer, onAutre, onCreer, onIgnorer }: {
   client: ClientSignale; occupe: boolean; onConfirmer: (agenceId: string) => void; onAutre: () => void; onCreer: () => void; onIgnorer: () => void
 }) {
-  const [premier, ...autres] = c.candidats
+  // Un candidat « sûr » cumule au moins deux indices (e-mail ou téléphone + nom, ou domaine + nom) :
+  // en dessous, on ne pose pas la question « est-ce bien X ? », on dit juste « peut-être ».
+  const sur = c.candidats.length > 0 && c.candidats[0].score >= 65
+  const premier = sur ? c.candidats[0] : undefined
+  const autres = sur ? c.candidats.slice(1) : c.candidats
   const nomsOs = c.nomsAgence.split("|").map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== c.societe.toLowerCase())
   return (
     <li className="grid gap-3 border-b border-fond-4 px-5 py-3 last:border-b-0 lg:grid-cols-[1fr_1.2fr]">
@@ -100,6 +104,13 @@ function LigneClient({ client: c, occupe, onConfirmer, onAutre, onCreer, onIgnor
                 Sinon : {autres.map((a, i) => <span key={a.agenceId}>{i ? ", " : ""}<button type="button" className="underline-offset-2 hover:underline" disabled={occupe} onClick={() => onConfirmer(a.agenceId)} title={a.raisons.join(" · ")}>{a.nom}</button></span>)}
               </p>
             ) : null}
+          </>
+        ) : autres.length ? (
+          <>
+            <p className="text-legende text-encre-2">Aucune agence sûre dans la base. Peut-être :</p>
+            <p className="text-colonne text-encre-2">
+              {autres.map((a, i) => <span key={a.agenceId}>{i ? " · " : ""}<button type="button" className="font-medium text-encre underline-offset-2 hover:underline" disabled={occupe} onClick={() => onConfirmer(a.agenceId)} title="Confirmer cette agence">{a.nom}</button> ({a.raisons.join(", ")})</span>)}
+            </p>
           </>
         ) : (
           <p className="text-legende text-encre-2">Aucune agence de la base ne ressemble à ce gestionnaire.</p>

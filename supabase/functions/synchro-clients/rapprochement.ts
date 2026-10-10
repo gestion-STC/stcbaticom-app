@@ -7,7 +7,7 @@
 //   · même e-mail (sur l'agence ou un contact) ......... 100
 //   · même domaine d'e-mail, s'il n'est pas générique .... 60
 //   · même téléphone (standard, ligne directe, mobile) .... 50
-//   · même nom (exact 40, l'un contient l'autre 25, mots communs 15)
+//   · même nom (exact 40, l'un contient l'autre 25, mots communs 15 ; sinon domaine lu dans le nom 20)
 //   · même code postal ............................................. +5
 
 export type AgenceRef = {
@@ -52,6 +52,9 @@ function scoreNom(cible: string, nomAgence: string): { score: number; raison: st
   if (!a || !b) return null
   if (a === b) return { score: 40, raison: `même nom « ${nomAgence} »` }
   if ((a.length >= 5 && b.includes(a)) || (b.length >= 5 && a.includes(b))) return { score: 25, raison: `nom proche « ${nomAgence} »` }
+  // « Click and rent » / « clickandrent - Location & Gestion » : on compare aussi sans les espaces.
+  const ca = a.replace(/ /g, ""), cb = b.replace(/ /g, "")
+  if ((ca.length >= 6 && cb.includes(ca)) || (cb.length >= 6 && ca.includes(cb))) return { score: 25, raison: `nom proche « ${nomAgence} »` }
   const ma = new Set(mots(cible)), mb = mots(nomAgence)
   const communs = mb.filter((m) => ma.has(m))
   if (communs.length >= 2 || (communs.length === 1 && communs[0].length >= 6)) return { score: 15, raison: `mots communs : ${communs.join(", ")}` }
@@ -79,6 +82,11 @@ export function candidats(g: GestionnaireRef, agences: AgenceRef[], max = 3): Ca
       if (r && (!meilleurNom || r.score > meilleurNom.score)) meilleurNom = r
     }
     if (meilleurNom) { score += meilleurNom.score; raisons.push(meilleurNom.raison) }
+    // Le domaine de l'e-mail qui se lit dans le nom de l'agence (« @clickandrent.fr » / « clickandrent ») : un indice de plus.
+    else if (dom && !domaineGenerique(dom)) {
+      const marque = dom.split(".")[0]
+      if (marque.length >= 5 && nomCle(a.nom).replace(/ /g, "").includes(marque)) { score += 20; raisons.push(`domaine « ${marque} » dans le nom`) }
+    }
     if (score > 0 && a.secteur && cps.has(a.secteur)) { score += 5; raisons.push(`code postal ${a.secteur}`) }
     if (score > 0) out.push({ agenceId: a.id, nom: a.nom, secteur: a.secteur, score, raisons })
   }

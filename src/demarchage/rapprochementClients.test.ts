@@ -10,6 +10,7 @@ const base: AgenceRef[] = [
   agence({ id: "c21", nom: "Century 21 Lutèce Immobilier", secteur: "75005", telephone: "01 43 00 00 00" }),
   agence({ id: "c21b", nom: "Century 21 Agence Monge", secteur: "75005", telephone: "01 47 00 00 00" }),
   agence({ id: "city", nom: "City Immo", secteur: "75011", telephone: "07 48 88 08 17" }),
+  agence({ id: "car", nom: "clickandrent - Location & Gestion", secteur: "75001", telephone: "01 84 80 02 40" }),
 ]
 
 describe("les clés de comparaison", () => {
@@ -48,6 +49,14 @@ describe("candidats", () => {
     const faible = candidats({ societe: "Century 21", nom: "x", email: "x@gmail.com", telephones: [], nomsAgence: "Century 21", codesPostaux: "" }, base)
     expect(faible.length).toBe(2)
     expect(candidatSolide(faible[0])).toBe(false)
+  })
+  it("le nom collé et le domaine lu dans le nom rattrapent « Click and rent »", () => {
+    const c = candidats({ societe: "Click and rent", nom: "Emilie H.", email: "emilie@clickandrent.fr", telephones: [], nomsAgence: "", codesPostaux: "" }, base)
+    expect(c[0].agenceId).toBe("car")
+    expect(c[0].score).toBe(25)
+    const d = candidats({ societe: "CAR Gestion", nom: "", email: "x@clickandrent.fr", telephones: [], nomsAgence: "", codesPostaux: "" }, base)
+    expect(d[0].agenceId).toBe("car")
+    expect(d[0].raisons).toEqual(["domaine « clickandrent » dans le nom"])
   })
   it("aucun indice : aucun candidat", () => {
     expect(candidats({ societe: "Inconnue SARL", nom: "", email: "a@b.fr", telephones: [], nomsAgence: "", codesPostaux: "" }, base)).toEqual([])
