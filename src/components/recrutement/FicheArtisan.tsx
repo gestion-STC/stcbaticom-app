@@ -16,6 +16,8 @@ import { chargerClicsDe, chargerEnvoisDe, chargerMessagesDe, mettreEnPause, rela
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { chargerPilotage } from "../../lib/pilotageStDb"
 import { lancerAppelRingover } from "../../lib/ringover"
+import { chargerAppelsDe, type AppelST } from "../../lib/appelsStDb"
+import { LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, dureeLisibleST } from "../../lib/appelsStOutils"
 import { Bouton, Champ, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
 
 const POINT: Record<Evenement["role"], string> = {
@@ -26,6 +28,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
   const [st, setSt] = useState<SousTraitant | null>(null)
   const [envois, setEnvois] = useState<EnvoiST[]>([])
   const [clics, setClics] = useState<ClicST[]>([])
+  const [appels, setAppels] = useState<AppelST[]>([])
   const [messages, setMessages] = useState<MessageDeFiche[]>([])
   const [etapes, setEtapes] = useState<EtapeST[]>([])
   const [erreur, setErreur] = useState("")
@@ -41,8 +44,8 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
       const fiche = await chargerSousTraitant(id)
       setSt(fiche)
       setEnPause(!!fiche.pauseJusquAu && new Date(fiche.pauseJusquAu).getTime() > Date.now())
-      const [ev, cl, ms] = await Promise.all([chargerEnvoisDe(id), chargerClicsDe(id), chargerMessagesDe(id).catch(() => [])])
-      setEnvois(ev); setClics(cl); setMessages(ms)
+      const [ev, cl, ms, ap] = await Promise.all([chargerEnvoisDe(id), chargerClicsDe(id), chargerMessagesDe(id).catch(() => []), chargerAppelsDe(id).catch(() => [])])
+      setEnvois(ev); setClics(cl); setMessages(ms); setAppels(ap)
       // Les étapes de SA séquence, sinon celle des réglages, sinon la séquence active.
       let seqId = fiche.sequenceId
       if (!seqId) {
@@ -101,12 +104,28 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             <Ligne libelle="Mobile">{st.telephone || "—"}</Ligne>
             <Ligne libelle="E-mail"><span className={st.emailInvalide ? "text-alerte line-through" : ""}>{st.email || "—"}</span>{st.emailInvalide ? <span className="ml-2 text-colonne text-alerte">injoignable</span> : null}</Ligne>
             <Ligne libelle="Zone">{st.zone || "—"}</Ligne>
+            <Ligne libelle="Appels">{st.nbAppels ? <>{st.nbAppels}{st.nbJoints ? ` dont ${st.nbJoints} joint${st.nbJoints > 1 ? "s" : ""}` : ""}{st.suivi ? <span className="ml-2 text-encre-2">· {LIBELLE_SUIVI[st.suivi]}{st.suiviMotif ? ` (${st.suiviMotif})` : ""}</span> : null}</> : "jamais appelé"}</Ligne>
+            {st.rappelLe ? <Ligne libelle="Prochain appel">{new Date(st.rappelLe).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</Ligne> : null}
             <Ligne libelle="Envois">{st.nbEnvoisOk} réussi{st.nbEnvoisOk > 1 ? "s" : ""}{st.nbEnvoisErreur ? ` · ${st.nbEnvoisErreur} en erreur` : ""}</Ligne>
             {st.derniereErreur ? <Ligne libelle="Dernière erreur"><span className="text-alerte">{st.derniereErreur}</span></Ligne> : null}
             {st.statutMotif ? <Ligne libelle="Pourquoi ce statut">{st.statutMotif}</Ligne> : null}
             {enPause ? <Ligne libelle="En pause jusqu'au">{new Date(st.pauseJusquAu!).toLocaleDateString("fr-FR")}</Ligne> : null}
           </div>
 
+          {appels.length ? (
+            <>
+              <h3 className="mb-2 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Appels · {appels.length}</h3>
+              <ul className="divide-y divide-fond-4">
+                {appels.map((a) => (
+                  <li key={a.id} className="py-1.5 text-legende">
+                    <div className="flex items-center justify-between gap-2"><span className="font-medium text-encre">{LIBELLE_RESULTAT[a.resultat]}{a.issue ? ` · ${LIBELLE_ISSUE[a.issue]}` : ""}</span><span className="chiffres text-colonne text-encre-2">{dateHeure(a.date)}</span></div>
+                    <div className="text-colonne text-encre-2">{[a.compteNom, a.motif, a.dureeS ? dureeLisibleST(a.dureeS) : ""].filter(Boolean).join(" · ")}</div>
+                    {a.note ? <div className="text-colonne text-encre">{a.note}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
           <h3 className="mb-3 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Chronologie</h3>
           {evenements.length === 0 ? <p className="text-legende text-encre-2">Rien encore : la fiche n'a pas été démarrée.</p> : (
             <ol className="ml-1.5 space-y-3 border-l-2 border-trait pl-5">

@@ -34,6 +34,15 @@ type LigneST = {
   nb_envois_erreur: number | null
   email_invalide: boolean | null
   recale_le: string | null
+  nb_appels?: number | null
+  nb_joints?: number | null
+  dernier_appel_le?: string | null
+  dernier_resultat?: string | null
+  rappel_le?: string | null
+  suivi?: string | null
+  suivi_le?: string | null
+  suivi_motif?: string | null
+  telephone_invalide?: boolean | null
   cree_le: string
 }
 
@@ -71,8 +80,33 @@ function vers(r: LigneST): SousTraitant {
     nbEnvoisErreur: r.nb_envois_erreur ?? 0,
     emailInvalide: r.email_invalide ?? false,
     recaleLe: r.recale_le,
+    nbAppels: r.nb_appels ?? 0,
+    nbJoints: r.nb_joints ?? 0,
+    dernierAppelLe: r.dernier_appel_le ?? null,
+    dernierResultat: r.dernier_resultat ?? "",
+    rappelLe: r.rappel_le ?? null,
+    suivi: (r.suivi ?? "") as SousTraitant["suivi"],
+    suiviLe: r.suivi_le ?? null,
+    suiviMotif: r.suivi_motif ?? "",
+    telephoneInvalide: r.telephone_invalide ?? false,
     creeLe: r.cree_le,
   }
+}
+
+// Lecture par lots d'un sous-ensemble : `requete(de, a)` reçoit les bornes du lot
+// (tri stable sur l'id obligatoire). Sert aux files de la session de call.
+export async function chargerSousTraitantsParLots(requete: (de: number, a: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<SousTraitant[]> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const PAS = 1000
+  const tout: LigneST[] = []
+  for (let debut = 0; ; debut += PAS) {
+    const { data, error } = await requete(debut, debut + PAS - 1)
+    if (error) throw new Error(error.message)
+    const lot = (data ?? []) as LigneST[]
+    tout.push(...lot)
+    if (lot.length < PAS) break
+  }
+  return tout.map(vers)
 }
 
 // Champs modifiables depuis l'appli (on ne touche jamais au token ni aux compteurs

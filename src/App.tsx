@@ -19,6 +19,7 @@ import Comptes from "./components/Comptes"
 import { useSession } from "./lib/auth"
 // L'espace Recrutement ST : chaque page porte son propre en-tête (trousse STC).
 import MachineST from "./components/recrutement/MachineST"
+import SessionCallST from "./components/recrutement/SessionCallST"
 import BaseST from "./components/recrutement/BaseST"
 import SequencesST from "./components/recrutement/SequencesST"
 import SuiviST from "./components/recrutement/SuiviST"
@@ -101,6 +102,7 @@ function App() {
           {page === "comptes" && <Comptes session={session} />}
 
           {page === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "parametrage" : p)} />}
+          {page === "st_session" && <SessionCallST />}
           {page === "st_base" && <BaseST />}
           {page === "st_sequences" && <SequencesST />}
           {page === "st_suivi" && <SuiviST />}

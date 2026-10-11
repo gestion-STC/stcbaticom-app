@@ -34,6 +34,7 @@ export type PageId =
   | "messages"
   | "apporteurs"
   | "st_machine"
+  | "st_session"
   | "st_base"
   | "st_sequences"
   | "st_suivi"
@@ -57,6 +58,7 @@ const menuDemarchage: NavItem[] = [
 
 const menuRecrutement: NavItem[] = [
   { id: "st_machine", label: "Machine", icon: Gauge },
+  { id: "st_session", label: "Session de call", icon: PhoneCall },
   { id: "st_base", label: "Base d'artisans", icon: HardHat },
   { id: "st_sequences", label: "Séquences", icon: ListOrdered },
   { id: "st_suivi", label: "Suivi", icon: BarChart3 },

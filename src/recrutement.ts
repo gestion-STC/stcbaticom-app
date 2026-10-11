@@ -43,6 +43,16 @@ export type SousTraitant = {
   nbEnvoisErreur: number
   emailInvalide?: boolean
   recaleLe?: string | null // calendrier décalé à la reprise (la prochaine étape redevenue due)
+  // Le suivi téléphonique (session de call, 11/10/2026) : posé par la base à chaque appel.
+  nbAppels?: number
+  nbJoints?: number
+  dernierAppelLe?: string | null
+  dernierResultat?: string
+  rappelLe?: string | null // prochain appel prévu
+  suivi?: "" | "a_rappeler" | "va_deposer" | "pas_interesse" | "hors_cible" | "injoignable"
+  suiviLe?: string | null
+  suiviMotif?: string
+  telephoneInvalide?: boolean
   creeLe?: string
 }
 
