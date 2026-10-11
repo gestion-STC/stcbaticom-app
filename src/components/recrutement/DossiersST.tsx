@@ -20,14 +20,21 @@ import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { LIBELLE_CONTRAT, ROLE_CONTRAT, envoyerLienAcces } from "../../lib/contratsDb"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
 
-type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche" | "complets"
+type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche" | "contrats" | "complets" | "partenaires"
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const dateHeure = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
 const normaliser = (s: string) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim()
 const estNouveau = (d: DossierST) => !d.vuLe && !d.traiteLe
-const statutDossier = (d: DossierST): { role: "fait" | "actif" | "info"; texte: string } =>
-  d.completLe ? { role: "fait", texte: "complet" } : d.traiteLe ? { role: "fait", texte: "traité" } : d.vuLe ? { role: "actif", texte: "vu" } : { role: "info", texte: "nouveau" }
+// Le chemin d'un dossier (Mahdi, 11/10) : nouveau → vu → traité → contrats envoyés → contrats signés → partenaire (accès ouvert).
+// L'archive garde tout ; l'état dit où en est chacun.
+const CONTRATS_EN_COURS = ["envoye", "livre", "signe_artisan"]
+const enCoursDeSignature = (f?: SousTraitant) => !!f && CONTRATS_EN_COURS.includes(f.contratStatut ?? "")
+const statutDossier = (d: DossierST, fiche?: SousTraitant): { role: "fait" | "actif" | "info"; texte: string } =>
+  fiche?.accesOuvertLe ? { role: "fait", texte: "partenaire" }
+    : d.completLe ? { role: "fait", texte: "contrats signés" }
+    : enCoursDeSignature(fiche) ? { role: "actif", texte: "contrats envoyés" }
+    : d.traiteLe ? { role: "fait", texte: "traité" } : d.vuLe ? { role: "actif", texte: "vu" } : { role: "info", texte: "nouveau" }
 const nomDePiece = (p: { nom?: string; path: string }) => p.nom || p.path.split("/").pop() || p.path
 const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`
 
@@ -102,11 +109,16 @@ export default function DossiersST() {
     nouveaux: dossiers.filter(estNouveau).length,
     a_traiter: dossiers.filter((d) => !d.traiteLe).length,
     sans_fiche: dossiers.filter((d) => !d.sousTraitantId).length,
-    complets: dossiers.filter((d) => !!d.completLe).length,
-  }), [dossiers])
+    complets: dossiers.filter((d) => !!d.completLe && !parId.get(d.sousTraitantId ?? "")?.accesOuvertLe).length,
+    contrats: dossiers.filter((d) => enCoursDeSignature(parId.get(d.sousTraitantId ?? ""))).length,
+    partenaires: dossiers.filter((d) => !!parId.get(d.sousTraitantId ?? "")?.accesOuvertLe).length,
+  }), [dossiers, parId])
   const visibles = useMemo(() => dossiers.filter((d) =>
-    filtre === "nouveaux" ? estNouveau(d) : filtre === "a_traiter" ? !d.traiteLe : filtre === "sans_fiche" ? !d.sousTraitantId : filtre === "complets" ? !!d.completLe : true,
-  ), [dossiers, filtre])
+    filtre === "nouveaux" ? estNouveau(d) : filtre === "a_traiter" ? !d.traiteLe : filtre === "sans_fiche" ? !d.sousTraitantId
+      : filtre === "contrats" ? enCoursDeSignature(parId.get(d.sousTraitantId ?? ""))
+      : filtre === "complets" ? !!d.completLe && !parId.get(d.sousTraitantId ?? "")?.accesOuvertLe
+      : filtre === "partenaires" ? !!parId.get(d.sousTraitantId ?? "")?.accesOuvertLe : true,
+  ), [dossiers, filtre, parId])
   const ouvert = dossiers.find((d) => d.id === ouvertId) ?? null
 
   const majLocal = (id: string, champs: Partial<DossierST>) => setDossiers((l) => l.map((d) => (d.id === id ? { ...d, ...champs } : d)))
@@ -135,7 +147,9 @@ export default function DossiersST() {
               { id: "nouveaux", libelle: "Nouveaux", valeur: compte.nouveaux, detail: "ni vus ni traités" },
               { id: "a_traiter", libelle: "À traiter", valeur: compte.a_traiter, detail: "pas encore traités" },
               { id: "sans_fiche", libelle: "Sans fiche", valeur: compte.sans_fiche, detail: "à rattacher", role: compte.sans_fiche > 0 ? "alerte" : undefined },
-              { id: "complets", libelle: "Complets", valeur: compte.complets, detail: "contrats signés, dossier final", role: compte.complets > 0 ? "ok" : undefined },
+              { id: "contrats", libelle: "Contrats en cours", valeur: compte.contrats, detail: "envoyés, pas encore signés des deux côtés" },
+              { id: "complets", libelle: "Contrats signés", valeur: compte.complets, detail: "dossier complet, accès pas encore ouvert" },
+              { id: "partenaires", libelle: "Partenaires", valeur: compte.partenaires, detail: "contrats signés et accès ouvert", role: compte.partenaires > 0 ? "ok" : undefined },
             ]}
           />
 
@@ -160,7 +174,7 @@ export default function DossiersST() {
                 <tbody>
                   {visibles.map((d) => {
                     const fiche = d.sousTraitantId ? parId.get(d.sousTraitantId) : undefined
-                    const s = statutDossier(d)
+                    const s = statutDossier(d, fiche)
                     return (
                       <Tr key={d.id} onClick={() => ouvrir(d)}>
                         <Td className="chiffres whitespace-nowrap text-encre-2">{dateHeure(d.creeLe)}</Td>
@@ -218,7 +232,7 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
   const [envoiContrats, setEnvoiContrats] = useState(false)
   const candidats = useMemo(() => chercherFiches(fiches, recherche, dossier), [fiches, recherche, dossier])
   const sections = dossier.donnees?.sections ?? []
-  const s = statutDossier(dossier)
+  const s = statutDossier(dossier, fiche)
 
   const agir = async (f: () => Promise<void>, message: string) => {
     setOccupe(true); setErreur(""); setInfo("")
