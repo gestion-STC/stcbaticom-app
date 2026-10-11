@@ -15,10 +15,10 @@ export const VARIABLES_LIENS: { variable: string; cible: CibleLien; url: string;
 
 const jetonNeuf = () => (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "").slice(0, 40)
 
-/** L'adresse suivie d'une cible pour une agence : réutilise le lien existant, sinon le crée. */
+/** L'adresse suivie d'une cible (et d'une adresse finale) pour une agence : réutilise le lien existant, sinon le crée. */
 export async function lienSuivi(agenceId: string, cible: CibleLien, url = "", contactId: string | null = null): Promise<string> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
-  const { data } = await supabase.from("liens_suivis").select("jeton").eq("agence_id", agenceId).eq("cible", cible).order("cree_le", { ascending: false }).limit(1).maybeSingle()
+  const { data } = await supabase.from("liens_suivis").select("jeton").eq("agence_id", agenceId).eq("cible", cible).eq("url", url).order("cree_le", { ascending: false }).limit(1).maybeSingle()
   let jeton = (data as { jeton: string } | null)?.jeton
   if (!jeton) {
     jeton = jetonNeuf()

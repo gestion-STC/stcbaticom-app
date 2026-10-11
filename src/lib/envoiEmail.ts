@@ -3,7 +3,7 @@ import { commercial } from "../data"
 import type { Email } from "../emails"
 import { decouperAdresses } from "./adressesEmail"
 import { logEmailEnvoye } from "./emailsEnvoyesDb"
-import { remplirLiens } from "./liensSuivisDb"
+import { lienSuivi, remplirLiens } from "./liensSuivisDb"
 import { supabase, supabaseConfigure } from "./supabase"
 
 // L'envoi passe par la fonction serveur « envoyer-email » (relais Resend), qui détient
@@ -88,7 +88,12 @@ export async function envoyerEmail(
   // Les liens suivis (11/10/2026) : {{lien_creer_compte}}, {{lien_site}} deviennent des liens propres à
   // l'agence ; quand elle clique, sa fiche le sait (fonction evenements-site).
   const objet = await remplirLiens(compose.objet, prospect.id, "texte")
-  const corpsHtml = await remplirLiens(compose.corpsHtml, prospect.id, "html")
+  let corpsHtml = await remplirLiens(compose.corpsHtml, prospect.id, "html")
+  // Les pièces jointes (plaquette…) aussi : le clic devient « Plaquette ouverte » sur la fiche.
+  if (prospect.id) for (const pj of modele.pieces ?? []) {
+    if (!pj.url) continue
+    try { corpsHtml = corpsHtml.split('href="' + pj.url + '"').join('href="' + (await lienSuivi(prospect.id, "plaquette", pj.url)) + '"') } catch { /* lien brut */ }
+  }
 
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
     body: { to, subject: objet, html: corpsHtml, ...(copie.cc?.length ? { cc: copie.cc } : {}), ...(copie.cci?.length ? { bcc: copie.cci } : {}) },

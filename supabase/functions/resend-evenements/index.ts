@@ -121,11 +121,37 @@ Deno.serve(async (req: Request) => {
     const { data: envoi } = resendId
       ? await sb.from("st_envois").select("id, sous_traitant_id").eq("resend_id", resendId).maybeSingle()
       : { data: null }
-    // Seuls les e-mails du recrutement nous intéressent ici (ceux du démarchage n'ont pas d'envoi journalisé).
+    // Recrutement : l'envoi journalisé (st_envois) ; démarchage : le message de la boîte (plus bas).
     let stId: string | null = envoi?.sous_traitant_id ?? null
     if (!stId && !envoi && destinataire) {
       const { data: st } = await sb.from("st_sous_traitants").select("id").ilike("email", destinataire).limit(1).maybeSingle()
       stId = st?.id ?? null
+    }
+    // ── Démarchage (11/10/2026) : un e-mail envoyé depuis une fiche agence (messages.message_id = identifiant Resend).
+    // Ouvert → signal « E-mail ouvert » sur la fiche ; rebondi → note « adresse injoignable ». Un seul signal par
+    // message et par type (Resend prévient à chaque ouverture).
+    if (!envoi && resendId && (type === "email.opened" || type === "email.bounced")) {
+      const { data: m } = await sb.from("messages").select("id, agence_id, objet").eq("message_id", resendId).eq("espace", "demarchage").maybeSingle()
+      if (m) {
+        let agenceId: string | null = (m.agence_id as string | null) ?? null
+        if (!agenceId && destinataire) {
+          const { data: c } = await sb.from("contacts").select("agence_id").ilike("email", destinataire).limit(1).maybeSingle()
+          agenceId = (c?.agence_id as string | null) ?? null
+          if (!agenceId) {
+            const { data: a } = await sb.from("agences").select("id").ilike("email", "%" + destinataire + "%").limit(1).maybeSingle()
+            agenceId = (a?.id as string | null) ?? null
+          }
+        }
+        if (!agenceId) return json({ ok: true, ignore: "message de démarchage sans agence" })
+        const titre = type === "email.opened" ? "E-mail ouvert" : "E-mail rebondi (adresse injoignable)"
+        const { data: deja } = await sb.from("activites").select("id").eq("message_id", m.id).eq("titre", titre).limit(1).maybeSingle()
+        if (!deja) {
+          const note = String(m.objet || "") + (type === "email.bounced" ? " · " + String(d.bounce?.message || d.bounce?.subType || "") : "")
+          await sb.from("activites").insert({ agence_id: agenceId, type: "note", titre, note: note.trim(), date: quand, compte_nom: "Resend", source: "site", message_id: m.id })
+          if (type === "email.opened") await sb.from("agences").update({ dernier_signal_le: quand, dernier_signal: "E-mail ouvert" }).eq("id", agenceId)
+        }
+        return json({ ok: true, type, demarchage: true, agence_id: agenceId })
+      }
     }
     if (!envoi && !stId) return json({ ok: true, ignore: "hors recrutement" })
 
