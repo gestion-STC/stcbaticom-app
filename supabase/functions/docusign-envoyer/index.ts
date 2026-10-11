@@ -14,7 +14,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { apiJson, configDepuisEnv, jetonDocusign } from "../_shared/docusign.ts"
 
-const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
+// Appelée depuis le navigateur : les en-têtes CORS sur chaque réponse, et la pré-requête OPTIONS.
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
+const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
 type Fiche = { id: string; entreprise: string; contact: string; email: string; statut: string; depose_le: string | null }
 type Pack = { id: string; nom: string; template_id: string; ordre: number }
 type Signer = { roleName?: string; routingOrder?: string; recipientId?: string; name?: string; email?: string; status?: string; signedDateTime?: string; tabs?: { textTabs?: { tabLabel: string; required?: string; value?: string }[] } }
@@ -64,6 +66,7 @@ function statutDepuisEnveloppe(e: Enveloppe): { statut: string; signeArtisanLe: 
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405)
   const base = Deno.env.get("SUPABASE_URL")!
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!
