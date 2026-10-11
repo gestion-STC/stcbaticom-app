@@ -57,7 +57,8 @@ create trigger activites_attribuer_agence
 
 -- 4) Attribuer un secteur à une personne (admins seulement) : le réglage est mémorisé sur le
 --    secteur, et les agences NON attribuées du secteur passent à cette personne (p_ecraser = true
---    pour reprendre aussi celles déjà attribuées). Renvoie le nombre d'agences attribuées.
+--    pour reprendre aussi celles déjà attribuées). p_secteur = '' vise les agences SANS secteur.
+--    Renvoie le nombre d'agences attribuées.
 create or replace function public.attribuer_secteur(p_secteur text, p_compte_id uuid, p_ecraser boolean default false)
 returns integer language plpgsql security definer set search_path = public as $$
 declare
@@ -66,11 +67,14 @@ begin
   if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') <> 'admin' then
     raise exception 'Réservé aux admins.';
   end if;
-  update public.secteurs set commercial_id = p_compte_id where code = p_secteur;
+  if p_secteur <> '' then
+    update public.secteurs set commercial_id = p_compte_id where code = p_secteur;
+  end if;
   if p_compte_id is null then return 0; end if;
   update public.agences
      set commercial_id = p_compte_id
-   where secteur = p_secteur and type <> 'apporteur'
+   where type <> 'apporteur'
+     and ((p_secteur <> '' and secteur = p_secteur) or (p_secteur = '' and coalesce(secteur, '') = ''))
      and (commercial_id is null or p_ecraser);
   get diagnostics v_n = row_count;
   return v_n;

@@ -152,12 +152,22 @@ export default function SecteursReglage() {
               jamais sur le même numéro. Choisis ci-dessous qui démarche chaque secteur : les agences non attribuées du secteur lui passent, celles déjà appelées gardent
               leur propriétaire. Une agence sans propriétaire appelée depuis une session devient celle de l'appelant. Les statistiques restent sur la base générale.
             </p>
-            <Etiquette texte="Les agences non attribuées sont visibles par" className="max-w-[320px]">
-              <Selecteur value={libre ? "tous" : "admins"} onChange={(e) => reglerVisibilite(e.target.value)} aria-label="Qui voit les agences non attribuées">
-                <option value="admins">Les admins seulement</option>
-                <option value="tous">Tout le monde (chacun peut s'y servir)</option>
-              </Selecteur>
-            </Etiquette>
+            <div className="flex flex-wrap items-end gap-4">
+              <Etiquette texte="Les agences non attribuées sont visibles par" className="max-w-[320px]">
+                <Selecteur value={libre ? "tous" : "admins"} onChange={(e) => reglerVisibilite(e.target.value)} aria-label="Qui voit les agences non attribuées">
+                  <option value="admins">Les admins seulement</option>
+                  <option value="tous">Tout le monde (chacun peut s'y servir)</option>
+                </Selecteur>
+              </Etiquette>
+              {sansSecteur ? (
+                <Etiquette texte={`Les ${nonAttribuees.get("") ?? 0} agences sans secteur non attribuées → démarchées par`} className="max-w-[360px]">
+                  <Selecteur value="" onChange={(e) => { if (e.target.value) void attribuer({ code: "", libelle: "Sans secteur", zone: "", ordre: 0 }, e.target.value) }} disabled={occupe || !(nonAttribuees.get("") ?? 0)} aria-label="Qui démarche les agences sans secteur">
+                    <option value="">— choisir quelqu'un —</option>
+                    {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                  </Selecteur>
+                </Etiquette>
+              ) : null}
+            </div>
           </div>
         </Carte>
       ) : null}
