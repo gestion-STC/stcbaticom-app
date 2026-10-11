@@ -158,6 +158,7 @@ export type DossierST = {
   sousTraitantId?: string | null
   vuLe?: string | null
   traiteLe?: string | null
+  completLe?: string | null // contrats signés par les deux parties : le dossier final (11/10/2026)
 }
 
 export type ExclusionST = { id: string; email: string; telephone: string; motif: string; creeLe: string }

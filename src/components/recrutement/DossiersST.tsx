@@ -20,14 +20,14 @@ import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { LIBELLE_CONTRAT, ROLE_CONTRAT } from "../../lib/contratsDb"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
 
-type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche"
+type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche" | "complets"
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const dateHeure = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
 const normaliser = (s: string) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim()
 const estNouveau = (d: DossierST) => !d.vuLe && !d.traiteLe
 const statutDossier = (d: DossierST): { role: "fait" | "actif" | "info"; texte: string } =>
-  d.traiteLe ? { role: "fait", texte: "traité" } : d.vuLe ? { role: "actif", texte: "vu" } : { role: "info", texte: "nouveau" }
+  d.completLe ? { role: "fait", texte: "complet" } : d.traiteLe ? { role: "fait", texte: "traité" } : d.vuLe ? { role: "actif", texte: "vu" } : { role: "info", texte: "nouveau" }
 const nomDePiece = (p: { nom?: string; path: string }) => p.nom || p.path.split("/").pop() || p.path
 const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`
 
@@ -85,9 +85,10 @@ export default function DossiersST() {
     nouveaux: dossiers.filter(estNouveau).length,
     a_traiter: dossiers.filter((d) => !d.traiteLe).length,
     sans_fiche: dossiers.filter((d) => !d.sousTraitantId).length,
+    complets: dossiers.filter((d) => !!d.completLe).length,
   }), [dossiers])
   const visibles = useMemo(() => dossiers.filter((d) =>
-    filtre === "nouveaux" ? estNouveau(d) : filtre === "a_traiter" ? !d.traiteLe : filtre === "sans_fiche" ? !d.sousTraitantId : true,
+    filtre === "nouveaux" ? estNouveau(d) : filtre === "a_traiter" ? !d.traiteLe : filtre === "sans_fiche" ? !d.sousTraitantId : filtre === "complets" ? !!d.completLe : true,
   ), [dossiers, filtre])
   const ouvert = dossiers.find((d) => d.id === ouvertId) ?? null
 
@@ -117,6 +118,7 @@ export default function DossiersST() {
               { id: "nouveaux", libelle: "Nouveaux", valeur: compte.nouveaux, detail: "ni vus ni traités" },
               { id: "a_traiter", libelle: "À traiter", valeur: compte.a_traiter, detail: "pas encore traités" },
               { id: "sans_fiche", libelle: "Sans fiche", valeur: compte.sans_fiche, detail: "à rattacher", role: compte.sans_fiche > 0 ? "alerte" : undefined },
+              { id: "complets", libelle: "Complets", valeur: compte.complets, detail: "contrats signés, dossier final", role: compte.complets > 0 ? "ok" : undefined },
             ]}
           />
 

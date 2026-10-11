@@ -163,6 +163,7 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
   useEffect(() => {
     if (!supabaseConfigure) return
     let sdk: RingoverSDK | null = null
+    let observateur: MutationObserver | null = null
     try {
       sdk = new RingoverSDK({
         size: "medium",
@@ -195,6 +196,20 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
             pastille.style.color = "#475569"
             const conteneur = barre.parentElement
             if (conteneur) conteneur.style.paddingTop = "30px"
+          }
+          // Replié, le téléphone garde son cadre (opacité 0, hauteur 0) AU-DESSUS du bas de
+          // l'écran : il avalait les clics sur les boutons des panneaux (« Envoyer les
+          // contrats », 11/10). Replié = le cadre ne reçoit plus aucun clic ; déplié = normal.
+          const cadre = document.getElementById("ringover-iframe-container-" + id)
+          if (cadre) {
+            const synchroniser = () => {
+              const replie = cadre.style.opacity === "0" || cadre.style.display === "none" || cadre.style.maxHeight === "0px"
+              const voulu = replie ? "none" : ""
+              if (cadre.style.pointerEvents !== voulu) cadre.style.pointerEvents = voulu
+            }
+            synchroniser()
+            observateur = new MutationObserver(synchroniser)
+            observateur.observe(cadre, { attributes: true, attributeFilter: ["style"] })
           }
         } catch {
           /* si l'habillage échoue, la barre d'origine reste utilisable */
@@ -242,6 +257,7 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
     }
     return () => {
       debrancherTelephone()
+      observateur?.disconnect()
       try {
         sdk?.off()
         sdk?.destroy()

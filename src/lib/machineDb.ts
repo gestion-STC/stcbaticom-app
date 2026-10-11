@@ -81,11 +81,11 @@ export async function chargerMessagesDe(sousTraitantId: string): Promise<Message
 type LigneDossier = {
   id: string; created_at: string; raison_sociale: string; email: string; donnees: DossierST["donnees"] | null
   fichiers: DossierST["fichiers"] | null; email_envoye: boolean; token_ref: string | null; sous_traitant_id: string | null
-  vu_le: string | null; traite_le: string | null
+  vu_le: string | null; traite_le: string | null; complet_le?: string | null
 }
 const versDossier = (d: LigneDossier): DossierST => ({
   id: d.id, creeLe: d.created_at, raisonSociale: d.raison_sociale ?? "", email: d.email ?? "", donnees: d.donnees ?? {},
-  fichiers: Array.isArray(d.fichiers) ? d.fichiers : [], emailEnvoye: !!d.email_envoye, tokenRef: d.token_ref, sousTraitantId: d.sous_traitant_id, vuLe: d.vu_le, traiteLe: d.traite_le,
+  fichiers: Array.isArray(d.fichiers) ? d.fichiers : [], emailEnvoye: !!d.email_envoye, tokenRef: d.token_ref, sousTraitantId: d.sous_traitant_id, vuLe: d.vu_le, traiteLe: d.traite_le, completLe: d.complet_le ?? null,
 })
 export async function chargerDossiers(): Promise<DossierST[]> {
   const { data, error } = await client().from("dossiers_st").select("*").order("created_at", { ascending: false }).limit(500)
