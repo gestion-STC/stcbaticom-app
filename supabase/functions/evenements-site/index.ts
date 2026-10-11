@@ -20,6 +20,18 @@ async function poserSignal(sb: SupabaseClient, agenceId: string, contactId: stri
   await sb.from("agences").update(maj).eq("id", agenceId)
 }
 
+/** Le nom d'une pièce jointe d'un modèle d'e-mail, retrouvé par son adresse (pour dire QUELLE plaquette a été ouverte). */
+async function nomDocument(sb: SupabaseClient, url: string): Promise<string> {
+  if (!url) return ""
+  const { data } = await sb.from("emails").select("pieces_jointes")
+  for (const e of (data ?? []) as { pieces_jointes: unknown }[]) {
+    const pieces = Array.isArray(e.pieces_jointes) ? (e.pieces_jointes as { nom?: string; url?: string }[]) : []
+    const p = pieces.find((x) => x?.url === url)
+    if (p?.nom) return p.nom.replace(/.pdf$/i, "").replace(/ (d+)$/, "")
+  }
+  return ""
+}
+
 /** L'agence derrière un événement : le jeton du lien, sinon l'e-mail (contact ou agence), sinon le nom. */
 async function retrouverAgence(sb: SupabaseClient, e: { jeton_source?: string; email?: string; agence?: string }): Promise<{ agenceId: string; contactId: string | null } | null> {
   if (e.jeton_source) {
@@ -61,7 +73,8 @@ Deno.serve(async (req: Request) => {
     const destination = cible === "creer_compte" ? `${APP_URL}/creer-mon-compte?src=${encodeURIComponent(jeton)}` : (lien.url as string) || APP_URL
     try {
       await sb.from("liens_suivis").update({ nb_clics: ((lien.nb_clics as number) || 0) + 1, dernier_clic_le: quand }).eq("id", lien.id)
-      if (lien.agence_id) await poserSignal(sb, lien.agence_id as string, (lien.contact_id as string | null) ?? null, LIBELLES[cible] || `Lien ouvert · ${cible}`, `Depuis un e-mail de prospection.`, quand)
+      const doc = cible === "plaquette" ? await nomDocument(sb, (lien.url as string) || "") : ""
+      if (lien.agence_id) await poserSignal(sb, lien.agence_id as string, (lien.contact_id as string | null) ?? null, LIBELLES[cible] || `Lien ouvert · ${cible}`, doc ? `Document : ${doc}. Depuis un e-mail de prospection.` : `Depuis un e-mail de prospection.`, quand)
     } catch (e) { console.error("[EVENEMENTS-SITE] clic non noté :", e) }
     return Response.redirect(destination, 302)
   }
