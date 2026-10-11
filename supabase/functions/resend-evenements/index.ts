@@ -126,9 +126,14 @@ Deno.serve(async (req: Request) => {
       const r = await fetch("https://api.resend.com/domains/" + d.id, { method: "PATCH", headers: entetes, body: JSON.stringify(maj) })
       patch = { status: r.status, reponse: await r.json().catch(() => ({})) }
     }
+    let verif: unknown = null
+    if (url.searchParams.get("verifier") === "1") {
+      const r = await fetch("https://api.resend.com/domains/" + d.id + "/verify", { method: "POST", headers: entetes })
+      verif = { status: r.status, reponse: await r.json().catch(() => ({})) }
+    }
     const det = await fetch("https://api.resend.com/domains/" + d.id, { headers: entetes })
     const j = det.ok ? await det.json() : {}
-    return json({ ok: true, domaine: nom, patch, open_tracking: j.open_tracking ?? null, click_tracking: j.click_tracking ?? null, tracking_subdomain: j.tracking_subdomain ?? null, records: j.records ?? [] })
+    return json({ ok: true, domaine: nom, patch, verif, open_tracking: j.open_tracking ?? null, click_tracking: j.click_tracking ?? null, tracking_subdomain: j.tracking_subdomain ?? null, records: j.records ?? [] })
   }
   // ── Le sort d'e-mails envoyés (délivré, rebondi…), lu chez Resend ──
   // GET ?action=statut&id=<id resend>,<id resend>… avec la clé serveur.
