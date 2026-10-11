@@ -53,6 +53,10 @@ export type SousTraitant = {
   suiviLe?: string | null
   suiviMotif?: string
   telephoneInvalide?: boolean
+  // Les contrats DocuSign (11/10/2026) : le dernier état, tenu par la base.
+  contratStatut?: "" | "envoye" | "livre" | "signe_artisan" | "signe" | "refuse" | "annule" | "erreur"
+  contratLe?: string | null
+  contratSigneLe?: string | null
   creeLe?: string
 }
 

@@ -16,6 +16,7 @@ import { chargerSequences } from "../../lib/sequencesStDb"
 import { CADENCE_MAX_MS, CADENCE_MIN_MS, DOMAINE_ENVOI, JOURS_SEMAINE, extraireReglages, ligneEtatMachine, memesReglages, validerReglages } from "../../lib/reglagesRecrutement"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Etiquette, Pastille, Selecteur, TitreCarte } from "../../ui"
 import ExclusionsST from "./ExclusionsST"
+import ContratsModeles from "./ContratsModeles"
 
 /** Un champ numérique contrôlé : vidé à l'écran = NaN, que la validation refuse (jamais un 0 glissé en douce). */
 function Nombre({ texte, aide, valeur, onChange, min, max }: { texte: string; aide?: ReactNode; valeur: number; onChange: (v: number) => void; min?: number; max?: number }) {
@@ -231,6 +232,7 @@ export default function ReglagesRecrutement() {
         </>
       )}
 
+      <ContratsModeles />
       <ExclusionsST />
     </div>
   )

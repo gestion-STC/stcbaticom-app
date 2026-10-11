@@ -7,7 +7,7 @@
 // mettre en pause, ne plus contacter.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Phone, Play, PauseCircle, Ban, RotateCcw } from "lucide-react"
+import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw } from "lucide-react"
 import type { ClicST, EnvoiST, EtapeST, SousTraitant } from "../../recrutement"
 import { chronologie, dateHeure, type Evenement } from "../../lib/chronologieArtisan"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
@@ -17,6 +17,9 @@ import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { chargerPilotage } from "../../lib/pilotageStDb"
 import { lancerAppelRingover } from "../../lib/ringover"
 import { chargerAppelsDe, type AppelST } from "../../lib/appelsStDb"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, envoyerContrats, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
+import { useSession } from "../../lib/auth"
+import { nomAffiche } from "../../lib/comptes"
 import { LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, dureeLisibleST } from "../../lib/appelsStOutils"
 import { Bouton, Champ, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
 
@@ -29,6 +32,9 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
   const [envois, setEnvois] = useState<EnvoiST[]>([])
   const [clics, setClics] = useState<ClicST[]>([])
   const [appels, setAppels] = useState<AppelST[]>([])
+  const [contrats, setContrats] = useState<ContratST[]>([])
+  const session = useSession()
+  const compteNom = nomAffiche(session)
   const [messages, setMessages] = useState<MessageDeFiche[]>([])
   const [etapes, setEtapes] = useState<EtapeST[]>([])
   const [erreur, setErreur] = useState("")
@@ -44,8 +50,8 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
       const fiche = await chargerSousTraitant(id)
       setSt(fiche)
       setEnPause(!!fiche.pauseJusquAu && new Date(fiche.pauseJusquAu).getTime() > Date.now())
-      const [ev, cl, ms, ap] = await Promise.all([chargerEnvoisDe(id), chargerClicsDe(id), chargerMessagesDe(id).catch(() => []), chargerAppelsDe(id).catch(() => [])])
-      setEnvois(ev); setClics(cl); setMessages(ms); setAppels(ap)
+      const [ev, cl, ms, ap, co] = await Promise.all([chargerEnvoisDe(id), chargerClicsDe(id), chargerMessagesDe(id).catch(() => []), chargerAppelsDe(id).catch(() => []), chargerContratsDe(id).catch(() => [])])
+      setEnvois(ev); setClics(cl); setMessages(ms); setAppels(ap); setContrats(co)
       // Les étapes de SA séquence, sinon celle des réglages, sinon la séquence active.
       let seqId = fiche.sequenceId
       if (!seqId) {
@@ -90,6 +96,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             ? <Bouton icone={<RotateCcw />} disabled={occupe} onClick={() => agir(() => remettreAContacter(st.id!), "Fiche remise « à contacter ».")}>Remettre à contacter</Bouton>
             : null}
           <Bouton icone={<Play />} disabled={occupe || arretee || etapes.length === 0} onClick={() => agir(() => relancerMaintenant(st, etapes), "Prochaine étape due maintenant : elle partira au prochain passage.")}>Relancer maintenant</Bouton>
+          <Bouton icone={<FileSignature />} disabled={occupe || !st.email || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={!st.email ? "Pas d'adresse e-mail sur la fiche" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => agir(async () => { const r = await envoyerContrats(st.id!, compteNom); setInfo(`Contrats envoyés à ${r.destinataire} (${r.documents} document${r.documents > 1 ? "s" : ""}). L'artisan signe, puis STC signe.`) }, "Contrats envoyés.")}>Envoyer les contrats</Bouton>
           <Bouton variante="plein" icone={<Phone />} onClick={appeler}>Appeler</Bouton>
         </>
       ) : null}
@@ -106,12 +113,31 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             <Ligne libelle="Zone">{st.zone || "—"}</Ligne>
             <Ligne libelle="Appels">{st.nbAppels ? <>{st.nbAppels}{st.nbJoints ? ` dont ${st.nbJoints} joint${st.nbJoints > 1 ? "s" : ""}` : ""}{st.suivi ? <span className="ml-2 text-encre-2">· {LIBELLE_SUIVI[st.suivi]}{st.suiviMotif ? ` (${st.suiviMotif})` : ""}</span> : null}</> : "jamais appelé"}</Ligne>
             {st.rappelLe ? <Ligne libelle="Prochain appel">{new Date(st.rappelLe).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</Ligne> : null}
+            <Ligne libelle="Contrats">{st.contratStatut ? <span className="flex flex-wrap items-center gap-2"><Pastille role={ROLE_CONTRAT[st.contratStatut]} point>{LIBELLE_CONTRAT[st.contratStatut]}</Pastille>{st.contratLe ? <span className="text-colonne text-encre-2">{new Date(st.contratLe).toLocaleDateString("fr-FR")}</span> : null}</span> : "pas encore envoyés"}</Ligne>
             <Ligne libelle="Envois">{st.nbEnvoisOk} réussi{st.nbEnvoisOk > 1 ? "s" : ""}{st.nbEnvoisErreur ? ` · ${st.nbEnvoisErreur} en erreur` : ""}</Ligne>
             {st.derniereErreur ? <Ligne libelle="Dernière erreur"><span className="text-alerte">{st.derniereErreur}</span></Ligne> : null}
             {st.statutMotif ? <Ligne libelle="Pourquoi ce statut">{st.statutMotif}</Ligne> : null}
             {enPause ? <Ligne libelle="En pause jusqu'au">{new Date(st.pauseJusquAu!).toLocaleDateString("fr-FR")}</Ligne> : null}
           </div>
 
+          {contrats.length ? (
+            <>
+              <h3 className="mb-2 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Contrats · {contrats.length}</h3>
+              <ul className="divide-y divide-fond-4">
+                {contrats.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2 py-1.5 text-legende">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2"><Pastille role={ROLE_CONTRAT[c.statut]} point>{LIBELLE_CONTRAT[c.statut]}</Pastille><span className="chiffres text-colonne text-encre-2">{dateHeure(c.envoyeLe)}</span></span>
+                      <span className="block truncate text-colonne text-encre-2">{[c.documents.map((d) => d.nom).join(", "), c.compteNom, c.signeArtisanLe ? `artisan le ${dateHeure(c.signeArtisanLe)}` : "", c.signeLe ? `signés le ${dateHeure(c.signeLe)}` : ""].filter(Boolean).join(" · ")}</span>
+                      {c.erreur ? <span className="block truncate text-colonne text-alerte">{c.erreur}</span> : null}
+                    </span>
+                    {c.pdfPath ? <Bouton taille="sm" variante="discret" icone={<Download />} onClick={async () => { try { window.open(await lienContratSigne(c.pdfPath), "_blank", "noopener") } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } }}>PDF signé</Bouton> : null}
+                    {c.statut !== "signe" ? <Bouton taille="sm" variante="discret" icone={<RefreshCw />} disabled={occupe} onClick={() => agir(async () => { await relireContrat(c.envelopeId) }, "État relu chez DocuSign.")}>Relire</Bouton> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
           {appels.length ? (
             <>
               <h3 className="mb-2 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Appels · {appels.length}</h3>
