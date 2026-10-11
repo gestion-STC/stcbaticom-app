@@ -25,7 +25,8 @@ import {
 import type { Prospect } from "../../data"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
-import { nomAffiche } from "../../lib/comptes"
+import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
+import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, filtreCommercial, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import type { Message } from "../../lib/messagesDb"
 import { chargerNumeros } from "../../lib/numerosEmission"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
@@ -177,6 +178,21 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [compteurs, setCompteurs] = useState<Record<File, number> | null>(null)
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [secteurDuJour, setSecteurDuJour] = useState("")
+  // L'attribution de la base (Mahdi, 11/10) : un téléprospecteur n'appelle que SA base ; un admin
+  // choisit la base qu'il regarde. Le choix est mémorisé sur le poste.
+  const [choixBase, setChoixBase] = useState<string>(() => { try { return localStorage.getItem(CLE_CHOIX_LOCAL) || "moi" } catch { return "moi" } })
+  const [comptesListe, setComptesListe] = useState<{ id: string; nom: string }[]>([])
+  const [nonAttribueesLibres, setNonAttribueesLibres] = useState(false) // réglage : les non attribuées sont visibles par tous
+  const admin = estAdmin(session)
+  const moiId = session?.user?.id ?? ""
+  const proprietaire = useMemo(() => proprietaireDepuisChoix(choixBase, moiId, admin, nonAttribueesLibres), [choixBase, moiId, admin, nonAttribueesLibres])
+  const optionsDeBase = useMemo(() => optionsBase(admin, nonAttribueesLibres, comptesListe, moiId), [admin, nonAttribueesLibres, comptesListe, moiId])
+  useEffect(() => {
+    if (!session) return
+    lireParametre(CLE_NON_ATTRIBUEES).then((v) => setNonAttribueesLibres(nonAttribueesPourTous(v))).catch(() => undefined)
+    if (estAdmin(session)) listerComptes().then((l) => setComptesListe(l.map((c) => ({ id: c.id, nom: c.nom || c.email })))).catch(() => undefined)
+  }, [session])
+  const choisirBase = (v: string) => { const c = normaliserChoix(v, admin, nonAttribueesLibres); setChoixBase(c); try { localStorage.setItem(CLE_CHOIX_LOCAL, c) } catch { /* poste sans stockage */ } }
   // Mahdi, 09/10 : « si je veux appeler les gestionnaires joints, je fais comment ? »
   // → un filtre par étape sur la file ("" = toutes les étapes de la file).
   const [etapeFiltre, setEtapeFiltre] = useState("")
@@ -294,7 +310,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const chargerReperes = useCallback(async () => {
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
-      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
+      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
     ])
     if (!enVie.current) return
     setSecteurs(sect)
@@ -308,7 +324,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     setCompteursNumero(parNumero)
     if (res) setReserve(res)
     setMaintenant(Date.now())
-  }, [])
+  }, [proprietaire])
   const premierReperes = useRef(true)
 
   // La file : rechargée quand on change de file, de secteur, ou la case des déjà appelées.
@@ -320,8 +336,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       // (Mahdi, 09/10 : « je ne vois pas mes intéressés »). Sinon, la pile.
       const [agences, app] = await Promise.all([
         etapeFiltre
-          ? chargerAgences({ etape: etapeFiltre as Agence["etape"], secteur: secteurDuJour || undefined, limite: 3000 }).then((l) => ordonnerAProspecter(l, secteurDuJour || null))
-          : chargerFile(file, m, secteurDuJour || null),
+          ? chargerAgences({ etape: etapeFiltre as Agence["etape"], secteur: secteurDuJour || undefined, commercialId: filtreCommercial(proprietaire), limite: 3000 }).then((l) => ordonnerAProspecter(l, secteurDuJour || null))
+          : chargerFile(file, m, secteurDuJour || null, proprietaire),
         agencesAppeleesAujourdHui(m),
       ])
       if (!enVie.current) return
@@ -335,7 +351,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     } finally {
       if (enVie.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees])
+  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire])
 
   useEffect(() => {
     enVie.current = true
@@ -944,6 +960,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 )
               })}
             </div>
+            {optionsDeBase.length > 1 ? (
+              <Selecteur value={normaliserChoix(choixBase, admin, nonAttribueesLibres)} onChange={(e) => choisirBase(e.target.value)} disabled={enCours} className="w-44" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
+                {optionsDeBase.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Selecteur>
+            ) : null}
             <Selecteur value={secteurDuJour} onChange={(e) => setSecteurDuJour(e.target.value)} disabled={enCours} className="w-44" aria-label="Secteur du jour">
               <option value="">Tous les secteurs</option>
               {secteurs.map((s) => (

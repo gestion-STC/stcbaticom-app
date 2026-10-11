@@ -16,6 +16,9 @@ import {
   secteursParZone, sousTitreAgences, trierAgences,
 } from "../../demarchage/agencesOutils"
 import { exporterAgencesExcel, exporterContactsExcel } from "../../demarchage/exportAgences"
+import { nomProprietaire } from "../../demarchage/attribution"
+import { useSession } from "../../lib/auth"
+import { estAdmin, listerComptes } from "../../lib/comptes"
 import { supabaseConfigure } from "../../lib/supabase"
 import { Bandeau, BarreFiltres, Bouton, Carte, Case, Champ, Chargement, Compteurs, EnTetePage, Pastille, Selecteur, Tableau, Td, Th, Tr, Vide } from "../../ui"
 import FicheAgence from "./FicheAgence"
@@ -27,6 +30,13 @@ const COMPTES_VIDES: Record<File, number> = { a_prospecter: 0, rappels: 0, sans_
 
 // `etapeInitiale` : la page s'ouvre filtrée sur cette étape (depuis Aujourd'hui, « Où en est la base »).
 export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onOuvrirSession?: (agenceId: string) => void; etapeInitiale?: string | null }) {
+  const session = useSession()
+  const moiId = session?.user?.id ?? ""
+  const [comptesListe, setComptesListe] = useState<{ id: string; nom: string }[]>([]) // pour nommer le propriétaire (attribution de la base, 11/10)
+  useEffect(() => {
+    if (!session || !estAdmin(session)) return
+    listerComptes().then((l) => setComptesListe(l.map((c) => ({ id: c.id, nom: c.nom || c.email })))).catch(() => undefined)
+  }, [session])
   const [agences, setAgences] = useState<Agence[]>([])
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [parEtape, setParEtape] = useState<Record<string, number>>({})
@@ -57,8 +67,8 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   // Les filtres que la base sait appliquer (« sorties » n'existe que chez nous : on le filtre après).
   const filtresServeur = useMemo<FiltresAgences>(() => ({
     etape: filtres.etape === "sorties" ? "" : filtres.etape, secteur: filtres.secteur, type: filtres.type as TypeAgence | "", enseigne: filtres.enseigne,
-    recherche: recherchePrete, jamaisJointe: filtres.jamaisJointe, avecContact: filtres.avecContact,
-  }), [filtres.etape, filtres.secteur, filtres.type, filtres.enseigne, filtres.jamaisJointe, filtres.avecContact, recherchePrete])
+    recherche: recherchePrete, jamaisJointe: filtres.jamaisJointe, avecContact: filtres.avecContact, commercialId: filtres.attribuee || undefined,
+  }), [filtres.etape, filtres.secteur, filtres.type, filtres.enseigne, filtres.jamaisJointe, filtres.avecContact, filtres.attribuee, recherchePrete])
 
   const chargerCompteurs = useCallback(async () => {
     const quand = new Date()
@@ -219,6 +229,12 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
           {enseignes.map((en) => <option key={en} value={en}>{en}</option>)}
           {filtres.enseigne && !enseignes.includes(filtres.enseigne) ? <option value={filtres.enseigne}>{filtres.enseigne}</option> : null}
         </Selecteur>
+        <Selecteur className="w-[170px]" value={filtres.attribuee} onChange={(e) => majFiltres({ attribuee: e.target.value })} aria-label="Attribuée à">
+          <option value="">Toute la base</option>
+          {moiId ? <option value={moiId}>Ma base</option> : null}
+          {comptesListe.filter((c) => c.id !== moiId).map((c) => <option key={c.id} value={c.id}>Base de {c.nom}</option>)}
+          <option value="aucun">Non attribuées</option>
+        </Selecteur>
         <Case texte="jamais jointe" checked={filtres.jamaisJointe} onChange={(e) => majFiltres({ jamaisJointe: e.target.checked })} />
         <Case texte="avec contact" checked={filtres.avecContact} onChange={(e) => majFiltres({ avecContact: e.target.checked })} />
         {filtresActifs ? <Bouton variante="discret" taille="sm" onClick={() => { setFiltres(FILTRES_VIDES); setPage(0) }}>Effacer</Bouton> : null}
@@ -241,6 +257,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
                   <tr>
                     {enTeteTri("nom", "Agence")}
                     {enTeteTri("secteur", "Secteur")}
+                    <Th>Attribuée à</Th>
                     <Th>Standard</Th>
                     <Th>Contact principal</Th>
                     {enTeteTri("etape", "Étape")}
@@ -260,6 +277,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
                           {a.enseigne ? <div className="text-legende text-encre-2">{a.enseigne}</div> : null}
                         </Td>
                         <Td>{a.secteurLibelle || "—"}</Td>
+                        <Td className={a.commercialId ? "" : "text-encre-3"}>{nomProprietaire(a.commercialId, comptesListe, moiId) || "—"}</Td>
                         <Td><span className="chiffres">{a.telephone || "—"}</span></Td>
                         <Td>
                           {a.contactPrincipal ? (

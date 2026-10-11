@@ -105,8 +105,9 @@ export type FiltresLocaux = {
   enseigne: string
   jamaisJointe: boolean
   avecContact: boolean
+  attribuee: string // "" = toutes, "aucun" = non attribuées, sinon l'identifiant du compte (attribution de la base, 11/10/2026)
 }
-export const FILTRES_VIDES: FiltresLocaux = { recherche: "", secteur: "", etape: "", type: "", enseigne: "", jamaisJointe: false, avecContact: false }
+export const FILTRES_VIDES: FiltresLocaux = { recherche: "", secteur: "", etape: "", type: "", enseigne: "", jamaisJointe: false, avecContact: false, attribuee: "" }
 export type FileOuToutes = File | "toutes"
 
 const plat = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim()

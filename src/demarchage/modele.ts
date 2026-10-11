@@ -105,7 +105,7 @@ export function libelleType(code: string): string {
   return TYPES_AGENCE.find((r) => r.code === code)?.libelle ?? code
 }
 
-export type Secteur = { code: string; libelle: string; zone: string; ordre: number }
+export type Secteur = { code: string; libelle: string; zone: string; ordre: number; commercialId?: string | null } // commercialId : la personne qui démarche ce secteur (attribution de la base, 11/10/2026)
 
 export type Agence = {
   id: string

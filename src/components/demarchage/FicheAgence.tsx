@@ -218,7 +218,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                       ))}
                     </Selecteur>
                   </Etiquette>
-                  <Etiquette texte="Commercial responsable">
+                  <Etiquette texte="Attribuée à">
                     <Selecteur value={edition.commercialId} onChange={setEd("commercialId")}>
                       <option value="">— personne —</option>
                       {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
@@ -240,7 +240,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                   </div>
                   <div className="divide-y divide-fond-4">
                     <Ligne libelle="Lots"><span className="chiffres">{agence.nbLots || "—"}</span></Ligne>
-                    <Ligne libelle="Commercial">{nomCommercial(agence.commercialId, comptes) || "—"}</Ligne>
+                    <Ligne libelle="Attribuée à">{nomCommercial(agence.commercialId, comptes) || "—"}</Ligne>
                     <Ligne libelle="Premier OS">{agence.premierOsLe ? dateLongue(agence.premierOsLe) : "pas encore"}</Ligne>
                     <Ligne libelle="Dans la base">{agence.creeLe ? `${dateLongue(agence.creeLe)} · ${pluriel(agence.nbAppels, "appel")}` : "—"}</Ligne>
                   </div>

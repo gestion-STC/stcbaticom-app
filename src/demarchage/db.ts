@@ -8,6 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
+import type { Proprietaire } from "./attribution"
 import type { Message } from "../lib/messagesDb"
 import {
   type Activite,
@@ -77,13 +78,25 @@ const chiffres = (t: string) => (t || "").replace(/\D/g, "")
 
 // ── Secteurs ──
 export async function chargerSecteurs(): Promise<Secteur[]> {
-  const { data, error } = await sb().from("secteurs").select("code, libelle, zone, ordre").order("ordre").order("code")
+  const { data, error } = await sb().from("secteurs").select("code, libelle, zone, ordre, commercial_id").order("ordre").order("code")
   erreur(error)
-  return (data ?? []) as Secteur[]
+  return ((data ?? []) as (Secteur & { commercial_id?: string | null })[]).map(({ commercial_id, ...s }) => ({ ...s, commercialId: commercial_id ?? null }))
+}
+// Attribuer un secteur à une personne (admins) : le réglage est mémorisé sur le secteur et les agences
+// non attribuées du secteur passent à cette personne. Renvoie le nombre d'agences attribuées.
+export async function attribuerSecteur(code: string, compteId: string | null, ecraser = false): Promise<number> {
+  const { data, error } = await sb().rpc("attribuer_secteur", { p_secteur: code, p_compte_id: compteId, p_ecraser: ecraser })
+  erreur(error)
+  return Number(data ?? 0)
 }
 
 // ── Agences : les listes ──
-export type FiltresAgences = { etape?: Etape | "actives" | ""; secteur?: string; type?: Agence["type"] | ""; enseigne?: string; recherche?: string; jamaisJointe?: boolean; avecContact?: boolean; limite?: number }
+export type FiltresAgences = { etape?: Etape | "actives" | ""; secteur?: string; type?: Agence["type"] | ""; enseigne?: string; recherche?: string; jamaisJointe?: boolean; avecContact?: boolean; commercialId?: string; limite?: number }
+
+// Le propriétaire (attribution de la base, 11/10/2026) : les agences d'un compte, les non attribuées, ou tout.
+// Un filtre PostgREST : (colonne, opérateur, valeur), appliqué par `.filter`, qui ne fait pas exploser les types.
+const filtreProprietaire = (p: Proprietaire): [string, string, string] | null =>
+  p === "tous" ? null : p === "non_attribuees" ? ["commercial_id", "is", "null"] : ["commercial_id", "eq", p.compteId]
 
 // ⚠ PostgREST s'arrête à 1 000 lignes sans le dire (10/10 : « 1000 agences · 8 intéressées »
 // alors qu'il y en a 2 372 et 17). Toute lecture qui peut dépasser passe par lireParLots.
@@ -98,6 +111,8 @@ export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> 
     if (f.enseigne) q = q.eq("enseigne", f.enseigne)
     if (f.jamaisJointe) q = q.eq("joint_fois", 0)
     if (f.avecContact) q = q.gt("nb_contacts", 0)
+    if (f.commercialId === "aucun") q = q.is("commercial_id", null)
+    else if (f.commercialId) q = q.eq("commercial_id", f.commercialId)
     if (f.recherche?.trim()) {
       const r = f.recherche.trim().replace(/[%,]/g, " ")
       q = q.or(`nom.ilike.%${r}%,telephone.ilike.%${r}%,email.ilike.%${r}%,adresse.ilike.%${r}%,contact_principal.ilike.%${r}%`)
@@ -115,11 +130,15 @@ export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> 
 }
 
 // Les quatre files. Le tri fin se fait ici (secteur du jour, jamais appelées…).
-export async function chargerFile(file: File, maintenant: Date, secteurDuJour: string | null = null): Promise<Agence[]> {
+export async function chargerFile(file: File, maintenant: Date, secteurDuJour: string | null = null, proprietaire: Proprietaire = "tous"): Promise<Agence[]> {
   const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
   const aujourdHui = jourLocal(maintenant)
   // Lecture complète par lots (la file « À prospecter » dépasse 2 000 agences) ; le tri métier se fait en mémoire.
-  const base = (de: number, a: number) => sb().from("agences_liste").select(COLONNES_AGENCE).neq("type", "apporteur").order("id").range(de, a)
+  const fp = filtreProprietaire(proprietaire)
+  const base = (de: number, a: number) => {
+    const q = sb().from("agences_liste").select(COLONNES_AGENCE).neq("type", "apporteur")
+    return (fp ? q.filter(fp[0], fp[1], fp[2]) : q).order("id").range(de, a)
+  }
   if (file === "a_prospecter") {
     const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null))
     return ordonnerAProspecter(lignes.map(versAgence), secteurDuJour)
@@ -137,10 +156,14 @@ export async function chargerFile(file: File, maintenant: Date, secteurDuJour: s
   return lignes.map(versAgence).sort((x, y) => (x.reveilLe ?? "").localeCompare(y.reveilLe ?? ""))
 }
 
-export async function compterFiles(maintenant: Date): Promise<Record<File, number>> {
+export async function compterFiles(maintenant: Date, proprietaire: Proprietaire = "tous"): Promise<Record<File, number>> {
   const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
   const aujourdHui = jourLocal(maintenant)
-  const base = () => sb().from("agences_liste").select("id", { count: "exact", head: true }).neq("type", "apporteur")
+  const fp = filtreProprietaire(proprietaire)
+  const base = () => {
+    const q = sb().from("agences_liste").select("id", { count: "exact", head: true }).neq("type", "apporteur")
+    return fp ? q.filter(fp[0], fp[1], fp[2]) : q
+  }
   const [a, b, c, d] = await Promise.all([
     base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null),
     base().neq("etape", "hors_cible").lt("prochaine_echeance", finJour),

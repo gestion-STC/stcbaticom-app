@@ -73,6 +73,15 @@ export async function compterAgencesParSecteur(): Promise<Map<string, number>> {
   for (const l of lignes) { const k = l.secteur ?? ""; out.set(k, (out.get(k) ?? 0) + 1) }
   return out
 }
+// Le nombre d'agences NON attribuées par secteur (attribution de la base, 11/10/2026).
+export async function compterNonAttribueesParSecteur(): Promise<Map<string, number>> {
+  const s = sb()
+  type L = { id: string; secteur: string | null }
+  const lignes = await lireParLots<L>((de, a) => s.from("agences").select("id, secteur").neq("type", "apporteur").is("commercial_id", null).order("id").range(de, a))
+  const out = new Map<string, number>()
+  for (const l of lignes) { const k = l.secteur ?? ""; out.set(k, (out.get(k) ?? 0) + 1) }
+  return out
+}
 export async function renommerSecteur(code: string, libelle: string): Promise<void> {
   const l = libelle.trim()
   if (!l) throw new Error("Le libellé ne peut pas être vide.")
