@@ -71,7 +71,7 @@ Deno.serve(async (req: Request) => {
   const qui = await utilisateurConnecte(req, base, anon)
   if (!qui) return json({ error: "Connexion requise" }, 401)
 
-  let corps: { action?: string; sous_traitant_id?: string; compte_nom?: string; envelope_id?: string; forcer?: boolean; valeurs?: Record<string, string>; signataire_nom?: string; signataire_email?: string } = {}
+  let corps: { action?: string; sous_traitant_id?: string; compte_nom?: string; envelope_id?: string; forcer?: boolean; valeurs?: Record<string, string>; signataire_nom?: string; signataire_email?: string; template_ids?: string[] } = {}
   try { corps = await req.json() } catch { /* corps vide */ }
   const sb = createClient(base, service)
 
@@ -129,9 +129,13 @@ Deno.serve(async (req: Request) => {
       const { data: enCours } = await sb.from("st_contrats").select("id, statut").eq("sous_traitant_id", f.id).in("statut", ["envoye", "livre", "signe_artisan", "signe"]).order("envoye_le", { ascending: false }).limit(1)
       if (enCours?.length) return json({ error: enCours[0].statut === "signe" ? "Les contrats sont déjà signés." : "Des contrats sont déjà en cours de signature pour cette fiche.", statut: enCours[0].statut }, 409)
     }
-    const { data: pack, error: eP } = await sb.from("st_contrats_modeles").select("id, nom, template_id, ordre").eq("actif", true).neq("template_id", "").order("ordre")
+    const { data: packComplet, error: eP } = await sb.from("st_contrats_modeles").select("id, nom, template_id, ordre").eq("actif", true).neq("template_id", "").order("ordre")
     if (eP) throw eP
-    if (!pack?.length) return json({ error: "Aucun modèle dans le pack : Réglages › Recrutement › Contrats à faire signer." }, 400)
+    if (!packComplet?.length) return json({ error: "Aucun modèle dans le pack : Réglages › Recrutement › Contrats à faire signer." }, 400)
+    // Mahdi, 11/10 : trois contrats (cadre, conditions particulières intervention, remise en état) ; on peut n'en envoyer qu'une partie.
+    const choisis = Array.isArray(corps.template_ids) && corps.template_ids.length ? corps.template_ids : null
+    const pack = choisis ? packComplet.filter((m) => choisis.includes(m.template_id)) : packComplet
+    if (!pack.length) return json({ error: "Aucun contrat coché." }, 400)
 
     const stcEmail = Deno.env.get("DOCUSIGN_SIGNATAIRE_STC_EMAIL") || "gestion@stcbatiment.fr"
     const stcNom = Deno.env.get("DOCUSIGN_SIGNATAIRE_STC_NOM") || "STC Bâtiment"

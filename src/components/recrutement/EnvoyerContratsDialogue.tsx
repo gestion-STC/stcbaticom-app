@@ -12,7 +12,7 @@ import { chargerModelesDocusign, chargerPack, envoyerContrats } from "../../lib/
 import { champsArtisan, connuDepuis, libelleChamp, valeurProposee, type ModeleDocusign } from "../../lib/contratsOutils"
 import { useSession } from "../../lib/auth"
 import { nomAffiche } from "../../lib/comptes"
-import { Bandeau, Bouton, Champ, Chargement, Dialogue, Etiquette } from "../../ui"
+import { Bandeau, Bouton, Case, Champ, Chargement, Dialogue, Etiquette } from "../../ui"
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -22,7 +22,7 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
   const session = useSession()
   const compteNom = nomAffiche(session)
   const [pack, setPack] = useState<ModeleDocusign[] | null>(null)
-  const [champs, setChamps] = useState<{ label: string; requis: boolean }[]>([])
+  const [coches, setCoches] = useState<string[]>([])
   const [valeurs, setValeurs] = useState<Record<string, string>>({})
   const [signataireNom, setSignataireNom] = useState("")
   const [signataireEmail, setSignataireEmail] = useState("")
@@ -39,7 +39,7 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
         const liste = champsArtisan(choisis)
         if (!vivant) return
         setPack(choisis)
-        setChamps(liste)
+        setCoches(choisis.map((x) => x.templateId))
         setValeurs(Object.fromEntries(liste.map((c) => [c.label, valeurProposee(c.label, connu)])))
         setSignataireNom(valeurProposee("Dirigeant", connu) || fiche.contact || "")
         setSignataireEmail(fiche.email || dossier?.email || valeurProposee("E-mail", connu))
@@ -50,15 +50,17 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
     return () => { vivant = false; clearTimeout(t) }
   }, [fiche, dossier])
 
+  const retenus = (pack ?? []).filter((m) => coches.includes(m.templateId))
+  const champs = champsArtisan(retenus)
   const manquants = champs.filter((c) => c.requis && !(valeurs[c.label] ?? "").trim()).map((c) => libelleChamp(c.label))
-  const pret = !!pack?.length && !!signataireNom.trim() && /\S+@\S+\.\S+/.test(signataireEmail) && manquants.length === 0
+  const pret = retenus.length > 0 && !!signataireNom.trim() && /\S+@\S+\.\S+/.test(signataireEmail) && manquants.length === 0
 
   const envoyer = async (e: FormEvent) => {
     e.preventDefault()
     if (!pret) return
     setOccupe(true); setErreur("")
     try {
-      const r = await envoyerContrats({ sousTraitantId: fiche.id!, compteNom, valeurs, signataireNom: signataireNom.trim(), signataireEmail: signataireEmail.trim() })
+      const r = await envoyerContrats({ sousTraitantId: fiche.id!, compteNom, valeurs, signataireNom: signataireNom.trim(), signataireEmail: signataireEmail.trim(), templateIds: retenus.map((m) => m.templateId) })
       onEnvoye(`Contrats envoyés à ${r.destinataire} (${r.documents} document${r.documents > 1 ? "s" : ""}). ${signataireNom.trim()} signe, puis STC signe.`)
     } catch (err) {
       setErreur(message(err))
@@ -80,9 +82,13 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
         <p className="text-legende text-encre-2">Aucun contrat dans le pack. Va dans Réglages › Recrutement › « Contrats à faire signer » pour choisir les modèles DocuSign.</p>
       ) : (
         <form id="form-envoyer-contrats" onSubmit={envoyer} className="grid gap-4">
-          <p className="text-legende text-encre">
-            Partiront : {pack.map((m, i) => <span key={m.templateId}>{i ? ", " : ""}<b className="font-medium">{m.nom}</b></span>)}.
-          </p>
+          <div>
+            <h3 className="mb-1 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Les contrats qui partent</h3>
+            <div className="flex flex-wrap gap-x-5 gap-y-1">
+              {pack.map((m) => <Case key={m.templateId} texte={m.nom} checked={coches.includes(m.templateId)} onChange={(e) => setCoches((c) => (e.target.checked ? [...c, m.templateId] : c.filter((x) => x !== m.templateId)))} />)}
+            </div>
+            {retenus.length === 0 ? <p className="mt-1 text-colonne text-alerte">Coche au moins un contrat.</p> : null}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Etiquette texte="Qui signe pour l'artisan"><Champ value={signataireNom} onChange={(e) => setSignataireNom(e.target.value)} placeholder="Prénom Nom" required /></Etiquette>
             <Etiquette texte="Son e-mail (reçoit DocuSign)"><Champ type="email" value={signataireEmail} onChange={(e) => setSignataireEmail(e.target.value)} required /></Etiquette>

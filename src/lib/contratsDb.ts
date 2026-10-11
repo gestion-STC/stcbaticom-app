@@ -57,10 +57,10 @@ export async function chargerModelesDocusign(): Promise<{ modeles: ModeleDocusig
   return { modeles: r.modeles ?? [], compte: r.compte ?? "" }
 }
 
-export type EnvoiContrats = { sousTraitantId: string; compteNom: string; valeurs: Record<string, string>; signataireNom: string; signataireEmail: string; forcer?: boolean }
+export type EnvoiContrats = { sousTraitantId: string; compteNom: string; valeurs: Record<string, string>; signataireNom: string; signataireEmail: string; templateIds?: string[]; forcer?: boolean }
 export async function envoyerContrats(e: EnvoiContrats): Promise<{ envelopeId: string; documents: number; destinataire: string }> {
   const r = await appeler<{ envelopeId: string; documents: number; destinataire: string }>({
-    sous_traitant_id: e.sousTraitantId, compte_nom: e.compteNom, valeurs: e.valeurs, signataire_nom: e.signataireNom, signataire_email: e.signataireEmail, forcer: !!e.forcer,
+    sous_traitant_id: e.sousTraitantId, compte_nom: e.compteNom, valeurs: e.valeurs, signataire_nom: e.signataireNom, signataire_email: e.signataireEmail, template_ids: e.templateIds ?? [], forcer: !!e.forcer,
   })
   return { envelopeId: r.envelopeId, documents: r.documents ?? 0, destinataire: r.destinataire ?? "" }
 }
