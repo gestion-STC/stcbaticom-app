@@ -47,12 +47,19 @@ Deno.serve(async (req: Request) => {
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const sb = createClient(base, service)
   try {
-    const { data: contrat } = await sb.from("st_contrats").select("id, sous_traitant_id, statut, pdf_path, documents").eq("envelope_id", envelopeId).maybeSingle()
-    if (!contrat) return json({ ok: true, ignore: "enveloppe inconnue ici" })
-
+    let { data: contrat } = await sb.from("st_contrats").select("id, sous_traitant_id, statut, pdf_path, documents").eq("envelope_id", envelopeId).maybeSingle()
     const config = configDepuisEnv((k) => Deno.env.get(k))
     const jeton = await jetonDocusign(config)
-    const e = await apiJson<Enveloppe>(config, jeton, "GET", `/envelopes/${envelopeId}?include=recipients`)
+    const e = await apiJson<Enveloppe & { customFields?: { textCustomFields?: { name: string; value: string }[] }; envelopeDocuments?: { name: string; documentId: string }[] }>(config, jeton, "GET", `/envelopes/${envelopeId}?include=recipients,custom_fields,documents`)
+    if (!contrat) {
+      // Inconnue ici : si c'est bien une enveloppe du logiciel (champ caché sous_traitant_id), on la rattrape.
+      const stId = e.customFields?.textCustomFields?.find((f) => f.name === "sous_traitant_id")?.value
+      if (!stId) return json({ ok: true, ignore: "enveloppe inconnue ici" })
+      const documents = (e.envelopeDocuments ?? []).filter((d) => d.documentId !== "certificate").map((d) => ({ nom: d.name }))
+      const { data: cree, error: eC } = await sb.from("st_contrats").insert({ sous_traitant_id: stId, envelope_id: envelopeId, statut: "envoye", compte_nom: "rattrapé par DocuSign", documents }).select("id, sous_traitant_id, statut, pdf_path, documents").single()
+      if (eC) return json({ ok: true, ignore: `enveloppe inconnue et fiche ${stId} introuvable` })
+      contrat = cree
+    }
     const etat = statutDepuisEnveloppe(e)
     const maj: Record<string, unknown> = { statut: etat.statut, signe_artisan_le: etat.signeArtisanLe, maj_le: new Date().toISOString() }
     let dossierComplet = false
@@ -87,6 +94,8 @@ Deno.serve(async (req: Request) => {
     if (error) throw error
     return json({ ok: true, event: message.event, statut: etat.statut, dossier_complet: dossierComplet })
   } catch (err) {
+    // Une enveloppe qui n'existe pas (ou plus) chez DocuSign : rien à faire, et surtout pas de nouvel essai.
+    if (/ENVELOPE_DOES_NOT_EXIST/.test(String(err))) return json({ ok: true, ignore: "enveloppe inconnue chez DocuSign" })
     console.error("[DOCUSIGN-EVENEMENTS]", err)
     await sb.from("st_contrats").update({ erreur: String(err).slice(0, 500), maj_le: new Date().toISOString() }).eq("envelope_id", envelopeId)
     return json({ error: String(err) }, 500)

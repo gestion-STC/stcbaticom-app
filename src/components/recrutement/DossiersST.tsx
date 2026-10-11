@@ -32,6 +32,23 @@ const nomDePiece = (p: { nom?: string; path: string }) => p.nom || p.path.split(
 const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`
 
 /**
+ * Une réponse du questionnaire, lisible : courte = sur une ligne (libellé à gauche, valeur à droite) ;
+ * longue, ou question longue (volet « savoir-être ») = la question au-dessus, la réponse en dessous,
+ * pleine largeur, retours à la ligne respectés. Mahdi, 11/10 : « qu'on puisse lire clairement ».
+ */
+function Reponse({ label, valeur }: { label: string; valeur: string }) {
+  const v = (valeur || "").trim()
+  const longue = label.length > 48 || v.length > 70 || v.includes("\n")
+  if (!longue) return <Ligne libelle={label}>{v || "—"}</Ligne>
+  return (
+    <div className="py-2.5">
+      <div className="text-colonne font-medium text-encre-2">{label}</div>
+      <div className={"mt-1 whitespace-pre-wrap text-legende leading-relaxed " + (v ? "text-encre" : "text-encre-3")}>{v || "—"}</div>
+    </div>
+  )
+}
+
+/**
  * Les 8 fiches les plus proches d'une recherche (entreprise, e-mail, téléphone,
  * contact). Sans recherche : celles qui ressemblent au dossier lui-même
  * (même e-mail d'abord, puis même nom d'entreprise).
@@ -245,7 +262,7 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
       titre={dossier.raisonSociale || "Dossier sans nom"}
       sousTitre={<span className="flex flex-wrap items-center gap-2"><Pastille role={s.role} point={s.texte === "nouveau"}>{s.texte}</Pastille><span>Déposé le {dateHeure(dossier.creeLe)}</span>{dossier.email ? <span>· {dossier.email}</span> : null}</span>}
       onFermer={onFermer}
-      largeur="w-[560px]"
+      largeur="w-[720px]"
       pied={<>
         {fiche ? <Bouton icone={<FileSignature />} disabled={occupe || ["envoye", "livre", "signe_artisan", "signe"].includes(fiche.contratStatut ?? "")} title={fiche.contratStatut === "signe" ? "Contrats déjà signés" : fiche.contratStatut ? "Contrats déjà en cours de signature" : "Remplir les informations et envoyer les contrats DocuSign"} onClick={() => setEnvoiContrats(true)}>{fiche.contratStatut ? LIBELLE_CONTRAT[fiche.contratStatut] : "Envoyer les contrats"}</Bouton> : <Bouton icone={<FileSignature />} disabled title="Rattache d'abord le dossier à une fiche">Envoyer les contrats</Bouton>}
         {dossier.traiteLe
@@ -328,7 +345,7 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
         <div key={i}>
           {titreSection(sec.titre)}
           <div className="divide-y divide-fond-4">
-            {(sec.lignes ?? []).map((l, k) => <Ligne key={k} libelle={l.label}>{l.valeur || "—"}</Ligne>)}
+            {(sec.lignes ?? []).map((l, k) => <Reponse key={k} label={l.label} valeur={l.valeur} />)}
           </div>
         </div>
       ))}

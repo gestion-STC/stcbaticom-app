@@ -113,8 +113,10 @@ Deno.serve(async (req: Request) => {
       const conf = {
         name: "STC Baticom", urlToPublishTo: url, configurationType: "custom", deliveryMode: "SIM", allUsers: "true", allowEnvelopePublish: "true", enableLog: "true",
         includeDocuments: "false", includeEnvelopeVoidReason: "true", includeTimeZone: "true", requiresAcknowledgement: "true", requireMutualTls: "false",
+        // Format JSON (restv2.1) : c'est la liste `events` qui déclenche ; les deux autres restent pour l'ancien format.
+        events: ["envelope-sent", "envelope-delivered", "envelope-completed", "envelope-declined", "envelope-voided", "recipient-completed", "recipient-declined"],
         envelopeEvents: ["sent", "delivered", "completed", "declined", "voided"], recipientEvents: ["completed", "declined"],
-        eventData: { version: "restv2.1", format: "json", includeData: ["recipients"] },
+        eventData: { version: "restv2.1", format: "json", includeData: ["recipients", "custom_fields"] },
       }
       const r = deja
         ? await apiJson<{ connectId: string }>(config, jeton, "PUT", "/connect", { ...conf, connectId: deja.connectId })
