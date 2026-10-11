@@ -46,6 +46,9 @@ type LigneST = {
   contrat_statut?: string | null
   contrat_le?: string | null
   contrat_signe_le?: string | null
+  acces_envoye_le?: string | null
+  acces_ouvert_le?: string | null
+  acces_email?: string | null
   cree_le: string
 }
 
@@ -95,6 +98,9 @@ function vers(r: LigneST): SousTraitant {
     contratStatut: (r.contrat_statut ?? "") as SousTraitant["contratStatut"],
     contratLe: r.contrat_le ?? null,
     contratSigneLe: r.contrat_signe_le ?? null,
+    accesEnvoyeLe: r.acces_envoye_le ?? null,
+    accesOuvertLe: r.acces_ouvert_le ?? null,
+    accesEmail: r.acces_email ?? "",
     creeLe: r.cree_le,
   }
 }

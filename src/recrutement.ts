@@ -57,6 +57,10 @@ export type SousTraitant = {
   contratStatut?: "" | "envoye" | "livre" | "signe_artisan" | "signe" | "refuse" | "annule" | "erreur"
   contratLe?: string | null
   contratSigneLe?: string | null
+  // Le lien « ouvrir mon accès » (11/10/2026).
+  accesEnvoyeLe?: string | null
+  accesOuvertLe?: string | null
+  accesEmail?: string
   creeLe?: string
 }
 

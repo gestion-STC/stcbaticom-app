@@ -10,6 +10,7 @@
 // Déployée SANS vérification de JWT (DocuSign n'a pas notre jeton), d'où la clé.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { api, apiJson, configDepuisEnv, hmacValide, jetonDocusign } from "../_shared/docusign.ts"
+import { envoyerLienAcces } from "../_shared/acces-partenaire.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 type Enveloppe = { envelopeId: string; status: string; recipients?: { signers?: { recipientId: string; status: string; signedDateTime?: string }[] } }
@@ -92,7 +93,17 @@ Deno.serve(async (req: Request) => {
     }
     const { error } = await sb.from("st_contrats").update(maj).eq("id", contrat.id)
     if (error) throw error
-    return json({ ok: true, event: message.event, statut: etat.statut, dossier_complet: dossierComplet })
+    // Signé par les deux parties → le lien « ouvrir mon accès » part (une fois : si déjà envoyé, on ne renvoie pas).
+    let lien: { ok: boolean; detail: string } | null = null
+    if (etat.statut === "signe") {
+      const { data: fiche } = await sb.from("st_sous_traitants").select("id, entreprise, contact, email, telephone, metier, zone, acces_envoye_le").eq("id", contrat.sous_traitant_id).maybeSingle()
+      if (fiche && !(fiche as { acces_envoye_le: string | null }).acces_envoye_le) {
+        const r = await envoyerLienAcces(sb, fiche as { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string }, (k) => Deno.env.get(k))
+        lien = r.ok ? { ok: true, detail: r.destinataire } : { ok: false, detail: r.erreur }
+        if (!r.ok) console.error("[DOCUSIGN-EVENEMENTS] lien d'accès non envoyé :", r.erreur)
+      }
+    }
+    return json({ ok: true, event: message.event, statut: etat.statut, dossier_complet: dossierComplet, lien })
   } catch (err) {
     // Une enveloppe qui n'existe pas (ou plus) chez DocuSign : rien à faire, et surtout pas de nouvel essai.
     if (/ENVELOPE_DOES_NOT_EXIST/.test(String(err))) return json({ ok: true, ignore: "enveloppe inconnue chez DocuSign" })

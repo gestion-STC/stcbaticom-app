@@ -13,6 +13,7 @@
 //   · installer_connect→ pose l'abonnement Connect vers docusign-evenements
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { apiJson, configDepuisEnv, jetonDocusign } from "../_shared/docusign.ts"
+import { envoyerLienAcces } from "../_shared/acces-partenaire.ts"
 
 // Appelée depuis le navigateur : les en-têtes CORS sur chaque réponse, et la pré-requête OPTIONS.
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
@@ -89,6 +90,17 @@ Deno.serve(async (req: Request) => {
   let corps: { action?: string; sous_traitant_id?: string; compte_nom?: string; envelope_id?: string; forcer?: boolean; valeurs?: Record<string, string>; signataire_nom?: string; signataire_email?: string; template_ids?: string[] } = {}
   try { corps = await req.json() } catch { /* corps vide */ }
   const sb = createClient(base, service)
+
+  // ── Envoyer (ou renvoyer) le lien « ouvrir mon accès » : contrats signés obligatoires ──
+  if (corps.action === "acces_envoyer") {
+    if (!corps.sous_traitant_id) return json({ error: "sous_traitant_id manquant" }, 400)
+    const { data: fiche } = await sb.from("st_sous_traitants").select("id, entreprise, contact, email, telephone, metier, zone, contrat_statut").eq("id", corps.sous_traitant_id).maybeSingle()
+    if (!fiche) return json({ error: "Fiche introuvable" }, 404)
+    if ((fiche as { contrat_statut: string }).contrat_statut !== "signe" && !corps.forcer) return json({ error: "Les contrats ne sont pas encore signés par les deux parties." }, 409)
+    const r = await envoyerLienAcces(sb, fiche as { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string }, (k) => Deno.env.get(k))
+    if (!r.ok) return json({ error: r.erreur }, 502)
+    return json({ ok: true, destinataire: r.destinataire })
+  }
 
   try {
     const config = configDepuisEnv((k) => Deno.env.get(k))

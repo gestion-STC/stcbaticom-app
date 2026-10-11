@@ -71,6 +71,11 @@ export async function envoyerContrats(e: EnvoiContrats): Promise<{ envelopeId: s
   })
   return { envelopeId: r.envelopeId, documents: r.documents ?? 0, destinataire: r.destinataire ?? "" }
 }
+/** Envoie (ou renvoie) le lien « ouvrir mon accès » à l'artisan ; STC Bâtiment l'envoie et le journalise. */
+export async function envoyerLienAcces(sousTraitantId: string, forcer = false): Promise<string> {
+  const r = await appeler<{ destinataire?: string }>({ action: "acces_envoyer", sous_traitant_id: sousTraitantId, forcer })
+  return r.destinataire ?? ""
+}
 export async function relireContrat(envelopeId: string): Promise<string> {
   const r = await appeler<{ statut?: string }>({ action: "statut", envelope_id: envelopeId })
   return r.statut ?? ""

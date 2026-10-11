@@ -8,7 +8,7 @@
 // (la machine le fait seule quand le lien tracké a suivi, sinon on le fait ici).
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ExternalLink, FileSignature, Link2, Paperclip, Unlink } from "lucide-react"
+import { ExternalLink, FileSignature, KeyRound, Link2, Paperclip, Unlink } from "lucide-react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
@@ -17,7 +17,7 @@ import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
 import { chiffresTel } from "../../lib/telephone"
 import FicheArtisan from "./FicheArtisan"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
-import { LIBELLE_CONTRAT, ROLE_CONTRAT } from "../../lib/contratsDb"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT, envoyerLienAcces } from "../../lib/contratsDb"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
 
 type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche" | "complets"
@@ -272,7 +272,17 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
     >
       {erreur ? <Bandeau role="alerte" className="mb-3">{erreur}</Bandeau> : null}
       {info ? <Bandeau role="ok" className="mb-3">{info}</Bandeau> : null}
-      {fiche?.contratStatut ? <p className="mb-3 flex items-center gap-2 text-legende"><Pastille role={ROLE_CONTRAT[fiche.contratStatut]} point>{LIBELLE_CONTRAT[fiche.contratStatut]}</Pastille>{fiche.contratLe ? <span className="text-encre-2">{new Date(fiche.contratLe).toLocaleDateString("fr-FR")}</span> : null}</p> : null}
+      {fiche?.contratStatut ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-legende">
+          <Pastille role={ROLE_CONTRAT[fiche.contratStatut]} point>{LIBELLE_CONTRAT[fiche.contratStatut]}</Pastille>
+          {fiche.contratLe ? <span className="text-encre-2">{new Date(fiche.contratLe).toLocaleDateString("fr-FR")}</span> : null}
+          {fiche.accesOuvertLe ? <Pastille role="fait" point>Accès ouvert le {new Date(fiche.accesOuvertLe).toLocaleDateString("fr-FR")}</Pastille>
+            : fiche.accesEnvoyeLe ? <Pastille role="attente" point>Lien d'accès envoyé le {new Date(fiche.accesEnvoyeLe).toLocaleDateString("fr-FR")}</Pastille> : null}
+          {fiche.contratStatut === "signe" && !fiche.accesOuvertLe ? (
+            <Bouton taille="sm" variante="discret" icone={<KeyRound />} disabled={occupe} onClick={() => agir(async () => { const a = await envoyerLienAcces(fiche.id!, !!fiche.accesEnvoyeLe); await onRecharger(); setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, "")}>{fiche.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}</Bouton>
+          ) : null}
+        </div>
+      ) : null}
       {envoiContrats && fiche ? <EnvoyerContratsDialogue fiche={fiche} dossier={dossier} onFermer={() => setEnvoiContrats(false)} onEnvoye={async (texte) => { setEnvoiContrats(false); setInfo(texte); await onRecharger() }} /> : null}
 
       {titreSection("Fiche rattachée")}
