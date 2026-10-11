@@ -102,9 +102,11 @@ Deno.serve(async (req: Request) => {
     }
     return json({ ok: true, domaines })
   }
-  // ── Allumer le suivi des ouvertures d'UN domaine (pixel Resend) — réservé au serveur. Les clics restent
-  // suivis par nos propres liens (liens_suivis) : on ne touche pas au click_tracking, qui réécrirait tous les liens.
-  if (req.method === "GET" && url.searchParams.get("action") === "activer_ouvertures") {
+  // ── Régler le suivi d'UN domaine chez Resend — réservé au serveur. Resend n'applique open_tracking qu'une fois un
+  // sous-domaine de suivi (tracking_subdomain) posé en DNS et vérifié ; on renvoie donc l'état et les enregistrements DNS.
+  // Jamais le click_tracking : il réécrirait tous les liens, nos clics sont suivis par liens_suivis.
+  // GET ?action=maj_domaine&domaine=crm.stcbatiment.fr[&sous_domaine=liens.crm.stcbatiment.fr][&ouvertures=1]
+  if (req.method === "GET" && url.searchParams.get("action") === "maj_domaine") {
     const jeton = (req.headers.get("Authorization") || "").replace("Bearer ", "").trim()
     if (!(await estCleServeur(jeton, base, service))) return json({ error: "réservé au serveur" }, 403)
     const cle = Deno.env.get("RESEND_API_KEY")
@@ -115,9 +117,18 @@ Deno.serve(async (req: Request) => {
     const doms: { id: string; name: string }[] = liste.ok ? ((await liste.json())?.data ?? []) : []
     const d = doms.find((x) => x.name === nom)
     if (!d) return json({ error: "domaine inconnu chez Resend : " + nom }, 404)
-    const r = await fetch("https://api.resend.com/domains/" + d.id, { method: "PATCH", headers: entetes, body: JSON.stringify({ open_tracking: true }) })
-    const j = await r.json().catch(() => ({}))
-    return json({ ok: r.ok, status: r.status, domaine: nom, reponse: j })
+    const maj: Record<string, unknown> = {}
+    const sous = url.searchParams.get("sous_domaine")
+    if (sous) maj.tracking_subdomain = sous
+    if (url.searchParams.get("ouvertures") === "1") maj.open_tracking = true
+    let patch: unknown = null
+    if (Object.keys(maj).length) {
+      const r = await fetch("https://api.resend.com/domains/" + d.id, { method: "PATCH", headers: entetes, body: JSON.stringify(maj) })
+      patch = { status: r.status, reponse: await r.json().catch(() => ({})) }
+    }
+    const det = await fetch("https://api.resend.com/domains/" + d.id, { headers: entetes })
+    const j = det.ok ? await det.json() : {}
+    return json({ ok: true, domaine: nom, patch, open_tracking: j.open_tracking ?? null, click_tracking: j.click_tracking ?? null, tracking_subdomain: j.tracking_subdomain ?? null, records: j.records ?? [] })
   }
   // ── Le sort d'e-mails envoyés (délivré, rebondi…), lu chez Resend ──
   // GET ?action=statut&id=<id resend>,<id resend>… avec la clé serveur.
