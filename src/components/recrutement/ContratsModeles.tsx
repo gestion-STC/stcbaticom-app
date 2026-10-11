@@ -1,74 +1,98 @@
 // ════════════════════════════════════════════════════════════════════════════
-// RÉGLAGES → RECRUTEMENT → « CONTRATS » (11/10/2026)
+// RÉGLAGES → RECRUTEMENT → « CONTRATS À FAIRE SIGNER » (11/10/2026)
 //
-// Les PDF que « Envoyer les contrats » fait signer, dans l'ordre. Ils vivent
-// dans le bucket privé `contrats/modeles`. Un modèle inactif reste là mais ne
-// part plus. Et le bouton « Brancher les retours DocuSign », à cliquer une fois.
+// Les contrats sont des MODÈLES DocuSign (Mahdi : « déjà enregistrés dans
+// DocuSign »). Ici on lit les modèles du compte, on coche ceux qui forment le
+// pack et on fixe leur ordre. À l'envoi, l'artisan signe d'abord, STC ensuite.
+// Et le bouton « Brancher les retours DocuSign », à cliquer une fois.
 // ════════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Download, Plug, Trash2, Upload } from "lucide-react"
-import { chargerModeles, deposerModele, installerConnect, lienModele, majModele, supprimerModele, type ModeleContrat } from "../../lib/contratsDb"
-import { Bandeau, Bouton, Carte, Case, Chargement, TitreCarte, Vide } from "../../ui"
+import { useCallback, useEffect, useState } from "react"
+import { ArrowDown, ArrowUp, Plug, RefreshCw, Save } from "lucide-react"
+import { chargerModelesDocusign, chargerPack, enregistrerPack, installerConnect } from "../../lib/contratsDb"
+import { roleArtisan, type ModeleDocusign } from "../../lib/contratsOutils"
+import { Bandeau, Bouton, Carte, Case, Chargement, Pastille, TitreCarte, Vide } from "../../ui"
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export default function ContratsModeles() {
-  const [modeles, setModeles] = useState<ModeleContrat[] | null>(null)
+  const [modeles, setModeles] = useState<ModeleDocusign[] | null>(null)
+  const [compte, setCompte] = useState("")
+  const [pack, setPack] = useState<string[]>([]) // les templateId choisis, dans l'ordre
+  const [origine, setOrigine] = useState<string[]>([])
   const [erreur, setErreur] = useState("")
   const [info, setInfo] = useState("")
   const [occupe, setOccupe] = useState(false)
-  const fichier = useRef<HTMLInputElement>(null)
 
   const charger = useCallback(async () => {
-    try { setModeles(await chargerModeles()) } catch (e) { setErreur(message(e)) }
+    setErreur("")
+    try {
+      const [m, p] = await Promise.all([chargerModelesDocusign(), chargerPack()])
+      setModeles(m.modeles); setCompte(m.compte)
+      const ids = p.filter((x) => x.actif).map((x) => x.templateId)
+      setPack(ids); setOrigine(ids)
+    } catch (e) { setErreur(message(e)); setModeles([]) }
   }, [])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
 
   const agir = async (f: () => Promise<void>, ok: string) => {
     setOccupe(true); setErreur(""); setInfo("")
-    try { await f(); setInfo(ok); await charger() }
+    try { await f(); setInfo(ok) }
     catch (e) { setErreur(message(e)) }
     finally { setOccupe(false) }
   }
-  const deposer = (liste: FileList | null) => {
-    const f = liste?.[0]
-    if (!f) return
-    if (!/\.pdf$/i.test(f.name)) { setErreur("Seuls les PDF sont acceptés."); return }
-    const ordre = (modeles?.length ?? 0) + 1
-    agir(() => deposerModele(f, f.name.replace(/\.pdf$/i, ""), ordre), `« ${f.name} » déposé : il partira en position ${ordre}.`)
-    if (fichier.current) fichier.current.value = ""
-  }
-  const ouvrir = async (m: ModeleContrat) => {
-    try { window.open(await lienModele(m.chemin), "_blank", "noopener") } catch (e) { setErreur(message(e)) }
-  }
+  const basculer = (id: string) => setPack((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+  const bouger = (id: string, sens: -1 | 1) => setPack((p) => {
+    const i = p.indexOf(id), j = i + sens
+    if (i < 0 || j < 0 || j >= p.length) return p
+    const c = [...p]; [c[i], c[j]] = [c[j], c[i]]; return c
+  })
+  const change = pack.join("|") !== origine.join("|")
+  const enregistrer = () => agir(async () => {
+    const choisis = pack.map((id) => ({ templateId: id, nom: modeles?.find((m) => m.templateId === id)?.nom ?? id }))
+    await enregistrerPack(choisis)
+    setOrigine(pack)
+  }, pack.length ? `Pack enregistré : ${pack.length} contrat${pack.length > 1 ? "s" : ""} partiront, dans cet ordre.` : "Pack vidé : plus aucun contrat ne part.")
+
+  const ordre = (id: string) => pack.indexOf(id)
+  const tries = modeles ? [...modeles].sort((a, b) => { const oa = ordre(a.templateId), ob = ordre(b.templateId); if ((oa >= 0) !== (ob >= 0)) return oa >= 0 ? -1 : 1; return oa >= 0 ? oa - ob : a.nom.localeCompare(b.nom, "fr") }) : []
 
   return (
     <Carte>
       <TitreCarte droite={<>
-        <input ref={fichier} type="file" accept="application/pdf" className="hidden" onChange={(e) => deposer(e.target.files)} />
+        {compte ? <Pastille role={compte === "réel" ? "fait" : "attente"}>{compte === "réel" ? "compte réel" : "bac à sable DocuSign"}</Pastille> : null}
+        <Bouton taille="sm" variante="discret" icone={<RefreshCw />} disabled={occupe} onClick={() => { setModeles(null); charger() }}>Relire DocuSign</Bouton>
         <Bouton taille="sm" icone={<Plug />} disabled={occupe} onClick={() => agir(async () => { await installerConnect() }, "Retours DocuSign branchés : les signatures remonteront toutes seules.")}>Brancher les retours DocuSign</Bouton>
-        <Bouton taille="sm" icone={<Upload />} disabled={occupe} onClick={() => fichier.current?.click()}>Déposer un PDF</Bouton>
+        <Bouton taille="sm" variante="plein" icone={<Save />} disabled={!change} chargement={occupe} onClick={enregistrer}>Enregistrer le pack</Bouton>
       </>}>Contrats à faire signer</TitreCarte>
       <div className="px-5 pb-5">
-        <p className="text-legende text-encre-2">Les PDF envoyés par « Envoyer les contrats », dans cet ordre. L'artisan signe en bas à gauche de la dernière page de chacun, STC en bas à droite.</p>
+        <p className="text-legende text-encre-2">Les modèles de ton compte DocuSign. Coche ceux qui forment le pack envoyé depuis un dossier déposé, et range-les dans l'ordre. L'artisan signe d'abord, STC ensuite.</p>
         {erreur ? <Bandeau role="alerte" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
         {info ? <Bandeau role="ok" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setInfo("")}>Fermer</Bouton>}>{info}</Bandeau> : null}
-        {modeles === null ? <Chargement /> : modeles.length === 0 ? (
-          <Vide titre="Aucun contrat" texte="Dépose les PDF à faire signer : contrat cadre, charte, RIB à compléter…" action={<Bouton icone={<Upload />} onClick={() => fichier.current?.click()}>Déposer un PDF</Bouton>} />
+        {modeles === null ? <Chargement texte="Lecture des modèles DocuSign…" /> : modeles.length === 0 ? (
+          <Vide titre="Aucun modèle dans ce compte DocuSign" texte={compte === "réel" ? "Crée tes modèles dans DocuSign (Modèles › Nouveau), puis reviens ici." : "Les modèles de ton compte réel ne sont pas dans le bac à sable. Dans le compte réel : Modèles › ⋯ › Télécharger ; dans le compte Développeur : Modèles › Importer. Puis « Relire DocuSign »."} />
         ) : (
           <ul className="mt-3 divide-y divide-fond-4 border-t border-trait">
-            {modeles.map((m) => (
-              <li key={m.id} className="flex items-center gap-3 py-2">
-                <span className="chiffres w-6 shrink-0 text-legende text-encre-2">{m.ordre}</span>
-                <span className="min-w-0 flex-1">
-                  <span className={"block truncate text-legende font-medium " + (m.actif ? "text-encre" : "text-encre-3 line-through")}>{m.nom}</span>
-                  <span className="block truncate text-colonne text-encre-2">{m.chemin.replace(/^modeles\//, "")}</span>
-                </span>
-                <Case texte="part" checked={m.actif} onChange={(e) => agir(() => majModele(m.id, { actif: e.target.checked }), e.target.checked ? "Ce contrat partira." : "Ce contrat ne partira plus.")} />
-                <Bouton taille="sm" variante="discret" icone={<Download />} onClick={() => ouvrir(m)}>Voir</Bouton>
-                <Bouton taille="sm" variante="discret" icone={<Trash2 />} disabled={occupe} onClick={() => { if (confirm(`Retirer « ${m.nom} » ?`)) agir(() => supprimerModele(m), "Contrat retiré.") }}>Retirer</Bouton>
-              </li>
-            ))}
+            {tries.map((m) => {
+              const i = ordre(m.templateId)
+              const artisan = roleArtisan(m.roles)
+              const autres = m.roles.filter((r) => r !== artisan)
+              return (
+                <li key={m.templateId} className="flex items-center gap-3 py-2">
+                  <span className="chiffres w-6 shrink-0 text-legende text-encre-2">{i >= 0 ? i + 1 : ""}</span>
+                  <Case texte="" checked={i >= 0} onChange={() => basculer(m.templateId)} />
+                  <span className="min-w-0 flex-1">
+                    <span className={"block truncate text-legende font-medium " + (i >= 0 ? "text-encre" : "text-encre-2")}>{m.nom}</span>
+                    <span className="block truncate text-colonne text-encre-2">
+                      {artisan ? <>signe : <b className="font-medium">{artisan.roleName}</b>{autres.length ? ` puis ${autres.map((r) => r.roleName).join(", ")}` : ""} · {artisan.champs.length ? `${artisan.champs.length} champ${artisan.champs.length > 1 ? "s" : ""} à remplir : ${artisan.champs.join(", ")}` : "aucun champ à remplir"}</> : <span className="text-alerte">aucun signataire dans ce modèle</span>}
+                    </span>
+                  </span>
+                  {i >= 0 ? <>
+                    <Bouton taille="sm" variante="discret" icone={<ArrowUp />} disabled={i === 0} onClick={() => bouger(m.templateId, -1)} title="Monter">{""}</Bouton>
+                    <Bouton taille="sm" variante="discret" icone={<ArrowDown />} disabled={i === pack.length - 1} onClick={() => bouger(m.templateId, 1)} title="Descendre">{""}</Bouton>
+                  </> : null}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

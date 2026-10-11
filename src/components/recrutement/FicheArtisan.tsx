@@ -17,9 +17,8 @@ import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { chargerPilotage } from "../../lib/pilotageStDb"
 import { lancerAppelRingover } from "../../lib/ringover"
 import { chargerAppelsDe, type AppelST } from "../../lib/appelsStDb"
-import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, envoyerContrats, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
-import { useSession } from "../../lib/auth"
-import { nomAffiche } from "../../lib/comptes"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
+import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, dureeLisibleST } from "../../lib/appelsStOutils"
 import { Bouton, Champ, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
 
@@ -33,8 +32,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
   const [clics, setClics] = useState<ClicST[]>([])
   const [appels, setAppels] = useState<AppelST[]>([])
   const [contrats, setContrats] = useState<ContratST[]>([])
-  const session = useSession()
-  const compteNom = nomAffiche(session)
+  const [envoiContrats, setEnvoiContrats] = useState(false)
   const [messages, setMessages] = useState<MessageDeFiche[]>([])
   const [etapes, setEtapes] = useState<EtapeST[]>([])
   const [erreur, setErreur] = useState("")
@@ -96,7 +94,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             ? <Bouton icone={<RotateCcw />} disabled={occupe} onClick={() => agir(() => remettreAContacter(st.id!), "Fiche remise « à contacter ».")}>Remettre à contacter</Bouton>
             : null}
           <Bouton icone={<Play />} disabled={occupe || arretee || etapes.length === 0} onClick={() => agir(() => relancerMaintenant(st, etapes), "Prochaine étape due maintenant : elle partira au prochain passage.")}>Relancer maintenant</Bouton>
-          <Bouton icone={<FileSignature />} disabled={occupe || !st.email || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={!st.email ? "Pas d'adresse e-mail sur la fiche" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => agir(async () => { const r = await envoyerContrats(st.id!, compteNom); setInfo(`Contrats envoyés à ${r.destinataire} (${r.documents} document${r.documents > 1 ? "s" : ""}). L'artisan signe, puis STC signe.`) }, "Contrats envoyés.")}>Envoyer les contrats</Bouton>
+          <Bouton icone={<FileSignature />} disabled={occupe || !st.deposeLe || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={!st.deposeLe ? "Pas de dossier déposé : pas de contrat (on envoie depuis Dossiers déposés)" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => setEnvoiContrats(true)}>Envoyer les contrats</Bouton>
           <Bouton variante="plein" icone={<Phone />} onClick={appeler}>Appeler</Bouton>
         </>
       ) : null}
@@ -168,6 +166,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
         </>
       ) : null}
 
+      {envoiContrats && st ? <EnvoyerContratsDialogue fiche={st} onFermer={() => setEnvoiContrats(false)} onEnvoye={(texte) => { setEnvoiContrats(false); setInfo(texte); charger(); onChange?.() }} /> : null}
       {question === "stop" && st ? (
         <Dialogue
           titre="Ne plus contacter cet artisan ?"

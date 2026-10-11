@@ -8,7 +8,7 @@
 // (la machine le fait seule quand le lien tracké a suivi, sinon on le fait ici).
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ExternalLink, Link2, Paperclip, Unlink } from "lucide-react"
+import { ExternalLink, FileSignature, Link2, Paperclip, Unlink } from "lucide-react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
@@ -16,6 +16,8 @@ import { chargerDossiers, lienPieceDossier, marquerDossier, rattacherDossier } f
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
 import { chiffresTel } from "../../lib/telephone"
 import FicheArtisan from "./FicheArtisan"
+import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT } from "../../lib/contratsDb"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
 
 type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche"
@@ -194,6 +196,7 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
   const [erreur, setErreur] = useState("")
   const [info, setInfo] = useState("")
   const [pieceEnCours, setPieceEnCours] = useState<string | null>(null)
+  const [envoiContrats, setEnvoiContrats] = useState(false)
   const candidats = useMemo(() => chercherFiches(fiches, recherche, dossier), [fiches, recherche, dossier])
   const sections = dossier.donnees?.sections ?? []
   const s = statutDossier(dossier)
@@ -241,12 +244,17 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
       sousTitre={<span className="flex flex-wrap items-center gap-2"><Pastille role={s.role} point={s.texte === "nouveau"}>{s.texte}</Pastille><span>Déposé le {dateHeure(dossier.creeLe)}</span>{dossier.email ? <span>· {dossier.email}</span> : null}</span>}
       onFermer={onFermer}
       largeur="w-[560px]"
-      pied={dossier.traiteLe
-        ? <Bouton chargement={occupe} onClick={() => traiter(false)}>Rouvrir</Bouton>
-        : <Bouton variante="plein" chargement={occupe} onClick={() => traiter(true)}>Marquer traité</Bouton>}
+      pied={<>
+        {fiche ? <Bouton icone={<FileSignature />} disabled={occupe || ["envoye", "livre", "signe_artisan", "signe"].includes(fiche.contratStatut ?? "")} title={fiche.contratStatut === "signe" ? "Contrats déjà signés" : fiche.contratStatut ? "Contrats déjà en cours de signature" : "Remplir les informations et envoyer les contrats DocuSign"} onClick={() => setEnvoiContrats(true)}>{fiche.contratStatut ? LIBELLE_CONTRAT[fiche.contratStatut] : "Envoyer les contrats"}</Bouton> : <Bouton icone={<FileSignature />} disabled title="Rattache d'abord le dossier à une fiche">Envoyer les contrats</Bouton>}
+        {dossier.traiteLe
+          ? <Bouton chargement={occupe} onClick={() => traiter(false)}>Rouvrir</Bouton>
+          : <Bouton variante="plein" chargement={occupe} onClick={() => traiter(true)}>Marquer traité</Bouton>}
+      </>}
     >
       {erreur ? <Bandeau role="alerte" className="mb-3">{erreur}</Bandeau> : null}
       {info ? <Bandeau role="ok" className="mb-3">{info}</Bandeau> : null}
+      {fiche?.contratStatut ? <p className="mb-3 flex items-center gap-2 text-legende"><Pastille role={ROLE_CONTRAT[fiche.contratStatut]} point>{LIBELLE_CONTRAT[fiche.contratStatut]}</Pastille>{fiche.contratLe ? <span className="text-encre-2">{new Date(fiche.contratLe).toLocaleDateString("fr-FR")}</span> : null}</p> : null}
+      {envoiContrats && fiche ? <EnvoyerContratsDialogue fiche={fiche} dossier={dossier} onFermer={() => setEnvoiContrats(false)} onEnvoye={async (texte) => { setEnvoiContrats(false); setInfo(texte); await onRecharger() }} /> : null}
 
       {titreSection("Fiche rattachée")}
       {fiche ? (
