@@ -3,6 +3,7 @@ import { commercial } from "../data"
 import type { Email } from "../emails"
 import { decouperAdresses } from "./adressesEmail"
 import { logEmailEnvoye } from "./emailsEnvoyesDb"
+import { remplirLiens } from "./liensSuivisDb"
 import { supabase, supabaseConfigure } from "./supabase"
 
 // L'envoi passe par la fonction serveur « envoyer-email » (relais Resend), qui détient
@@ -83,7 +84,11 @@ export async function envoyerEmail(
   // le champ e-mail de la fiche (qui peut en contenir plusieurs). Cc et Cci (09/10).
   const to = destinataires && destinataires.length ? destinataires : decouperAdresses(prospect.email || "")
   if (to.length === 0) throw new Error("Ce prospect n'a pas d'adresse email.")
-  const { objet, corpsHtml } = composer(modele, prospect, signature, prenomCommercial)
+  const compose = composer(modele, prospect, signature, prenomCommercial)
+  // Les liens suivis (11/10/2026) : {{lien_creer_compte}}, {{lien_site}} deviennent des liens propres à
+  // l'agence ; quand elle clique, sa fiche le sait (fonction evenements-site).
+  const objet = await remplirLiens(compose.objet, prospect.id, "texte")
+  const corpsHtml = await remplirLiens(compose.corpsHtml, prospect.id, "html")
 
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
     body: { to, subject: objet, html: corpsHtml, ...(copie.cc?.length ? { cc: copie.cc } : {}), ...(copie.cci?.length ? { bcc: copie.cci } : {}) },

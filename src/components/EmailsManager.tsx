@@ -104,7 +104,7 @@ export default function EmailsManager() {
     <div className="space-y-5">
       <p className="max-w-3xl text-legende text-encre-2">
         Les modèles d'e-mail que l'on envoie depuis une fiche ou après un appel. Chacun part avec la signature STC Bâtiment ; les variables
-        ({"{{contact}}"}, {"{{entreprise}}"}…) sont remplacées par les informations de l'agence à l'envoi.
+        ({"{{contact}}"}, {"{{entreprise}}"}…) sont remplacées par les informations de l'agence à l'envoi ; {"{{lien_creer_compte}}"} devient un lien « Créer mon compte » propre à l'agence, suivi : sa fiche sait quand elle l'ouvre.
       </p>
 
       {erreur ? (

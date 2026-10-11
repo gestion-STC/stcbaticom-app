@@ -140,6 +140,11 @@ export type Agence = {
   nbAppels: number
   dernierAppelLe: string | null
   dernierResultat: string
+  // Signaux du site (11/10/2026) : ce que l'agence a fait depuis nos mails (table agences, absents de la vue)
+  dernierSignal: string
+  dernierSignalLe: string | null
+  compteOuvertLe: string | null
+  compteEmail: string
 }
 
 export type Contact = {

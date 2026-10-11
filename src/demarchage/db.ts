@@ -32,6 +32,7 @@ type LigneAgence = {
   premier_os_le: string | null; numero_emission: string; derniere_activite_le: string | null; cree_le: string
   nb_contacts: number | null; contact_principal: string | null; contact_ligne: string | null; prochaine_echeance: string | null; prochaine_tache: string | null
   nb_appels: number | null; dernier_appel_le: string | null; dernier_resultat: string | null
+  dernier_signal?: string | null; dernier_signal_le?: string | null; compte_ouvert_le?: string | null; compte_email?: string | null // signaux du site (table agences, absents de la vue)
 }
 type LigneContact = { id: string; agence_id: string; prenom: string; nom: string; role: Contact["role"]; ligne_directe: string; mobile: string; email: string; principal: boolean; parti: boolean; note: string; cree_le: string }
 type LigneActivite = {
@@ -52,6 +53,7 @@ function versAgence(l: LigneAgence): Agence {
     numeroEmission: l.numero_emission ?? "", derniereActiviteLe: l.derniere_activite_le, creeLe: l.cree_le,
     nbContacts: l.nb_contacts ?? 0, contactPrincipal: l.contact_principal ?? "", contactLigne: l.contact_ligne ?? "", prochaineEcheance: l.prochaine_echeance, prochaineTache: l.prochaine_tache ?? "",
     nbAppels: l.nb_appels ?? 0, dernierAppelLe: l.dernier_appel_le, dernierResultat: l.dernier_resultat ?? "",
+    dernierSignal: l.dernier_signal ?? "", dernierSignalLe: l.dernier_signal_le ?? null, compteOuvertLe: l.compte_ouvert_le ?? null, compteEmail: l.compte_email ?? "",
   }
 }
 function versContact(l: LigneContact): Contact {
@@ -166,8 +168,10 @@ export type AgenceComplete = { agence: Agence; contacts: Contact[]; activites: A
 
 export async function chargerAgence(id: string): Promise<AgenceComplete> {
   const s = sb()
-  const [a, c, t, m] = await Promise.all([
+  const [a, sg, c, t, m] = await Promise.all([
     s.from("agences_liste").select(COLONNES_AGENCE).eq("id", id).maybeSingle(),
+    // Les signaux du site vivent sur la table (pas dans la vue) ; tant que les colonnes ne sont pas posées, on les ignore.
+    s.from("agences").select("dernier_signal, dernier_signal_le, compte_ouvert_le, compte_email").eq("id", id).maybeSingle(),
     s.from("contacts").select(COLONNES_CONTACT).eq("agence_id", id).order("principal", { ascending: false }).order("cree_le"),
     s.from("activites").select(COLONNES_ACTIVITE).eq("agence_id", id).order("date", { ascending: false }).limit(300),
     s.from("messages").select("id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at, pieces_jointes").eq("agence_id", id).order("created_at", { ascending: false }).limit(100),
@@ -181,7 +185,7 @@ export async function chargerAgence(id: string): Promise<AgenceComplete> {
     id: l.id, sens: l.sens, espace: l.espace ?? "demarchage", sousTraitantId: l.sous_traitant_id, de: l.de, a: l.a, objet: l.objet, corpsText: l.corps_text, corpsHtml: l.corps_html,
     messageId: l.message_id, inReplyTo: l.in_reply_to, prospectId: l.prospect_id, lu: l.lu, date: l.created_at, piecesJointes: Array.isArray(l.pieces_jointes) ? l.pieces_jointes : [],
   }))
-  return { agence: versAgence(a.data as LigneAgence), contacts: ((c.data ?? []) as LigneContact[]).map(versContact), activites: ((t.data ?? []) as LigneActivite[]).map(versActivite), messages }
+  return { agence: versAgence({ ...(a.data as LigneAgence), ...((sg.error ? {} : sg.data ?? {}) as Partial<LigneAgence>) }), contacts: ((c.data ?? []) as LigneContact[]).map(versContact), activites: ((t.data ?? []) as LigneActivite[]).map(versActivite), messages }
 }
 
 // Avant de créer : la même agence existe-t-elle déjà (même nom dans le même secteur, ou même standard) ?

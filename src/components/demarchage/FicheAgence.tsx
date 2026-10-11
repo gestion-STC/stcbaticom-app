@@ -158,6 +158,12 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
             </button>
             <span className="text-colonne text-encre-2">{depuisTexte(agence.etapeDepuis, maintenant)}</span>
             <span className="chiffres text-colonne text-encre-2">· {pluriel(agence.tentatives, "tentative")} · joint {agence.jointFois} fois</span>
+            {/* Le dernier signal du site (11/10/2026) : lien ouvert, page « Créer un compte », compte ouvert sur STC Bâtiment */}
+            {agence.compteOuvertLe ? (
+              <Pastille role="fait" point>Compte STC Bâtiment ouvert {ilYA(agence.compteOuvertLe, maintenant)}</Pastille>
+            ) : agence.dernierSignal ? (
+              <Pastille role="info" point>{agence.dernierSignal} {ilYA(agence.dernierSignalLe, maintenant)}</Pastille>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <Bouton icone={<ArrowRightLeft />} disabled={occupe} onClick={() => setDialogue("etape")}>Changer l'étape</Bouton>

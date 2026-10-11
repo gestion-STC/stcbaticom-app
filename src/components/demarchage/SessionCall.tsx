@@ -31,6 +31,7 @@ import { chargerNumeros } from "../../lib/numerosEmission"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { detailAppelRingover, lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
+import { dateCourte } from "../../demarchage/agencesOutils"
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
   enregistrerAppel, majAgence, type AgenceComplete,
@@ -1094,6 +1095,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                       <span className="chiffres text-legende text-encre-2">
                         {fiche.agence.tentatives} tentative{fiche.agence.tentatives > 1 ? "s" : ""} · joint {fiche.agence.jointFois} fois
                       </span>
+                      {fiche.agence.compteOuvertLe ? (
+                        <Pastille role="fait" point>Compte STC Bâtiment ouvert le {dateCourte(fiche.agence.compteOuvertLe)}</Pastille>
+                      ) : fiche.agence.dernierSignal ? (
+                        <Pastille role="info" point>{fiche.agence.dernierSignal} le {dateCourte(fiche.agence.dernierSignalLe)}</Pastille>
+                      ) : null}
                     </div>
                     {fiche.agence.adresse ? <div className="mt-1 text-legende text-encre-2">{fiche.agence.adresse}</div> : null}
                   </div>
