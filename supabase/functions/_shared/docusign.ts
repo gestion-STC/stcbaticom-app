@@ -21,7 +21,10 @@ export function configDepuisEnv(env: (k: string) => string | undefined): ConfigD
 
 // ── Outils purs ──
 export function base64VersOctets(b64: string): Uint8Array<ArrayBuffer> {
-  const bin = atob(b64.replace(/\s+/g, ""))
+  // Tolérant : on ne garde que l'alphabet base64 (un secret collé peut traîner guillemets, espaces, retours) et on complète le remplissage.
+  let propre = (b64 || "").replace(/[^A-Za-z0-9+/=]/g, "").replace(/=+$/, "")
+  while (propre.length % 4) propre += "="
+  const bin = atob(propre)
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out

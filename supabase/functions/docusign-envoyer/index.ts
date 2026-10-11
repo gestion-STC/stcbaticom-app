@@ -71,6 +71,18 @@ Deno.serve(async (req: Request) => {
   const base = Deno.env.get("SUPABASE_URL")!
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  // « sante » : la clé se lit-elle, le jeton DocuSign vient-il ? Rien de secret dans la réponse.
+  let apercu: { action?: string } = {}
+  try { apercu = await req.clone().json() } catch { /* corps vide */ }
+  if (apercu.action === "sante") {
+    try {
+      const config = configDepuisEnv((k) => Deno.env.get(k))
+      const cle = config.privateKeyPem.includes("PRIVATE KEY")
+      let jeton = false, erreur = ""
+      try { await jetonDocusign(config); jeton = true } catch (e) { erreur = e instanceof Error ? e.message : String(e) }
+      return json({ ok: true, cle_ok: cle, jeton_ok: jeton, compte: config.baseUri, erreur })
+    } catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500) }
+  }
   const qui = await utilisateurConnecte(req, base, anon)
   if (!qui) return json({ error: "Connexion requise" }, 401)
 

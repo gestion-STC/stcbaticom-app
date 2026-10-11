@@ -38,7 +38,14 @@ const messageDe = (data: unknown, error: { message: string } | null): string => 
 async function appeler<T>(corps: Record<string, unknown>): Promise<T> {
   const { data, error } = await sb().functions.invoke("docusign-envoyer", { body: corps })
   const d = data as ({ ok?: boolean; error?: string } & T) | null
-  if (error || !d?.ok) throw new Error(messageDe(data, error))
+  if (error || !d?.ok) {
+    // Sur une réponse en erreur, supabase-js ne donne qu'un message générique : on lit le vrai message de la fonction.
+    const ctx = (error as { context?: Response } | null)?.context
+    if (ctx && typeof ctx.json === "function") {
+      try { const corpsErreur = (await ctx.clone().json()) as { error?: string }; if (corpsErreur?.error) throw new Error(corpsErreur.error) } catch (e) { if (e instanceof Error && e.message && !/JSON/i.test(e.message)) throw e }
+    }
+    throw new Error(messageDe(data, error))
+  }
   return d
 }
 
