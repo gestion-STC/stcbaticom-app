@@ -71,6 +71,12 @@ describe("tunnel", () => {
     expect(tunnel(fiches, envois, 0, "", NOW).contactes).toBe(3)
     expect(tunnel(fiches, envois, 0, "Peinture", NOW)).toEqual({ contactes: 1, cliques: 1, deposes: 0 })
   })
+  it("un clic de la période par une fiche contactée bien avant ne compte pas : le tunnel est une cohorte", () => {
+    const vieille = fiche({ id: "v", baremeVuLe: iso(0) })
+    const envoisVieux = [envoi({ sousTraitantId: "v", envoyeLe: iso(60 * J) })]
+    expect(tunnel([vieille], envoisVieux, 30, "", NOW)).toEqual({ contactes: 0, cliques: 0, deposes: 0 })
+    expect(tunnel([vieille], envoisVieux, 90, "", NOW)).toEqual({ contactes: 1, cliques: 1, deposes: 0 })
+  })
   it("la date de démarrage ne compte pas : une fiche recalée mais jamais contactée n'entre pas dans le tunnel", () => {
     expect(tunnel([fiche({ id: "z", demarreLe: iso(0) })], [], 7, "", NOW)).toEqual({ contactes: 0, cliques: 0, deposes: 0 })
   })

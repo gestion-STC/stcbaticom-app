@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
-    const { data: st } = await supabase.from("st_sous_traitants").select("id, nb_clics, email, telephone, statut").eq("token", token).maybeSingle()
+    const { data: st } = await supabase.from("st_sous_traitants").select("id, nb_clics, email, telephone, statut, suivi").eq("token", token).maybeSingle()
 
     if (destination === "stop") {
       if (st?.id) {
@@ -82,6 +82,8 @@ Deno.serve(async (req: Request) => {
       const now = new Date().toISOString()
       await supabase.from("st_clics").insert({ sous_traitant_id: st.id, destination, user_agent: req.headers.get("user-agent") || "" })
       const maj: Record<string, unknown> = { dernier_clic_le: now, nb_clics: (st.nb_clics ?? 0) + 1 }
+      // Une fiche rangée « archive » (appelée sous l'ancienne version) qui reclique est un lead frais : elle revient dans « Leads à appeler » (12/10/2026).
+      if (st.suivi === "archive") Object.assign(maj, { suivi: "", suivi_le: null, suivi_motif: "" })
       if (destination === "bareme") maj.bareme_vu_le = now
       else maj.candidature_clic_le = now
       await supabase.from("st_sous_traitants").update(maj).eq("id", st.id)

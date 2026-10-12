@@ -90,10 +90,13 @@ export function tunnel(fiches: SousTraitant[], envois: EnvoiST[], jours: number,
     const f = parId.get(e.sousTraitantId)
     if (f && duCorps(f)) contactes.add(e.sousTraitantId)
   }
+  // Un vrai tunnel : les clics et les dépôts se comptent PARMI les contactés de la période (une fiche contactée
+  // en août qui clique aujourd'hui n'entre pas dans le tunnel de la semaine : elle ferait plus de 100 %).
+  const cohorte = fiches.filter((f) => f.id && contactes.has(f.id))
   return {
     contactes: contactes.size,
-    cliques: fiches.filter((f) => duCorps(f) && (dans(f.candidatureClicLe, depuis) || dans(f.baremeVuLe, depuis))).length,
-    deposes: fiches.filter((f) => duCorps(f) && dans(f.deposeLe, depuis)).length,
+    cliques: cohorte.filter((f) => !!f.candidatureClicLe || !!f.baremeVuLe || f.nbClics > 0).length,
+    deposes: cohorte.filter((f) => !!f.deposeLe || f.statut === "depose").length,
   }
 }
 export const pourcent = (n: number, d: number) => (d > 0 ? Math.round((100 * n) / d) : 0)
