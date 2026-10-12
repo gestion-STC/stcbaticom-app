@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 import type { Session } from "@supabase/supabase-js"
 import { KeyRound, Loader2, Plus, RefreshCw, Copy, Check, ShieldCheck, Headset, PenLine } from "lucide-react"
+import { chargerFonctions, FONCTIONS, LIBELLE_FONCTION, poserFonction, type Fonction, type FonctionsParCompte } from "../lib/fonctionsComptes"
 import {
   ROLES,
   LIBELLE_ROLE,
@@ -35,6 +36,9 @@ export default function Comptes({ session }: { session: Session | null }) {
   const [chargement, setChargement] = useState(admin)
   const [erreur, setErreur] = useState<string | null>(null)
   const [enCours, setEnCours] = useState<string | null>(null) // id du compte dont le rôle change
+  // Ce que fait chaque personne (12/10/2026) : commercial, recrutement, direction.
+  // Seuls les commerciaux apparaissent au classement du démarchage.
+  const [fonctions, setFonctions] = useState<FonctionsParCompte>({})
   // Le compte dont on est en train de modifier le nom (celui qui signe les e-mails).
   const [renommage, setRenommage] = useState<{ id: string; nom: string } | null>(null)
 
@@ -51,6 +55,7 @@ export default function Comptes({ session }: { session: Session | null }) {
 
   useEffect(() => {
     if (!admin) return
+    chargerFonctions().then(setFonctions).catch(() => undefined)
     listerComptes()
       .then(setComptes)
       .catch((e) => setErreur(e instanceof Error ? e.message : "Chargement impossible"))
@@ -91,6 +96,18 @@ export default function Comptes({ session }: { session: Session | null }) {
       setComptes((liste) => liste.map((c) => (c.id === maj.id ? maj : c)))
     } catch (err) {
       setErreur(err instanceof Error ? err.message : "Changement impossible")
+    } finally {
+      setEnCours(null)
+    }
+  }
+
+  async function changerFonction(compte: Compte, valeur: string) {
+    setEnCours(compte.id)
+    setErreur(null)
+    try {
+      setFonctions(await poserFonction(compte.id, valeur ? (valeur as Fonction) : null))
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Fonction non enregistrée")
     } finally {
       setEnCours(null)
     }
@@ -182,6 +199,7 @@ export default function Comptes({ session }: { session: Session | null }) {
                 <th className="px-5 py-2 font-medium">Nom</th>
                 <th className="px-5 py-2 font-medium">E-mail</th>
                 <th className="px-5 py-2 font-medium">Rôle</th>
+                <th className="px-5 py-2 font-medium" title="Ce que fait la personne. Seuls les commerciaux sont au classement du démarchage.">Fonction</th>
                 <th className="px-5 py-2 font-medium">Dernière connexion</th>
                 <th className="px-5 py-2 font-medium">Créé le</th>
                 <th className="px-5 py-2 font-medium">Mot de passe</th>
@@ -259,6 +277,23 @@ export default function Comptes({ session }: { session: Session | null }) {
                           ))}
                         </select>
                       </div>
+                    </td>
+                    <td className="px-5 py-2.5">
+                      <select
+                        id={`fonction-${c.id}`}
+                        aria-label={`Fonction de ${c.email}`}
+                        value={fonctions[c.id] ?? ""}
+                        disabled={enCours === c.id}
+                        onChange={(e) => void changerFonction(c, e.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 focus:border-violet-400 focus:outline-none"
+                      >
+                        <option value="">À préciser</option>
+                        {FONCTIONS.map((f) => (
+                          <option key={f} value={f}>
+                            {LIBELLE_FONCTION[f]}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-5 py-2.5 text-slate-600">{dateHeure(c.derniereConnexion)}</td>
                     <td className="px-5 py-2.5 text-slate-600">{dateCourte(c.creeLe)}</td>

@@ -180,6 +180,14 @@ export const pourcent = (n: number, d: number): number => (d > 0 ? Math.round((1
 export function tauxJoints(s: Pick<StatsCompte, "appels" | "joints">): number {
   return pourcent(s.joints, s.appels)
 }
+/**
+ * Le taux de conversion (Mahdi, 12/10/2026) : la part des agences JOINTES qui ont
+ * montré un intérêt — « intéressée » ou RDV pris. Une agence jamais jointe n'a
+ * pas pu être convaincue : elle ne compte pas.
+ */
+export function tauxConversion(s: Pick<StatsCompte, "joints" | "interesses" | "rdv">): number {
+  return pourcent(s.interesses + s.rdv, s.joints)
+}
 /** La ligne « Total » d'un tableau par commercial. */
 export function totalStats(stats: StatsCompte[]): StatsCompte {
   const t: StatsCompte = { compteId: null, compteNom: "Total", appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
@@ -211,7 +219,11 @@ export function bornesPeriode(periode: Periode, maintenant: Date): { de: Date; a
  * `comptes` = les comptes connus du logiciel ; les stats sans compte (anciens appels)
  * gardent leur nom. Un compte dont les stats n'ont pas de nom prend le nom du compte.
  */
-export function classer(stats: StatsCompte[], comptes: { id: string; nom: string }[]): StatsCompte[] {
+export function classer(stats: StatsCompte[], comptes: { id: string; nom: string }[], horsClassement: ReadonlySet<string> = new Set()): StatsCompte[] {
+  // Les comptes qui ne font pas de démarchage (recrutement, direction) ne sont
+  // pas au classement, même s'ils ont passé un appel (12/10/2026).
+  comptes = comptes.filter((c) => !horsClassement.has(c.id))
+  stats = stats.filter((s) => !s.compteId || !horsClassement.has(s.compteId))
   const parId = new Map<string, StatsCompte>()
   const sansId: StatsCompte[] = []
   for (const s of stats) {
