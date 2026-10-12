@@ -154,7 +154,10 @@ export async function chargerSousTraitants(): Promise<SousTraitant[]> {
     const { data, error } = await supabase
       .from("st_sous_traitants")
       .select("*")
+      // ⚠ Les 2 438 fiches importées partagent le MÊME cree_le : sans l'id en second critère,
+      // l'ordre entre deux lots n'est pas garanti (lignes sautées ou en double, chiffres qui bougent).
       .order("cree_le", { ascending: false })
+      .order("id")
       .range(debut, debut + PAS - 1)
     if (error) throw new Error(error.message)
     const lot = (data ?? []) as LigneST[]
@@ -256,6 +259,7 @@ export async function metiersDistincts(): Promise<string[]> {
     const { data, error } = await supabase
       .from("st_sous_traitants")
       .select("metier")
+      .order("id")
       .range(debut, debut + PAS - 1)
     if (error) throw new Error(error.message)
     const lot = (data as { metier: string }[]) ?? []

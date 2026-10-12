@@ -38,7 +38,7 @@ export async function chargerEnvoisDepuis(depuis: string): Promise<EnvoiST[]> {
   const tout: EnvoiST[] = []
   for (let debut = 0; ; debut += PAS) {
     const { data, error } = await client().from("st_envois").select(COLONNES_ENVOI)
-      .gte("envoye_le", depuis).order("envoye_le", { ascending: false }).range(debut, debut + PAS - 1)
+      .gte("envoye_le", depuis).order("envoye_le", { ascending: false }).order("id").range(debut, debut + PAS - 1)
     if (error) throw new Error(error.message)
     const lot = (data ?? []) as LigneEnvoi[]
     tout.push(...lot.map(versEnvoi))

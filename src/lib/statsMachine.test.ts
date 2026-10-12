@@ -71,11 +71,21 @@ describe("tunnel", () => {
     expect(tunnel(fiches, envois, 0, "", NOW).contactes).toBe(3)
     expect(tunnel(fiches, envois, 0, "Peinture", NOW)).toEqual({ contactes: 1, cliques: 1, deposes: 0 })
   })
-  it("un clic de la période par une fiche contactée bien avant ne compte pas : le tunnel est une cohorte", () => {
-    const vieille = fiche({ id: "v", baremeVuLe: iso(0) })
+  it("un clic de la période compte, même si la fiche a été contactée bien avant (12/10 : les écrans doivent dire la même chose)", () => {
+    const vieille = fiche({ id: "v", dernierClicLe: iso(0), baremeVuLe: iso(0) })
     const envoisVieux = [envoi({ sousTraitantId: "v", envoyeLe: iso(60 * J) })]
-    expect(tunnel([vieille], envoisVieux, 30, "", NOW)).toEqual({ contactes: 0, cliques: 0, deposes: 0 })
+    expect(tunnel([vieille], envoisVieux, 30, "", NOW)).toEqual({ contactes: 0, cliques: 1, deposes: 0 })
     expect(tunnel([vieille], envoisVieux, 90, "", NOW)).toEqual({ contactes: 1, cliques: 1, deposes: 0 })
+  })
+  it("un clic d'avant la période ne compte pas, même si la fiche vient d'être contactée", () => {
+    const recente = fiche({ id: "r", dernierClicLe: iso(40 * J), candidatureClicLe: iso(40 * J), nbClics: 2 })
+    expect(tunnel([recente], [envoi({ sousTraitantId: "r", envoyeLe: iso(2 * J) })], 30, "", NOW)).toEqual({ contactes: 1, cliques: 0, deposes: 0 })
+    expect(tunnel([recente], [], 0, "", NOW)).toEqual({ contactes: 0, cliques: 1, deposes: 0 })
+  })
+  it("un dépôt d'avant la période ne compte pas non plus", () => {
+    const deposee = fiche({ id: "p", deposeLe: iso(45 * J), statut: "depose" })
+    expect(tunnel([deposee], [], 30, "", NOW).deposes).toBe(0)
+    expect(tunnel([deposee], [], 0, "", NOW).deposes).toBe(1)
   })
   it("la date de démarrage ne compte pas : une fiche recalée mais jamais contactée n'entre pas dans le tunnel", () => {
     expect(tunnel([fiche({ id: "z", demarreLe: iso(0) })], [], 7, "", NOW)).toEqual({ contactes: 0, cliques: 0, deposes: 0 })
