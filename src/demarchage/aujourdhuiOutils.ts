@@ -181,12 +181,18 @@ export function tauxJoints(s: Pick<StatsCompte, "appels" | "joints">): number {
   return pourcent(s.joints, s.appels)
 }
 /**
- * Le taux de conversion (Mahdi, 12/10/2026) : la part des agences JOINTES qui ont
- * montré un intérêt — « intéressée » ou RDV pris. Une agence jamais jointe n'a
- * pas pu être convaincue : elle ne compte pas.
+ * DEUX TAUX DE CONVERSION (Mahdi, 12/10/2026), tous deux sur les agences JOINTES
+ * (une agence jamais jointe n'a pas pu être convaincue) :
+ *  · sur les intéressés — la part qui a montré un intérêt (« intéressée » ou RDV) ;
+ *  · sur les premiers OS — la part qui a envoyé son premier ordre de service.
+ *    « Intéressé c'est bien, mais ce qui compte, c'est le moment où on envoie
+ *    l'ordre de service. »
  */
-export function tauxConversion(s: Pick<StatsCompte, "joints" | "interesses" | "rdv">): number {
+export function tauxConversionInteresses(s: Pick<StatsCompte, "joints" | "interesses" | "rdv">): number {
   return pourcent(s.interesses + s.rdv, s.joints)
+}
+export function tauxConversionPremiersOs(s: Pick<StatsCompte, "joints" | "premiersOs">): number {
+  return pourcent(s.premiersOs, s.joints)
 }
 /** La ligne « Total » d'un tableau par commercial. */
 export function totalStats(stats: StatsCompte[]): StatsCompte {
