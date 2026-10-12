@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { AlertTriangle, Check, Loader2, Paperclip, Send, Trash2, Users } from "lucide-react"
+import { AlertTriangle, Check, Loader2, Paperclip, Send, Sparkles, Trash2, Undo2, Users } from "lucide-react"
 import type { Prospect } from "../data"
 import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
@@ -10,6 +10,8 @@ import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
 import { apercuLiens } from "../lib/liensSuivisDb"
 import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
+import { corrigerTexte, resumeCorrection, type TexteEmail } from "../lib/correctionTexte"
+import { basculerDocument, bibliothequeDocuments, estJoint } from "../lib/documentsBibliotheque"
 import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Selecteur, Zone } from "../ui"
 
 // Envoi d'un e-mail à une agence (ou un contact), dans la trousse STC (09/10/2026).
@@ -41,6 +43,33 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
   const [pieces, setPieces] = useState<PieceJointe[]>([])
   const [televersement, setTeleversement] = useState(false)
   const fichierRef = useRef<HTMLInputElement>(null)
+  // La correction d'orthographe par IA (Mahdi, 12/10) : on garde le texte d'avant pour pouvoir revenir.
+  const [correction, setCorrection] = useState(false)
+  const [avantCorrection, setAvantCorrection] = useState<TexteEmail | null>(null)
+  const [bilanCorrection, setBilanCorrection] = useState("")
+  // Les documents du logiciel (Kbis, assurance, plaquettes…) : les pièces des modèles, sans doublon.
+  const bibliotheque = useMemo(() => bibliothequeDocuments(emails), [emails])
+
+  async function corriger() {
+    if (correction || (!objet.trim() && !corps.trim())) return
+    setErreur(null); setCorrection(true)
+    const avant = { objet, corps }
+    try {
+      const apres = await corrigerTexte(avant)
+      setAvantCorrection(avant)
+      setObjet(apres.objet); setCorps(apres.corps)
+      setBilanCorrection(resumeCorrection(avant, apres))
+    } catch (e) {
+      setErreur("Correction impossible : " + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setCorrection(false)
+    }
+  }
+  function annulerCorrection() {
+    if (!avantCorrection) return
+    setObjet(avantCorrection.objet); setCorps(avantCorrection.corps)
+    setAvantCorrection(null); setBilanCorrection("")
+  }
 
   useEffect(() => {
     let annule = false
@@ -194,6 +223,13 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
               <Pastille role="info">{v.label}</Pastille>
             </button>
           ))}
+          <span className="ml-auto flex items-center gap-2">
+            {bilanCorrection ? <span className="text-colonne text-ok">{bilanCorrection}</span> : null}
+            {avantCorrection ? <Bouton taille="sm" variante="discret" icone={<Undo2 />} onClick={annulerCorrection}>Texte d'origine</Bouton> : null}
+            <Bouton taille="sm" icone={correction ? <Loader2 className="animate-spin" /> : <Sparkles />} disabled={correction || !emailConfigure || (!objet.trim() && !corps.trim())} title="L'IA corrige l'orthographe, la grammaire et les accents, sans toucher au sens ni au ton" onClick={corriger}>
+              {correction ? "Correction…" : "Corriger l'orthographe"}
+            </Bouton>
+          </span>
         </div>
 
         {/* ── Pièces jointes ── */}
@@ -205,6 +241,19 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
             </Bouton>
           </div>
           <input ref={fichierRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) ajouterFichier(f) }} />
+          {bibliotheque.length ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-colonne text-encre-2">Documents du logiciel :</span>
+              {bibliotheque.map((doc) => {
+                const joint = estJoint(doc, pieces)
+                return (
+                  <button key={doc.chemin} type="button" aria-pressed={joint} title={joint ? "Retirer de cet e-mail" : "Joindre à cet e-mail"} onClick={() => setPieces((l) => basculerDocument(doc, l))} className="rounded-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">
+                    <Pastille role={joint ? "info" : "inerte"} point={joint}>{doc.nom.replace(/\.pdf$/i, "")}</Pastille>
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
           {pieces.length ? (
             <ul className="mt-2 divide-y divide-fond-4 rounded-4 border border-trait">
               {pieces.map((pj) => (
