@@ -6,7 +6,7 @@
 //   https://<projet>.supabase.co/functions/v1/lien-st?t=<token>&d=stop
 // Quand il clique, cette fonction :
 //   1) enregistre le clic (table st_clics) AVEC la destination,
-//   2) met à jour la fiche (dernier_clic_le, nb_clics + drapeau daté de la destination),
+//   2) met à jour la fiche (dernier_clic_le + drapeau daté de la destination ; nb_clics est recompté par la base),
 //   3) le redirige (302) vers la page de dépôt du site OU vers le PDF du barème.
 //
 // « stop » (08/10/2026) = LA DÉSINSCRIPTION EN UN CLIC. Jusque-là le lien
@@ -80,8 +80,14 @@ Deno.serve(async (req: Request) => {
 
     if (st?.id) {
       const now = new Date().toISOString()
-      await supabase.from("st_clics").insert({ sous_traitant_id: st.id, destination, user_agent: req.headers.get("user-agent") || "" })
-      const maj: Record<string, unknown> = { dernier_clic_le: now, nb_clics: (st.nb_clics ?? 0) + 1 }
+      // Le clic d'abord, dans le journal : c'est LA preuve. Un échec est retenté une fois, puis signalé dans les journaux.
+      const clic = { sous_traitant_id: st.id, destination, user_agent: req.headers.get("user-agent") || "" }
+      let { error: eClic } = await supabase.from("st_clics").insert(clic)
+      if (eClic) ({ error: eClic } = await supabase.from("st_clics").insert(clic))
+      if (eClic) console.error("[lien-st] clic NON enregistré", st.id, destination, eClic.message)
+      // ⚠ nb_clics n'est plus écrit ici (12/10/2026) : lu puis écrit +1, il perdait les clics simultanés.
+      // La base le recompte depuis le journal à chaque clic (déclencheur st_clics_vers_fiche).
+      const maj: Record<string, unknown> = { dernier_clic_le: now }
       // Une fiche rangée « archive » (appelée sous l'ancienne version) qui reclique est un lead frais : elle revient dans « Leads à appeler » (12/10/2026).
       if (st.suivi === "archive") Object.assign(maj, { suivi: "", suivi_le: null, suivi_motif: "" })
       if (destination === "bareme") maj.bareme_vu_le = now
