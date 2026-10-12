@@ -133,7 +133,7 @@ Deno.serve(async (req: Request) => {
   const sb: SupabaseClient = createClient(base, service)
   const now = new Date()
   const nowIso = now.toISOString()
-  const bilan = { conversions: 0, recales: 0, demarrages: 0, envois: 0, rejoues: 0, erreurs: 0, abandons: 0, termines: 0, sms_sautes_fixe: 0, saut: "" as string | null }
+  const bilan = { conversions: 0, recales: 0, demarrages: 0, envois: 0, rejoues: 0, erreurs: 0, abandons: 0, termines: 0, sms_sautes_fixe: 0, etapes_sautees_sans_adresse: 0, saut: "" as string | null }
 
   const { data: passage } = await sb.from("st_passages").insert({}).select("id").single()
   const finir = async (status = 200, erreur = "") => {
@@ -367,7 +367,14 @@ Deno.serve(async (req: Request) => {
       let envoi: { ok: boolean; erreur?: string; resendId?: string }
 
       if (due.canal === "sms") {
-        if (!st.telephone) envoi = { ok: false, erreur: "pas de téléphone" }
+        if (!st.telephone) {
+          // Pas de numéro : le SMS ne partira jamais ; on saute l'étape au lieu de la rejouer en erreur (12/10/2026).
+          await sb.from("st_envois").insert({ sous_traitant_id: st.id, etape_id: due.id, canal: "sms", statut: "saute", erreur: "pas de téléphone — étape sautée", cause: "fiche sans téléphone", tentative })
+          marquerTraite(st.id, due.id)
+          await sb.from("st_sous_traitants").update({ etape_courante: etapes.indexOf(due) + 1, derniere_erreur: "" }).eq("id", st.id)
+          bilan.etapes_sautees_sans_adresse++
+          continue
+        }
         else if (!estMobileFR(st.telephone)) {
           // Un fixe ne recevra jamais le SMS mais l'envoi serait facturé : on saute.
           await sb.from("st_envois").insert({ sous_traitant_id: st.id, etape_id: due.id, canal: "sms", statut: "saute", erreur: `numéro non mobile (${st.telephone}) — SMS non envoyé, étape sautée`, cause: "numéro non mobile" })
@@ -380,7 +387,15 @@ Deno.serve(async (req: Request) => {
           envoi = { ok: r.ok, erreur: r.ok ? undefined : String(r.data?.error || "envoi SMS échoué") }
         }
       } else {
-        if (!st.email) envoi = { ok: false, erreur: "pas d'e-mail" }
+        if (!st.email) {
+          // Pas d'adresse : l'e-mail ne partira jamais. Avant (12/10/2026), l'étape était rejouée trois fois en « erreur » :
+          // 19 erreurs par passage pour 35 fiches sans e-mail. On saute l'étape ; la fiche garde ses étapes SMS.
+          await sb.from("st_envois").insert({ sous_traitant_id: st.id, etape_id: due.id, canal: "email", statut: "saute", erreur: "pas d'e-mail — étape sautée, la fiche garde ses SMS", cause: "fiche sans e-mail", tentative })
+          marquerTraite(st.id, due.id)
+          await sb.from("st_sous_traitants").update({ etape_courante: etapes.indexOf(due) + 1, derniere_erreur: "" }).eq("id", st.id)
+          bilan.etapes_sautees_sans_adresse++
+          continue
+        }
         else {
           const estHtml = /<(html|body|table|div|p|a|img|tr|td)\b/i.test(due.contenu)
           const html = estHtml ? contenu : texteVersHtml(contenu, [liens.candidature, liens.bareme, liens.stop])
