@@ -18,7 +18,7 @@ import { chiffresTel } from "../../lib/telephone"
 import FicheArtisan from "./FicheArtisan"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { LIBELLE_CONTRAT, ROLE_CONTRAT, envoyerLienAcces } from "../../lib/contratsDb"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
+import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
 
 type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche" | "contrats" | "complets" | "partenaires"
 
@@ -230,6 +230,7 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
   const [info, setInfo] = useState("")
   const [pieceEnCours, setPieceEnCours] = useState<string | null>(null)
   const [envoiContrats, setEnvoiContrats] = useState(false)
+  const [confirmerAcces, setConfirmerAcces] = useState(false) // envoyer le lien d'accès sans contrats signés (Mahdi, 12/10)
   const candidats = useMemo(() => chercherFiches(fiches, recherche, dossier), [fiches, recherche, dossier])
   const sections = dossier.donnees?.sections ?? []
   const s = statutDossier(dossier, fiche)
@@ -286,18 +287,28 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
     >
       {erreur ? <Bandeau role="alerte" className="mb-3">{erreur}</Bandeau> : null}
       {info ? <Bandeau role="ok" className="mb-3">{info}</Bandeau> : null}
-      {fiche?.contratStatut ? (
+      {fiche ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-legende">
-          <Pastille role={ROLE_CONTRAT[fiche.contratStatut]} point>{LIBELLE_CONTRAT[fiche.contratStatut]}</Pastille>
+          {fiche.contratStatut ? <Pastille role={ROLE_CONTRAT[fiche.contratStatut]} point>{LIBELLE_CONTRAT[fiche.contratStatut]}</Pastille> : <Pastille role="inerte" point>Contrats pas encore envoyés</Pastille>}
           {fiche.contratLe ? <span className="text-encre-2">{new Date(fiche.contratLe).toLocaleDateString("fr-FR")}</span> : null}
           {fiche.accesOuvertLe ? <Pastille role="fait" point>Accès ouvert le {new Date(fiche.accesOuvertLe).toLocaleDateString("fr-FR")}</Pastille>
             : fiche.accesEnvoyeLe ? <Pastille role="attente" point>Lien d'accès envoyé le {new Date(fiche.accesEnvoyeLe).toLocaleDateString("fr-FR")}</Pastille> : null}
-          {fiche.contratStatut === "signe" && !fiche.accesOuvertLe ? (
-            <Bouton taille="sm" variante="discret" icone={<KeyRound />} disabled={occupe} onClick={() => agir(async () => { const a = await envoyerLienAcces(fiche.id!, !!fiche.accesEnvoyeLe); await onRecharger(); setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, "")}>{fiche.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}</Bouton>
+          {/* Le lien part tout seul à la signature des deux parties, mais l'artisan ne le voit pas toujours et nous appelle
+              (Mahdi, 12/10) : le bouton reste là pour l'envoyer ou le renvoyer à la main ; sans contrats signés, on confirme. */}
+          {!fiche.accesOuvertLe ? (
+            <Bouton taille="sm" variante="discret" icone={<KeyRound />} disabled={occupe} onClick={() => { if (fiche.contratStatut === "signe") void agir(async () => { const a = await envoyerLienAcces(fiche.id!, !!fiche.accesEnvoyeLe); await onRecharger(); setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, ""); else setConfirmerAcces(true) }}>{fiche.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}</Bouton>
           ) : null}
         </div>
       ) : null}
       {envoiContrats && fiche ? <EnvoyerContratsDialogue fiche={fiche} dossier={dossier} onFermer={() => setEnvoiContrats(false)} onEnvoye={async (texte) => { setEnvoiContrats(false); setInfo(texte); await onRecharger() }} /> : null}
+      {confirmerAcces && fiche ? (
+        <Dialogue
+          titre="Envoyer le lien d'accès sans contrats signés ?"
+          description="Les contrats ne sont pas signés par les deux parties dans DocuSign. Le lien ouvre l'Espace Partenaire tout de suite : à n'envoyer que si les contrats ont été signés autrement (papier, ancien envoi)."
+          onFermer={() => setConfirmerAcces(false)}
+          pied={<><Bouton onClick={() => setConfirmerAcces(false)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { const a = await envoyerLienAcces(fiche.id!, true); setConfirmerAcces(false); await onRecharger(); setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, "")}>Envoyer quand même</Bouton></>}
+        />
+      ) : null}
 
       {titreSection("Fiche rattachée")}
       {fiche ? (

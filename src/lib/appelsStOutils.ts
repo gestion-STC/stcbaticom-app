@@ -6,7 +6,8 @@ import type { SousTraitant } from "../recrutement"
 
 export type ResultatST = "pas_de_reponse" | "standard" | "joint" | "faux_numero"
 export type IssueST = "" | "va_deposer" | "a_rappeler" | "pas_interesse" | "hors_cible"
-export type SuiviST = "" | "a_rappeler" | "va_deposer" | "pas_interesse" | "hors_cible" | "injoignable"
+// « archive » (12/10/2026) : lead appelé sous l'ancienne version, rangé pour ne plus ressortir dans « Leads à appeler ».
+export type SuiviST = "" | "a_rappeler" | "va_deposer" | "pas_interesse" | "hors_cible" | "injoignable" | "archive"
 export type FileST = "leads" | "rappels" | "promis"
 
 export const RESULTATS_ST: { code: ResultatST; touche: string; libelle: string; aide: string }[] = [
@@ -24,7 +25,7 @@ export const ISSUES_ST: { code: Exclude<IssueST, "">; touche: string; libelle: s
 export const MOTIFS_ST = ["Trop de travail déjà", "Ne travaille pas avec des entreprises", "Tarifs trop bas", "Trop loin", "Plus en activité", "Autre"]
 
 export const LIBELLE_SUIVI: Record<SuiviST, string> = {
-  "": "", a_rappeler: "À rappeler", va_deposer: "Va déposer", pas_interesse: "Pas intéressé", hors_cible: "Hors cible", injoignable: "Injoignable",
+  "": "", a_rappeler: "À rappeler", va_deposer: "Va déposer", pas_interesse: "Pas intéressé", hors_cible: "Hors cible", injoignable: "Injoignable", archive: "Archivé (ancienne version)",
 }
 export const LIBELLE_RESULTAT: Record<ResultatST, string> = { pas_de_reponse: "pas de réponse", standard: "quelqu'un d'autre", joint: "joint", faux_numero: "faux numéro" }
 export const LIBELLE_ISSUE: Record<IssueST, string> = { "": "", va_deposer: "va déposer", a_rappeler: "à rappeler", pas_interesse: "pas intéressé", hors_cible: "hors cible" }

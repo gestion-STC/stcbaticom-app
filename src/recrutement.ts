@@ -49,7 +49,7 @@ export type SousTraitant = {
   dernierAppelLe?: string | null
   dernierResultat?: string
   rappelLe?: string | null // prochain appel prévu
-  suivi?: "" | "a_rappeler" | "va_deposer" | "pas_interesse" | "hors_cible" | "injoignable"
+  suivi?: "" | "a_rappeler" | "va_deposer" | "pas_interesse" | "hors_cible" | "injoignable" | "archive" // archive : appelé sous l'ancienne version (12/10/2026)
   suiviLe?: string | null
   suiviMotif?: string
   telephoneInvalide?: boolean

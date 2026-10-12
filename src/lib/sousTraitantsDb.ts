@@ -233,6 +233,12 @@ export async function nePlusContacter(st: SousTraitant, motif: string): Promise<
 // Remettre une fiche arrêtée dans le circuit (terminé, injoignable, exclu) :
 // elle redevient « à contacter », et sera redémarrée par la machine si elle
 // est complète. Un désinscrit ne revient jamais par ce chemin.
+// Un lead archivé (appelé sous l'ancienne version) revient dans « Leads à appeler ».
+export async function remettreDansLesLeads(id: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const { error } = await supabase.from("st_sous_traitants").update({ suivi: "", suivi_le: null, suivi_motif: "" }).eq("id", id).eq("suivi", "archive")
+  if (error) throw new Error(error.message)
+}
 export async function remettreAContacter(id: string): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
   const { error } = await supabase.from("st_sous_traitants")

@@ -7,17 +7,17 @@
 // mettre en pause, ne plus contacter.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw } from "lucide-react"
+import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw, KeyRound, Undo2 } from "lucide-react"
 import type { ClicST, EnvoiST, EtapeST, SousTraitant } from "../../recrutement"
 import { chronologie, dateHeure, type Evenement } from "../../lib/chronologieArtisan"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
-import { chargerSousTraitant, nePlusContacter, remettreAContacter } from "../../lib/sousTraitantsDb"
+import { chargerSousTraitant, nePlusContacter, remettreAContacter, remettreDansLesLeads } from "../../lib/sousTraitantsDb"
 import { chargerClicsDe, chargerEnvoisDe, chargerMessagesDe, mettreEnPause, relancerMaintenant, type MessageDeFiche } from "../../lib/machineDb"
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { chargerPilotage } from "../../lib/pilotageStDb"
 import { lancerAppelRingover } from "../../lib/ringover"
 import { chargerAppelsDe, type AppelST } from "../../lib/appelsStDb"
-import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, envoyerLienAcces, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, dureeLisibleST } from "../../lib/appelsStOutils"
 import { Bouton, Champ, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
@@ -38,7 +38,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
   const [erreur, setErreur] = useState("")
   const [info, setInfo] = useState("")
   const [occupe, setOccupe] = useState(false)
-  const [question, setQuestion] = useState<"stop" | "pause" | null>(null)
+  const [question, setQuestion] = useState<"stop" | "pause" | "acces" | null>(null)
   const [enPause, setEnPause] = useState(false)
   const [motif, setMotif] = useState("")
   const [pauseJours, setPauseJours] = useState(7)
@@ -95,6 +95,14 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             : null}
           <Bouton icone={<Play />} disabled={occupe || arretee || etapes.length === 0} onClick={() => agir(() => relancerMaintenant(st, etapes), "Prochaine étape due maintenant : elle partira au prochain passage.")}>Relancer maintenant</Bouton>
           <Bouton icone={<FileSignature />} disabled={occupe || !st.deposeLe || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={!st.deposeLe ? "Pas de dossier déposé : pas de contrat (on envoie depuis Dossiers déposés)" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => setEnvoiContrats(true)}>Envoyer les contrats</Bouton>
+          {/* Le lien « Ouvrir mon accès » part tout seul à la signature des deux parties ; mais l'artisan ne le voit pas toujours
+              et nous appelle (Mahdi, 12/10) : on peut l'envoyer ou le renvoyer à la main, même sans contrats signés (confirmation). */}
+          {st.deposeLe && !st.accesOuvertLe ? (
+            <Bouton icone={<KeyRound />} disabled={occupe} onClick={() => { if (st.contratStatut === "signe") void agir(async () => { const a = await envoyerLienAcces(st.id!, !!st.accesEnvoyeLe) ; setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, "Lien « ouvrir mon accès » envoyé, copie à STC."); else setQuestion("acces") }}>
+              {st.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}
+            </Bouton>
+          ) : null}
+          {st.suivi === "archive" ? <Bouton icone={<Undo2 />} disabled={occupe} onClick={() => agir(() => remettreDansLesLeads(st.id!), "Remis dans « Leads à appeler ».")}>Remettre dans les leads</Bouton> : null}
           <Bouton variante="plein" icone={<Phone />} onClick={appeler}>Appeler</Bouton>
         </>
       ) : null}
@@ -109,7 +117,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             <Ligne libelle="Mobile">{st.telephone || "—"}</Ligne>
             <Ligne libelle="E-mail"><span className={st.emailInvalide ? "text-alerte line-through" : ""}>{st.email || "—"}</span>{st.emailInvalide ? <span className="ml-2 text-colonne text-alerte">injoignable</span> : null}</Ligne>
             <Ligne libelle="Zone">{st.zone || "—"}</Ligne>
-            <Ligne libelle="Appels">{st.nbAppels ? <>{st.nbAppels}{st.nbJoints ? ` dont ${st.nbJoints} joint${st.nbJoints > 1 ? "s" : ""}` : ""}{st.suivi ? <span className="ml-2 text-encre-2">· {LIBELLE_SUIVI[st.suivi]}{st.suiviMotif ? ` (${st.suiviMotif})` : ""}</span> : null}</> : "jamais appelé"}</Ligne>
+            <Ligne libelle="Appels">{st.nbAppels ? <>{st.nbAppels}{st.nbJoints ? ` dont ${st.nbJoints} joint${st.nbJoints > 1 ? "s" : ""}` : ""}</> : "jamais appelé ici"}{st.suivi ? <span className="ml-2 text-encre-2">· {LIBELLE_SUIVI[st.suivi]}{st.suiviMotif ? ` (${st.suiviMotif})` : ""}</span> : null}</Ligne>
             {st.rappelLe ? <Ligne libelle="Prochain appel">{new Date(st.rappelLe).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</Ligne> : null}
             <Ligne libelle="Contrats">{st.contratStatut ? <span className="flex flex-wrap items-center gap-2"><Pastille role={ROLE_CONTRAT[st.contratStatut]} point>{LIBELLE_CONTRAT[st.contratStatut]}</Pastille>{st.contratLe ? <span className="text-colonne text-encre-2">{new Date(st.contratLe).toLocaleDateString("fr-FR")}</span> : null}</span> : "pas encore envoyés"}</Ligne>
             {st.accesOuvertLe || st.accesEnvoyeLe ? <Ligne libelle="Accès partenaire">{st.accesOuvertLe ? `ouvert le ${new Date(st.accesOuvertLe).toLocaleDateString("fr-FR")}${st.accesEmail ? ` · ${st.accesEmail}` : ""}` : `lien envoyé le ${new Date(st.accesEnvoyeLe!).toLocaleDateString("fr-FR")}`}</Ligne> : null}
@@ -177,6 +185,14 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
         >
           <Etiquette texte="Motif (facultatif)"><Zone value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Ex. : a demandé par téléphone à ne plus être sollicité" /></Etiquette>
         </Dialogue>
+      ) : null}
+      {question === "acces" && st ? (
+        <Dialogue
+          titre="Envoyer le lien d'accès sans contrats signés ?"
+          description="Les contrats ne sont pas signés par les deux parties. Le lien ouvre l'Espace Partenaire tout de suite : à n'envoyer que si les contrats ont été signés autrement (papier, ancien envoi)."
+          onFermer={() => setQuestion(null)}
+          pied={<><Bouton onClick={() => setQuestion(null)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { await envoyerLienAcces(st.id!, true); setQuestion(null) }, "Lien « ouvrir mon accès » envoyé, copie à STC.")}>Envoyer quand même</Bouton></>}
+        />
       ) : null}
       {question === "pause" && st ? (
         <Dialogue
