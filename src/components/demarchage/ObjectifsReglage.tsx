@@ -14,11 +14,14 @@ import { Bandeau, Bouton, Carte, Champ, Chargement, Etiquette, TitreCarte, Zone 
 const CLE_OBJECTIF = "objectif_os_mensuel"
 const CLE_SCRIPT = "script_appel"
 const CLE_QUOTA = "quota_appels_jour"
+const CLE_RELANCE = "relance_interesse_jours" // lue aussi par la règle d'appel en base (appel_enregistrer) et par la session
 const QUOTA_MIN = 10
 const QUOTA_MAX = 500
+const RELANCE_MIN = 1
+const RELANCE_MAX = 365
 
-type Valeurs = { objectif: string; script: string; quota: string }
-const memes = (a: Valeurs, b: Valeurs) => a.objectif === b.objectif && a.script === b.script && a.quota === b.quota
+type Valeurs = { objectif: string; script: string; quota: string; relance: string }
+const memes = (a: Valeurs, b: Valeurs) => a.objectif === b.objectif && a.script === b.script && a.quota === b.quota && a.relance === b.relance
 
 function valider(v: Valeurs): string[] {
   const e: string[] = []
@@ -26,6 +29,8 @@ function valider(v: Valeurs): string[] {
   if (v.objectif.trim() === "" || !Number.isInteger(objectif) || objectif < 0) e.push("L'objectif mensuel doit être un nombre entier (0 si tu ne veux pas d'objectif).")
   const quota = Number(v.quota)
   if (v.quota.trim() === "" || !Number.isInteger(quota) || quota < QUOTA_MIN || quota > QUOTA_MAX) e.push(`Le seuil d'appels par jour doit être entre ${QUOTA_MIN} et ${QUOTA_MAX}.`)
+  const relance = Number(v.relance)
+  if (v.relance.trim() === "" || !Number.isInteger(relance) || relance < RELANCE_MIN || relance > RELANCE_MAX) e.push(`La relance des intéressés doit être entre ${RELANCE_MIN} et ${RELANCE_MAX} jours.`)
   return e
 }
 
@@ -40,9 +45,9 @@ export default function ObjectifsReglage() {
 
   useEffect(() => {
     if (!supabaseConfigure) return
-    Promise.all([lireParametre(CLE_OBJECTIF), lireParametre(CLE_SCRIPT), lireParametre(CLE_QUOTA)])
-      .then(([objectif, script, quota]) => {
-        const v: Valeurs = { objectif: objectif ?? "0", script: script ?? "", quota: quota ?? "100" }
+    Promise.all([lireParametre(CLE_OBJECTIF), lireParametre(CLE_SCRIPT), lireParametre(CLE_QUOTA), lireParametre(CLE_RELANCE)])
+      .then(([objectif, script, quota, relance]) => {
+        const v: Valeurs = { objectif: objectif ?? "0", script: script ?? "", quota: quota ?? "100", relance: relance ?? "7" }
         setOrigine(v)
         setBrouillon(v)
       })
@@ -69,11 +74,12 @@ export default function ObjectifsReglage() {
     if (e.length) return
     setEnreg(true)
     try {
-      const propre: Valeurs = { objectif: String(Number(brouillon.objectif)), script: brouillon.script.trim(), quota: String(Number(brouillon.quota)) }
+      const propre: Valeurs = { objectif: String(Number(brouillon.objectif)), script: brouillon.script.trim(), quota: String(Number(brouillon.quota)), relance: String(Number(brouillon.relance)) }
       // On n'écrit que ce qui a changé.
       if (propre.objectif !== origine.objectif) await ecrireParametre(CLE_OBJECTIF, propre.objectif)
       if (propre.script !== origine.script) await ecrireParametre(CLE_SCRIPT, propre.script)
       if (propre.quota !== origine.quota) await ecrireParametre(CLE_QUOTA, propre.quota)
+      if (propre.relance !== origine.relance) await ecrireParametre(CLE_RELANCE, propre.relance)
       setOrigine(propre)
       setBrouillon(propre)
       setOk(true)
@@ -91,7 +97,7 @@ export default function ObjectifsReglage() {
   return (
     <div className="max-w-3xl space-y-5">
       <p className="text-legende text-encre-2">
-        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, et jusqu'où un numéro peut appeler dans la journée.
+        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, quand relancer une agence intéressée, et jusqu'où un numéro peut appeler dans la journée.
       </p>
       {erreurs.length ? <Bandeau role="alerte">{erreurs.join(" ")}</Bandeau> : null}
       {ok ? <Bandeau role="ok">Enregistré.</Bandeau> : null}
@@ -110,6 +116,15 @@ export default function ObjectifsReglage() {
         <div className="px-5 pb-5">
           <Etiquette texte="Le texte affiché pendant un appel, dans Sessions de call" aide="L'accroche, les deux questions à poser, la réponse aux objections. Écris-le comme tu le dis à voix haute : il est fait pour être lu en parlant.">
             <Zone rows={10} value={brouillon.script} onChange={(e) => set("script", e.target.value)} placeholder="Bonjour, STC Bâtiment, je cherche le gestionnaire locatif…" />
+          </Etiquette>
+        </div>
+      </Carte>
+
+      <Carte>
+        <TitreCarte>Relance des intéressés</TitreCarte>
+        <div className="px-5 pb-5">
+          <Etiquette texte="Une agence « intéressée » revient dans « À rappeler aujourd'hui » au bout de… (jours)" aide="Après un appel conclu « intéressé », la tâche « Relancer » se pose à ce délai, à 10 h. 7 jours jusqu'ici ; 15 jours ou 30 jours laissent plus de temps à l'agence. Ne change pas les relances déjà posées.">
+            <Champ type="number" min={RELANCE_MIN} max={RELANCE_MAX} step={1} value={brouillon.relance} onChange={(e) => set("relance", e.target.value)} className="chiffres max-w-[160px]" />
           </Etiquette>
         </div>
       </Carte>

@@ -76,6 +76,10 @@ export function libelleMotif(code: string): string {
 export const SOMMEIL_APRES_TENTATIVES = 6
 export const SOMMEIL_JOURS = 60
 export const RELANCE_JOURS = 7
+// Réglable (Mahdi, 12/10/2026) : Réglages › Objectifs et script, clé `relance_interesse_jours` ; la session le lit au démarrage.
+let relanceJoursReglee = RELANCE_JOURS
+export const reglerRelanceJours = (n: number): void => { relanceJoursReglee = Number.isInteger(n) && n >= 1 && n <= 365 ? n : RELANCE_JOURS }
+export const relanceJours = (): number => relanceJoursReglee
 export const SANS_NOUVELLE_JOURS = 7
 
 // ── Agences et contacts ──
@@ -323,7 +327,7 @@ export function effetAnnonce(resultat: Resultat, issue: Issue | null, a: Pick<Ag
   }
   if (resultat === "faux_numero") return "La fiche sort en « hors cible ». Elle n'est pas supprimée."
   switch (issue) {
-    case "interesse": return `Étape « Intéressé », tâche « Relancer » dans ${RELANCE_JOURS} jours.`
+    case "interesse": return `Étape « Intéressé », tâche « Relancer » dans ${relanceJours()} jours.`
     case "rdv": return "Étape « RDV planifié », le rendez-vous va dans l'agenda."
     case "a_rappeler": return "Une tâche « Rappeler » à la date choisie."
     case "pas_interesse": return "Étape « Pas intéressé », avec le motif."

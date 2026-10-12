@@ -19,7 +19,7 @@ import {
   type Motif,
   type Resultat,
   ISSUES,
-  RELANCE_JOURS,
+  relanceJours,
   RESULTATS,
   libelleEtape,
   libelleIssue,
@@ -320,7 +320,7 @@ export function resumeEcriture(bilan: Pick<BilanAppel, "etape" | "tacheId" | "te
   if (choix.resultat === "joint") {
     if (choix.issue === "rdv") parts.push(`RDV le ${dateHeureCourte(choix.rdvLe)}`)
     else if (choix.issue === "a_rappeler") parts.push(`tâche Rappeler le ${dateHeureCourte(choix.rappelLe)}`)
-    else if (choix.issue === "interesse") parts.push(`tâche Relancer le ${dateCourte(plusJours(maintenant, RELANCE_JOURS).toISOString())}`)
+    else if (choix.issue === "interesse") parts.push(`tâche Relancer le ${dateCourte(plusJours(maintenant, relanceJours()).toISOString())}`)
     else if (choix.issue === "pas_interesse") parts.push(`motif « ${libelleMotif(choix.motif)} »`)
     if (bilan.tacheId && !["rdv", "a_rappeler", "interesse"].includes(choix.issue)) parts.push("une tâche créée")
   }

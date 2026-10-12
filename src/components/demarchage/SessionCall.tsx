@@ -40,6 +40,7 @@ import {
 import {
   ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
   type Activite, type Agence, type Contact, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
+  reglerRelanceJours,
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
@@ -300,10 +301,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Lectures ──
   const chargerReglages = useCallback(async () => {
-    const [q, s] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null)])
+    const [q, s, r] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null), lireParametre("relance_interesse_jours").catch(() => null)])
     if (!enVie.current) return
     setQuota(Number(q) || 0)
     setScript(s ?? "")
+    reglerRelanceJours(Number(r)) // le délai de relance des intéressés, réglé dans Réglages (7 jours sinon)
   }, [])
 
   // Les repères : secteurs, compteurs des files, appels du jour, réserve de numéros.
