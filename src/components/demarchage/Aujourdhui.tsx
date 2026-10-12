@@ -13,12 +13,13 @@ import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, 
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
   composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
-  grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxJoints, totalStats, type MomentTache,
+  grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxConversion, tauxJoints, totalStats, type MomentTache,
   PERIODES, bornesPeriode, classer, type Periode,
   majusculeInitiale,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { listerComptes } from "../../lib/comptes"
+import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
 
@@ -67,6 +68,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     try {
       // Les comptes du logiciel (réservé aux administrateurs : un télépro verra ceux qui ont des appels).
       const comptes = await listerComptes().then((l) => l.map((c) => ({ id: c.id, nom: c.nom || c.email }))).catch(() => [] as { id: string; nom: string }[])
+      // La fonction de chaque compte (Comptes) : seuls les commerciaux sont classés.
+      const fonctions = await chargerFonctions().catch(() => ({}) as Record<string, never>)
+      const horsClassement = new Set(Object.entries(fonctions).filter(([, f]) => !estAuClassement(f)).map(([id]) => id))
       const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
         compterFiles(now),
         chargerTachesDuJour(now),
@@ -78,7 +82,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         ...PERIODES.map((p) => { const b = bornesPeriode(p.code, now); return statsAppels(b.de, b.a) }),
       ])
       if (!enVie.current) return
-      const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes)])) as Record<Periode, StatsCompte[]>
+      const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
       setD({ files, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
       setMaintenant(now)
       setErreur("")
@@ -340,13 +344,14 @@ function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
       <Td num>{x.interesses}</Td>
       <Td num>{x.rdv}</Td>
       <Td num>{x.pasInteresses}</Td>
+      <Td num className={tauxConversion(x) > 0 ? "font-semibold" : "text-encre-2"}>{x.joints > 0 ? `${tauxConversion(x)} %` : "—"}</Td>
       <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : ""}>{x.premiersOs}</Td>
       <Td num>{dureeLisible(x.dureeS) || "—"}</Td>
     </tr>
   )
   return (
     <Tableau className="pb-2">
-      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num>1ers OS</Th><Th num>Parole</Th></tr></thead>
+      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Intéressés + RDV, sur les agences jointes">Conversion</Th><Th num>1ers OS</Th><Th num>Parole</Th></tr></thead>
       <tbody>
         {stats.map((x, i) => ligne(x, i + 1))}
         {stats.length > 1 ? ligne(total, null) : null}
