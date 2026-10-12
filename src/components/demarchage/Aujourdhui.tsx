@@ -13,7 +13,7 @@ import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, 
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
   composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
-  grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxConversion, tauxJoints, totalStats, type MomentTache,
+  grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxConversionInteresses, tauxConversionPremiersOs, tauxJoints, totalStats, type MomentTache,
   PERIODES, bornesPeriode, classer, type Periode,
   majusculeInitiale,
 } from "../../demarchage/aujourdhuiOutils"
@@ -344,14 +344,15 @@ function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
       <Td num>{x.interesses}</Td>
       <Td num>{x.rdv}</Td>
       <Td num>{x.pasInteresses}</Td>
-      <Td num className={tauxConversion(x) > 0 ? "font-semibold" : "text-encre-2"}>{x.joints > 0 ? `${tauxConversion(x)} %` : "—"}</Td>
+      <Td num className={tauxConversionInteresses(x) > 0 ? "font-semibold" : "text-encre-2"}>{x.joints > 0 ? `${tauxConversionInteresses(x)} %` : "—"}</Td>
       <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : ""}>{x.premiersOs}</Td>
+      <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : "text-encre-2"}>{x.joints > 0 ? `${tauxConversionPremiersOs(x)} %` : "—"}</Td>
       <Td num>{dureeLisible(x.dureeS) || "—"}</Td>
     </tr>
   )
   return (
     <Tableau className="pb-2">
-      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Intéressés + RDV, sur les agences jointes">Conversion</Th><Th num>1ers OS</Th><Th num>Parole</Th></tr></thead>
+      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Taux de conversion sur les intéressés : (intéressés + RDV) ÷ agences jointes">Conv. intéressés</Th><Th num>1ers OS</Th><Th num title="Taux de conversion sur les premiers OS : premiers ordres de service envoyés ÷ agences jointes">Conv. 1ers OS</Th><Th num>Parole</Th></tr></thead>
       <tbody>
         {stats.map((x, i) => ligne(x, i + 1))}
         {stats.length > 1 ? ligne(total, null) : null}

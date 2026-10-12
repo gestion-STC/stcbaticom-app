@@ -1,7 +1,7 @@
 // La fonction d'un compte et le classement des commerciaux (12/10/2026).
 import { describe, it, expect } from "vitest"
 import { estAuClassement, lireFonctions } from "./fonctionsComptes"
-import { classer, tauxConversion } from "../demarchage/aujourdhuiOutils"
+import { classer, tauxConversionInteresses, tauxConversionPremiersOs } from "../demarchage/aujourdhuiOutils"
 import type { StatsCompte } from "../demarchage/db"
 
 const st = (compteId: string, compteNom: string, appels: number, joints = 0, interesses = 0, rdv = 0): StatsCompte =>
@@ -30,8 +30,12 @@ describe("le classement des commerciaux", () => {
   it("sans fonction posée, personne n'est caché", () => {
     expect(classer([st("horlann", "Horlann", 10)], comptes).map((l) => l.compteNom)).toEqual(["Horlann", "Adan"])
   })
-  it("conversion = intéressés + RDV, sur les agences jointes", () => {
-    expect(tauxConversion({ joints: 20, interesses: 3, rdv: 2 })).toBe(25)
-    expect(tauxConversion({ joints: 0, interesses: 0, rdv: 0 })).toBe(0)
+  it("conversion sur les intéressés = (intéressés + RDV) ÷ joints", () => {
+    expect(tauxConversionInteresses({ joints: 20, interesses: 3, rdv: 2 })).toBe(25)
+    expect(tauxConversionInteresses({ joints: 0, interesses: 0, rdv: 0 })).toBe(0)
+  })
+  it("conversion sur les premiers OS = premiers OS envoyés ÷ joints", () => {
+    expect(tauxConversionPremiersOs({ joints: 40, premiersOs: 2 })).toBe(5)
+    expect(tauxConversionPremiersOs({ joints: 0, premiersOs: 1 })).toBe(0)
   })
 })
