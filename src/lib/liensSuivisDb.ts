@@ -44,3 +44,13 @@ export async function remplirLiens(texte: string, agenceId: string | null | unde
   }
   return out
 }
+
+/** L'aperçu dans le composeur : les variables de lien montrées comme des liens (adresses brutes, sans suivi ni base). */
+export function apercuLiens(html: string): string {
+  let out = html
+  for (const v of VARIABLES_LIENS) {
+    const url = v.url || "https://www.stcbatiment.com/creer-mon-compte"
+    out = out.split(v.variable).join('<a href="' + url + '">' + LIBELLES[v.cible] + "</a>")
+  }
+  return out
+}

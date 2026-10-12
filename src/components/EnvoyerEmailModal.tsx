@@ -8,6 +8,7 @@ import { nomAffiche } from "../lib/comptes"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
+import { apercuLiens } from "../lib/liensSuivisDb"
 import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
 import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Selecteur, Zone } from "../ui"
 
@@ -63,7 +64,9 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
 
   // Ce qui part réellement : le contenu affiché à l'écran, pas le modèle d'origine.
   const aEnvoyer = useMemo<Email>(() => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces }), [emails, modeleId, objet, corps, pieces])
-  const apercu = useMemo(() => composer(aEnvoyer, prospect, signature, prenomCommercial), [aEnvoyer, prospect, signature, prenomCommercial])
+  // L'aperçu montre les liens comme ils partiront ({{lien_creer_compte}} → « Créer mon compte STC Bâtiment ») ; à l'envoi,
+  // envoyerEmail les remplace par des liens suivis propres à l'agence.
+  const apercu = useMemo(() => { const c = composer(aEnvoyer, prospect, signature, prenomCommercial); return { ...c, corpsHtml: apercuLiens(c.corpsHtml) } }, [aEnvoyer, prospect, signature, prenomCommercial])
   const a = useMemo(() => decouperAdresses(aTexte), [aTexte])
   const cc = useMemo(() => decouperAdresses(ccTexte), [ccTexte])
   const cci = useMemo(() => decouperAdresses(cciTexte), [cciTexte])
