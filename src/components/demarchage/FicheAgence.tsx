@@ -9,7 +9,7 @@
 // la fiche et prévient la liste derrière (onChange).
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react"
-import { ArrowRightLeft, CalendarDays, Check, Mail, Merge, Pencil, Phone, Plus, SquareCheck, Star, StickyNote, Sun, UserX } from "lucide-react"
+import { ArrowRightLeft, Briefcase, CalendarDays, Check, Mail, Merge, Pencil, Phone, Plus, SquareCheck, Star, StickyNote, Sun, UserX } from "lucide-react"
 import {
   ETAPES,
   MOTIFS,
@@ -30,7 +30,7 @@ import {
   nomContact,
   pastilleEtape,
 } from "../../demarchage/modele"
-import { changerEtape, chargerAgence, chargerSecteurs, chercherDoublons, creerNote, creerRdv, creerTache, deplacerTache, fusionnerAgences, majAgence, majContact, premierOs, terminerTache, type AgenceComplete } from "../../demarchage/db"
+import { changerEtape, chargerAgence, chargerSecteurs, chercherDoublons, creerNote, creerRdv, creerTache, deplacerTache, fusionnerAgences, majAgence, majContact, passerApporteur, premierOs, terminerTache, type AgenceComplete } from "../../demarchage/db"
 import {
   COMMERCIAUX_PAR_DEFAUT, FILTRES_FIL, type FiltreFil, dateHeure, dateLongue, depuisTexte, enRetard, filtrerFil, fusionnerFil, grouperParJour, heure, ilYA, isoDepuisChamp, jourPourChamp,
   lendemainPourChamp, messageErreur, nomCommercial, noteLongue, pluriel, prospectDepuis, secteursParZone, tachesOuvertes,
@@ -167,6 +167,9 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
           </div>
           <div className="flex items-center gap-2">
             <Bouton icone={<ArrowRightLeft />} disabled={occupe} onClick={() => setDialogue("etape")}>Changer l'étape</Bouton>
+            {agence.type !== "apporteur" ? (
+              <Bouton icone={<Briefcase />} disabled={occupe} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, d'un clic" onClick={() => agir(() => passerApporteur(id, compteNom), "Passée en apporteur d'affaires : elle ne sera plus démarchée.")}>Apporteur d'affaires</Bouton>
+            ) : null}
             {agence.type !== "apporteur" ? (
               <Bouton variante="plein" icone={<Phone />} disabled={!onOuvrirSession} title={onOuvrirSession ? undefined : "Ouvre une session de call pour appeler"} onClick={() => onOuvrirSession?.(id)}>Appeler</Bouton>
             ) : null}

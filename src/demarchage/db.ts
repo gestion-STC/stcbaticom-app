@@ -90,6 +90,13 @@ export async function attribuerSecteur(code: string, compteId: string | null, ec
   return Number(data ?? 0)
 }
 
+// Une agence qui s'avère être un apporteur d'affaires (Mahdi, 12/10/2026 : « un bouton direct, qu'on switche vite ») :
+// son type change, elle sort du démarchage (les apporteurs sont une archive, jamais dans les files), et la fiche garde une note.
+export async function passerApporteur(agenceId: string, compteNom: string): Promise<void> {
+  await majAgence(agenceId, { type: "apporteur" })
+  await creerNote({ agenceId, compteNom, note: "Passée en apporteur d'affaires : sortie du démarchage (modifiable dans Identité › Vous êtes)." })
+}
+
 // ── Agences : les listes ──
 export type FiltresAgences = { etape?: Etape | "actives" | ""; secteur?: string; type?: Agence["type"] | ""; enseigne?: string; recherche?: string; jamaisJointe?: boolean; avecContact?: boolean; commercialId?: string; limite?: number }
 

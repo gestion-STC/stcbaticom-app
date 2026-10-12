@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   ArrowRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Mail, Mic, MicOff, Phone, PhoneIncoming, PhoneOutgoing,
   Pencil, Play, Plus, Search, Square, SquareCheck, StickyNote, type LucideIcon,
-  ArrowRightLeft,
+  ArrowRightLeft, Briefcase,
 } from "lucide-react"
 import type { Prospect } from "../../data"
 import { entrantActif } from "../../lib/appelEntrantActif"
@@ -34,7 +34,7 @@ import { detailAppelRingover, lancerAppelRingover, statutAppelsRingover } from "
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
 import { dateCourte } from "../../demarchage/agencesOutils"
 import {
-  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
+  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
   enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
@@ -1129,6 +1129,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                   {onOuvrirAgence ? (
                     <div className="flex items-center gap-1">
                       <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => onOuvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
+                      {/* Un apporteur d'affaires découvert en ligne (Mahdi, 12/10) : un clic, elle sort du démarchage, la file avance. */}
+                      <Bouton variante="discret" icone={<Briefcase />} disabled={enCours} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, d'un clic" onClick={async () => { try { await passerApporteur(fiche.agence.id, compteNom); setInfo(`${fiche.agence.nom} : passée en apporteur d'affaires, elle ne sera plus démarchée.`); void chargerLaFile() } catch (e) { setErreur(messageDe(e)) } }}>Apporteur d'affaires</Bouton>
                       <Bouton variante="discret" icone={<ExternalLink />} onClick={() => onOuvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
                     </div>
                   ) : null}
