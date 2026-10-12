@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
 import { commercial } from "../data"
-import { compterNonLus, type Espace } from "../lib/messagesDb"
+import { compterNonLus, EVENEMENT_LUS, type Espace } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
 import { estAdmin, initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
@@ -117,9 +117,16 @@ export default function Sidebar({
       Promise.all([compterNonLus("demarchage"), compterNonLus("recrutement")]).then(([d, r]) => !annule && setNonLus({ demarchage: d, recrutement: r }))
     maj()
     const t = setInterval(maj, 60_000)
+    // Un mail ouvert (ou remis non lu) : la pastille se recompte tout de
+    // suite, sans attendre la minute (12/10/2026). Et au retour sur l'onglet,
+    // pour voir sans délai un mail arrivé pendant qu'on était ailleurs.
+    window.addEventListener(EVENEMENT_LUS, maj)
+    window.addEventListener("focus", maj)
     return () => {
       annule = true
       clearInterval(t)
+      window.removeEventListener(EVENEMENT_LUS, maj)
+      window.removeEventListener("focus", maj)
     }
   }, [active])
 

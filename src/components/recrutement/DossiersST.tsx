@@ -8,11 +8,11 @@
 // (la machine le fait seule quand le lien tracké a suivi, sinon on le fait ici).
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ExternalLink, FileSignature, KeyRound, Link2, Paperclip, Unlink } from "lucide-react"
+import { ExternalLink, FileSignature, KeyRound, Link2, Paperclip, Unlink, UserPlus } from "lucide-react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
-import { chargerDossiers, lienPieceDossier, marquerDossier, rattacherDossier } from "../../lib/machineDb"
+import { chargerDossiers, creerFicheHorsBase, lienPieceDossier, marquerDossier, rattacherDossier } from "../../lib/machineDb"
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
 import { chiffresTel } from "../../lib/telephone"
 import FicheArtisan from "./FicheArtisan"
@@ -241,6 +241,13 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
     catch (e) { setErreur(msg(e)) }
     finally { setOccupe(false) }
   }
+  // Un artisan qui n'est pas dans la base : sa fiche est créée depuis le
+  // dossier, puis rattachée — contrats et lien d'accès se débloquent (12/10/2026).
+  const horsBase = () => agir(async () => {
+    const f = await creerFicheHorsBase(dossier)
+    onMaj(dossier.id, { sousTraitantId: f.id })
+    await onRecharger()
+  }, "Fiche créée depuis le dossier et rattachée : vous pouvez envoyer les contrats.")
   const rattacher = (id: string | null) => agir(async () => {
     await rattacherDossier(dossier, id)
     onMaj(dossier.id, { sousTraitantId: id })
@@ -352,6 +359,13 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
               <li className="px-3 py-3 text-legende text-encre-2">{recherche ? "Aucune fiche ne correspond." : "Aucune fiche ne ressemble à ce dossier : cherchez-la par son nom, son e-mail ou son téléphone."}</li>
             ) : null}
           </ul>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-4 border border-trait px-3 py-2.5">
+            <div className="min-w-0 text-legende text-encre-2">
+              <span className="font-medium text-encre">L'artisan n'est pas dans la base ?</span>{" "}
+              Sa fiche est créée à partir du dossier, et les contrats peuvent partir.
+            </div>
+            <Bouton taille="sm" icone={<UserPlus />} disabled={occupe} onClick={horsBase}>Sous-traitant hors base</Bouton>
+          </div>
         </div>
       )}
 

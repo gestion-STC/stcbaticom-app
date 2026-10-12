@@ -190,3 +190,23 @@ export async function envoyerSmsTest(to: string, message: string): Promise<void>
   if (error) throw new Error(error.message)
   if (data && (data as { error?: string }).error) throw new Error((data as { error: string }).error)
 }
+
+/**
+ * « Sous-traitant hors base » (12/10/2026) : le dossier vient d'un artisan
+ * absent de la base. On crée sa fiche depuis le dossier, déjà « déposé », et on
+ * la rattache : contrats et lien d'accès se débloquent sans autre geste.
+ */
+export async function creerFicheHorsBase(dossier: DossierST): Promise<SousTraitant> {
+  const { ficheDepuisDossier } = await import("./ficheHorsBase")
+  const { creerSousTraitant } = await import("./sousTraitantsDb")
+  const brouillon = ficheDepuisDossier(dossier)
+  if (!brouillon.entreprise && !brouillon.email) throw new Error("Le dossier n'a ni raison sociale ni e-mail : impossible de créer la fiche.")
+  const fiche = await creerSousTraitant(brouillon)
+  const sb = client()
+  const { error: e1 } = await sb.from("st_sous_traitants")
+    .update({ depose_le: dossier.creeLe, dossier_id: dossier.id }).eq("id", fiche.id!)
+  if (e1) throw new Error(e1.message)
+  const { error: e2 } = await sb.from("dossiers_st").update({ sous_traitant_id: fiche.id }).eq("id", dossier.id)
+  if (e2) throw new Error(e2.message)
+  return { ...fiche, deposeLe: dossier.creeLe, dossierId: dossier.id }
+}
