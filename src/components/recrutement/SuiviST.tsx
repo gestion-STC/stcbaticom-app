@@ -9,10 +9,11 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Phone } from "lucide-react"
-import type { ObjectifMetier, SousTraitant } from "../../recrutement"
+import type { EnvoiST, ObjectifMetier, SousTraitant } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
 import { chargerObjectifs } from "../../lib/objectifsStDb"
+import { chargerEnvoisSurJours } from "../../lib/machineDb"
 import { CORPS_METIERS, exerceCorps } from "../../lib/recrutementCalc"
 import { pourcent, tunnel } from "../../lib/statsMachine"
 import { lancerAppelRingover } from "../../lib/ringover"
@@ -53,20 +54,19 @@ export default function SuiviST() {
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
 
   // Une lecture = les fiches + les objectifs, et l'heure de la lecture.
+  // Les envois de la période (le tunnel compte les fiches vraiment contactées, 12/10/2026) ; « tout l'historique » = 10 ans.
+  const [envois, setEnvois] = useState<EnvoiST[]>([])
   const charger = useCallback(
     () =>
-      Promise.all([chargerSousTraitants(), chargerObjectifs()])
-        .then(([f, o]) => { setFiches(f); setObjectifs(o); setMaintenant(Date.now()); setErreur("") })
+      Promise.all([chargerSousTraitants(), chargerObjectifs(), chargerEnvoisSurJours(jours > 0 ? jours : 3650)])
+        .then(([f, o, e]) => { setFiches(f); setObjectifs(o); setEnvois(e); setMaintenant(Date.now()); setErreur("") })
         .catch((e) => setErreur(message(e))),
-    [],
+    [jours],
   )
   useEffect(() => {
     if (!supabaseConfigure) return
-    Promise.all([chargerSousTraitants(), chargerObjectifs()])
-      .then(([f, o]) => { setFiches(f); setObjectifs(o); setMaintenant(Date.now()); setErreur("") })
-      .catch((e) => setErreur(message(e)))
-      .finally(() => setChargement(false))
-  }, [])
+    charger().finally(() => setChargement(false))
+  }, [charger])
 
   const periode = PERIODES.find((p) => p.jours === jours) ?? PERIODES[1]
   const depuis = jours > 0 ? maintenant - jours * JOUR_MS : 0
@@ -74,11 +74,10 @@ export default function SuiviST() {
   const duCorps = (f: SousTraitant) => !corps || exerceCorps(f, corps)
 
   // ── Le tunnel ──
-  const t = useMemo(() => tunnel(fiches, jours, corps, maintenant), [fiches, jours, corps, maintenant])
+  const t = useMemo(() => tunnel(fiches, envois, jours, corps, maintenant), [fiches, envois, jours, corps, maintenant])
   const etapes = [
-    { libelle: "Démarrés", n: t.demarres, precedent: t.demarres },
-    { libelle: "Joints", n: t.joints, precedent: t.demarres },
-    { libelle: "Ont cliqué", n: t.cliques, precedent: t.joints },
+    { libelle: "Contactés", n: t.contactes, precedent: t.contactes },
+    { libelle: "Ont cliqué", n: t.cliques, precedent: t.contactes },
     { libelle: "Ont déposé", n: t.deposes, precedent: t.cliques },
   ]
 
@@ -131,10 +130,10 @@ export default function SuiviST() {
 
           <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
             <Carte>
-              <TitreCarte droite={<span className="text-legende text-encre-2">chaque % se lit par rapport à l'étape d'avant</span>}>Tunnel</TitreCarte>
+              <TitreCarte droite={<span className="text-legende text-encre-2">contactés = au moins un e-mail ou SMS parti sur la période · chaque % se lit par rapport à l'étape d'avant</span>}>Tunnel</TitreCarte>
               <div className="px-5 pb-5">
-                {t.demarres === 0 ? (
-                  <Vide titre="Personne n'a été démarré sur cette période" texte="Élargissez la période, ou lancez la machine depuis le pilotage." />
+                {t.contactes === 0 ? (
+                  <Vide titre="Personne n'a été contacté sur cette période" texte="Aucun e-mail ni SMS parti sur la période : élargissez-la, ou lancez la machine depuis le pilotage." />
                 ) : (
                   <ol className="space-y-4">
                     {etapes.map((e, i) => (
@@ -146,7 +145,7 @@ export default function SuiviST() {
                             {i > 0 ? <span className="ml-2">{pourcent(e.n, e.precedent)} %</span> : null}
                           </span>
                         </div>
-                        <Barre pct={pourcent(e.n, t.demarres)} />
+                        <Barre pct={pourcent(e.n, t.contactes)} />
                       </li>
                     ))}
                   </ol>

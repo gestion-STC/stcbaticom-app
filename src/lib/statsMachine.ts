@@ -74,35 +74,45 @@ export function erreursParCause(envois: EnvoiST[], depuis: number): ErreurParCau
 }
 
 // ── Le tunnel ────────────────────────────────────────────────────────────────
-export type Tunnel = { demarres: number; joints: number; cliques: number; deposes: number }
-/** Fenêtre en jours (0 = tout l'historique), corps de métier facultatif. */
-export function tunnel(fiches: SousTraitant[], jours: number, corps = "", maintenant = Date.now()): Tunnel {
+export type Tunnel = { contactes: number; cliques: number; deposes: number }
+/**
+ * Le tunnel d'une période : qui a reçu au moins un envoi réussi, qui a cliqué, qui a déposé — DANS la période.
+ * (12/10/2026 : « Démarrés » lisait demarre_le, que la remise en marche recale pour toutes les fiches en séquence :
+ * 493 « démarrés » sur 7 jours pour 4 e-mails partis. On compte ce qui s'est vraiment passé.)
+ */
+export function tunnel(fiches: SousTraitant[], envois: EnvoiST[], jours: number, corps = "", maintenant = Date.now()): Tunnel {
   const depuis = jours > 0 ? maintenant - jours * JOUR_MS : 0
-  const base = fiches.filter((f) => f.demarreLe && dans(f.demarreLe, depuis) && (!corps || exerceCorps(f, corps)))
+  const duCorps = (f: SousTraitant) => !corps || exerceCorps(f, corps)
+  const parId = new Map(fiches.filter((f) => f.id).map((f) => [f.id as string, f]))
+  const contactes = new Set<string>()
+  for (const e of envois) {
+    if (e.statut !== "envoye" || !dans(e.envoyeLe, depuis)) continue
+    const f = parId.get(e.sousTraitantId)
+    if (f && duCorps(f)) contactes.add(e.sousTraitantId)
+  }
   return {
-    demarres: base.length,
-    joints: base.filter((f) => f.nbEnvoisOk > 0).length,
-    cliques: base.filter((f) => !!f.candidatureClicLe || !!f.baremeVuLe || f.nbClics > 0).length,
-    deposes: base.filter((f) => f.statut === "depose" || !!f.deposeLe).length,
+    contactes: contactes.size,
+    cliques: fiches.filter((f) => duCorps(f) && (dans(f.candidatureClicLe, depuis) || dans(f.baremeVuLe, depuis))).length,
+    deposes: fiches.filter((f) => duCorps(f) && dans(f.deposeLe, depuis)).length,
   }
 }
 export const pourcent = (n: number, d: number) => (d > 0 ? Math.round((100 * n) / d) : 0)
 
 // ── Les campagnes, corps par corps ───────────────────────────────────────────
 export type LigneCampagne = {
-  corps: string; libelle: string; voulu: number; actif: boolean; enSequence: number; demarres7j: number
-  joints: number; clics: number; depots: number; taux: number; dispo: number; objectifId?: string
+  corps: string; libelle: string; voulu: number; actif: boolean; enSequence: number; contactes7j: number
+  contactes: number; clics: number; depots: number; taux: number; dispo: number; objectifId?: string
 }
-export function campagnes(fiches: SousTraitant[], objectifs: ObjectifMetier[], jours: number, maintenant = Date.now()): LigneCampagne[] {
-  const depuis7j = maintenant - 7 * JOUR_MS
+export function campagnes(fiches: SousTraitant[], envois: EnvoiST[], objectifs: ObjectifMetier[], jours: number, maintenant = Date.now()): LigneCampagne[] {
   return objectifs.map((o) => {
-    const t = tunnel(fiches, jours, o.metier, maintenant)
+    const t = tunnel(fiches, envois, jours, o.metier, maintenant)
+    const t7 = tunnel(fiches, envois, 7, o.metier, maintenant)
     const libelle = CORPS_METIERS.find((c) => c.value === o.metier)?.label ?? o.metier
     return {
       corps: o.metier, libelle, voulu: o.objectifHebdo, actif: o.actif, objectifId: o.id,
       enSequence: fiches.filter((f) => f.statut === "en_sequence" && exerceCorps(f, o.metier)).length,
-      demarres7j: fiches.filter((f) => exerceCorps(f, o.metier) && dans(f.demarreLe, depuis7j)).length,
-      joints: t.joints, clics: t.cliques, depots: t.deposes, taux: t.demarres > 0 ? t.deposes / t.demarres : 0,
+      contactes7j: t7.contactes,
+      contactes: t.contactes, clics: t.cliques, depots: t.deposes, taux: t.contactes > 0 ? t.deposes / t.contactes : 0,
       dispo: fiches.filter((f) => f.statut === "a_contacter" && exerceCorps(f, o.metier) && !f.emailInvalide).length,
     }
   })

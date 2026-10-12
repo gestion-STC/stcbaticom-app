@@ -94,8 +94,8 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
       aujourdhui: compterAujourdhui(d.envois, maintenant),
       serie: seriesParJour(d.envois, d.clics, d.fiches, 30, maintenant),
       erreurs: erreursParCause(d.envois, maintenant - 30 * JOUR_MS),
-      tunnel: tunnel(d.fiches, fenetre, "", maintenant),
-      campagnes: campagnes(d.fiches, d.objectifs, fenetre, maintenant),
+      tunnel: tunnel(d.fiches, d.envois, fenetre, "", maintenant),
+      campagnes: campagnes(d.fiches, d.envois, d.objectifs, fenetre, maintenant),
       aTraiter: aTraiter(d.fiches, d.envois, d.dossiers, d.reponsesNonLues, maintenant),
       passages: etatDesPassages(d.passages, 15, maintenant),
       epuisement: joursAvantEpuisement(d.fiches, maintenant),
@@ -197,7 +197,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
             <TitreCarte droite={<><Selecteur value={String(fenetre)} onChange={(e) => setFenetre(Number(e.target.value) as Fenetre)} className="w-44">{FENETRES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</Selecteur><Bouton taille="sm" icone={<Plus />} onClick={() => setQuestion("corps")}>Ajouter un corps</Bouton></>}>Campagnes par corps de métier</TitreCarte>
             {calc.campagnes.length === 0 ? <p className="px-5 pb-4 text-legende text-encre-2">Aucune campagne : ajoute un corps de métier et le nombre d'artisans voulus par semaine.</p> : (
               <Tableau className="pb-2">
-                <thead><tr><Th>Corps</Th><Th num>Voulu / sem.</Th><Th num>En séquence</Th><Th num>Joints</Th><Th num>Clics</Th><Th num>Dépôts</Th><Th num>Taux</Th><Th>Reste à contacter</Th><Th /></tr></thead>
+                <thead><tr><Th>Corps</Th><Th num>Voulu / sem.</Th><Th num>En séquence</Th><Th num>Contactés</Th><Th num>Clics</Th><Th num>Dépôts</Th><Th num>Taux</Th><Th>Reste à contacter</Th><Th /></tr></thead>
                 <tbody>
                   {calc.campagnes.map((c) => <LigneCampagneVue key={`${c.corps}:${c.voulu}`} c={c} occupe={occupe} onVoulu={(v) => agir(async () => { await majObjectif(c.objectifId!, { objectifHebdo: v }) })} onActif={(v) => agir(async () => { await majObjectif(c.objectifId!, { actif: v }) })} onSupprimer={() => agir(async () => { await supprimerObjectif(c.objectifId!); return `Campagne ${c.libelle} retirée.` })} />)}
                 </tbody>
@@ -263,10 +263,10 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
           <Carte>
             <TitreCarte droite={<span className="text-colonne text-encre-2">{FENETRES.find((f) => f.id === fenetre)?.label}</span>}>Tunnel</TitreCarte>
             <div className="grid gap-2 px-5 pb-4">
-              {([["Démarrés", calc.tunnel.demarres, calc.tunnel.demarres], ["Joints", calc.tunnel.joints, calc.tunnel.demarres], ["Ont cliqué", calc.tunnel.cliques, calc.tunnel.joints], ["Ont déposé", calc.tunnel.deposes, calc.tunnel.cliques]] as [string, number, number][]).map(([lib, v, prec], i) => (
+              {([["Contactés", calc.tunnel.contactes, calc.tunnel.contactes], ["Ont cliqué", calc.tunnel.cliques, calc.tunnel.contactes], ["Ont déposé", calc.tunnel.deposes, calc.tunnel.cliques]] as [string, number, number][]).map(([lib, v, prec], i) => (
                 <div key={lib} className="grid grid-cols-[110px_1fr_90px] items-center gap-3 text-legende">
                   <span className="text-encre-2">{lib}</span>
-                  <div className="h-2.5 overflow-hidden rounded-3 bg-fond-3"><i className={`block h-full ${i === 3 ? "bg-ok" : "bg-signature"}`} style={{ width: `${pourcent(v, calc.tunnel.demarres)}%` }} /></div>
+                  <div className="h-2.5 overflow-hidden rounded-3 bg-fond-3"><i className={`block h-full ${i === 2 ? "bg-ok" : "bg-signature"}`} style={{ width: `${pourcent(v, calc.tunnel.contactes)}%` }} /></div>
                   <span className="chiffres text-right text-encre">{v}{i > 0 ? <span className="text-encre-2"> · {pourcent(v, prec)} %</span> : null}</span>
                 </div>
               ))}
@@ -340,8 +340,8 @@ function LigneCampagneVue({ c, occupe, onVoulu, onActif, onSupprimer }: { c: Lig
       <Td><b className="font-semibold text-encre">{c.libelle}</b>{!c.actif ? <span className="ml-2 text-colonne text-encre-2">en pause</span> : null}</Td>
       {/* Cellule à largeur fixe : un champ nombre trop étroit cache sa valeur derrière ses flèches. */}
       <Td num className="w-28"><Champ type="number" min={0} value={voulu} onChange={(e) => setVoulu(e.target.value)} onBlur={() => { const v = Math.max(0, Number(voulu) || 0); if (v !== c.voulu) onVoulu(v) }} className="h-7 px-2 text-right [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" disabled={occupe} /></Td>
-      <Td num>{c.enSequence}</Td><Td num>{c.joints}</Td><Td num>{c.clics}</Td><Td num>{c.depots}</Td>
-      <Td num>{c.joints ? `${(100 * c.taux).toFixed(1).replace(".", ",")} %` : "—"}</Td>
+      <Td num>{c.enSequence}</Td><Td num>{c.contactes}</Td><Td num>{c.clics}</Td><Td num>{c.depots}</Td>
+      <Td num>{c.contactes ? `${(100 * c.taux).toFixed(1).replace(".", ",")} %` : "—"}</Td>
       <Td><Pastille role={roleReste}>{reste} fiche{reste > 1 ? "s" : ""}</Pastille></Td>
       <Td><span className="flex items-center justify-end gap-1"><Case texte="" checked={c.actif} onChange={(e) => onActif(e.target.checked)} title={c.actif ? "Mettre en pause ce corps" : "Reprendre ce corps"} /><Bouton taille="sm" variante="discret" icone={<Trash2 />} onClick={onSupprimer} aria-label="Retirer la campagne" /></span></Td>
     </Tr>

@@ -54,18 +54,25 @@ describe("erreursParCause", () => {
 
 describe("tunnel", () => {
   const fiches = [
-    fiche({ demarreLe: iso(J), nbEnvoisOk: 2, candidatureClicLe: iso(0), deposeLe: iso(0), statut: "depose" }),
-    fiche({ demarreLe: iso(J), nbEnvoisOk: 1 }),
-    fiche({ demarreLe: iso(J), nbEnvoisOk: 0 }), // démarrée, jamais jointe
-    fiche({ demarreLe: iso(100 * J), nbEnvoisOk: 1, metier: "Peinture" }), // hors fenêtre 30 j
+    fiche({ id: "a", candidatureClicLe: iso(0), deposeLe: iso(0), statut: "depose" }),
+    fiche({ id: "b" }),
+    fiche({ id: "c" }), // en séquence, mais aucun envoi réussi
+    fiche({ id: "d", metier: "Peinture", baremeVuLe: iso(100 * J) }), // contactée il y a 100 j : hors fenêtre 30 j
     fiche({ statut: "a_contacter" }),
   ]
-  it("ne compte que les démarrés de la fenêtre, joints = au moins un envoi réussi", () => {
-    expect(tunnel(fiches, 30, "", NOW)).toEqual({ demarres: 3, joints: 2, cliques: 1, deposes: 1 })
+  const envois = [
+    envoi({ sousTraitantId: "a" }), envoi({ sousTraitantId: "a", envoyeLe: iso(2 * J) }), envoi({ sousTraitantId: "b", envoyeLe: iso(5 * J) }),
+    envoi({ sousTraitantId: "c", statut: "erreur" }), envoi({ sousTraitantId: "d", envoyeLe: iso(100 * J) }),
+  ]
+  it("compte, dans la fenêtre, les contactés (un envoi réussi), les clics et les dépôts", () => {
+    expect(tunnel(fiches, envois, 30, "", NOW)).toEqual({ contactes: 2, cliques: 1, deposes: 1 })
   })
   it("sans fenêtre, tout l'historique ; avec un corps, seulement ce corps", () => {
-    expect(tunnel(fiches, 0, "", NOW).demarres).toBe(4)
-    expect(tunnel(fiches, 0, "Peinture", NOW)).toEqual({ demarres: 1, joints: 1, cliques: 0, deposes: 0 })
+    expect(tunnel(fiches, envois, 0, "", NOW).contactes).toBe(3)
+    expect(tunnel(fiches, envois, 0, "Peinture", NOW)).toEqual({ contactes: 1, cliques: 1, deposes: 0 })
+  })
+  it("la date de démarrage ne compte pas : une fiche recalée mais jamais contactée n'entre pas dans le tunnel", () => {
+    expect(tunnel([fiche({ id: "z", demarreLe: iso(0) })], [], 7, "", NOW)).toEqual({ contactes: 0, cliques: 0, deposes: 0 })
   })
   it("pourcent arrondit et ne divise jamais par zéro", () => {
     expect(pourcent(1, 3)).toBe(33)
@@ -74,16 +81,17 @@ describe("tunnel", () => {
 })
 
 describe("campagnes", () => {
-  it("une ligne par objectif : en séquence, démarrés 7 j, taux et fiches disponibles", () => {
+  it("une ligne par objectif : en séquence, contactés 7 j, taux et fiches disponibles", () => {
     const fiches = [
-      fiche({ demarreLe: iso(J), nbEnvoisOk: 1, deposeLe: iso(0), statut: "depose" }),
-      fiche({ demarreLe: iso(2 * J), nbEnvoisOk: 1 }),
+      fiche({ id: "a", deposeLe: iso(0), statut: "depose" }),
+      fiche({ id: "b" }),
       fiche({ statut: "a_contacter" }),
       fiche({ statut: "a_contacter", emailInvalide: true }),
       fiche({ statut: "a_contacter", metier: "Peinture / Électricité" }), // multi-corps : compte dans les deux
     ]
-    const [elec] = campagnes(fiches, [{ metier: "Électricité", objectifHebdo: 2, actif: true }], 30, NOW)
-    expect(elec).toMatchObject({ libelle: "Électricité", voulu: 2, enSequence: 1, demarres7j: 2, joints: 2, depots: 1, dispo: 2 })
+    const envois = [envoi({ sousTraitantId: "a", envoyeLe: iso(J) }), envoi({ sousTraitantId: "b", envoyeLe: iso(2 * J) })]
+    const [elec] = campagnes(fiches, envois, [{ metier: "Électricité", objectifHebdo: 2, actif: true }], 30, NOW)
+    expect(elec).toMatchObject({ libelle: "Électricité", voulu: 2, enSequence: 1, contactes7j: 2, contactes: 2, depots: 1, dispo: 2 })
     expect(elec.taux).toBeCloseTo(0.5)
   })
 })
