@@ -72,9 +72,32 @@ export async function chargerMessages(espace?: Espace): Promise<Message[]> {
   if (!supabase) throw new Error("Supabase non configuré")
   let q = supabase.from("messages").select(COLONNES).order("created_at", { ascending: false }).limit(500)
   if (espace) q = q.eq("espace", espace)
-  const { data, error } = await q
+  // ⚠ LES NON-LUS, QUEL QUE SOIT LEUR ÂGE (12/10/2026). La boîte ne lit que
+  // les 500 derniers messages, mais la pastille compte TOUTE la base : un
+  // non-lu plus ancien (une réponse automatique du 05/08, 1 333e message)
+  // n'était jamais affiché, donc jamais ouvrable — et le « 1 » restait pour
+  // toujours. On ajoute donc les reçus non lus manquants à la liste.
+  let qNonLus = supabase.from("messages").select(COLONNES).eq("sens", "entrant").eq("lu", false)
+    .order("created_at", { ascending: false }).limit(1000)
+  if (espace) qNonLus = qNonLus.eq("espace", espace)
+  const [{ data, error }, { data: nonLus, error: eNonLus }] = await Promise.all([q, qNonLus])
   if (error) throw new Error(error.message)
-  return (data as Ligne[]).map(vers)
+  if (eNonLus) throw new Error(eNonLus.message)
+  return fusionnerAvecNonLus(data as Ligne[], nonLus as Ligne[]).map(vers)
+}
+
+/** Les derniers messages, plus les non-lus plus anciens qu'ils n'incluent pas, du plus récent au plus ancien. */
+export function fusionnerAvecNonLus<T extends { id: string; created_at: string }>(derniers: T[], nonLus: T[]): T[] {
+  const vus = new Set(derniers.map((m) => m.id))
+  const manquants = nonLus.filter((m) => !vus.has(m.id))
+  if (!manquants.length) return derniers
+  return [...derniers, ...manquants].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+}
+
+/** Prévient la barre latérale qu'un message vient d'être lu ou remis non lu : la pastille se recompte tout de suite. */
+export const EVENEMENT_LUS = "baticom:messages-lus"
+function prevenirPastille() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(EVENEMENT_LUS))
 }
 
 // Nombre de messages reçus non lus (pour la pastille de la barre latérale), par espace.
@@ -95,6 +118,7 @@ export async function marquerLus(ids: string[]): Promise<void> {
   if (!supabase || ids.length === 0) return
   const { error } = await supabase.from("messages").update({ lu: true }).in("id", ids)
   if (error) console.error("Marquer lus :", error.message)
+  prevenirPastille()
 }
 
 // Marque une liste de messages comme NON lus (option « marquer comme non lu »).
@@ -102,6 +126,7 @@ export async function marquerNonLus(ids: string[]): Promise<void> {
   if (!supabase || ids.length === 0) return
   const { error } = await supabase.from("messages").update({ lu: false }).in("id", ids)
   if (error) console.error("Marquer non lus :", error.message)
+  prevenirPastille()
 }
 
 // Lien de téléchargement temporaire (5 min) d'une pièce jointe reçue.
