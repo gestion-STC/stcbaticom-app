@@ -397,6 +397,17 @@ export async function santeDemarchage(): Promise<EcartSante[] | null> {
   return ((data ?? []) as EcartSante[]).filter((e) => e.nombre > 0)
 }
 
+// LA GARDE AVANT DE COMPOSER (règles en base, supabase/regles-demarchage.sql) : null = appel permis,
+// sinon la raison du refus. undefined = garde pas encore installée en base (on retombe sur la vérification de l'écran).
+export async function appelVerifier(agenceId: string, numero: string, direct: boolean): Promise<string | null | undefined> {
+  const { data, error } = await sb().rpc("appel_verifier", { p_agence_id: agenceId, p_numero: numero, p_direct: direct })
+  if (error) {
+    if (/appel_verifier/.test(error.message) && /(could not find|does not exist)/i.test(error.message)) return undefined
+    erreur(error)
+  }
+  return (data as string | null) ?? null
+}
+
 // Un appel entrant reconnu : journalisé sans toucher à l'étape.
 export async function journaliserAppelEntrant(agenceId: string, contactId: string | null, callId: string, compteNom: string): Promise<void> {
   const { error } = await sb().from("activites").insert({ agence_id: agenceId, contact_id: contactId, type: "appel", resultat: "joint", sens: "entrant", call_id: callId, compte_nom: compteNom, note: "Appel entrant", source: "session" })
