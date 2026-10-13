@@ -9,7 +9,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, Video } from "lucide-react"
-import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, statsAppels, terminerTache, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
+import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
   composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
@@ -60,6 +60,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   // et le rendu reste pur (pas de new Date() pendant qu'on dessine).
   const [maintenant, setMaintenant] = useState(() => new Date())
   const [erreur, setErreur] = useState("")
+  // Les contrôles de santé (13/10) : null = pas encore lus ou pas installés ; [] = tout est à 0.
+  const [sante, setSante] = useState<EcartSante[] | null>(null)
+  const [santeErreur, setSanteErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
   const [report, setReport] = useState<{ tache: TacheAgenda; jour: string; heure: string } | null>(null)
   const [editionObjectif, setEditionObjectif] = useState(false)
@@ -100,6 +103,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       if (!enVie.current) return
       const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
       setD({ files, base, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
+      santeDemarchage()
+        .then((s) => { if (enVie.current) { setSante(s); setSanteErreur("") } })
+        .catch((e) => { if (enVie.current) setSanteErreur(message(e)) })
       setMaintenant(now)
       setErreur("")
     } catch (e) {
@@ -216,6 +222,20 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       />
 
       {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
+      {/* La santé du démarchage : un écart se voit le matin même (contrôle du 13/10). */}
+      {santeErreur ? <Bandeau role="attention" className="mb-4">Contrôle de la base indisponible : {santeErreur}</Bandeau> : null}
+      {sante && sante.length ? (
+        <Bandeau role="alerte" className="mb-4">
+          <div className="space-y-1">
+            <p className="font-semibold">Contrôle de la base : {sante.length} écart{sante.length > 1 ? "s" : ""} à corriger</p>
+            <ul className="space-y-0.5">
+              {sante.map((e) => (
+                <li key={e.code}><b className="chiffres">{e.nombre}</b> · {e.libelle}{e.exemples ? <span className="text-encre-2"> — {e.exemples.length > 160 ? e.exemples.slice(0, 160) + "…" : e.exemples}</span> : null}</li>
+              ))}
+            </ul>
+          </div>
+        </Bandeau>
+      ) : null}
 
       {/* ── Les quatre files ── */}
       <div className="mb-4">
