@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react"
 import { Save } from "lucide-react"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
+import { REPOS_JOURS } from "../../demarchage/sessionOutils"
 import { supabaseConfigure } from "../../lib/supabase"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Etiquette, TitreCarte, Zone } from "../../ui"
 
@@ -19,9 +20,12 @@ const QUOTA_MIN = 10
 const QUOTA_MAX = 500
 const RELANCE_MIN = 1
 const RELANCE_MAX = 365
+const CLE_REPOS = "repos_appel_jours" // lue par la session de call au démarrage
+const REPOS_MIN = 1
+const REPOS_MAX = 60
 
-type Valeurs = { objectif: string; script: string; quota: string; relance: string }
-const memes = (a: Valeurs, b: Valeurs) => a.objectif === b.objectif && a.script === b.script && a.quota === b.quota && a.relance === b.relance
+type Valeurs = { objectif: string; script: string; quota: string; relance: string; repos: string }
+const memes = (a: Valeurs, b: Valeurs) => a.objectif === b.objectif && a.script === b.script && a.quota === b.quota && a.relance === b.relance && a.repos === b.repos
 
 function valider(v: Valeurs): string[] {
   const e: string[] = []
@@ -31,6 +35,8 @@ function valider(v: Valeurs): string[] {
   if (v.quota.trim() === "" || !Number.isInteger(quota) || quota < QUOTA_MIN || quota > QUOTA_MAX) e.push(`Le seuil d'appels par jour doit être entre ${QUOTA_MIN} et ${QUOTA_MAX}.`)
   const relance = Number(v.relance)
   if (v.relance.trim() === "" || !Number.isInteger(relance) || relance < RELANCE_MIN || relance > RELANCE_MAX) e.push(`La relance des intéressés doit être entre ${RELANCE_MIN} et ${RELANCE_MAX} jours.`)
+  const repos = Number(v.repos)
+  if (v.repos.trim() === "" || !Number.isInteger(repos) || repos < REPOS_MIN || repos > REPOS_MAX) e.push(`Le repos entre deux appels doit être entre ${REPOS_MIN} et ${REPOS_MAX} jours.`)
   return e
 }
 
@@ -45,9 +51,9 @@ export default function ObjectifsReglage() {
 
   useEffect(() => {
     if (!supabaseConfigure) return
-    Promise.all([lireParametre(CLE_OBJECTIF), lireParametre(CLE_SCRIPT), lireParametre(CLE_QUOTA), lireParametre(CLE_RELANCE)])
-      .then(([objectif, script, quota, relance]) => {
-        const v: Valeurs = { objectif: objectif ?? "0", script: script ?? "", quota: quota ?? "100", relance: relance ?? "7" }
+    Promise.all([lireParametre(CLE_OBJECTIF), lireParametre(CLE_SCRIPT), lireParametre(CLE_QUOTA), lireParametre(CLE_RELANCE), lireParametre(CLE_REPOS)])
+      .then(([objectif, script, quota, relance, repos]) => {
+        const v: Valeurs = { objectif: objectif ?? "0", script: script ?? "", quota: quota ?? "100", relance: relance ?? "7", repos: repos ?? String(REPOS_JOURS) }
         setOrigine(v)
         setBrouillon(v)
       })
@@ -74,12 +80,13 @@ export default function ObjectifsReglage() {
     if (e.length) return
     setEnreg(true)
     try {
-      const propre: Valeurs = { objectif: String(Number(brouillon.objectif)), script: brouillon.script.trim(), quota: String(Number(brouillon.quota)), relance: String(Number(brouillon.relance)) }
+      const propre: Valeurs = { objectif: String(Number(brouillon.objectif)), script: brouillon.script.trim(), quota: String(Number(brouillon.quota)), relance: String(Number(brouillon.relance)), repos: String(Number(brouillon.repos)) }
       // On n'écrit que ce qui a changé.
       if (propre.objectif !== origine.objectif) await ecrireParametre(CLE_OBJECTIF, propre.objectif)
       if (propre.script !== origine.script) await ecrireParametre(CLE_SCRIPT, propre.script)
       if (propre.quota !== origine.quota) await ecrireParametre(CLE_QUOTA, propre.quota)
       if (propre.relance !== origine.relance) await ecrireParametre(CLE_RELANCE, propre.relance)
+      if (propre.repos !== origine.repos) await ecrireParametre(CLE_REPOS, propre.repos)
       setOrigine(propre)
       setBrouillon(propre)
       setOk(true)
@@ -97,7 +104,7 @@ export default function ObjectifsReglage() {
   return (
     <div className="max-w-3xl space-y-5">
       <p className="text-legende text-encre-2">
-        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, quand relancer une agence intéressée, et jusqu'où un numéro peut appeler dans la journée.
+        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, quand relancer une agence intéressée, combien de jours laisser une agence tranquille entre deux appels, et jusqu'où un numéro peut appeler dans la journée.
       </p>
       {erreurs.length ? <Bandeau role="alerte">{erreurs.join(" ")}</Bandeau> : null}
       {ok ? <Bandeau role="ok">Enregistré.</Bandeau> : null}
@@ -125,6 +132,15 @@ export default function ObjectifsReglage() {
         <div className="px-5 pb-5">
           <Etiquette texte="Une agence « intéressée » revient dans « À rappeler aujourd'hui » au bout de… (jours)" aide="Après un appel conclu « intéressé », la tâche « Relancer » se pose à ce délai, à 10 h. 7 jours jusqu'ici ; 15 jours ou 30 jours laissent plus de temps à l'agence. Ne change pas les relances déjà posées.">
             <Champ type="number" min={RELANCE_MIN} max={RELANCE_MAX} step={1} value={brouillon.relance} onChange={(e) => set("relance", e.target.value)} className="chiffres max-w-[160px]" />
+          </Etiquette>
+        </div>
+      </Carte>
+
+      <Carte>
+        <TitreCarte>Repos entre deux appels</TitreCarte>
+        <div className="px-5 pb-5">
+          <Etiquette texte="Une agence déjà appelée ne revient dans la session qu'au bout de… (jours)" aide="Pour ne pas appeler les mêmes numéros tous les jours : une agence appelée (et toute fiche au même standard) sort de « À prospecter » pendant ce délai. On peut toujours l'appeler par la recherche. Les rappels datés et les intéressés ne sont pas concernés : ils reviennent à leur date.">
+            <Champ type="number" min={REPOS_MIN} max={REPOS_MAX} step={1} value={brouillon.repos} onChange={(e) => set("repos", e.target.value)} className="chiffres max-w-[160px]" />
           </Etiquette>
         </div>
       </Carte>

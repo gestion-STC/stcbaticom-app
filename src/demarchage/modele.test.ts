@@ -101,15 +101,17 @@ describe("fileDe", () => {
 })
 
 describe("ordonnerAProspecter", () => {
-  it("secteur du jour, puis jamais appelées, puis la tentative la plus ancienne, puis les réseaux", () => {
+  it("jamais appelées d'abord (secteur du jour en tête), puis la tentative la plus ancienne, puis les réseaux", () => {
     const liste = [
       agence({ id: "vieille", secteur: "75013", dernierAppelLe: "2026-07-10T10:00:00Z", nom: "B" }),
       agence({ id: "jamais-indep", secteur: "75013", nom: "Zed" }),
       agence({ id: "jamais-reseau", secteur: "75013", nom: "Alpha", enseigne: "Orpi" }),
-      agence({ id: "secteur-du-jour", secteur: "75005", dernierAppelLe: "2026-09-01T10:00:00Z" }),
+      agence({ id: "jamais-secteur-du-jour", secteur: "75005", nom: "Zz" }),
+      agence({ id: "appelee-secteur-du-jour", secteur: "75005", dernierAppelLe: "2026-09-01T10:00:00Z" }),
       agence({ id: "recente", secteur: "75013", dernierAppelLe: "2026-10-01T10:00:00Z" }),
     ]
-    expect(ordonnerAProspecter(liste, "75005").map((a) => a.id)).toEqual(["secteur-du-jour", "jamais-reseau", "jamais-indep", "vieille", "recente"])
+    // Une agence déjà appelée, même du secteur du jour, passe après TOUTES les jamais appelées.
+    expect(ordonnerAProspecter(liste, "75005").map((a) => a.id)).toEqual(["jamais-secteur-du-jour", "jamais-reseau", "jamais-indep", "appelee-secteur-du-jour", "vieille", "recente"])
   })
 })
 

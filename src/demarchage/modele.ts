@@ -274,16 +274,19 @@ export function fileDe(a: Agence, maintenant: Date): File | null {
   return null
 }
 
-// L'ordre de la file « À prospecter » : secteur du jour d'abord, jamais appelées,
-// puis la tentative la plus ancienne ; à égalité, les réseaux avant les indépendants.
+// L'ordre de la file « À prospecter » : les JAMAIS appelées d'abord, toujours
+// (Mahdi, 13/10 : « j'ai appelé A, je veux B, je ne veux pas retomber sur A » :
+// on trie toute la base avant de revenir sur un numéro) ; dans chaque groupe, le
+// secteur du jour d'abord ; puis la tentative la plus ancienne ; à égalité, les
+// réseaux avant les indépendants.
 export function ordonnerAProspecter(agences: Agence[], secteurDuJour: string | null): Agence[] {
   return [...agences].sort((x, y) => {
-    const sx = secteurDuJour && x.secteur === secteurDuJour ? 0 : 1
-    const sy = secteurDuJour && y.secteur === secteurDuJour ? 0 : 1
-    if (sx !== sy) return sx - sy
     const jx = x.dernierAppelLe ? 1 : 0
     const jy = y.dernierAppelLe ? 1 : 0
     if (jx !== jy) return jx - jy
+    const sx = secteurDuJour && x.secteur === secteurDuJour ? 0 : 1
+    const sy = secteurDuJour && y.secteur === secteurDuJour ? 0 : 1
+    if (sx !== sy) return sx - sy
     if (x.dernierAppelLe && y.dernierAppelLe && x.dernierAppelLe !== y.dernierAppelLe) return x.dernierAppelLe < y.dernierAppelLe ? -1 : 1
     const ex = x.enseigne ? 0 : 1
     const ey = y.enseigne ? 0 : 1

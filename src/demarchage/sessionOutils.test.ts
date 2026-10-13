@@ -6,6 +6,9 @@ import {
   choixComplet,
   compteARebours,
   constituerFile,
+  bilanAppels,
+  debutRepos,
+  texteBilanAppels,
   dateHeureCourte,
   dateHeureLocale,
   decrireActivite,
@@ -258,5 +261,46 @@ describe("decrireActivite", () => {
     expect(decrireActivite(activite({ type: "tache", titre: "Relancer", echeance: new Date(2026, 9, 16, 10, 0).toISOString() }))).toMatchObject({ titre: "Tâche · Relancer", etat: "ouvert" })
     expect(decrireActivite(activite({ type: "etape", etapeDe: "a_prospecter", etapeVers: "interesse" })).titre).toBe("Étape · À prospecter → Intéressé")
     expect(decrireActivite(activite({ sens: "entrant" })).titre).toBe("Appel entrant")
+  })
+})
+
+describe("le repos de 5 jours (13/10)", () => {
+  const maintenant = new Date(2026, 9, 13, 10, 0)
+  const depuis = debutRepos(maintenant)
+  const hier = agence({ id: "hier", telephone: "01 00 00 00 01", dernierAppelLe: new Date(2026, 9, 12, 15, 0).toISOString() })
+  const memeStandard = agence({ id: "meme-standard", telephone: "01 00 00 00 01" }) // une fiche en double, jamais appelée
+  const ilYa5j = agence({ id: "il-y-a-5j", telephone: "01 00 00 00 02", dernierAppelLe: new Date(2026, 9, 8, 15, 0).toISOString() })
+  const jamais = agence({ id: "jamais", telephone: "01 00 00 00 03" })
+
+  it("le repos commence 4 jours avant aujourd'hui à minuit : appelée le 08, elle revient le 13", () => {
+    expect(depuis).toBe(new Date(2026, 9, 9).toISOString())
+  })
+  it("retire les agences appelées il y a moins de 5 jours, et les fiches qui partagent leur standard", () => {
+    const f = constituerFile([jamais, memeStandard, hier, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis })
+    expect(f.map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
+  })
+  it("sans repos demandé (rappels datés) ou case cochée : rien n'est retiré", () => {
+    expect(constituerFile([hier, jamais], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["hier", "jamais"])
+    expect(constituerFile([hier, jamais], { file: "rappels", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["hier", "jamais"])
+  })
+})
+
+describe("bilanAppels : appels, joints et leurs dates (13/10)", () => {
+  const ligne = (resultat: string, date: string, sens: "sortant" | "entrant" = "sortant") => ({ type: "appel" as const, sens, resultat, date })
+  it("compte les appels sortants, les joints, et garde les dates les plus récentes", () => {
+    const b = bilanAppels([
+      ligne("standard", "2026-10-01T10:00:00Z"),
+      ligne("joint", "2026-10-05T10:00:00Z"),
+      ligne("joint", "2026-10-02T10:00:00Z"),
+      ligne("joint", "2026-10-12T10:00:00Z", "entrant"),
+      ligne("lance", "2026-10-13T11:03:00Z"),
+      { type: "note" as const, sens: "sortant" as const, resultat: "", date: "2026-10-14T10:00:00Z" },
+    ])
+    expect(b).toEqual({ appels: 4, joints: 2, dernierAppelLe: "2026-10-13T11:03:00Z", dernierJointLe: "2026-10-05T10:00:00Z" })
+  })
+  it("le dit en clair", () => {
+    expect(texteBilanAppels({ appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null })).toBe("jamais appelée")
+    expect(texteBilanAppels(bilanAppels([ligne("standard", "2026-10-01T10:00:00Z")]))).toMatch(/^1 appel, dernier le .+ · jamais joint$/)
+    expect(texteBilanAppels(bilanAppels([ligne("joint", "2026-10-01T10:00:00Z"), ligne("joint", "2026-10-02T10:00:00Z")]))).toMatch(/^2 appels, dernier le .+ · joint 2 fois, dernière fois le .+$/)
   })
 })
