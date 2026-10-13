@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import Sidebar, { type PageId } from "./components/Sidebar"
 import { espaceDe, horsEspace } from "./lib/espaces"
@@ -17,6 +17,7 @@ import TelephoneRingover from "./components/TelephoneRingover"
 import Connexion from "./components/Connexion"
 import Comptes from "./components/Comptes"
 import { useSession } from "./lib/auth"
+import { suivreVersion, veillerVersion, versionPerimee } from "./lib/versionEnLigne"
 // L'espace Recrutement ST : chaque page porte son propre en-tête (trousse STC).
 import MachineST from "./components/recrutement/MachineST"
 import SessionCallST from "./components/recrutement/SessionCallST"
@@ -27,6 +28,12 @@ import DossiersST from "./components/recrutement/DossiersST"
 
 function App() {
   const [page, setPage] = useState<PageId>("aujourdhui")
+  // Un onglet resté ouvert sur une ancienne version (et donc d'anciennes règles d'appel) le sait.
+  const [perimee, setPerimee] = useState(versionPerimee)
+  useEffect(() => {
+    veillerVersion()
+    return suivreVersion(setPerimee)
+  }, [])
   // L'espace affiché dans la barre : celui de la page, et il survit à un
   // passage par Réglages ou Comptes (qui sont hors espace).
   const [espace, setEspace] = useState<Espace>("demarchage")
@@ -94,6 +101,12 @@ function App() {
           </header>
         )}
 
+        {perimee ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-trait bg-alerte px-6 py-2 text-legende text-white">
+            <span>Une nouvelle version du logiciel est en ligne. Recharge la page pour l'utiliser : les appels sont bloqués d'ici là.</span>
+            <button type="button" className="rounded-3 bg-white/15 px-3 py-1 font-semibold hover:bg-white/25" onClick={() => window.location.reload()}>Recharger</button>
+          </div>
+        ) : null}
         <main className="min-h-0 flex-1 overflow-y-auto bg-fond-2">
           {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
           {page === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}

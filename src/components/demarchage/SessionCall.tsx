@@ -17,6 +17,7 @@
 // pendant une session.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { versionPerimee } from "../../lib/versionEnLigne"
 import {
   ArrowRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Mail, Mic, MicOff, Phone, PhoneIncoming, PhoneOutgoing,
   Pencil, Play, Plus, Search, Square, SquareCheck, StickyNote, type LucideIcon,
@@ -35,7 +36,7 @@ import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephon
 import { dateCourte } from "../../demarchage/agencesOutils"
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
-  appelLance, appelsDepuis, enregistrerAppel, majAgence, type AgenceComplete,
+  appelLance, appelsDepuis, appelVerifier, enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
   ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
@@ -739,34 +740,49 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       // À la main, juste avant de composer (le mode automatique fait déjà ses vérifications) :
       // l'appel précédent est-il raccroché ? ce standard a-t-il déjà été composé aujourd'hui,
       // par toi, un collègue ou un autre onglet ? Une vérification en panne ne bloque pas.
-      if (!depuisAuto) {
-        verificationEnCours.current = true
-        try {
-          const m = new Date()
-          const debutJour = new Date(m.getFullYear(), m.getMonth(), m.getDate()).toISOString()
-          const precedent = dernierCallIdRef.current
-          const [st, jour] = await Promise.all([
-            precedent ? statutAppelsRingover(precedent).catch(() => null) : Promise.resolve(null),
-            directeRef.current || pileRef.current === "rappels" ? Promise.resolve(null) : appelsDepuis(debutJour).catch(() => null),
-          ])
-          if (!enVie.current) return
-          if (st?.ok && st.actif) {
-            setErreur("Ton appel précédent est encore en ligne sur Ringover : raccroche avant d'en lancer un autre.")
-            return
-          }
-          // Le même NUMÉRO déjà composé aujourd'hui (le standard de cette fiche ou d'une fiche jumelle) ;
-          // la ligne directe d'un gestionnaire, elle, reste appelable après le standard.
-          const compose = chiffresTel(numeroAppele)
-          if (jour && compose && jour.tels.has(compose)) {
-            setErreur("Déjà appelée aujourd'hui (par toi ou un collègue) : on ne rappelle pas le même numéro.")
-            return
-          }
-        } finally {
-          verificationEnCours.current = false
-        }
-        // Pendant la vérification, on a pu changer d'agence ou noter un autre appel.
-        if (agenceIdRef.current !== c.agence.id || appelRef.current || barreRef.current) return
+      // La garde AVANT de composer, en base (Mahdi, 13/10 : « on ne tue pas les numéros ») : même
+      // règle pour tout le monde, mode auto compris — appel non noté, même numéro déjà composé
+      // aujourd'hui (hors rappel daté), agence au repos ou sortie (hors appel direct).
+      // « Copier le numéro » n'est jamais bloqué.
+      if (versionPerimee()) {
+        // Un onglet sur une ancienne version n'appelle pas (les règles ont pu changer).
+        setErreur("Une nouvelle version du logiciel est en ligne : recharge la page avant d'appeler. (Tu peux toujours copier le numéro.)")
+        if (depuisAuto) setAuto(false)
+        return
       }
+      verificationEnCours.current = true
+      try {
+        const m = new Date()
+        const debutJour = new Date(m.getFullYear(), m.getMonth(), m.getDate()).toISOString()
+        const precedent = depuisAuto ? "" : dernierCallIdRef.current
+        const [st, garde] = await Promise.all([
+          precedent ? statutAppelsRingover(precedent).catch(() => null) : Promise.resolve(null),
+          appelVerifier(c.agence.id, numeroAppele, Boolean(directeRef.current)).catch(() => undefined),
+        ])
+        if (!enVie.current) return
+        if (st?.ok && st.actif) {
+          setErreur("Ton appel précédent est encore en ligne sur Ringover : raccroche avant d'en lancer un autre.")
+          return
+        }
+        let refus = garde ?? null
+        if (garde === undefined && !directeRef.current && pileRef.current !== "rappels") {
+          // Garde pas encore installée en base : la vérification de l'écran (même numéro aujourd'hui).
+          const jour = await appelsDepuis(debutJour).catch(() => null)
+          const compose = chiffresTel(numeroAppele)
+          if (jour && compose && jour.tels.has(compose)) refus = "Ce numéro a déjà été appelé aujourd'hui (par toi ou un collègue) : on ne le recompose pas."
+        }
+        if (refus) {
+          if (depuisAuto) {
+            setInfo(`${c.agence.nom} passée : ${refus}`)
+            goTimerRef.current = setTimeout(() => avancerRef.current(), 1200)
+          } else setErreur(refus + " (Tu peux toujours copier le numéro.)")
+          return
+        }
+      } finally {
+        verificationEnCours.current = false
+      }
+      // Pendant la vérification, on a pu changer d'agence ou noter un autre appel.
+      if (agenceIdRef.current !== c.agence.id || appelRef.current || barreRef.current) return
       const t = Date.now()
       dernierLancementRef.current = t
       couperMinuterie()
