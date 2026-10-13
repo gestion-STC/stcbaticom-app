@@ -421,9 +421,17 @@ export function bilanDepuisAgence(
 ): BilanAppels {
   return { appels: agence.nbAppels, joints: agence.jointFois, dernierAppelLe: agence.dernierAppelLe, dernierJointLe: bilanAppels(activites).dernierJointLe }
 }
-export function texteBilanAppels(b: BilanAppels): string {
-  if (!b.appels) return "jamais appelée"
-  const appels = `${b.appels} appel${b.appels > 1 ? "s" : ""}${b.dernierAppelLe ? `, dernier le ${dateHeureCourte(b.dernierAppelLe)}` : ""}`
-  const joints = b.joints ? `joint ${b.joints} fois${b.dernierJointLe ? `, dernière fois le ${dateHeureCourte(b.dernierJointLe)}` : ""}` : "jamais joint"
-  return `${appels} · ${joints}`
+// En clair (Mahdi, 13/10 : « une date d'appel et à côté "jamais joint", ça ne veut rien dire ») :
+// « joint » = on a eu le GESTIONNAIRE en ligne lors d'un appel noté. Une agence déjà avancée
+// (joint, intéressée, RDV, cliente, pas intéressée) a forcément eu quelqu'un : on ne lui écrit
+// jamais « pas encore eu », même si ce contact date d'avant le logiciel.
+const ETAPES_AVEC_CONTACT = new Set(["gestionnaire_joint", "interesse", "rdv_planifie", "client", "pas_interesse"])
+export function texteBilanAppels(b: BilanAppels, etape = ""): string {
+  const avancee = ETAPES_AVEC_CONTACT.has(etape)
+  const appels = b.appels
+    ? `${b.appels} appel${b.appels > 1 ? "s" : ""}${b.dernierAppelLe ? `, dernier le ${dateHeureCourte(b.dernierAppelLe)}` : ""}`
+    : avancee ? "aucun appel noté dans le logiciel" : "jamais appelée"
+  if (b.joints) return `${appels} · gestionnaire eu ${b.joints} fois${b.dernierJointLe ? `, dernière le ${dateHeureCourte(b.dernierJointLe)}` : ""}`
+  if (!b.appels || avancee) return appels
+  return `${appels} · gestionnaire pas encore eu en ligne`
 }
