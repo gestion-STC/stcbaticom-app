@@ -41,10 +41,11 @@ import {
   ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
   type Activite, type Agence, type Contact, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
   reglerRelanceJours,
+  RESULTAT_LANCE,
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
-  compteARebours, constituerFile, dateHeureCourte, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
+  compteARebours, constituerFile, dateHeureCourte, debutRepos, REPOS_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
   observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, versIso,
   type ChoixResultat, type TypeRdv, type Verdict,
 } from "../../demarchage/sessionOutils"
@@ -302,6 +303,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const libre = appel === null && !barreVisible // on peut composer
   const fileTerminee = fileAgences.length > 0 && index >= fileAgences.length
   const contactsActifs = fiche ? fiche.contacts.filter((c) => !c.parti) : []
+  const appelEnSuspens = fiche ? (fiche.activites.find((x) => x.type === "appel" && x.resultat === RESULTAT_LANCE && x.id !== appel?.appelId) ?? null) : null
 
   // ── Lectures ──
   const chargerReglages = useCallback(async () => {
@@ -350,7 +352,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setAppelees(app)
       const retenues = agences
         .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
-      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees }))
+      // Le repos de 5 jours : partout sauf les rappels datés et les intéressés (ils ont leur relance).
+      const avecRepos = etapeFiltre ? !["interesse", "rdv_planifie"].includes(etapeFiltre) : file === "a_prospecter" || file === "a_reveiller"
+      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis: avecRepos ? debutRepos(m) : null }))
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
@@ -533,6 +537,17 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     couperMinuterie()
   }
 
+  // Fermer l'onglet ou recharger avec un résultat à noter : le navigateur demande confirmation.
+  useEffect(() => {
+    if (!barreVisible) return
+    const retenir = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ""
+    }
+    window.addEventListener("beforeunload", retenir)
+    return () => window.removeEventListener("beforeunload", retenir)
+  }, [barreVisible])
+
   // ── Lancer un appel ──
   const lancerAppel = useCallback(
     async (numeroAppele: string, contactId: string | null) => {
@@ -625,6 +640,20 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }
 
   // Un appel passé autrement (poste fixe, portable) : on note le résultat quand même.
+  // Un appel lancé sans résultat noté (Mahdi, 13/10 : « je l'ai joint, la fiche dit 0 ») : on le complète.
+  function noterAppelEnSuspens(ligne: Activite) {
+    if (!fiche) return
+    const t = Date.now()
+    setErreur("")
+    setInfo("")
+    setSuggestion(null)
+    setIndice("")
+    setMaintenant(t)
+    setAppel({ agenceId: fiche.agence.id, numeroAppele: "", contactId: ligne.contactId, numeroEmission: ligne.numeroUtilise, callId: ligne.callId, debut: t, enLigneDepuis: null, fin: null, etape: "sans_suivi", manuel: true, appelId: ligne.id })
+    setBarreVisible(true)
+    setContactEnLigne(ligne.contactId)
+  }
+
   function noterSansRingover() {
     if (!fiche) return
     const t = Date.now()
@@ -785,7 +814,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       try {
         const dureeS = a && !a.manuel && a.fin && a.enLigneDepuis ? dureeAppel(a.enLigneDepuis, a.fin) : null
         // L'appel écrit au clic (attendu s'il est encore en route) : le résultat le complète, pas de doublon.
-        const appelId = a && !a.manuel ? (a.appelId ?? (lancementRef.current?.debut === a.debut ? await lancementRef.current.promesse : null)) : null
+        const appelId = a?.appelId ?? (a && !a.manuel && lancementRef.current?.debut === a.debut ? await lancementRef.current.promesse : null)
         const bilan = await enregistrerAppel({
           agenceId: c.agence.id, contactId: choix.contactId, resultat: choix.resultat, issue: choix.issue, motif: choix.motif, note: noteRef.current.trim(),
           numero: a?.numeroEmission ?? "", dureeS, callId: a?.callId ?? "", rappelLe: choix.rappelLe, rdvLe: choix.rdvLe, rdvType: choix.rdvType, compteNom, source: "session",
@@ -806,6 +835,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         setFileAgences((arr) =>
           arr.map((x) => (x.id === c.agence.id ? { ...x, etape: bilan.etape, tentatives: bilan.tentatives, jointFois: bilan.jointFois, dernierAppelLe: appelId ? x.dernierAppelLe : m.toISOString(), dernierResultat: choix.resultat, nbAppels: appelId ? x.nbAppels : x.nbAppels + 1 } : x)),
         )
+        if (appelId) setCourante((prev) => (prev && prev.agence.id === c.agence.id ? { ...prev, activites: prev.activites.map((x) => (x.id === appelId ? { ...x, resultat: choix.resultat, issue: choix.issue ?? "" } : x)) } : prev))
         setAppel(null)
         setBarreVisible(false)
         setNote("")
@@ -1078,7 +1108,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             <Bouton taille="sm" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
           </div>
           <div className="border-b border-fond-4 px-4 py-2">
-            <Case texte="inclure les agences déjà appelées aujourd'hui" checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
+            <Case texte={`inclure les agences appelées ces ${REPOS_JOURS} derniers jours`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {chargementFile ? (
@@ -1163,6 +1193,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 {directeId ? (
                   <Bandeau role="info" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setDirecteId(null)}>Revenir à la file</Bouton>}>
                     Appel direct, hors file.
+                  </Bandeau>
+                ) : null}
+                {appelEnSuspens ? (
+                  <Bandeau role="attention" className="mt-3" action={<Bouton taille="sm" variante="plein" onClick={() => noterAppelEnSuspens(appelEnSuspens)} disabled={barreVisible}>Noter le résultat</Bouton>}>
+                    Appel du {dateHeureCourte(appelEnSuspens.date)} : résultat non noté. Tant qu'il ne l'est pas, la fiche ne sait pas si tu as eu quelqu'un.
                   </Bandeau>
                 ) : null}
 

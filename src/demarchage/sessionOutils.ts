@@ -35,29 +35,38 @@ import {
 export type OptionsFile = {
   file: File
   appeleesAujourdHui: Set<string> // ids d'agences déjà appelées aujourd'hui
-  inclureDejaAppelees: boolean // la case « inclure les agences déjà appelées aujourd'hui »
+  inclureDejaAppelees: boolean // la case « inclure les agences appelées ces derniers jours »
+  // Le repos (Mahdi, 13/10 : « on ne peut pas les rappeler avant 5 jours ») : une agence
+  // appelée après cette date ne revient pas dans la file, ni une fiche qui partage son standard.
+  // Absent = pas de repos (rappels datés, intéressés).
+  reposDepuis?: string | null
+}
+
+// Le repos entre deux appels d'une même agence, en jours (on reste joignable par la recherche).
+export const REPOS_JOURS = 5
+export function debutRepos(maintenant: Date, jours = REPOS_JOURS): string {
+  return new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - jours + 1).toISOString()
 }
 
 // La file telle qu'on l'appelle : l'ordre de `chargerFile` est gardé, on retire
 // celles appelées ce matin (sauf dans « À rappeler aujourd'hui » : une tâche datée est
-// une tâche datée) et on ne compose jamais deux fois le même standard dans la
-// même session — deux fiches derrière le même numéro tomberaient sur la même
-// personne deux fois.
+// une tâche datée), celles encore au repos (appelées il y a moins de 5 jours), et on
+// ne compose jamais deux fois le même standard — deux fiches derrière le même numéro
+// tomberaient sur la même personne deux fois.
 export function constituerFile(agences: Agence[], o: OptionsFile): Agence[] {
   const garderAppelees = o.inclureDejaAppelees || o.file === "rappels"
   // Les standards des agences déjà appelées : une fiche en double partage le numéro.
+  const auRepos = (a: Agence) => !garderAppelees && (o.appeleesAujourdHui.has(a.id) || Boolean(o.reposDepuis && a.dernierAppelLe && a.dernierAppelLe >= o.reposDepuis))
   const telsAppeles = new Set<string>()
-  if (!garderAppelees) {
-    for (const a of agences) {
-      const t = chiffresTel(a.telephone)
-      if (t && o.appeleesAujourdHui.has(a.id)) telsAppeles.add(t)
-    }
+  for (const a of agences) {
+    const t = chiffresTel(a.telephone)
+    if (t && auRepos(a)) telsAppeles.add(t)
   }
   const telsVus = new Set<string>()
   const out: Agence[] = []
   for (const a of agences) {
     const t = chiffresTel(a.telephone)
-    if (!garderAppelees && (o.appeleesAujourdHui.has(a.id) || (t && telsAppeles.has(t)))) continue
+    if (auRepos(a) || (t && telsAppeles.has(t))) continue
     if (t) {
       if (telsVus.has(t)) continue
       telsVus.add(t)

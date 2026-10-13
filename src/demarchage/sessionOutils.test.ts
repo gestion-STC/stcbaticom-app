@@ -6,6 +6,7 @@ import {
   choixComplet,
   compteARebours,
   constituerFile,
+  debutRepos,
   dateHeureCourte,
   dateHeureLocale,
   decrireActivite,
@@ -258,5 +259,26 @@ describe("decrireActivite", () => {
     expect(decrireActivite(activite({ type: "tache", titre: "Relancer", echeance: new Date(2026, 9, 16, 10, 0).toISOString() }))).toMatchObject({ titre: "Tâche · Relancer", etat: "ouvert" })
     expect(decrireActivite(activite({ type: "etape", etapeDe: "a_prospecter", etapeVers: "interesse" })).titre).toBe("Étape · À prospecter → Intéressé")
     expect(decrireActivite(activite({ sens: "entrant" })).titre).toBe("Appel entrant")
+  })
+})
+
+describe("le repos de 5 jours (13/10)", () => {
+  const maintenant = new Date(2026, 9, 13, 10, 0)
+  const depuis = debutRepos(maintenant)
+  const hier = agence({ id: "hier", telephone: "01 00 00 00 01", dernierAppelLe: new Date(2026, 9, 12, 15, 0).toISOString() })
+  const memeStandard = agence({ id: "meme-standard", telephone: "01 00 00 00 01" }) // une fiche en double, jamais appelée
+  const ilYa5j = agence({ id: "il-y-a-5j", telephone: "01 00 00 00 02", dernierAppelLe: new Date(2026, 9, 8, 15, 0).toISOString() })
+  const jamais = agence({ id: "jamais", telephone: "01 00 00 00 03" })
+
+  it("le repos commence 4 jours avant aujourd'hui à minuit : appelée le 08, elle revient le 13", () => {
+    expect(depuis).toBe(new Date(2026, 9, 9).toISOString())
+  })
+  it("retire les agences appelées il y a moins de 5 jours, et les fiches qui partagent leur standard", () => {
+    const f = constituerFile([jamais, memeStandard, hier, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis })
+    expect(f.map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
+  })
+  it("sans repos demandé (rappels datés) ou case cochée : rien n'est retiré", () => {
+    expect(constituerFile([hier, jamais], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["hier", "jamais"])
+    expect(constituerFile([hier, jamais], { file: "rappels", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["hier", "jamais"])
   })
 })
