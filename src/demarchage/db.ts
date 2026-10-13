@@ -334,6 +334,7 @@ export async function supprimerContact(id: string): Promise<void> {
 export type ParamsAppel = {
   agenceId: string; contactId: string | null; resultat: Resultat; issue?: Issue | ""; motif?: Motif | ""; note?: string; numero?: string; dureeS?: number | null; callId?: string
   rappelLe?: string | null; rdvLe?: string | null; rdvType?: string; compteNom: string; source?: "session" | "fiche"
+  appelId?: string | null // l'appel déjà écrit au clic (appelLance) : le résultat complète cette ligne
 }
 export type BilanAppel = { appelId: string; tacheId: string | null; etape: Etape; tentatives: number; jointFois: number }
 
@@ -343,10 +344,22 @@ export async function enregistrerAppel(p: ParamsAppel): Promise<BilanAppel> {
     p_agence_id: p.agenceId, p_contact_id: p.contactId, p_resultat: p.resultat, p_issue: p.issue ?? "", p_motif: p.motif ?? "", p_note: p.note ?? "",
     p_numero: p.numero ?? "", p_duree_s: p.dureeS ?? null, p_call_id: p.callId ?? "", p_rappel_le: p.rappelLe ?? null, p_rdv_le: p.rdvLe ?? null, p_rdv_type: p.rdvType ?? "telephone",
     p_compte_nom: p.compteNom, p_source: p.source ?? "session",
+    ...(p.appelId ? { p_appel_id: p.appelId } : {}),
   })
   erreur(error)
   const d = data as { appel_id: string; tache_id: string | null; etape: Etape; tentatives: number; joint_fois: number }
   return { appelId: d.appel_id, tacheId: d.tache_id, etape: d.etape, tentatives: d.tentatives, jointFois: d.joint_fois }
+}
+
+// Le clic sur « Appeler » : l'appel est écrit tout de suite (date, numéro, qui) ; le
+// résultat viendra compléter cette même ligne. Renvoie la ligne, pour le fil.
+export async function appelLance(p: { agenceId: string; contactId: string | null; numero: string; callId: string; compteNom: string }): Promise<Activite> {
+  const s = sb()
+  const { data: id, error } = await s.rpc("appel_lancer", { p_agence_id: p.agenceId, p_contact_id: p.contactId, p_numero: p.numero, p_call_id: p.callId, p_compte_nom: p.compteNom, p_source: "session" })
+  erreur(error)
+  const { data, error: e2 } = await s.from("activites").select(COLONNES_ACTIVITE).eq("id", id as string).single()
+  erreur(e2)
+  return versActivite(data as LigneActivite)
 }
 
 // Un appel entrant reconnu : journalisé sans toucher à l'étape.

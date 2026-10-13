@@ -6,8 +6,8 @@
 // un secteur porte des agences.
 //
 // L'ATTRIBUTION DE LA BASE (Mahdi, 11/10/2026) se règle ici aussi : chaque
-// secteur est démarché par une personne ; choisir quelqu'un attribue les agences
-// NON attribuées du secteur (celles déjà appelées gardent leur propriétaire).
+// secteur est démarché par une personne ; choisir quelqu'un lui attribue les agences
+// du secteur : TOUTES (Mahdi, 13/10 : « la seule chose qui fait foi, ce sont les secteurs »).
 // Et un réglage : qui voit les agences non attribuées (admins, ou tout le monde).
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react"
@@ -98,7 +98,7 @@ export default function SecteursReglage() {
     }
   }
 
-  // Attribuer un secteur : le réglage est mémorisé, les agences non attribuées du secteur passent à la personne.
+  // Attribuer un secteur : le réglage est mémorisé, TOUTES les agences du secteur passent à la personne.
   async function attribuer(s: Secteur, compteId: string) {
     if (!secteurs) return
     setOccupe(true)
@@ -107,7 +107,7 @@ export default function SecteursReglage() {
       setSecteurs(secteurs.map((x) => (x.code === s.code ? { ...x, commercialId: compteId || null } : x)))
       if (compteId) setNonAttribuees(new Map(nonAttribuees).set(s.code, 0))
       const qui = comptes.find((c) => c.id === compteId)?.nom ?? "personne"
-      setInfo(compteId ? `${s.libelle} → ${qui} : ${n} agence${n > 1 ? "s" : ""} attribuée${n > 1 ? "s" : ""}. Celles déjà attribuées gardent leur propriétaire.` : `${s.libelle} : plus personne en charge (les agences gardent leur propriétaire).`)
+      setInfo(compteId ? `${s.libelle} → ${qui} : ${n} agence${n > 1 ? "s" : ""} attribuée${n > 1 ? "s" : ""}.` : `${s.libelle} : plus personne en charge, ses agences ne sont plus attribuées.`)
       setErreur("")
     } catch (e) {
       setErreur(message(e))
@@ -149,8 +149,8 @@ export default function SecteursReglage() {
           <div className="space-y-3 px-5 pb-5">
             <p className="max-w-3xl text-legende text-encre-2">
               Chaque agence a un propriétaire : la personne qui la démarche. Dans sa session de call, un téléprospecteur n'appelle que sa base ; deux personnes ne tombent
-              jamais sur le même numéro. Choisis ci-dessous qui démarche chaque secteur : les agences non attribuées du secteur lui passent, celles déjà appelées gardent
-              leur propriétaire. Une agence sans propriétaire appelée depuis une session devient celle de l'appelant. Les statistiques restent sur la base générale.
+              jamais sur le même numéro. Choisis ci-dessous qui démarche chaque secteur : toutes les agences du secteur lui passent, même celles qu'un autre a déjà appelées,
+              et l'historique reste sur l'agence. Le secteur seul fait foi. Les statistiques restent sur la base générale.
             </p>
             <div className="flex flex-wrap items-end gap-4">
               <Etiquette texte="Les agences non attribuées sont visibles par" className="max-w-[320px]">

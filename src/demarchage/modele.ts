@@ -62,7 +62,11 @@ export const MOTIFS = [
   { code: "autre", libelle: "Autre" },
 ] as const
 export type Motif = (typeof MOTIFS)[number]["code"]
+// L'appel écrit au clic sur « Appeler », avant que le résultat soit choisi
+// (Mahdi, 13/10 : « dès que j'appuie sur Appeler, la date doit être marquée »).
+export const RESULTAT_LANCE = "lance"
 export function libelleResultat(code: string): string {
+  if (code === RESULTAT_LANCE) return "Appel lancé, résultat non noté"
   return RESULTATS.find((r) => r.code === code)?.libelle ?? code
 }
 export function libelleIssue(code: string): string {
