@@ -181,7 +181,8 @@ export async function compterFiles(maintenant: Date, proprietaire: Proprietaire 
     base().in("etape", ["interesse", "rdv_planifie"]),
     base().eq("etape", "endormie").lte("reveil_le", aujourdHui),
   ])
-  if (reposDepuis) erreur(a.error) // filtre du repos refusé : l'appelant retombe sur le compte sans repos
+  // Un comptage en échec ne s'affiche jamais comme un vrai chiffre : l'appelant garde « — ».
+  for (const r of [a, b, c, d]) erreur(r.error)
   return { a_prospecter: a.count ?? 0, rappels: b.count ?? 0, sans_nouvelle: c.count ?? 0, a_reveiller: d.count ?? 0 }
 }
 
@@ -358,13 +359,27 @@ export async function enregistrerAppel(p: ParamsAppel): Promise<BilanAppel> {
 
 // Le clic sur « Appeler » : l'appel est écrit tout de suite (date, numéro, qui) ; le
 // résultat viendra compléter cette même ligne. Renvoie la ligne, pour le fil.
-export async function appelLance(p: { agenceId: string; contactId: string | null; numero: string; callId: string; compteNom: string }): Promise<Activite> {
+// L'id est rendu même si la relecture échoue : le résultat doit compléter CETTE ligne (sinon doublon).
+export async function appelLance(p: { agenceId: string; contactId: string | null; numero: string; callId: string; compteNom: string }): Promise<{ id: string; ligne: Activite | null }> {
   const s = sb()
   const { data: id, error } = await s.rpc("appel_lancer", { p_agence_id: p.agenceId, p_contact_id: p.contactId, p_numero: p.numero, p_call_id: p.callId, p_compte_nom: p.compteNom, p_source: "session" })
   erreur(error)
-  const { data, error: e2 } = await s.from("activites").select(COLONNES_ACTIVITE).eq("id", id as string).single()
-  erreur(e2)
-  return versActivite(data as LigneActivite)
+  const { data, error: e2 } = await s.from("activites").select(COLONNES_ACTIVITE).eq("id", id as string).maybeSingle()
+  return { id: id as string, ligne: e2 || !data ? null : versActivite(data as LigneActivite) }
+}
+
+// Les appels sortants passés depuis une date, sur TOUTE la base (toutes étapes, tous commerciaux) :
+// les agences et les standards (chiffres) déjà composés. Sert au repos des fiches au même
+// standard et à la vérification juste avant de composer (un collègue, un autre onglet).
+export async function appelsDepuis(depuis: string): Promise<{ agences: Set<string>; tels: Set<string> }> {
+  type L = { id: string; agence_id: string; agences: { telephone: string | null } | null }
+  const lignes = await lireParLots<L>((de, a) => sb().from("activites").select("id, agence_id, agences(telephone)").eq("type", "appel").eq("sens", "sortant").gte("date", depuis).order("id").range(de, a))
+  const tels = new Set<string>()
+  for (const l of lignes) {
+    const t = (l.agences?.telephone ?? "").replace(/D/g, "")
+    if (t.length >= 9) tels.add(t)
+  }
+  return { agences: new Set(lignes.map((l) => l.agence_id)), tels }
 }
 
 // Un appel entrant reconnu : journalisé sans toucher à l'étape.
@@ -403,14 +418,18 @@ export async function supprimerActivite(id: string): Promise<void> {
 }
 
 // L'agenda : les tâches et RDV entre deux dates, avec l'agence.
-export type TacheAgenda = Activite & { agenceNom: string; agenceTelephone: string; contactNom: string }
+// Lu par lots (au-delà de 1 000 tâches, celles du jour disparaissaient) ; les apporteurs (sortis du démarchage) n'y sont pas.
+export type TacheAgenda = Activite & { agenceNom: string; agenceTelephone: string; contactNom: string; agenceCommercialId: string | null }
 export async function chargerAgenda(de: Date, a: Date, options: { seulementOuvertes?: boolean } = {}): Promise<TacheAgenda[]> {
-  let q = sb().from("activites").select(`${COLONNES_ACTIVITE}, agences(nom, telephone), contacts(prenom, nom)`).in("type", ["tache", "rdv"]).gte("echeance", de.toISOString()).lt("echeance", a.toISOString()).order("echeance").limit(1000)
-  if (options.seulementOuvertes) q = q.is("fait_le", null)
-  const { data, error } = await q
-  erreur(error)
-  type L = LigneActivite & { agences: { nom: string; telephone: string } | null; contacts: { prenom: string; nom: string } | null }
-  return ((data ?? []) as unknown as L[]).map((l) => ({ ...versActivite(l), agenceNom: l.agences?.nom ?? "", agenceTelephone: l.agences?.telephone ?? "", contactNom: l.contacts ? `${l.contacts.prenom} ${l.contacts.nom}`.trim() : "" }))
+  type L = LigneActivite & { agences: { nom: string; telephone: string; type: string; commercial_id: string | null } | null; contacts: { prenom: string; nom: string } | null }
+  const lignes = await lireParLots<L>((d, f) => {
+    let q = sb().from("activites").select(`${COLONNES_ACTIVITE}, agences(nom, telephone, type, commercial_id), contacts(prenom, nom)`).in("type", ["tache", "rdv"]).gte("echeance", de.toISOString()).lt("echeance", a.toISOString())
+    if (options.seulementOuvertes) q = q.is("fait_le", null)
+    return q.order("echeance").order("id").range(d, f)
+  })
+  return lignes
+    .filter((l) => l.agences?.type !== "apporteur")
+    .map((l) => ({ ...versActivite(l), agenceNom: l.agences?.nom ?? "", agenceTelephone: l.agences?.telephone ?? "", contactNom: l.contacts ? `${l.contacts.prenom} ${l.contacts.nom}`.trim() : "", agenceCommercialId: l.agences?.commercial_id ?? null }))
 }
 // Les tâches en retard ou d'aujourd'hui (la To-do).
 export async function chargerTachesDuJour(maintenant: Date): Promise<TacheAgenda[]> {
@@ -477,7 +496,7 @@ export async function compterAppelsDuJourParNumero(maintenant: Date): Promise<Ma
 // Les agences appelées aujourd'hui (pour ne pas les ressortir dans la file).
 export async function agencesAppeleesAujourdHui(maintenant: Date): Promise<Set<string>> {
   const debut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).toISOString()
-  const lignes = await lireParLots<{ id: string; agence_id: string }>((de, a) => sb().from("activites").select("id, agence_id").eq("type", "appel").gte("date", debut).order("id").range(de, a))
+  const lignes = await lireParLots<{ id: string; agence_id: string }>((de, a) => sb().from("activites").select("id, agence_id").eq("type", "appel").eq("sens", "sortant").gte("date", debut).order("id").range(de, a))
   return new Set(lignes.map((l) => l.agence_id))
 }
 

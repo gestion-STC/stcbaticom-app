@@ -148,7 +148,7 @@ describe("appeleeAujourdHui", () => {
 describe("effetAnnonce", () => {
   it("compte les tentatives et annonce le sommeil à la sixième", () => {
     expect(effetAnnonce("pas_de_reponse", null, { etape: "a_prospecter", tentatives: 0 })).toBe("Tentative 1 sur 6. L'étape ne change pas.")
-    expect(effetAnnonce("standard", null, { etape: "a_prospecter", tentatives: 5 })).toContain("s'endort 60 jours")
+    expect(effetAnnonce("standard", null, { etape: "a_prospecter", tentatives: 5 })).toContain("s'endort 30 jours")
     expect(effetAnnonce("pas_de_reponse", null, { etape: "interesse", tentatives: 5 })).toBe("Elle reste intéressée : relance dans 7 jours.")
   })
   it("décrit chaque issue", () => {

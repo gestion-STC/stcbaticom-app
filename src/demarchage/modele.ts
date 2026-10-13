@@ -78,7 +78,7 @@ export function libelleMotif(code: string): string {
 
 // Les constantes des règles (les mêmes que dans appel_enregistrer, pour les textes d'aide).
 export const SOMMEIL_APRES_TENTATIVES = 6
-export const SOMMEIL_JOURS = 60
+export const SOMMEIL_JOURS = 30
 export const RELANCE_JOURS = 7
 // Réglable (Mahdi, 12/10/2026) : Réglages › Objectifs et script, clé `relance_interesse_jours` ; la session le lit au démarrage.
 let relanceJoursReglee = RELANCE_JOURS
