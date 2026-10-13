@@ -5,7 +5,9 @@
 // vient chercher ici son dossier de recrutement pour ranger ses pièces dans
 // sa fiche (Kbis, URSSAF, fiscale, RIB, décennale, RC pro, contrats signés).
 //
-// POST { baticom_st_id?, email? }, clé partagée dans l'en-tête x-passerelle-cle
+// POST { mode: "chercher", baticom_st_id?, email?, nom? } → les dossiers possibles, sans rien signer ;
+// POST { dossier_id } → CE dossier, choisi par le bureau ;
+// POST { baticom_st_id?, email? } (ouverture de l'accès) → le dossier de la fiche. Clé partagée dans l'en-tête x-passerelle-cle
 // (ou ?cle=), comparée au secret PASSERELLE_CLE. Rend :
 //   identite   ce que le dossier dit de l'entreprise (SIRET, forme, dirigeant,
 //              adresse, effectif) et des assurances (compagnie, police, fin)
@@ -68,10 +70,56 @@ Deno.serve(async (req: Request) => {
   const cle = Deno.env.get("PASSERELLE_CLE") || ""
   const donnee = (req.headers.get("x-passerelle-cle") || new URL(req.url).searchParams.get("cle") || "").trim()
   if (!cle || donnee !== cle) return json({ error: "clé absente ou fausse" }, 401)
-  let corps: { baticom_st_id?: string; email?: string } = {}
+  let corps: { mode?: string; baticom_st_id?: string; email?: string; nom?: string; dossier_id?: string } = {}
   try { corps = await req.json() } catch { return json({ error: "JSON attendu" }, 400) }
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } })
+
+  // ── mode « chercher » (13/10/2026) : on PROPOSE les dossiers possibles, STC Bâtiment fait choisir
+  // le bureau avant d'importer quoi que ce soit (Mahdi : « on valide si c'est le bon dossier »).
+  // Trois pistes : la fiche Baticom liée, l'e-mail (fiche ou dossier), le nom de l'entreprise.
+  if (corps.mode === "chercher") {
+    const email = String(corps.email || "").trim().toLowerCase()
+    const nom = String(corps.nom || "").trim()
+    const trouves = new Map<string, { dossier: { id: string; raison_sociale: string; email: string; donnees: { sections?: { lignes?: Ligne[] }[] } | null; fichiers: { slot: string; path: string; nom: string }[] | null; created_at: string; sous_traitant_id: string | null }; pistes: Set<string> }>()
+    const colonnes = "id, raison_sociale, email, donnees, fichiers, created_at, sous_traitant_id"
+    const poser = (lignes: unknown[] | null, piste: string) => {
+      for (const d of (lignes ?? []) as { id: string }[]) {
+        const deja = trouves.get(d.id)
+        if (deja) deja.pistes.add(piste)
+        else trouves.set(d.id, { dossier: d as never, pistes: new Set([piste]) })
+      }
+    }
+    if (corps.baticom_st_id) poser((await sb.from("dossiers_st").select(colonnes).eq("sous_traitant_id", corps.baticom_st_id)).data, "lien")
+    if (email) {
+      poser((await sb.from("dossiers_st").select(colonnes).ilike("email", email)).data, "email")
+      const { data: fiches } = await sb.from("st_sous_traitants").select("id").ilike("email", email)
+      const ids = (fiches ?? []).map((f: { id: string }) => f.id)
+      if (ids.length) poser((await sb.from("dossiers_st").select(colonnes).in("sous_traitant_id", ids)).data, "email")
+    }
+    // Le nom, débarrassé de la forme juridique : « SAS KADIPEINT » se trouve en cherchant « KADIPEINT ».
+    const coeur = nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\b(sas|sasu|sarl|eurl|sa|ei|eirl|entreprise|ets)\b/gi, " ").replace(/[^a-zA-Z0-9]+/g, " ").trim()
+    if (coeur.length >= 3) poser((await sb.from("dossiers_st").select(colonnes).ilike("raison_sociale", `%${coeur.split(" ").sort((a, b) => b.length - a.length)[0]}%`)).data, "nom")
+    const candidats = [...trouves.values()].map(({ dossier: d, pistes }) => {
+      const id = lireIdentite(d.donnees?.sections)
+      const types = (d.fichiers ?? []).map((f) => typeDePiece(f.path, f.slot)).filter((t) => t !== "photos" && t !== "sipsi")
+      return {
+        dossier_id: d.id, entreprise: d.raison_sociale, email: d.email, depose_le: d.created_at,
+        siret: id.siret ?? null, dirigeant: id.dirigeant ?? null, adresse: id.adresse ?? null,
+        pieces: [...new Set(types)], pistes: [...pistes],
+      }
+    }).sort((a, b) => b.pistes.length - a.pistes.length || b.depose_le.localeCompare(a.depose_le))
+    return json({ ok: true, candidats })
+  }
+
+  // ── Un dossier précis, choisi par le bureau ──
+  if (corps.dossier_id) {
+    const { data: d } = await sb.from("dossiers_st").select("id, raison_sociale, email, donnees, fichiers, created_at, sous_traitant_id").eq("id", corps.dossier_id).maybeSingle()
+    if (!d) return json({ ok: true, trouve: false })
+    corps.baticom_st_id = (d as { sous_traitant_id: string | null }).sous_traitant_id || undefined
+    return await rendre(sb, d as never, corps.baticom_st_id ?? null)
+  }
+
   // La fiche : par son identifiant, sinon par l'e-mail (un artisan créé à la main côté STC).
   let fiche: { id: string; entreprise: string; email: string } | null = null
   if (corps.baticom_st_id) {
@@ -94,7 +142,15 @@ Deno.serve(async (req: Request) => {
     dossier = data
   }
   if (!dossier) return json({ ok: true, trouve: false, fiche: fiche?.id ?? null })
+  return await rendre(sb, dossier, fiche?.id ?? null)
+})
 
+type Dossier = { id: string; raison_sociale: string; email: string; donnees: { sections?: { lignes?: Ligne[] }[] } | null; fichiers: { slot: string; path: string; nom: string }[] | null; created_at: string }
+
+/** Le dossier rendu : identité lue dans les volets, pièces avec un lien d'une heure, contrat signé de la fiche. */
+// deno-lint-ignore no-explicit-any
+async function rendre(sb: any, dossier: Dossier, ficheId: string | null): Promise<Response> {
+  const fiche = ficheId ? { id: ficheId } : null
   const pieces: { type: string; nom: string; chemin: string; url: string | null }[] = []
   for (const f of dossier.fichiers ?? []) {
     if (!f?.path) continue
@@ -115,4 +171,4 @@ Deno.serve(async (req: Request) => {
     identite: { entreprise: dossier.raison_sociale, ...lireIdentite(dossier.donnees?.sections) },
     pieces,
   })
-})
+}
