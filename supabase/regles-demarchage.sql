@@ -492,3 +492,6 @@ as $$
     from ecarts group by code
 $$;
 grant execute on function public.sante_demarchage() to authenticated;
+
+-- Contrôle : doit lister au plus les appels non notés (appel_non_note), et RIEN d'autre — surtout pas regle_modifiee.
+select code, nombre, left(exemples, 200) as exemples from public.sante_demarchage();
