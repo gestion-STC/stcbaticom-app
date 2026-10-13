@@ -21,6 +21,7 @@ import {
   type Resultat,
   type Secteur,
   jourLocal,
+  premiersInteresses,
   nomCle,
   ordonnerAProspecter,
   ordonnerInteresses,
@@ -284,7 +285,7 @@ export async function changerEtape(id: string, etape: Etape, motif: Motif | "" =
   erreur(error)
 }
 export async function premierOs(id: string, date?: string): Promise<void> {
-  const { error } = await sb().rpc("agence_premier_os", { p_agence_id: id, p_date: date ?? new Date().toISOString().slice(0, 10), p_source: "fiche" })
+  const { error } = await sb().rpc("agence_premier_os", { p_agence_id: id, p_date: date ?? jourLocal(new Date()), p_source: "fiche" })
   erreur(error)
 }
 // Fusionner deux agences : tout ce qui est rattaché à `source` passe à `cible`, puis `source` disparaît.
@@ -425,11 +426,15 @@ export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCo
 // dont ce compte est responsable (Mahdi, 10/10 : « un classement, ça donne envie »).
 export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   const s = sb()
-  type LigneAppel = { id: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }
-  const [appels, os] = await Promise.all([
-    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
-    lireParLots<{ id: string; commercial_id: string | null }>((d, f) => s.from("agences").select("id, commercial_id").not("premier_os_le", "is", null).gte("premier_os_le", de.toISOString().slice(0, 10)).lt("premier_os_le", a.toISOString().slice(0, 10)).order("id").range(d, f)),
+  type LigneAppel = { id: string; agence_id: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }
+  const [appels, os, interesses] = await Promise.all([
+    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, agence_id, compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
+    lireParLots<{ id: string; commercial_id: string | null }>((d, f) => s.from("agences").select("id, commercial_id").not("premier_os_le", "is", null).gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a)).order("id").range(d, f)),
+    // Les premiers « intéressé » de chaque agence (toute l'histoire) : une relance où le gestionnaire
+    // redit « intéressé » n'est pas une NOUVELLE agence intéressée (13/10 : des chiffres justes).
+    lireParLots<{ id: string; agence_id: string; date: string }>((d, f) => s.from("activites").select("id, agence_id, date").eq("type", "appel").eq("sens", "sortant").eq("issue", "interesse").order("id").range(d, f)),
   ])
+  const premierInteresse = premiersInteresses(interesses)
   const par = new Map<string, StatsCompte>()
   const cle = (id: string | null, nom: string) => id ?? `nom:${nom}`
   for (const l of appels) {
@@ -438,7 +443,7 @@ export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
     const st = par.get(k) ?? STATS_VIDES(l.compte_id, nom)
     st.appels++
     if (l.resultat === "joint") st.joints++
-    if (l.issue === "interesse") st.interesses++
+    if (l.issue === "interesse" && premierInteresse.get(l.agence_id) === l.id) st.interesses++
     if (l.issue === "rdv") st.rdv++
     if (l.issue === "pas_interesse") st.pasInteresses++
     st.dureeS += l.duree_s ?? 0
@@ -453,7 +458,7 @@ export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   return [...par.values()].sort((x, y) => y.appels - x.appels)
 }
 export async function compterPremiersOs(de: Date, a: Date): Promise<number> {
-  const { count, error } = await sb().from("agences").select("id", { count: "exact", head: true }).gte("premier_os_le", de.toISOString().slice(0, 10)).lt("premier_os_le", a.toISOString().slice(0, 10))
+  const { count, error } = await sb().from("agences").select("id", { count: "exact", head: true }).gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a))
   erreur(error)
   return count ?? 0
 }
