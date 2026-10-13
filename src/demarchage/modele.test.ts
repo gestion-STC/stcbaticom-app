@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   appeleeAujourdHui,
   effetAnnonce,
+  libelleResultat,
+  RESULTAT_LANCE,
   enseigneDe,
   fileDe,
   nomCle,
@@ -129,5 +131,12 @@ describe("effetAnnonce", () => {
     expect(effetAnnonce("joint", "interesse", { etape: "a_prospecter", tentatives: 2 })).toContain("Relancer")
     expect(effetAnnonce("joint", "pas_interesse", { etape: "a_prospecter", tentatives: 2 })).toContain("motif")
     expect(effetAnnonce("faux_numero", null, { etape: "a_prospecter", tentatives: 2 })).toContain("hors cible")
+  })
+})
+
+describe("l'appel lancé au clic (13/10)", () => {
+  it("se lit « résultat non noté » tant que le résultat n'est pas choisi", () => {
+    expect(libelleResultat(RESULTAT_LANCE)).toBe("Appel lancé, résultat non noté")
+    expect(libelleResultat("standard")).toBe("Standard, pas de gestionnaire")
   })
 })

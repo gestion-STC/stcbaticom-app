@@ -35,7 +35,7 @@ import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephon
 import { dateCourte } from "../../demarchage/agencesOutils"
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
-  enregistrerAppel, majAgence, type AgenceComplete,
+  appelLance, enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
   ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
@@ -85,6 +85,7 @@ type AppelEnCours = {
   fin: number | null
   etape: EtapeAppel
   manuel: boolean // « Noter un appel sans Ringover »
+  appelId?: string // la ligne écrite au clic (appelLance), que le résultat complète
 }
 const TEXTES_APPEL: Record<EtapeAppel, string> = {
   attente: "Appel lancé : décroche sur ton poste Ringover, l'agence est composée ensuite.",
@@ -110,13 +111,15 @@ function Section({ titre, droite, children }: { titre: string; droite?: ReactNod
   )
 }
 
-function LigneFile({ agence: a, courante, appelee, maintenant, onClick }: { agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; onClick: () => void }) {
+function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick }: { agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={bloquee}
+      title={bloquee ? "Note d'abord le résultat de l'appel en cours" : undefined}
       aria-current={courante ? "true" : undefined}
-      className={"block w-full border-b border-l-2 border-b-fond-4 px-4 py-2 text-left transition-colors hover:bg-fond-2 " + (courante ? "border-l-signature bg-fond-3" : "border-l-transparent")}
+      className={"block w-full border-b border-l-2 border-b-fond-4 px-4 py-2 text-left transition-colors hover:bg-fond-2 disabled:cursor-not-allowed disabled:hover:bg-transparent " + (courante ? "border-l-signature bg-fond-3" : "border-l-transparent")}
     >
       <div className="flex items-center gap-2">
         <span className={"min-w-0 flex-1 truncate text-legende " + (courante ? "font-semibold" : "font-medium") + " text-encre"}>{a.nom}</span>
@@ -267,6 +270,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const goTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dicteeRef = useRef<Dictee | null>(null)
   const dernierLancementRef = useRef(0)
+  const lancementRef = useRef<{ debut: number; promesse: Promise<string | null> } | null>(null) // l'écriture du clic, en route
   const dernierCallIdRef = useRef("")
   const dejaAffiche = useRef(false)
   const lancerRef = useRef<(numero: string, contactId: string | null) => Promise<void>>(async () => {})
@@ -591,8 +595,26 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }
       dernierCallIdRef.current = r.callId ?? ""
       setAppel((a) => (a && a.debut === t ? { ...a, callId: r.callId ?? "" } : a))
+      // L'appel est parti : il est écrit TOUT DE SUITE sur l'agence et dans son fil
+      // (Mahdi, 13/10). Le résultat choisi ensuite complétera cette ligne.
+      const agenceId = c.agence.id
+      const envoi = appelLance({ agenceId, contactId, numero: from, callId: r.callId ?? "", compteNom })
+      lancementRef.current = { debut: t, promesse: envoi.then((l) => l.id, () => null) }
+      try {
+        const ligne = await envoi
+        if (!enVie.current) return
+        setAppel((a) => (a && a.debut === t ? { ...a, appelId: ligne.id } : a))
+        setAppelees((s) => new Set(s).add(agenceId))
+        const n = chiffresTel(from)
+        if (n) setCompteursNumero((prev) => new Map(prev).set(n, (prev.get(n) ?? 0) + 1))
+        setFileAgences((arr) => arr.map((x) => (x.id === agenceId ? { ...x, dernierAppelLe: ligne.date, dernierResultat: ligne.resultat, nbAppels: x.nbAppels + 1 } : x)))
+        setCourante((prev) => (prev && prev.agence.id === agenceId ? { ...prev, activites: [ligne, ...prev.activites] } : prev))
+      } catch (e) {
+        // L'appel est parti quand même : le résultat, une fois noté, l'écrira.
+        if (enVie.current) setErreur(`L'appel est parti, mais sa date n'a pas pu être écrite tout de suite : ${messageDe(e)}. Note bien le résultat.`)
+      }
     },
-    [couperMinuterie],
+    [couperMinuterie, compteNom],
   )
   useEffect(() => {
     lancerRef.current = lancerAppel
@@ -762,15 +784,18 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setEnregistrement(true)
       try {
         const dureeS = a && !a.manuel && a.fin && a.enLigneDepuis ? dureeAppel(a.enLigneDepuis, a.fin) : null
+        // L'appel écrit au clic (attendu s'il est encore en route) : le résultat le complète, pas de doublon.
+        const appelId = a && !a.manuel ? (a.appelId ?? (lancementRef.current?.debut === a.debut ? await lancementRef.current.promesse : null)) : null
         const bilan = await enregistrerAppel({
           agenceId: c.agence.id, contactId: choix.contactId, resultat: choix.resultat, issue: choix.issue, motif: choix.motif, note: noteRef.current.trim(),
           numero: a?.numeroEmission ?? "", dureeS, callId: a?.callId ?? "", rappelLe: choix.rappelLe, rdvLe: choix.rdvLe, rdvType: choix.rdvType, compteNom, source: "session",
+          appelId,
         })
         if (!enVie.current) return
         const m = new Date()
         setInfo(`${c.agence.nom} : ${resumeEcriture(bilan, choix, m)}`)
         setAppelees((s) => new Set(s).add(c.agence.id))
-        const n = chiffresTel(a?.numeroEmission ?? "")
+        const n = appelId ? "" : chiffresTel(a?.numeroEmission ?? "") // déjà compté au clic
         if (n) {
           setCompteursNumero((prev) => {
             const suite = new Map(prev)
@@ -779,7 +804,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           })
         }
         setFileAgences((arr) =>
-          arr.map((x) => (x.id === c.agence.id ? { ...x, etape: bilan.etape, tentatives: bilan.tentatives, jointFois: bilan.jointFois, dernierAppelLe: m.toISOString(), dernierResultat: choix.resultat, nbAppels: x.nbAppels + 1 } : x)),
+          arr.map((x) => (x.id === c.agence.id ? { ...x, etape: bilan.etape, tentatives: bilan.tentatives, jointFois: bilan.jointFois, dernierAppelLe: appelId ? x.dernierAppelLe : m.toISOString(), dernierResultat: choix.resultat, nbAppels: appelId ? x.nbAppels : x.nbAppels + 1 } : x)),
         )
         setAppel(null)
         setBarreVisible(false)
@@ -953,7 +978,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 const choisi = f.code === file
                 const n = compteurs?.[f.code]
                 return (
-                  <button key={f.code} type="button" disabled={enCours} title={f.aide} onClick={() => setFile(f.code)} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2 disabled:opacity-60">
+                  <button key={f.code} type="button" disabled={enCours || barreVisible} title={f.aide} onClick={() => setFile(f.code)} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2 disabled:opacity-60">
                     <Pastille role={choisi ? "info" : "inerte"} point={choisi}>
                       {f.libelle}
                       {n !== undefined ? <span className="chiffres font-semibold">{n}</span> : null}
@@ -963,17 +988,17 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               })}
             </div>
             {optionsDeBase.length > 1 ? (
-              <Selecteur value={normaliserChoix(choixBase, admin, nonAttribueesLibres)} onChange={(e) => choisirBase(e.target.value)} disabled={enCours} className="w-44" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
+              <Selecteur value={normaliserChoix(choixBase, admin, nonAttribueesLibres)} onChange={(e) => choisirBase(e.target.value)} disabled={enCours || barreVisible} className="w-44" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
                 {optionsDeBase.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </Selecteur>
             ) : null}
-            <Selecteur value={secteurDuJour} onChange={(e) => setSecteurDuJour(e.target.value)} disabled={enCours} className="w-44" aria-label="Secteur du jour">
+            <Selecteur value={secteurDuJour} onChange={(e) => setSecteurDuJour(e.target.value)} disabled={enCours || barreVisible} className="w-44" aria-label="Secteur du jour">
               <option value="">Tous les secteurs</option>
               {secteurs.map((s) => (
                 <option key={s.code} value={s.code}>{s.libelle}</option>
               ))}
             </Selecteur>
-            <Selecteur value={etapeFiltre} onChange={(e) => setEtapeFiltre(e.target.value)} disabled={enCours} className="w-48" aria-label="Étape" title="N'appeler que les agences de cette étape (dans la file choisie)">
+            <Selecteur value={etapeFiltre} onChange={(e) => setEtapeFiltre(e.target.value)} disabled={enCours || barreVisible} className="w-48" aria-label="Étape" title="N'appeler que les agences de cette étape (dans la file choisie)">
               <option value="">Toutes les étapes</option>
               {ETAPES.map((e) => (
                 <option key={e.code} value={e.code}>{e.libelle}</option>
@@ -982,7 +1007,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 <option key={s.code} value={s.code}>{s.libelle}</option>
               ))}
             </Selecteur>
-            <Selecteur value={sourcage} onChange={(e) => setSourcage(e.target.value as "" | "sourcees" | "non_sourcees")} disabled={enCours} className="w-52" aria-label="Sourçage" title="Sourcée = on connaît au moins un gestionnaire (nom, ligne directe ou e-mail)">
+            <Selecteur value={sourcage} onChange={(e) => setSourcage(e.target.value as "" | "sourcees" | "non_sourcees")} disabled={enCours || barreVisible} className="w-52" aria-label="Sourçage" title="Sourcée = on connaît au moins un gestionnaire (nom, ligne directe ou e-mail)">
               <option value="">Sourcées et non sourcées</option>
               <option value="sourcees">Sourcées · gestionnaire connu</option>
               <option value="non_sourcees">Non sourcées · standard seul</option>
@@ -1021,7 +1046,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           <div className="px-4 pb-2">
             <div className="relative">
               <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-encre-3" />
-              <Champ value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Appeler une agence directement…" className="pl-8" aria-label="Appeler une agence directement" />
+              <Champ value={recherche} onChange={(e) => setRecherche(e.target.value)} disabled={barreVisible} placeholder="Appeler une agence directement…" className="pl-8" aria-label="Appeler une agence directement" />
             </div>
             {resultats ? (
               <div className="mt-1 overflow-hidden rounded-4 border border-trait bg-fond shadow-flottante">
@@ -1053,7 +1078,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             <Bouton taille="sm" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
           </div>
           <div className="border-b border-fond-4 px-4 py-2">
-            <Case texte="inclure les agences déjà appelées aujourd'hui" checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours} />
+            <Case texte="inclure les agences déjà appelées aujourd'hui" checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {chargementFile ? (
@@ -1061,7 +1086,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             ) : fileAgences.length === 0 ? (
               <Vide titre="Rien à appeler dans cette file" texte={FILES.find((f) => f.code === file)?.aide} />
             ) : (
-              fileAgences.map((a, i) => <LigneFile key={a.id} agence={a} courante={!directeId && i === index} appelee={appelees.has(a.id)} maintenant={dateMaintenant} onClick={() => allerA(i)} />)
+              fileAgences.map((a, i) => <LigneFile key={a.id} agence={a} courante={!directeId && i === index} appelee={appelees.has(a.id)} maintenant={dateMaintenant} bloquee={barreVisible && !(i === index && !directeId)} onClick={() => allerA(i)} />)
             )}
           </div>
         </Carte>
