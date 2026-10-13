@@ -39,6 +39,7 @@ import { useSession } from "../../lib/auth"
 import { listerComptes, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Dialogue, Etiquette, Ligne, Onglets, Panneau, Pastille, Selecteur, TitreCarte, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
+import { bilanAppels, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
 
 const ICONES: Record<TypeActivite, ReactNode> = {
@@ -157,7 +158,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
               <Pastille role={pastilleEtape(agence.etape)} point>{libelleEtape(agence.etape)}</Pastille>
             </button>
             <span className="text-colonne text-encre-2">{depuisTexte(agence.etapeDepuis, maintenant)}</span>
-            <span className="chiffres text-colonne text-encre-2">· {pluriel(agence.tentatives, "tentative")} · joint {agence.jointFois} fois</span>
+            <span className="chiffres text-colonne text-encre-2">· {texteBilanAppels(bilanAppels(activites))}</span>
             {/* Le dernier signal du site (11/10/2026) : lien ouvert, page « Créer un compte », compte ouvert sur STC Bâtiment */}
             {agence.compteOuvertLe ? (
               <Pastille role="fait" point>Compte STC Bâtiment ouvert {ilYA(agence.compteOuvertLe, maintenant)}</Pastille>

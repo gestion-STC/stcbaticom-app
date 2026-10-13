@@ -45,7 +45,7 @@ import {
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
-  compteARebours, constituerFile, dateHeureCourte, debutRepos, REPOS_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
+  bilanAppels, compteARebours, constituerFile, dateHeureCourte, debutRepos, texteBilanAppels, REPOS_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
   observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, versIso,
   type ChoixResultat, type TypeRdv, type Verdict,
 } from "../../demarchage/sessionOutils"
@@ -234,6 +234,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── L'appel ──
   const [appel, setAppel] = useState<AppelEnCours | null>(null)
+  const [reposJours, setReposJours] = useState(REPOS_JOURS) // Réglages › Objectifs et script
   const [barreVisible, setBarreVisible] = useState(false)
   const [contactEnLigne, setContactEnLigne] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<Resultat | null>(null)
@@ -307,11 +308,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Lectures ──
   const chargerReglages = useCallback(async () => {
-    const [q, s, r] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null), lireParametre("relance_interesse_jours").catch(() => null)])
+    const [q, s, r, rp] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null), lireParametre("relance_interesse_jours").catch(() => null), lireParametre("repos_appel_jours").catch(() => null)])
     if (!enVie.current) return
     setQuota(Number(q) || 0)
     setScript(s ?? "")
     reglerRelanceJours(Number(r)) // le délai de relance des intéressés, réglé dans Réglages (7 jours sinon)
+    const n = Number(rp)
+    setReposJours(Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS) // le repos entre deux appels, réglé dans Réglages
   }, [])
 
   // Les repères : secteurs, compteurs des files, appels du jour, réserve de numéros.
@@ -354,14 +357,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
       // Le repos de 5 jours : partout sauf les rappels datés et les intéressés (ils ont leur relance).
       const avecRepos = etapeFiltre ? !["interesse", "rdv_planifie"].includes(etapeFiltre) : file === "a_prospecter" || file === "a_reveiller"
-      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis: avecRepos ? debutRepos(m) : null }))
+      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis: avecRepos ? debutRepos(m, reposJours) : null }))
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
       if (enVie.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire])
+  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, reposJours])
 
   useEffect(() => {
     enVie.current = true
@@ -1108,7 +1111,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             <Bouton taille="sm" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
           </div>
           <div className="border-b border-fond-4 px-4 py-2">
-            <Case texte={`inclure les agences appelées ces ${REPOS_JOURS} derniers jours`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
+            <Case texte={`inclure les agences appelées ces ${reposJours} derniers jours`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {chargementFile ? (
@@ -1171,7 +1174,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                       <Pastille>{libelleType(fiche.agence.type)}</Pastille>
                       <Pastille role={pastilleEtape(fiche.agence.etape)} point>{libelleEtape(fiche.agence.etape)}</Pastille>
                       <span className="chiffres text-legende text-encre-2">
-                        {fiche.agence.tentatives} tentative{fiche.agence.tentatives > 1 ? "s" : ""} · joint {fiche.agence.jointFois} fois
+                        {texteBilanAppels(bilanAppels(fiche.activites))}
                       </span>
                       {fiche.agence.compteOuvertLe ? (
                         <Pastille role="fait" point>Compte STC Bâtiment ouvert le {dateCourte(fiche.agence.compteOuvertLe)}</Pastille>

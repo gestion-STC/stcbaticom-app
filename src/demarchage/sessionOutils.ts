@@ -387,3 +387,27 @@ export function decrireActivite(a: Activite): DescriptionActivite {
       return { titre: a.titre || a.type, detail: a.compteNom, etat: "" }
   }
 }
+
+// ── Le compteur de la fiche : combien d'appels, combien de fois joint, et quand ──
+// (Mahdi, 13/10 : « il faut avoir le moment où on l'a joint et la date ».) Lu dans le
+// fil de l'agence, pas dans `joint_fois` : les appels de l'ancien logiciel y sont aussi.
+export type BilanAppels = { appels: number; joints: number; dernierAppelLe: string | null; dernierJointLe: string | null }
+export function bilanAppels(activites: Pick<Activite, "type" | "sens" | "resultat" | "date">[]): BilanAppels {
+  const b: BilanAppels = { appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null }
+  for (const a of activites) {
+    if (a.type !== "appel" || a.sens === "entrant") continue
+    b.appels++
+    if (!b.dernierAppelLe || a.date > b.dernierAppelLe) b.dernierAppelLe = a.date
+    if (a.resultat === "joint") {
+      b.joints++
+      if (!b.dernierJointLe || a.date > b.dernierJointLe) b.dernierJointLe = a.date
+    }
+  }
+  return b
+}
+export function texteBilanAppels(b: BilanAppels): string {
+  if (!b.appels) return "jamais appelée"
+  const appels = `${b.appels} appel${b.appels > 1 ? "s" : ""}, dernier le ${dateHeureCourte(b.dernierAppelLe)}`
+  const joints = b.joints ? `joint ${b.joints} fois, dernière fois le ${dateHeureCourte(b.dernierJointLe)}` : "jamais joint"
+  return `${appels} · ${joints}`
+}

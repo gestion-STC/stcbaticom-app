@@ -6,7 +6,9 @@ import {
   choixComplet,
   compteARebours,
   constituerFile,
+  bilanAppels,
   debutRepos,
+  texteBilanAppels,
   dateHeureCourte,
   dateHeureLocale,
   decrireActivite,
@@ -280,5 +282,25 @@ describe("le repos de 5 jours (13/10)", () => {
   it("sans repos demandé (rappels datés) ou case cochée : rien n'est retiré", () => {
     expect(constituerFile([hier, jamais], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["hier", "jamais"])
     expect(constituerFile([hier, jamais], { file: "rappels", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["hier", "jamais"])
+  })
+})
+
+describe("bilanAppels : appels, joints et leurs dates (13/10)", () => {
+  const ligne = (resultat: string, date: string, sens: "sortant" | "entrant" = "sortant") => ({ type: "appel" as const, sens, resultat, date })
+  it("compte les appels sortants, les joints, et garde les dates les plus récentes", () => {
+    const b = bilanAppels([
+      ligne("standard", "2026-10-01T10:00:00Z"),
+      ligne("joint", "2026-10-05T10:00:00Z"),
+      ligne("joint", "2026-10-02T10:00:00Z"),
+      ligne("joint", "2026-10-12T10:00:00Z", "entrant"),
+      ligne("lance", "2026-10-13T11:03:00Z"),
+      { type: "note" as const, sens: "sortant" as const, resultat: "", date: "2026-10-14T10:00:00Z" },
+    ])
+    expect(b).toEqual({ appels: 4, joints: 2, dernierAppelLe: "2026-10-13T11:03:00Z", dernierJointLe: "2026-10-05T10:00:00Z" })
+  })
+  it("le dit en clair", () => {
+    expect(texteBilanAppels({ appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null })).toBe("jamais appelée")
+    expect(texteBilanAppels(bilanAppels([ligne("standard", "2026-10-01T10:00:00Z")]))).toMatch(/^1 appel, dernier le .+ · jamais joint$/)
+    expect(texteBilanAppels(bilanAppels([ligne("joint", "2026-10-01T10:00:00Z"), ligne("joint", "2026-10-02T10:00:00Z")]))).toMatch(/^2 appels, dernier le .+ · joint 2 fois, dernière fois le .+$/)
   })
 })
