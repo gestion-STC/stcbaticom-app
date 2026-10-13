@@ -35,7 +35,7 @@ import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephon
 import { dateCourte } from "../../demarchage/agencesOutils"
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
-  appelLance, enregistrerAppel, majAgence, type AgenceComplete,
+  appelLance, appelsDepuis, enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
   ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
@@ -45,7 +45,7 @@ import {
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
-  bilanAppels, compteARebours, constituerFile, dateHeureCourte, debutRepos, texteBilanAppels, REPOS_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
+  bilanDepuisAgence, compteARebours, constituerFile, dateHeureCourte, debutRepos, texteBilanAppels, REPOS_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
   observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, versIso,
   type ChoixResultat, type TypeRdv, type Verdict,
 } from "../../demarchage/sessionOutils"
@@ -174,7 +174,24 @@ function LigneMessage({ m }: { m: Message }) {
   )
 }
 
-export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string, options?: { etape?: boolean }) => void }) {
+// Une agence qui n'a plus sa place dans la pile affichée (modifiée depuis sa fiche) : sortie,
+// client, apporteur, ou une intéressée dans « À prospecter » (Mahdi, 13/10).
+function horsDeLaPile(a: Pick<Agence, "etape" | "type">, pile: File, etapeFiltre: string): boolean {
+  if (a.type === "apporteur") return true
+  if (etapeFiltre) return a.etape !== etapeFiltre
+  if (["pas_interesse", "hors_cible", "client"].includes(a.etape)) return true
+  return pile === "a_prospecter" && (a.etape === "interesse" || a.etape === "rdv_planifie")
+}
+
+// L'appel lancé dont le résultat n'a pas été noté (la ligne « lance » du fil), hors l'appel en cours.
+function appelNonNote(activites: Activite[], saufId?: string): Activite | null {
+  return activites.find((x) => x.type === "appel" && x.sens !== "entrant" && x.resultat === RESULTAT_LANCE && x.id !== saufId) ?? null
+}
+
+// L'onglet « Sessions de call » ouvert deux fois : deux sessions composeraient le même numéro.
+const CANAL_SESSION = "baticom-session-call"
+
+export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence, versionAgences = 0 }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string, options?: { etape?: boolean }) => void; versionAgences?: number }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
 
@@ -207,6 +224,15 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [sourcage, setSourcage] = useState<"" | "sourcees" | "non_sourcees">("")
   const [inclureDejaAppelees, setInclureDejaAppelees] = useState(false)
   const [auto, setAuto] = useState(false)
+  // Ouvrir une fiche depuis la session coupe le mode automatique : on ne compose pas pendant qu'on lit.
+  const ouvrirAgence = onOuvrirAgence
+    ? (id: string, options?: { etape?: boolean }) => {
+        setAuto(false)
+        onOuvrirAgence(id, options)
+      }
+    : undefined
+  // Un autre onglet a déjà la session ouverte (BroadcastChannel) : celui-ci ne compose pas.
+  const [autreOnglet, setAutreOnglet] = useState(false)
   const [cadence, setCadence] = useState(5)
   const [enCours, setEnCours] = useState(false)
   const [fileAgences, setFileAgences] = useState<Agence[]>([])
@@ -277,9 +303,18 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const lancementRef = useRef<{ debut: number; promesse: Promise<string | null> } | null>(null) // l'écriture du clic, en route
   const dernierCallIdRef = useRef("")
   const dejaAffiche = useRef(false)
-  const lancerRef = useRef<(numero: string, contactId: string | null) => Promise<void>>(async () => {})
+  const lancerRef = useRef<(numero: string, contactId: string | null, depuisAuto?: boolean) => Promise<void>>(async () => {})
   const avancerRef = useRef<() => void>(() => {})
+  const enregistrementEnCours = useRef(false) // un résultat en route : le 2e clic est ignoré
+  const verificationEnCours = useRef(false) // les vérifications avant de composer, en route
+  const directeEnAttente = useRef<string | null>(null) // une agence demandée d'ailleurs pendant un résultat à noter
+  const pileRef = useRef(file)
+  const etapeFiltreRef = useRef(etapeFiltre)
+  const autreOngletRef = useRef(autreOnglet)
   useEffect(() => {
+    pileRef.current = file
+    etapeFiltreRef.current = etapeFiltre
+    autreOngletRef.current = autreOnglet
     autoRef.current = auto
     enCoursRef.current = enCours
     appelRef.current = appel
@@ -306,7 +341,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const libre = appel === null && !barreVisible // on peut composer
   const fileTerminee = fileAgences.length > 0 && index >= fileAgences.length
   const contactsActifs = fiche ? fiche.contacts.filter((c) => !c.parti) : []
-  const appelEnSuspens = fiche ? (fiche.activites.find((x) => x.type === "appel" && x.resultat === RESULTAT_LANCE && x.id !== appel?.appelId) ?? null) : null
+  const appelEnSuspens = fiche ? appelNonNote(fiche.activites, appel?.appelId) : null
+  // Un appel lancé sans résultat noté : on ne recompose pas avant de l'avoir complété (Mahdi, 13/10).
+  const titreSuspens = appelEnSuspens ? `Note d'abord le résultat de l'appel du ${dateHeureCourte(appelEnSuspens.date)}` : undefined
+  const bloqueOnglet = autreOnglet ? "La session est ouverte dans un autre onglet" : undefined
 
   // ── Lectures ──
   const chargerReglages = useCallback(async () => {
@@ -323,7 +361,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const chargerReperes = useCallback(async () => {
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
-      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours)).catch(() => compterFiles(m, proprietaire)), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
+      // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
+      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
     ])
     if (!enVie.current) return
     setSecteurs(sect)
@@ -331,7 +370,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     // Le matin (Mahdi, 10/10) : d'abord « À rappeler aujourd'hui » s'il y en a, puis « À prospecter ».
     if (premierReperes.current) {
       premierReperes.current = false
-      if (cpt.rappels > 0) setFile("rappels")
+      if (cpt && cpt.rappels > 0) setFile("rappels")
     }
     setAppelees(app)
     setCompteursNumero(parNumero)
@@ -342,27 +381,43 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   useEffect(() => {
     compterFilesRef.current = (m: Date) => compterFiles(m, proprietaire, debutRepos(m, reposJours))
   }, [proprietaire, reposJours])
+  // Recompter les piles (après un résultat, une tâche, un apporteur) ; en échec : « — ».
+  const recompterFiles = useCallback(() => {
+    compterFilesRef.current(new Date())
+      .then((x) => {
+        if (enVie.current) setCompteurs(x)
+      })
+      .catch(() => {
+        if (enVie.current) setCompteurs(null)
+      })
+  }, [])
 
   // La file : rechargée quand on change de file, de secteur, ou la case des déjà appelées.
   const chargerLaFile = useCallback(async () => {
     setChargementFile(true)
     try {
       const m = new Date()
+      // Le repos de 5 jours : partout sauf les rappels datés et les intéressés (ils ont leur relance).
+      const avecRepos = etapeFiltre ? !["interesse", "rdv_planifie"].includes(etapeFiltre) : file === "a_prospecter" || file === "a_reveiller"
+      const reposDepuis = avecRepos ? debutRepos(m, reposJours) : null
+      // Le repos vaut sur TOUTE la base (Mahdi, 13/10) : un standard composé depuis une autre étape,
+      // une autre base ou par un collègue met aussi au repos les fiches qui le partagent.
+      const reposBase = reposDepuis && !inclureDejaAppelees ? appelsDepuis(reposDepuis).catch(() => null) : Promise.resolve(null)
       // Une étape choisie = TOUTES les agences de cette étape, quelle que soit la pile
       // (Mahdi, 09/10 : « je ne vois pas mes intéressés »). Sinon, la pile.
-      const [agences, app] = await Promise.all([
+      const [agences, app, base] = await Promise.all([
         etapeFiltre
           ? chargerAgences({ etape: etapeFiltre as Agence["etape"], secteur: secteurDuJour || undefined, commercialId: filtreCommercial(proprietaire), limite: 3000 }).then((l) => ordonnerAProspecter(l, secteurDuJour || null))
           : chargerFile(file, m, secteurDuJour || null, proprietaire),
         agencesAppeleesAujourdHui(m),
+        reposBase,
       ])
       if (!enVie.current) return
       setAppelees(app)
       const retenues = agences
         .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
-      // Le repos de 5 jours : partout sauf les rappels datés et les intéressés (ils ont leur relance).
-      const avecRepos = etapeFiltre ? !["interesse", "rdv_planifie"].includes(etapeFiltre) : file === "a_prospecter" || file === "a_reveiller"
-      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis: avecRepos ? debutRepos(m, reposJours) : null }))
+      if (reposDepuis && !inclureDejaAppelees && !base) setErreur("Le repos sur toute la base n'a pas pu être vérifié : la file ne retire que les appels de cette pile. La vérification juste avant de composer reste active.")
+      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis, agencesAuRepos: base?.agences, telsAuRepos: base?.tels }))
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
@@ -409,11 +464,30 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }, [actif, chargerReperes])
 
   // Une autre page demande d'appeler cette agence : elle devient l'agence en cours, hors file.
+  // Un résultat reste à noter : changer d'agence effacerait l'appel en cours. La demande attend que
+  // la barre se ferme (Mahdi, 13/10 : jamais d'appel perdu parce qu'on a cliqué « Appeler » dans l'agenda).
   useEffect(() => {
     if (!agenceInitiale) return
-    const t = setTimeout(() => setDirecteId(agenceInitiale), 0)
+    const t = setTimeout(() => {
+      if (appelRef.current || barreRef.current) {
+        if (agenceInitiale === agenceIdRef.current) return
+        directeEnAttente.current = agenceInitiale
+        setErreur("Note d'abord le résultat de l'appel en cours. L'agence demandée s'ouvrira ensuite.")
+        return
+      }
+      setDirecteId(agenceInitiale)
+    }, 0)
     return () => clearTimeout(t)
   }, [agenceInitiale])
+  useEffect(() => {
+    if (barreVisible || appel || !directeEnAttente.current) return
+    const t = setTimeout(() => {
+      const id = directeEnAttente.current
+      directeEnAttente.current = null
+      if (id) setDirecteId(id)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [barreVisible, appel])
 
   // L'agence en cours : sa fiche, ses contacts, son fil. Tout ce qui tient à l'appel précédent est remis à zéro.
   useEffect(() => {
@@ -454,17 +528,49 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }, [agenceCouranteId])
 
   // Relire la fiche sans toucher à l'appel en cours (après un contact, une tâche, une note…).
-  const rafraichirCourante = useCallback(async () => {
+  const rafraichirCourante = useCallback(async (): Promise<AgenceComplete | null> => {
     const id = agenceIdRef.current
-    if (!id) return
+    if (!id) return null
     try {
       const c = await chargerAgence(id)
-      if (!enVie.current || agenceIdRef.current !== id) return
+      if (!enVie.current || agenceIdRef.current !== id) return null
       setCourante((prev) => (prev && prev.agence.id === id ? { ...c, agence: { ...c.agence, numeroEmission: c.agence.numeroEmission || prev.agence.numeroEmission } } : c))
+      return c
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de l'agence : ${messageDe(e)}`)
+      return null
     }
   }, [])
+
+  // Une agence modifiée depuis sa fiche (App incrémente `versionAgences`) : hors session, la file est
+  // relue ; en session, la fiche en cours est relue et sort de la file si elle n'a plus rien à y faire
+  // (Mahdi, 13/10 : « je l'ai passée pas intéressée, la session me la propose encore »).
+  const versionVue = useRef(versionAgences)
+  useEffect(() => {
+    if (versionVue.current === versionAgences) return
+    versionVue.current = versionAgences
+    const t = setTimeout(async () => {
+      if (!enCoursRef.current && !barreRef.current && !appelRef.current) {
+        void chargerLaFileRef.current()
+        return
+      }
+      const c = await rafraichirCourante()
+      if (!c || !enVie.current) return
+      const arr = fileRef.current
+      const i = arr.findIndex((x) => x.id === c.agence.id)
+      if (i < 0) return
+      if (!horsDeLaPile(c.agence, pileRef.current, etapeFiltreRef.current)) {
+        setFileAgences(arr.map((x) => (x.id === c.agence.id ? { ...x, ...c.agence, numeroEmission: c.agence.numeroEmission || x.numeroEmission } : x)))
+        return
+      }
+      const courante = !directeRef.current && i === indexRef.current
+      if (courante && (barreRef.current || appelRef.current)) return // le résultat d'abord ; la file avancera ensuite
+      setFileAgences(arr.filter((x) => x.id !== c.agence.id))
+      if (!directeRef.current && i < indexRef.current) setIndex(indexRef.current - 1)
+      if (courante) setInfo(`${c.agence.nom} : ${libelleEtape(c.agence.etape)}, sortie de la file.`)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [versionAgences, rafraichirCourante])
 
   // La recherche « appeler une agence directement ».
   useEffect(() => {
@@ -545,6 +651,33 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     couperMinuterie()
   }
 
+  // Deux onglets sur la session (Mahdi, 13/10) : chacun s'annonce ; si un autre répond, les deux
+  // cessent de composer jusqu'à ce que l'un se ferme (il prévient en partant).
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return
+    const canal = new BroadcastChannel(CANAL_SESSION)
+    canal.onmessage = (e: MessageEvent) => {
+      if (e.data === "presence") {
+        canal.postMessage("deja_ouverte")
+        setAutreOnglet(true)
+      } else if (e.data === "deja_ouverte") setAutreOnglet(true)
+      else if (e.data === "depart") setAutreOnglet(false)
+    }
+    canal.postMessage("presence")
+    return () => {
+      canal.postMessage("depart")
+      canal.close()
+    }
+  }, [])
+  useEffect(() => {
+    if (!autreOnglet) return
+    const t = setTimeout(() => {
+      setAuto(false)
+      couperMinuterie()
+    }, 0)
+    return () => clearTimeout(t)
+  }, [autreOnglet, couperMinuterie])
+
   // Fermer l'onglet ou recharger avec un résultat à noter : le navigateur demande confirmation.
   useEffect(() => {
     if (!barreVisible) return
@@ -558,11 +691,20 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Lancer un appel ──
   const lancerAppel = useCallback(
-    async (numeroAppele: string, contactId: string | null) => {
+    async (numeroAppele: string, contactId: string | null, depuisAuto = false) => {
       const c = couranteRef.current
-      if (!c) return
+      if (!c || verificationEnCours.current) return // un 2e clic pendant les vérifications : ignoré
       if (appelRef.current || barreRef.current) {
         setErreur("Note d'abord le résultat de l'appel en cours.")
+        return
+      }
+      if (autreOngletRef.current) {
+        setErreur("La session de call est déjà ouverte dans un autre onglet : ferme l'un des deux pour ne pas appeler deux fois le même numéro.")
+        return
+      }
+      const suspens = appelNonNote(c.activites)
+      if (suspens) {
+        setErreur(`Note d'abord le résultat de l'appel du ${dateHeureCourte(suspens.date)} (bouton « Noter le résultat »).`)
         return
       }
       if (entrantActif()) {
@@ -592,8 +734,40 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         }
       }
       // Anti double-appel : un 2e déclenchement trop rapproché (double-clic, minuterie) est ignoré.
+      if (Date.now() - dernierLancementRef.current < DELAI_ANTI_DOUBLE_APPEL_MS) return
+      dernierLancementRef.current = Date.now()
+      // À la main, juste avant de composer (le mode automatique fait déjà ses vérifications) :
+      // l'appel précédent est-il raccroché ? ce standard a-t-il déjà été composé aujourd'hui,
+      // par toi, un collègue ou un autre onglet ? Une vérification en panne ne bloque pas.
+      if (!depuisAuto) {
+        verificationEnCours.current = true
+        try {
+          const m = new Date()
+          const debutJour = new Date(m.getFullYear(), m.getMonth(), m.getDate()).toISOString()
+          const precedent = dernierCallIdRef.current
+          const [st, jour] = await Promise.all([
+            precedent ? statutAppelsRingover(precedent).catch(() => null) : Promise.resolve(null),
+            directeRef.current || pileRef.current === "rappels" ? Promise.resolve(null) : appelsDepuis(debutJour).catch(() => null),
+          ])
+          if (!enVie.current) return
+          if (st?.ok && st.actif) {
+            setErreur("Ton appel précédent est encore en ligne sur Ringover : raccroche avant d'en lancer un autre.")
+            return
+          }
+          // Le même NUMÉRO déjà composé aujourd'hui (le standard de cette fiche ou d'une fiche jumelle) ;
+          // la ligne directe d'un gestionnaire, elle, reste appelable après le standard.
+          const compose = chiffresTel(numeroAppele)
+          if (jour && compose && jour.tels.has(compose)) {
+            setErreur("Déjà appelée aujourd'hui (par toi ou un collègue) : on ne rappelle pas le même numéro.")
+            return
+          }
+        } finally {
+          verificationEnCours.current = false
+        }
+        // Pendant la vérification, on a pu changer d'agence ou noter un autre appel.
+        if (agenceIdRef.current !== c.agence.id || appelRef.current || barreRef.current) return
+      }
       const t = Date.now()
-      if (t - dernierLancementRef.current < DELAI_ANTI_DOUBLE_APPEL_MS) return
       dernierLancementRef.current = t
       couperMinuterie()
       setErreur("")
@@ -624,14 +798,20 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const envoi = appelLance({ agenceId, contactId, numero: from, callId: r.callId ?? "", compteNom })
       lancementRef.current = { debut: t, promesse: envoi.then((l) => l.id, () => null) }
       try {
-        const ligne = await envoi
+        const { id, ligne } = await envoi
         if (!enVie.current) return
-        setAppel((a) => (a && a.debut === t ? { ...a, appelId: ligne.id } : a))
+        // L'id suffit pour que le résultat complète CETTE ligne ; la ligne relue sert au fil (absente si la relecture a échoué).
+        setAppel((a) => (a && a.debut === t ? { ...a, appelId: id } : a))
         setAppelees((s) => new Set(s).add(agenceId))
         const n = chiffresTel(from)
         if (n) setCompteursNumero((prev) => new Map(prev).set(n, (prev.get(n) ?? 0) + 1))
-        setFileAgences((arr) => arr.map((x) => (x.id === agenceId ? { ...x, dernierAppelLe: ligne.date, dernierResultat: ligne.resultat, nbAppels: x.nbAppels + 1 } : x)))
-        setCourante((prev) => (prev && prev.agence.id === agenceId ? { ...prev, activites: [ligne, ...prev.activites] } : prev))
+        const date = ligne?.date ?? new Date().toISOString()
+        setFileAgences((arr) => arr.map((x) => (x.id === agenceId ? { ...x, dernierAppelLe: date, dernierResultat: ligne?.resultat ?? RESULTAT_LANCE, nbAppels: x.nbAppels + 1 } : x)))
+        setCourante((prev) =>
+          prev && prev.agence.id === agenceId
+            ? { ...prev, agence: { ...prev.agence, dernierAppelLe: date, nbAppels: prev.agence.nbAppels + 1 }, activites: ligne ? [ligne, ...prev.activites] : prev.activites }
+            : prev,
+        )
       } catch (e) {
         // L'appel est parti quand même : le résultat, une fois noté, l'écrira.
         if (enVie.current) setErreur(`L'appel est parti, mais sa date n'a pas pu être écrite tout de suite : ${messageDe(e)}. Note bien le résultat.`)
@@ -663,7 +843,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }
 
   function noterSansRingover() {
-    if (!fiche) return
+    if (!fiche || appelEnSuspens) return // l'appel en suspens se complète, il ne se double pas
     const t = Date.now()
     setErreur("")
     setInfo("")
@@ -752,9 +932,19 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // ── Mode automatique : compte à rebours, puis l'appel du numéro par défaut ──
   const courantePrete = Boolean(fiche)
   useEffect(() => {
-    if (!auto || !enCours || !libre || !courantePrete || !agenceCouranteId) return
+    if (!auto || !enCours || !libre || !courantePrete || !agenceCouranteId || autreOnglet) return
     const c = couranteRef.current
     if (!c || c.agence.id !== agenceCouranteId) return
+    // Un appel lancé sans résultat noté sur cette agence : on ne recompose pas par-dessus.
+    // Le mode automatique s'arrête ici, pour qu'on le note (Mahdi, 13/10).
+    const suspens = appelNonNote(c.activites)
+    if (suspens) {
+      const t = setTimeout(() => {
+        setAuto(false)
+        setErreur(`Mode automatique arrêté : l'appel du ${dateHeureCourte(suspens.date)} à ${c.agence.nom} attend son résultat. Note-le (« Noter le résultat »), puis relance.`)
+      }, 0)
+      return () => clearTimeout(t)
+    }
     const d = numeroParDefaut(c.agence, c.contacts)
     const res = reserveRef.current
     const att = res.length ? numeroEmissionPour(c.agence, res, fileRef.current) : null
@@ -797,9 +987,25 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       // Toujours d'actualité ? (pendant l'attente, l'utilisateur a pu avancer ou arrêter)
       if (!enCoursRef.current || !autoRef.current) return
       if (agenceIdRef.current !== agenceCouranteId) return
-      if (appelRef.current || barreRef.current) return
+      if (appelRef.current || barreRef.current || autreOngletRef.current) return
       setCompteFin(null)
-      void lancerRef.current(d.numero, d.contactId)
+      // Le numéro est relu MAINTENANT (Mahdi, 13/10) : pendant le compte à rebours, un contact a pu
+      // être ajouté, corrigé ou marqué parti. Jamais le numéro d'il y a 5 secondes.
+      const fraiche = couranteRef.current
+      if (!fraiche || fraiche.agence.id !== agenceCouranteId) return
+      const suspensFrais = appelNonNote(fraiche.activites)
+      if (suspensFrais) {
+        setAuto(false)
+        setErreur(`Mode automatique arrêté : l'appel du ${dateHeureCourte(suspensFrais.date)} à ${fraiche.agence.nom} attend son résultat. Note-le (« Noter le résultat »), puis relance.`)
+        return
+      }
+      const dFrais = numeroParDefaut(fraiche.agence, fraiche.contacts)
+      if (!numeroValide(dFrais.numero)) {
+        setErreur(`${fraiche.agence.nom} : numéro incorrect ou absent — sautée.`)
+        goTimerRef.current = setTimeout(() => avancerRef.current(), 1500)
+        return
+      }
+      void lancerRef.current(dFrais.numero, dFrais.contactId, true)
     }
     goTimerRef.current = setTimeout(() => void tenter(), delai * 1000)
     return () => {
@@ -810,7 +1016,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         goTimerRef.current = null
       }
     }
-  }, [auto, enCours, libre, courantePrete, agenceCouranteId, cadence])
+  }, [auto, enCours, libre, courantePrete, agenceCouranteId, cadence, autreOnglet])
 
   // ── Valider le résultat : LA seule écriture de l'appel ──
   const validerResultat = useCallback(
@@ -818,6 +1024,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const c = couranteRef.current
       const a = appelRef.current
       if (!c) return
+      // Un double clic (ou Entrée + clic) avant que l'écran ne se mette à jour : un seul envoi.
+      if (enregistrementEnCours.current) return
+      enregistrementEnCours.current = true
       setEnregistrement(true)
       try {
         const dureeS = a && !a.manuel && a.fin && a.enLigneDepuis ? dureeAppel(a.enLigneDepuis, a.fin) : null
@@ -843,26 +1052,31 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         setFileAgences((arr) =>
           arr.map((x) => (x.id === c.agence.id ? { ...x, etape: bilan.etape, tentatives: bilan.tentatives, jointFois: bilan.jointFois, dernierAppelLe: appelId ? x.dernierAppelLe : m.toISOString(), dernierResultat: choix.resultat, nbAppels: appelId ? x.nbAppels : x.nbAppels + 1 } : x)),
         )
-        if (appelId) setCourante((prev) => (prev && prev.agence.id === c.agence.id ? { ...prev, activites: prev.activites.map((x) => (x.id === appelId ? { ...x, resultat: choix.resultat, issue: choix.issue ?? "" } : x)) } : prev))
+        setCourante((prev) =>
+          prev && prev.agence.id === c.agence.id
+            ? {
+                ...prev,
+                agence: { ...prev.agence, etape: bilan.etape, tentatives: bilan.tentatives, jointFois: bilan.jointFois, dernierAppelLe: appelId ? prev.agence.dernierAppelLe : m.toISOString(), nbAppels: appelId ? prev.agence.nbAppels : prev.agence.nbAppels + 1 },
+                activites: appelId ? prev.activites.map((x) => (x.id === appelId ? { ...x, resultat: choix.resultat, issue: choix.issue ?? "" } : x)) : prev.activites,
+              }
+            : prev,
+        )
         setAppel(null)
         setBarreVisible(false)
         setNote("")
         setSuggestion(null)
         setIndice("")
         setErreur("")
-        compterFilesRef.current(m)
-          .then((x) => {
-            if (enVie.current) setCompteurs(x)
-          })
-          .catch(() => {})
+        recompterFiles()
         avancerRef.current()
       } catch (e) {
         if (enVie.current) setErreur(`Enregistrement de l'appel : ${messageDe(e)}`)
       } finally {
+        enregistrementEnCours.current = false
         if (enVie.current) setEnregistrement(false)
       }
     },
-    [compteNom],
+    [compteNom, recompterFiles],
   )
 
   // ── Le numéro d'émission : réattribution consciente (le seul chemin autorisé) ──
@@ -959,11 +1173,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setDialogue(null)
       setErreur("")
       await rafraichirCourante()
-      compterFilesRef.current(new Date())
-        .then((x) => {
-          if (enVie.current) setCompteurs(x)
-        })
-        .catch(() => {})
+      recompterFiles()
     } catch (e) {
       setErreur(`Enregistrement : ${messageDe(e)}`)
     }
@@ -1014,12 +1224,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             <div className="flex flex-wrap gap-1.5">
               {FILES.map((f) => {
                 const choisi = f.code === file
-                const n = compteurs?.[f.code]
+                // La pile affichée compte SA liste (Mahdi, 13/10 : la pastille = ce qu'on voit) ; les
+                // autres, la base. Un comptage en échec affiche « — », jamais un faux chiffre.
+                const n = choisi && !etapeFiltre && !chargementFile ? fileAgences.length : compteurs ? compteurs[f.code] : "—"
                 return (
                   <button key={f.code} type="button" disabled={enCours || barreVisible} title={f.aide} onClick={() => setFile(f.code)} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2 disabled:opacity-60">
                     <Pastille role={choisi ? "info" : "inerte"} point={choisi}>
                       {f.libelle}
-                      {n !== undefined ? <span className="chiffres font-semibold">{n}</span> : null}
+                      <span className="chiffres font-semibold">{n}</span>
                     </Pastille>
                   </button>
                 )
@@ -1051,7 +1263,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               <option value="non_sourcees">Non sourcées · standard seul</option>
             </Selecteur>
             <label className="flex items-center gap-2 text-legende text-encre">
-              <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" /> Mode automatique
+              <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" disabled={autreOnglet} /> Mode automatique
             </label>
             <label className="flex items-center gap-1.5 text-legende text-encre-2">
               cadence
@@ -1061,11 +1273,15 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             {enCours ? (
               <Bouton variante="plein" icone={<Square />} onClick={arreter}>Arrêter</Bouton>
             ) : (
-              <Bouton variante="plein" icone={<Play />} onClick={demarrer} disabled={!fileAgences.length || chargementFile}>Démarrer</Bouton>
+              <Bouton variante="plein" icone={<Play />} onClick={demarrer} disabled={!fileAgences.length || chargementFile || autreOnglet} title={bloqueOnglet}>Démarrer</Bouton>
             )}
           </>
         }
       />
+
+      {autreOnglet ? (
+        <Bandeau role="alerte" className="mb-4">La session de call est déjà ouverte dans un autre onglet : ferme l'un des deux pour ne pas appeler deux fois le même numéro.</Bandeau>
+      ) : null}
 
       {erreur ? (
         <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>OK</Bouton>}>{erreur}</Bandeau>
@@ -1136,7 +1352,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               role="info"
               action={
                 <>
-                  <Bouton taille="sm" icone={<Phone />} onClick={appelerMaintenant} disabled={!defaut}>Appeler maintenant</Bouton>
+                  <Bouton taille="sm" icone={<Phone />} onClick={appelerMaintenant} disabled={!defaut || Boolean(appelEnSuspens) || autreOnglet} title={titreSuspens ?? bloqueOnglet}>Appeler maintenant</Bouton>
                   <Bouton taille="sm" variante="discret" onClick={() => setAuto(false)} className="ml-1">Stop auto</Bouton>
                 </>
               }
@@ -1179,7 +1395,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                       <Pastille>{libelleType(fiche.agence.type)}</Pastille>
                       <Pastille role={pastilleEtape(fiche.agence.etape)} point>{libelleEtape(fiche.agence.etape)}</Pastille>
                       <span className="chiffres text-legende text-encre-2">
-                        {texteBilanAppels(bilanAppels(fiche.activites))}
+                        {texteBilanAppels(bilanDepuisAgence(fiche.agence, fiche.activites))}
                       </span>
                       {fiche.agence.compteOuvertLe ? (
                         <Pastille role="fait" point>Compte STC Bâtiment ouvert le {dateCourte(fiche.agence.compteOuvertLe)}</Pastille>
@@ -1189,12 +1405,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                     </div>
                     {fiche.agence.adresse ? <div className="mt-1 text-legende text-encre-2">{fiche.agence.adresse}</div> : null}
                   </div>
-                  {onOuvrirAgence ? (
+                  {ouvrirAgence ? (
                     <div className="flex items-center gap-1">
-                      <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => onOuvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
-                      {/* Un apporteur d'affaires découvert en ligne (Mahdi, 12/10) : un clic, elle sort du démarchage, la file avance. */}
-                      <Bouton variante="discret" icone={<Briefcase />} disabled={enCours} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, d'un clic" onClick={async () => { try { await passerApporteur(fiche.agence.id, compteNom); setInfo(`${fiche.agence.nom} : passée en apporteur d'affaires, elle ne sera plus démarchée.`); void chargerLaFile() } catch (e) { setErreur(messageDe(e)) } }}>Apporteur d'affaires</Bouton>
-                      <Bouton variante="discret" icone={<ExternalLink />} onClick={() => onOuvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
+                      <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => ouvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
+                      {/* Un apporteur d'affaires découvert en ligne (Mahdi, 12/10) : un clic, elle sort du démarchage, la file avance.
+                          Pas pendant un résultat à noter : recharger la file effacerait l'appel en cours. */}
+                      <Bouton variante="discret" icone={<Briefcase />} disabled={enCours || barreVisible} title={barreVisible ? "Note d'abord le résultat de l'appel en cours" : "Cette agence est un apporteur d'affaires : elle sort du démarchage, d'un clic"} onClick={async () => { try { await passerApporteur(fiche.agence.id, compteNom); setInfo(`${fiche.agence.nom} : passée en apporteur d'affaires, elle ne sera plus démarchée.`); void chargerLaFile(); recompterFiles() } catch (e) { setErreur(messageDe(e)) } }}>Apporteur d'affaires</Bouton>
+                      <Bouton variante="discret" icone={<ExternalLink />} onClick={() => ouvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
                     </div>
                   ) : null}
                 </div>
@@ -1213,7 +1430,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 <Section
                   titre="Numéros"
                   droite={
-                    <Bouton taille="sm" variante="discret" icone={<StickyNote />} onClick={noterSansRingover} disabled={barreVisible}>Noter un appel sans Ringover</Bouton>
+                    <Bouton taille="sm" variante="discret" icone={<StickyNote />} onClick={noterSansRingover} disabled={barreVisible || Boolean(appelEnSuspens)} title={titreSuspens}>Noter un appel sans Ringover</Bouton>
                   }
                 >
                   {lignes.length === 0 ? (
@@ -1235,8 +1452,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                           <Bouton
                             variante={l.parDefaut ? "plein" : "contour"}
                             icone={<Phone />}
-                            disabled={!l.valide || emissionBloquee || !libre}
-                            title={emissionBloquee ? "Numéro d'émission hors réserve : voir le bandeau" : !libre ? "Note d'abord le résultat de l'appel en cours" : undefined}
+                            disabled={!l.valide || emissionBloquee || !libre || Boolean(appelEnSuspens) || autreOnglet}
+                            title={emissionBloquee ? "Numéro d'émission hors réserve : voir le bandeau" : !libre ? "Note d'abord le résultat de l'appel en cours" : (titreSuspens ?? bloqueOnglet)}
                             onClick={() => void lancerAppel(l.numero, l.contactId)}
                           >
                             Appeler

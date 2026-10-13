@@ -118,9 +118,31 @@ export async function envoyerEmail(
   // Le mail sur la FICHE (Mahdi, 13/10 : « j'ai envoyé un mail à cette dame et il n'y a rien ») :
   // depuis la refonte du 09/10, `prospect.id` est l'id de l'AGENCE ; le serveur, lui, cherchait
   // encore dans l'ancienne table prospects. On rattache le message journalisé à l'agence.
+  // La fiche ouverte est la vérité (13/10) : on rattache toujours, même si le serveur avait deviné une autre agence.
+  // Si la ligne du journal manque (pas d'id Resend, journal raté), le front l'écrit lui-même : jamais un mail absent de la fiche.
   const resendId = (data as { id?: string } | null)?.id ?? ""
-  if (prospect.id && resendId) {
-    const { error: e } = await supabase.from("messages").update({ agence_id: prospect.id }).eq("message_id", resendId).is("agence_id", null)
+  if (!prospect.id) return
+  let rattaches = 0
+  if (resendId) {
+    const { data: lignes, error: e } = await supabase.from("messages").update({ agence_id: prospect.id }).eq("message_id", resendId).select("id")
+    if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)
+    rattaches = lignes?.length ?? 0
+  }
+  if (rattaches === 0) {
+    const { error: e } = await supabase.from("messages").insert({
+      sens: "sortant", espace: "demarchage", de: "contact@crm.stcbatiment.fr", a: libelleDestinataires(to, copie), objet, corps_html: corpsHtml,
+      message_id: resendId || null, lu: true, agence_id: prospect.id,
+    })
     if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)
   }
+}
+
+// Le champ « a » du journal, écrit comme le serveur : « x, y · cc : z · cci : w » (sans doublon d'une liste à l'autre).
+export function libelleDestinataires(to: string[], copie: { cc?: string[]; cci?: string[] } = {}): string {
+  const adresse = (s: string) => { const m = s.trim().match(/<([^>]+)>/); return (m ? m[1] : s).toLowerCase().trim() }
+  const norm = (l: string[] = []) => l.map(adresse).filter((x) => x.includes("@"))
+  const tous = norm(to)
+  const cc = norm(copie.cc).filter((x) => !tous.includes(x))
+  const cci = norm(copie.cci).filter((x) => !tous.includes(x) && !cc.includes(x))
+  return tous.join(", ") + (cc.length ? " · cc : " + cc.join(", ") : "") + (cci.length ? " · cci : " + cci.join(", ") : "")
 }

@@ -38,6 +38,7 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
   const [envoi, setEnvoi] = useState(false)
   const [fait, setFait] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
+  const [avertissement, setAvertissement] = useState<string | null>(null)
   const [apercuOuvert, setApercuOuvert] = useState(false)
   // Pièces jointes de CET envoi : celles du modèle choisi + celles ajoutées ici.
   const [pieces, setPieces] = useState<PieceJointe[]>([])
@@ -149,7 +150,15 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
       setFait(true)
       setTimeout(onClose, 900)
     } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      // « E-mail parti… » : le mail est PARTI, seul le rangement a échoué ; on ne laisse pas renvoyer (un doublon chez l'agence).
+      if (msg.startsWith("E-mail parti")) {
+        setAvertissement(msg)
+        setFait(true)
+        setEnvoi(false)
+        return
+      }
+      setErreur(msg)
       setEnvoi(false)
     }
   }
@@ -164,6 +173,7 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
       largeur="max-w-2xl"
       pied={
         <>
+          {avertissement ? <span className="mr-auto flex min-w-0 items-start gap-1.5 text-legende text-attention"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span className="break-words">{avertissement}</span></span> : null}
           {erreur ? <span className="mr-auto flex min-w-0 items-start gap-1.5 text-legende text-alerte"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span className="break-words">{erreur}</span></span> : null}
           <Bouton variante="discret" onClick={onClose}>Annuler</Bouton>
           <Bouton variante="plein" icone={fait ? <Check /> : envoi ? <Loader2 className="animate-spin" /> : <Send />} disabled={!pret || envoi || fait || !emailConfigure} title={raisonBloque} onClick={envoyer}>

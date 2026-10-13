@@ -78,7 +78,7 @@ export function libelleMotif(code: string): string {
 
 // Les constantes des règles (les mêmes que dans appel_enregistrer, pour les textes d'aide).
 export const SOMMEIL_APRES_TENTATIVES = 6
-export const SOMMEIL_JOURS = 60
+export const SOMMEIL_JOURS = 30
 export const RELANCE_JOURS = 7
 // Réglable (Mahdi, 12/10/2026) : Réglages › Objectifs et script, clé `relance_interesse_jours` ; la session le lit au démarrage.
 let relanceJoursReglee = RELANCE_JOURS
@@ -340,6 +340,8 @@ export function effetAnnonce(resultat: Resultat, issue: Issue | null, a: Pick<Ag
       return `${t}e tentative sans gestionnaire : l'agence s'endort ${SOMMEIL_JOURS} jours.`
     }
     if (a.etape === "interesse" || a.etape === "rdv_planifie") return `Elle reste intéressée : relance dans ${relanceJours()} jours.`
+    // Une endormie réveillée qu'on ne joint toujours pas (13/10) : elle repart dormir, pas « tentative 7 sur 6 ».
+    if (a.etape === "endormie") return `Toujours personne : elle se rendort ${SOMMEIL_JOURS} jours.`
     return `Tentative ${t} sur ${SOMMEIL_APRES_TENTATIVES}. L'étape ne change pas.`
   }
   if (resultat === "faux_numero") return "La fiche sort en « hors cible ». Elle n'est pas supprimée."

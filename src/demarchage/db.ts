@@ -181,7 +181,8 @@ export async function compterFiles(maintenant: Date, proprietaire: Proprietaire 
     base().in("etape", ["interesse", "rdv_planifie"]),
     base().eq("etape", "endormie").lte("reveil_le", aujourdHui),
   ])
-  if (reposDepuis) erreur(a.error) // filtre du repos refusé : l'appelant retombe sur le compte sans repos
+  // Un comptage en échec ne s'affiche jamais comme un vrai chiffre : l'appelant garde « — ».
+  for (const r of [a, b, c, d]) erreur(r.error)
   return { a_prospecter: a.count ?? 0, rappels: b.count ?? 0, sans_nouvelle: c.count ?? 0, a_reveiller: d.count ?? 0 }
 }
 
@@ -358,13 +359,30 @@ export async function enregistrerAppel(p: ParamsAppel): Promise<BilanAppel> {
 
 // Le clic sur « Appeler » : l'appel est écrit tout de suite (date, numéro, qui) ; le
 // résultat viendra compléter cette même ligne. Renvoie la ligne, pour le fil.
-export async function appelLance(p: { agenceId: string; contactId: string | null; numero: string; callId: string; compteNom: string }): Promise<Activite> {
+// L'id est rendu même si la relecture échoue : le résultat doit compléter CETTE ligne (sinon doublon).
+export async function appelLance(p: { agenceId: string; contactId: string | null; numero: string; callId: string; compteNom: string }): Promise<{ id: string; ligne: Activite | null }> {
   const s = sb()
   const { data: id, error } = await s.rpc("appel_lancer", { p_agence_id: p.agenceId, p_contact_id: p.contactId, p_numero: p.numero, p_call_id: p.callId, p_compte_nom: p.compteNom, p_source: "session" })
   erreur(error)
-  const { data, error: e2 } = await s.from("activites").select(COLONNES_ACTIVITE).eq("id", id as string).single()
-  erreur(e2)
-  return versActivite(data as LigneActivite)
+  const { data, error: e2 } = await s.from("activites").select(COLONNES_ACTIVITE).eq("id", id as string).maybeSingle()
+  return { id: id as string, ligne: e2 || !data ? null : versActivite(data as LigneActivite) }
+}
+
+// Une page lue par lots dont les jointures (agences(...)) sont typées à la main.
+type LotDe<T> = { data: T[] | null; error: { message: string } | null }
+
+// Les appels sortants passés depuis une date, sur TOUTE la base (toutes étapes, tous commerciaux) :
+// les agences et les standards (chiffres) déjà composés. Sert au repos des fiches au même
+// standard et à la vérification juste avant de composer (un collègue, un autre onglet).
+export async function appelsDepuis(depuis: string): Promise<{ agences: Set<string>; tels: Set<string> }> {
+  type L = { id: string; agence_id: string; agences: { telephone: string | null } | null }
+  const lignes = await lireParLots<L>((de, a) => sb().from("activites").select("id, agence_id, agences(telephone)").eq("type", "appel").eq("sens", "sortant").gte("date", depuis).order("id").range(de, a) as unknown as PromiseLike<LotDe<L>>)
+  const tels = new Set<string>()
+  for (const l of lignes) {
+    const t = chiffres(l.agences?.telephone ?? "")
+    if (t.length >= 9) tels.add(t)
+  }
+  return { agences: new Set(lignes.map((l) => l.agence_id)), tels }
 }
 
 // Un appel entrant reconnu : journalisé sans toucher à l'étape.
@@ -403,14 +421,18 @@ export async function supprimerActivite(id: string): Promise<void> {
 }
 
 // L'agenda : les tâches et RDV entre deux dates, avec l'agence.
-export type TacheAgenda = Activite & { agenceNom: string; agenceTelephone: string; contactNom: string }
+// Lu par lots (au-delà de 1 000 tâches, celles du jour disparaissaient) ; les apporteurs (sortis du démarchage) n'y sont pas.
+export type TacheAgenda = Activite & { agenceNom: string; agenceTelephone: string; contactNom: string; agenceCommercialId: string | null }
 export async function chargerAgenda(de: Date, a: Date, options: { seulementOuvertes?: boolean } = {}): Promise<TacheAgenda[]> {
-  let q = sb().from("activites").select(`${COLONNES_ACTIVITE}, agences(nom, telephone), contacts(prenom, nom)`).in("type", ["tache", "rdv"]).gte("echeance", de.toISOString()).lt("echeance", a.toISOString()).order("echeance").limit(1000)
-  if (options.seulementOuvertes) q = q.is("fait_le", null)
-  const { data, error } = await q
-  erreur(error)
-  type L = LigneActivite & { agences: { nom: string; telephone: string } | null; contacts: { prenom: string; nom: string } | null }
-  return ((data ?? []) as unknown as L[]).map((l) => ({ ...versActivite(l), agenceNom: l.agences?.nom ?? "", agenceTelephone: l.agences?.telephone ?? "", contactNom: l.contacts ? `${l.contacts.prenom} ${l.contacts.nom}`.trim() : "" }))
+  type L = LigneActivite & { agences: { nom: string; telephone: string; type: string; commercial_id: string | null } | null; contacts: { prenom: string; nom: string } | null }
+  const lignes = await lireParLots<L>((d, f) => {
+    let q = sb().from("activites").select(`${COLONNES_ACTIVITE}, agences(nom, telephone, type, commercial_id), contacts(prenom, nom)`).in("type", ["tache", "rdv"]).gte("echeance", de.toISOString()).lt("echeance", a.toISOString())
+    if (options.seulementOuvertes) q = q.is("fait_le", null)
+    return q.order("echeance").order("id").range(d, f) as unknown as PromiseLike<LotDe<L>>
+  })
+  return lignes
+    .filter((l) => l.agences?.type !== "apporteur")
+    .map((l) => ({ ...versActivite(l), agenceNom: l.agences?.nom ?? "", agenceTelephone: l.agences?.telephone ?? "", contactNom: l.contacts ? `${l.contacts.prenom} ${l.contacts.nom}`.trim() : "", agenceCommercialId: l.agences?.commercial_id ?? null }))
 }
 // Les tâches en retard ou d'aujourd'hui (la To-do).
 export async function chargerTachesDuJour(maintenant: Date): Promise<TacheAgenda[]> {
@@ -419,17 +441,23 @@ export async function chargerTachesDuJour(maintenant: Date): Promise<TacheAgenda
 }
 
 // ── Qui a fait quoi aujourd'hui (et sur une période) ──
-export type StatsCompte = { compteId: string | null; compteNom: string; appels: number; joints: number; interesses: number; rdv: number; pasInteresses: number; premiersOs: number; dureeS: number }
-export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCompte => ({ compteId, compteNom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 })
+// `agencesJointes` / `agencesInteressees` (13/10) : des agences DISTINCTES, base des taux de conversion
+// (une agence jointe trois fois reste une agence). `ids` garde les agences pour un total exact (sans double compte).
+export type StatsCompte = {
+  compteId: string | null; compteNom: string; appels: number; joints: number; interesses: number; rdv: number; pasInteresses: number; premiersOs: number; dureeS: number
+  agencesJointes?: number; agencesInteressees?: number; ids?: { jointes: string[]; interessees: string[] }
+}
+export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCompte => ({ compteId, compteNom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0, agencesJointes: 0, agencesInteressees: 0, ids: { jointes: [], interessees: [] } })
 
 // Les appels SORTANTS d'une période, par compte, plus les premiers OS des agences
 // dont ce compte est responsable (Mahdi, 10/10 : « un classement, ça donne envie »).
 export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   const s = sb()
   type LigneAppel = { id: string; agence_id: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }
+  // Les apporteurs (sortis du démarchage) ne comptent ni dans les appels ni dans les premiers OS du classement.
   const [appels, os, interesses] = await Promise.all([
-    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, agence_id, compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
-    lireParLots<{ id: string; commercial_id: string | null }>((d, f) => s.from("agences").select("id, commercial_id").not("premier_os_le", "is", null).gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a)).order("id").range(d, f)),
+    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, agence_id, compte_id, compte_nom, resultat, issue, duree_s, agences!inner(type)").eq("type", "appel").eq("sens", "sortant").neq("agences.type", "apporteur").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
+    lireParLots<{ id: string; commercial_id: string | null }>((d, f) => s.from("agences").select("id, commercial_id").neq("type", "apporteur").not("premier_os_le", "is", null).gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a)).order("id").range(d, f)),
     // Les premiers « intéressé » de chaque agence (toute l'histoire) : une relance où le gestionnaire
     // redit « intéressé » n'est pas une NOUVELLE agence intéressée (13/10 : des chiffres justes).
     lireParLots<{ id: string; agence_id: string; date: string }>((d, f) => s.from("activites").select("id, agence_id, date").eq("type", "appel").eq("sens", "sortant").eq("issue", "interesse").order("id").range(d, f)),
@@ -437,17 +465,30 @@ export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   const premierInteresse = premiersInteresses(interesses)
   const par = new Map<string, StatsCompte>()
   const cle = (id: string | null, nom: string) => id ?? `nom:${nom}`
+  const jointes = new Map<string, Set<string>>()
+  const convaincues = new Map<string, Set<string>>()
+  const ajouter = (m: Map<string, Set<string>>, k: string, agenceId: string) => { const e = m.get(k) ?? new Set<string>(); e.add(agenceId); m.set(k, e) }
   for (const l of appels) {
     const nom = l.compte_nom || "(sans compte)"
     const k = cle(l.compte_id, nom)
     const st = par.get(k) ?? STATS_VIDES(l.compte_id, nom)
     st.appels++
-    if (l.resultat === "joint") st.joints++
-    if (l.issue === "interesse" && premierInteresse.get(l.agence_id) === l.id) st.interesses++
+    if (l.resultat === "joint") { st.joints++; ajouter(jointes, k, l.agence_id) }
+    const premiere = l.issue === "interesse" && premierInteresse.get(l.agence_id) === l.id
+    if (premiere) st.interesses++
     if (l.issue === "rdv") st.rdv++
+    // Conv. intéressés : les agences devenues intéressées (premier intérêt) ou passées en RDV sur la période.
+    if (premiere || l.issue === "rdv") ajouter(convaincues, k, l.agence_id)
     if (l.issue === "pas_interesse") st.pasInteresses++
     st.dureeS += l.duree_s ?? 0
     par.set(k, st)
+  }
+  for (const [k, st] of par) {
+    const j = [...(jointes.get(k) ?? [])]
+    const c = [...(convaincues.get(k) ?? [])]
+    st.agencesJointes = j.length
+    st.agencesInteressees = c.length
+    st.ids = { jointes: j, interessees: c }
   }
   for (const l of os) {
     if (!l.commercial_id) continue
@@ -458,7 +499,7 @@ export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   return [...par.values()].sort((x, y) => y.appels - x.appels)
 }
 export async function compterPremiersOs(de: Date, a: Date): Promise<number> {
-  const { count, error } = await sb().from("agences").select("id", { count: "exact", head: true }).gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a))
+  const { count, error } = await sb().from("agences").select("id", { count: "exact", head: true }).neq("type", "apporteur").gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a))
   erreur(error)
   return count ?? 0
 }
@@ -477,7 +518,7 @@ export async function compterAppelsDuJourParNumero(maintenant: Date): Promise<Ma
 // Les agences appelées aujourd'hui (pour ne pas les ressortir dans la file).
 export async function agencesAppeleesAujourdHui(maintenant: Date): Promise<Set<string>> {
   const debut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).toISOString()
-  const lignes = await lireParLots<{ id: string; agence_id: string }>((de, a) => sb().from("activites").select("id, agence_id").eq("type", "appel").gte("date", debut).order("id").range(de, a))
+  const lignes = await lireParLots<{ id: string; agence_id: string }>((de, a) => sb().from("activites").select("id, agence_id").eq("type", "appel").eq("sens", "sortant").gte("date", debut).order("id").range(de, a))
   return new Set(lignes.map((l) => l.agence_id))
 }
 
@@ -536,7 +577,8 @@ export async function chargerClientsAConfirmer(): Promise<ClientSignale[]> {
 // « C'est elle » : l'agence passe cliente, datée du premier OS ; on garde une trace dans son fil, et le gestionnaire devient un contact s'il manque.
 export async function confirmerClientSignale(c: ClientSignale, agenceId: string, compteNom: string): Promise<void> {
   const s = sb()
-  const date = (c.premierOsLe ?? new Date().toISOString()).slice(0, 10)
+  // Le jour LOCAL (Paris) : un OS reçu à 0 h 30 le 13 n'est pas du 12 (`.slice(0, 10)` d'un horodatage UTC le faisait).
+  const date = jourLocal(c.premierOsLe ? new Date(c.premierOsLe) : new Date())
   const { error: e1 } = await s.rpc("agence_premier_os", { p_agence_id: agenceId, p_date: date, p_source: "stc_batiment" })
   erreur(e1)
   if (c.email) {

@@ -40,6 +40,11 @@ export type OptionsFile = {
   // appelée après cette date ne revient pas dans la file, ni une fiche qui partage son standard.
   // Absent = pas de repos (rappels datés, intéressés).
   reposDepuis?: string | null
+  // Le repos sur TOUTE la base (Mahdi, 13/10) : les agences et les standards (chiffres) composés
+  // pendant le repos, quelle que soit leur étape ou leur base. Une fiche de la file qui partage
+  // ce standard (doublon dans une autre étape, chez un collègue) reste au repos elle aussi.
+  agencesAuRepos?: Set<string>
+  telsAuRepos?: Set<string>
 }
 
 // Le repos entre deux appels d'une même agence, en jours (on reste joignable par la recherche).
@@ -56,8 +61,10 @@ export function debutRepos(maintenant: Date, jours = REPOS_JOURS): string {
 export function constituerFile(agences: Agence[], o: OptionsFile): Agence[] {
   const garderAppelees = o.inclureDejaAppelees || o.file === "rappels"
   // Les standards des agences déjà appelées : une fiche en double partage le numéro.
-  const auRepos = (a: Agence) => !garderAppelees && (o.appeleesAujourdHui.has(a.id) || Boolean(o.reposDepuis && a.dernierAppelLe && a.dernierAppelLe >= o.reposDepuis))
-  const telsAppeles = new Set<string>()
+  const auRepos = (a: Agence) =>
+    !garderAppelees &&
+    (o.appeleesAujourdHui.has(a.id) || Boolean(o.reposDepuis && a.dernierAppelLe && a.dernierAppelLe >= o.reposDepuis) || Boolean(o.reposDepuis && o.agencesAuRepos?.has(a.id)))
+  const telsAppeles = new Set<string>(!garderAppelees && o.reposDepuis && o.telsAuRepos ? o.telsAuRepos : [])
   for (const a of agences) {
     const t = chiffresTel(a.telephone)
     if (t && auRepos(a)) telsAppeles.add(t)
@@ -405,9 +412,18 @@ export function bilanAppels(activites: Pick<Activite, "type" | "sens" | "resulta
   }
   return b
 }
+// Le bilan affiché en tête de fiche, cohérent avec la liste (Mahdi, 13/10) : les compteurs de la
+// vue (`nb_appels`, `joint_fois`, `dernier_appel_le`), et la date du dernier « joint » lue dans le fil
+// (la vue ne la donne pas). Plus de « 3 appels » sur la fiche quand la liste en dit 5.
+export function bilanDepuisAgence(
+  agence: Pick<Agence, "nbAppels" | "jointFois" | "dernierAppelLe">,
+  activites: Pick<Activite, "type" | "sens" | "resultat" | "date">[],
+): BilanAppels {
+  return { appels: agence.nbAppels, joints: agence.jointFois, dernierAppelLe: agence.dernierAppelLe, dernierJointLe: bilanAppels(activites).dernierJointLe }
+}
 export function texteBilanAppels(b: BilanAppels): string {
   if (!b.appels) return "jamais appelée"
-  const appels = `${b.appels} appel${b.appels > 1 ? "s" : ""}, dernier le ${dateHeureCourte(b.dernierAppelLe)}`
-  const joints = b.joints ? `joint ${b.joints} fois, dernière fois le ${dateHeureCourte(b.dernierJointLe)}` : "jamais joint"
+  const appels = `${b.appels} appel${b.appels > 1 ? "s" : ""}${b.dernierAppelLe ? `, dernier le ${dateHeureCourte(b.dernierAppelLe)}` : ""}`
+  const joints = b.joints ? `joint ${b.joints} fois${b.dernierJointLe ? `, dernière fois le ${dateHeureCourte(b.dernierJointLe)}` : ""}` : "jamais joint"
   return `${appels} · ${joints}`
 }

@@ -15,11 +15,13 @@ import {
   composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
   grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxConversionInteresses, tauxConversionPremiersOs, tauxJoints, totalStats, type MomentTache,
   PERIODES, bornesPeriode, classer, type Periode,
-  majusculeInitiale,
+  majusculeInitiale, dansLaBase, libelleBase, baseConversion,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { debutRepos, REPOS_JOURS } from "../../demarchage/sessionOutils"
-import { listerComptes } from "../../lib/comptes"
+import { estAdmin, listerComptes } from "../../lib/comptes"
+import { useSession } from "../../lib/auth"
+import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
@@ -30,7 +32,8 @@ const s = (n: number) => (n > 1 ? "s" : "")
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 type Donnees = {
-  files: Record<File, number>
+  files: Record<File, number> | null // null = comptage en échec : on affiche « — », jamais un faux chiffre
+  base: string // la base comptée, comme dans la session : « Ma base », « Base de X », « Toute la base »
   taches: TacheAgenda[]
   classements: Record<Periode, StatsCompte[]> // tout le monde, classé, pour chaque période
   osRecus: number
@@ -63,6 +66,10 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const [periode, setPeriode] = useState<Periode>("mois")
   const [saisieObjectif, setSaisieObjectif] = useState("")
   const enVie = useRef(true)
+  // La même base que la session (Mahdi, 13/10 : des chiffres IDENTIQUES partout) : le choix mémorisé sur le poste.
+  const session = useSession()
+  const admin = estAdmin(session)
+  const moiId = session?.user?.id ?? ""
 
   const charger = useCallback(async () => {
     const now = new Date()
@@ -75,9 +82,14 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       // « À prospecter » compte comme la session : sans les agences au repos (Réglages, 5 jours sinon).
       const reposBrut = Number(await lireParametre("repos_appel_jours").catch(() => null))
       const repos = Number.isInteger(reposBrut) && reposBrut >= 1 && reposBrut <= 60 ? reposBrut : REPOS_JOURS
+      const libre = nonAttribueesPourTous(await lireParametre(CLE_NON_ATTRIBUEES).catch(() => null))
+      let choixBrut: string | null = null
+      try { choixBrut = localStorage.getItem(CLE_CHOIX_LOCAL) } catch { /* poste sans stockage : « Ma base » */ }
+      const proprietaire = proprietaireDepuisChoix(choixBrut, moiId, admin, libre)
+      const base = libelleBase(moiId ? normaliserChoix(choixBrut, admin, libre) : "tous", comptes)
       const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
-        compterFiles(now, "tous", debutRepos(now, repos)).catch(() => compterFiles(now)),
-        chargerTachesDuJour(now),
+        compterFiles(now, proprietaire, debutRepos(now, repos)).catch(() => null),
+        chargerTachesDuJour(now).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
         compterPremiersOs(debutDuMois(now), finDuMois(now)),
         lireParametre(CLE_OBJECTIF),
         compterParEtape(),
@@ -87,13 +99,13 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       ])
       if (!enVie.current) return
       const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
-      setD({ files, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
+      setD({ files, base, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
       setMaintenant(now)
       setErreur("")
     } catch (e) {
       if (enVie.current) setErreur(message(e))
     }
-  }, [])
+  }, [moiId, admin])
 
   useEffect(() => {
     enVie.current = true
@@ -108,7 +120,12 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const agir = async (f: () => Promise<void>) => {
     setOccupe(true); setErreur("")
     try { await f(); await charger() }
-    catch (e) { setErreur(message(e)) }
+    catch (e) {
+      // Refus de la base (tache_terminer…) : on le montre, et on recharge pour remettre la ligne retirée d'avance.
+      setErreur(message(e))
+      await charger()
+      setErreur(message(e))
+    }
     finally { setOccupe(false) }
   }
 
@@ -202,8 +219,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
 
       {/* ── Les quatre files ── */}
       <div className="mb-4">
+        <p className="mb-1.5 text-colonne uppercase tracking-[0.07em] text-encre-2" title="La base choisie dans la session de call (sélecteur « Base »), avec le même repos entre deux appels">Les piles · {d.base}</p>
         <Compteurs
-          valeurs={FILES.map((f) => ({ id: f.code, libelle: f.libelle, valeur: d.files[f.code], detail: f.aide }))}
+          valeurs={FILES.map((f) => ({ id: f.code, libelle: f.libelle, valeur: d.files ? d.files[f.code] : "—", detail: d.files ? f.aide : "Comptage impossible pour l'instant (Actualiser)" }))}
           onSelect={() => onNaviguer?.("sessions")}
         />
       </div>
@@ -214,7 +232,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
         {/* ── À faire aujourd'hui ── */}
         <Carte className="self-start">
-          <TitreCarte droite={<span className="chiffres text-legende text-encre-2">{d.taches.length} à faire</span>}>À faire aujourd'hui</TitreCarte>
+          <TitreCarte droite={<span className="chiffres text-legende text-encre-2">{d.base} · {d.taches.length} à faire</span>}>À faire aujourd'hui</TitreCarte>
           {rienAFaire ? (
             <Vide titre="Rien à faire aujourd'hui" texte="Aucune tâche ni RDV en attente. Une session de call remplira la journée." action={<Bouton onClick={() => onNaviguer?.("agenda")}>Voir l'agenda</Bouton>} />
           ) : (
@@ -348,15 +366,15 @@ function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
       <Td num>{x.interesses}</Td>
       <Td num>{x.rdv}</Td>
       <Td num>{x.pasInteresses}</Td>
-      <Td num className={tauxConversionInteresses(x) > 0 ? "font-semibold" : "text-encre-2"}>{x.joints > 0 ? `${tauxConversionInteresses(x)} %` : "—"}</Td>
+      <Td num className={tauxConversionInteresses(x) > 0 ? "font-semibold" : "text-encre-2"} title={`${x.agencesInteressees ?? x.interesses + x.rdv} agence(s) intéressée(s) ou en RDV sur ${baseConversion(x)} agence(s) jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionInteresses(x)} %` : "—"}</Td>
       <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : ""}>{x.premiersOs}</Td>
-      <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : "text-encre-2"}>{x.joints > 0 ? `${tauxConversionPremiersOs(x)} %` : "—"}</Td>
+      <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : "text-encre-2"} title={`${x.premiersOs} premier(s) OS sur ${baseConversion(x)} agence(s) jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionPremiersOs(x)} %` : "—"}</Td>
       <Td num>{dureeLisible(x.dureeS) || "—"}</Td>
     </tr>
   )
   return (
     <Tableau className="pb-2">
-      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Taux de conversion sur les intéressés : (intéressés + RDV) ÷ agences jointes">Conv. intéressés</Th><Th num>1ers OS</Th><Th num title="Taux de conversion sur les premiers OS : premiers ordres de service envoyés ÷ agences jointes">Conv. 1ers OS</Th><Th num>Parole</Th></tr></thead>
+      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Taux de conversion sur les intéressés : agences devenues intéressées (premier intérêt) ou passées en RDV sur la période ÷ agences distinctes jointes sur la période">Conv. intéressés</Th><Th num>1ers OS</Th><Th num title="Taux de conversion sur les premiers OS : premiers ordres de service reçus sur la période ÷ agences distinctes jointes sur la période (plafonné à 100 %)">Conv. 1ers OS</Th><Th num>Parole</Th></tr></thead>
       <tbody>
         {stats.map((x, i) => ligne(x, i + 1))}
         {stats.length > 1 ? ligne(total, null) : null}

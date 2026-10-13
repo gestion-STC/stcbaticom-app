@@ -8,6 +8,8 @@ import {
   enRetard,
   enseignesDistinctes,
   filtrerAgences,
+  jourLocalDe,
+  retirerAuRepos,
   filtrerFil,
   fusionnerFil,
   grouperParJour,
@@ -110,6 +112,22 @@ describe("filtrerAgences", () => {
     expect(filtrerAgences(liste, { ...FILTRES_VIDES, enseigne: "Orpi" }).map((a) => a.id)).toEqual(["2"])
     expect(filtrerAgences(liste, { ...FILTRES_VIDES, jamaisJointe: true }).map((a) => a.id)).toEqual(["2", "3", "4"])
     expect(filtrerAgences(liste, { ...FILTRES_VIDES, avecContact: true }).map((a) => a.id)).toEqual(["1"])
+  })
+  it("filtre par « Attribuée à », piles comprises (13/10)", () => {
+    const base = [agence({ id: "a", commercialId: "moi" }), agence({ id: "b", commercialId: "autre" }), agence({ id: "c", commercialId: null })]
+    expect(filtrerAgences(base, { ...FILTRES_VIDES, attribuee: "moi" }).map((a) => a.id)).toEqual(["a"])
+    expect(filtrerAgences(base, { ...FILTRES_VIDES, attribuee: "aucun" }).map((a) => a.id)).toEqual(["c"])
+    expect(filtrerAgences(base, FILTRES_VIDES).map((a) => a.id)).toEqual(["a", "b", "c"])
+  })
+  it("retirerAuRepos : comme la session, une agence appelée pendant le repos sort de la pile", () => {
+    const debut = new Date(2026, 9, 9).toISOString()
+    const base = [agence({ id: "jamais", dernierAppelLe: null }), agence({ id: "avant", dernierAppelLe: new Date(2026, 9, 8, 18).toISOString() }), agence({ id: "pendant", dernierAppelLe: new Date(2026, 9, 9, 0, 5).toISOString() })]
+    expect(retirerAuRepos(base, debut).map((a) => a.id)).toEqual(["jamais", "avant"])
+  })
+  it("jourLocalDe : le jour local, pas le jour UTC", () => {
+    expect(jourLocalDe(new Date(2026, 9, 13, 0, 30).toISOString())).toBe("2026-10-13")
+    expect(jourLocalDe(new Date(2026, 9, 12, 23, 30).toISOString())).toBe("2026-10-12")
+    expect(jourLocalDe(null)).toBe("")
   })
   it("liste les enseignes sans doublon ni vide", () => {
     expect(enseignesDistinctes(liste)).toEqual(["Century 21", "Orpi"])

@@ -24,8 +24,12 @@ import {
   memeJour,
   progressionObjectif,
   segmentsBase,
+  tauxConversionInteresses,
+  tauxConversionPremiersOs,
   tauxJoints,
   totalStats,
+  dansLaBase,
+  libelleBase,
 } from "./aujourdhuiOutils"
 
 // Vendredi 9 octobre 2026, 14 h 00 (heure locale).
@@ -36,7 +40,7 @@ function tache(p: Partial<TacheAgenda> = {}): TacheAgenda {
   return {
     id: "t1", agenceId: "a1", contactId: null, type: "tache", date: local(2026, 10, 8, 9), echeance: local(2026, 10, 9, 10), faitLe: null, compteId: null, compteNom: "Horlann",
     titre: "Rappeler", note: "", resultat: "", issue: "", motif: "", numeroUtilise: "", dureeS: null, callId: "", sens: "sortant", rdvType: "", messageId: null, etapeDe: "", etapeVers: "", source: "fiche",
-    agenceNom: "Agence Test", agenceTelephone: "01 43 00 00 00", contactNom: "Sophie Martin",
+    agenceNom: "Agence Test", agenceTelephone: "01 43 00 00 00", contactNom: "Sophie Martin", agenceCommercialId: null,
     ...p,
   }
 }
@@ -185,6 +189,44 @@ describe("les taux et l'objectif", () => {
     expect(progressionObjectif(5, 20)).toEqual({ pct: 25, atteint: false, reste: 15 })
     expect(progressionObjectif(25, 20)).toEqual({ pct: 100, atteint: true, reste: 0 })
     expect(progressionObjectif(5, 0)).toEqual({ pct: 0, atteint: false, reste: 0 })
+  })
+})
+
+describe("les conversions sur des agences distinctes (13/10)", () => {
+  const avecIds = (compteId: string, jointes: string[], interessees: string[], extra: Partial<StatsCompte> = {}): StatsCompte => ({
+    compteId, compteNom: compteId, appels: 10, joints: jointes.length * 3, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0,
+    agencesJointes: jointes.length, agencesInteressees: interessees.length, ids: { jointes, interessees }, ...extra,
+  })
+  it("divise par les agences jointes, pas par les appels joints", () => {
+    // 4 agences jointes (12 appels « joint »), 1 devenue intéressée, 1 passée en RDV → 50 %
+    expect(tauxConversionInteresses(avecIds("h", ["a", "b", "c", "d"], ["a", "b"], { interesses: 1, rdv: 3 }))).toBe(50)
+  })
+  it("ne dépasse jamais 100 %", () => {
+    expect(tauxConversionPremiersOs(avecIds("h", ["a"], [], { premiersOs: 3 }))).toBe(100)
+    expect(tauxConversionPremiersOs({ joints: 1, premiersOs: 3 })).toBe(100)
+  })
+  it("le total compte une agence jointe par deux commerciaux une seule fois", () => {
+    const t = totalStats([avecIds("h", ["a", "b"], ["a"]), avecIds("m", ["b", "c"], ["a", "c"])])
+    expect(t.agencesJointes).toBe(3)
+    expect(t.agencesInteressees).toBe(2)
+    expect(tauxConversionInteresses(t)).toBe(67)
+  })
+})
+
+describe("la base affichée (même base que la session)", () => {
+  it("dansLaBase : tous, non attribuées, un compte", () => {
+    expect(dansLaBase("x", "tous")).toBe(true)
+    expect(dansLaBase(null, "non_attribuees")).toBe(true)
+    expect(dansLaBase("x", "non_attribuees")).toBe(false)
+    expect(dansLaBase("x", { compteId: "x" })).toBe(true)
+    expect(dansLaBase(null, { compteId: "x" })).toBe(false)
+  })
+  it("libelleBase : dit de quelle base on parle", () => {
+    const comptes = [{ id: "h", nom: "Horlann" }]
+    expect(libelleBase("moi", comptes)).toBe("Ma base")
+    expect(libelleBase("tous", comptes)).toBe("Toute la base")
+    expect(libelleBase("non_attribuees", comptes)).toBe("Non attribuées")
+    expect(libelleBase("compte:h", comptes)).toBe("Base de Horlann")
   })
 })
 

@@ -37,6 +37,7 @@ type Entrant = { callId: string; from: string; reconnu: Reconnu | null; recherch
 export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?: (agenceId: string) => void }) {
   // Appel entrant à signaler (bannière) : le numéro, l'agence reconnue, la recherche en cours.
   const [entrant, setEntrant] = useState<Entrant | null>(null)
+  const [erreurJournal, setErreurJournal] = useState("") // l'appel entrant n'a pas pu être écrit sur la fiche
   // Le compte connecté : c'est lui qui « reçoit » l'appel dans le journal.
   const session = useSession()
   const compteNomRef = useRef("Compte")
@@ -103,7 +104,12 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
       if (journalisesRef.current.size > 200) {
         journalisesRef.current = new Set(Array.from(journalisesRef.current).slice(-100))
       }
-      journaliserAppelEntrant(reconnu.agence.id, reconnu.contact?.id ?? null, callId, compteNomRef.current).catch(() => {})
+      // Un appel entrant non journalisé = absent de la fiche (Mahdi, 13/10 : tout est sur la fiche) : on le dit.
+      journaliserAppelEntrant(reconnu.agence.id, reconnu.contact?.id ?? null, callId, compteNomRef.current).catch((e) => {
+        console.error("[TelephoneRingover] journal de l'appel entrant", e)
+        journalisesRef.current.delete(callId) // une prochaine reconnaissance réessaiera
+        setErreurJournal(`Appel entrant de ${reconnu.agence.nom} non écrit sur sa fiche : ${e instanceof Error ? e.message : String(e)}`)
+      })
     }
   }
 
@@ -323,7 +329,15 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
     return () => clearInterval(iv)
   }, [])
 
-  if (!entrant) return null
+  const avisJournal = erreurJournal ? (
+    <p className="flex items-start gap-2 border-t border-trait bg-alerte-fond px-4 py-2 text-colonne text-alerte">
+      <span className="min-w-0 flex-1 break-words">{erreurJournal}</span>
+      <button type="button" onClick={() => setErreurJournal("")} className="shrink-0 rounded-3 p-0.5 hover:bg-fond-4" title="Fermer" aria-label="Fermer"><X size={14} /></button>
+    </p>
+  ) : null
+  if (!entrant) {
+    return avisJournal ? <div className="fixed bottom-4 left-4 z-[95] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-6 border border-trait bg-fond shadow-flottante">{avisJournal}</div> : null
+  }
   const numeroAffichable = cleComparaison(entrant.from).length >= 6
   const reconnu = entrant.reconnu
   const numero = formaterTelephone(entrant.from) || entrant.from
@@ -381,6 +395,7 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
         )}
         <p className="mt-2 text-colonne text-encre-3">Décroche dans le téléphone Ringover (à droite).</p>
       </div>
+      {avisJournal}
     </div>
   )
 }

@@ -13,10 +13,12 @@ import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Sect
 import { chargerAgences, chargerFile, chargerSecteurs, compterApporteurs, compterFiles, compterParEtape, type FiltresAgences } from "../../demarchage/db"
 import {
   FILTRES_VIDES, type CleTri, type FileOuToutes, type FiltresLocaux, type Tri, basculerTri, dateCourte, depuisTexte, enRetard, enseignesDistinctes, filtrerAgences, ilYA, messageErreur, pluriel,
-  secteursParZone, sousTitreAgences, trierAgences,
+  retirerAuRepos, secteursParZone, sousTitreAgences, trierAgences,
 } from "../../demarchage/agencesOutils"
 import { exporterAgencesExcel, exporterContactsExcel } from "../../demarchage/exportAgences"
-import { nomProprietaire } from "../../demarchage/attribution"
+import { nomProprietaire, type Proprietaire } from "../../demarchage/attribution"
+import { debutRepos, REPOS_JOURS } from "../../demarchage/sessionOutils"
+import { lireParametre } from "../../lib/parametresDb"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes } from "../../lib/comptes"
 import { supabaseConfigure } from "../../lib/supabase"
@@ -41,7 +43,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [parEtape, setParEtape] = useState<Record<string, number>>({})
   const [apporteurs, setApporteurs] = useState(0)
-  const [parFile, setParFile] = useState<Record<File, number>>(COMPTES_VIDES)
+  const [parFile, setParFile] = useState<Record<File, number> | null>(COMPTES_VIDES) // null = comptage en échec : « — »
   const [file, setFile] = useState<FileOuToutes>("toutes")
   const [filtres, setFiltres] = useState<FiltresLocaux>(FILTRES_VIDES)
   const [recherchePrete, setRecherchePrete] = useState("") // la recherche, 300 ms après la dernière frappe
@@ -70,25 +72,35 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
     recherche: recherchePrete, jamaisJointe: filtres.jamaisJointe, avecContact: filtres.avecContact, commercialId: filtres.attribuee || undefined,
   }), [filtres.etape, filtres.secteur, filtres.type, filtres.enseigne, filtres.jamaisJointe, filtres.avecContact, filtres.attribuee, recherchePrete])
 
+  // Les piles comptent comme la session et Aujourd'hui (13/10 : trois écrans, un seul chiffre) :
+  // la base choisie dans « Attribuée à » et le repos entre deux appels (Réglages, 5 jours sinon).
+  const proprietaire = useMemo<Proprietaire>(() => (!filtres.attribuee ? "tous" : filtres.attribuee === "aucun" ? "non_attribuees" : { compteId: filtres.attribuee }), [filtres.attribuee])
+  const lireRepos = useCallback(async (quand: Date) => {
+    const n = Number(await lireParametre("repos_appel_jours").catch(() => null))
+    return debutRepos(quand, Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS)
+  }, [])
   const chargerCompteurs = useCallback(async () => {
     const quand = new Date()
-    const [e, f, ap] = await Promise.all([compterParEtape(), compterFiles(quand), compterApporteurs().catch(() => 0)])
+    const repos = await lireRepos(quand)
+    const [e, f, ap] = await Promise.all([compterParEtape(), compterFiles(quand, proprietaire, repos).catch(() => null), compterApporteurs().catch(() => 0)])
     setApporteurs(ap)
     setParEtape(e); setParFile(f)
-  }, [])
+  }, [proprietaire, lireRepos])
 
   const charger = useCallback(async () => {
     if (!supabaseConfigure) return
     try {
       const quand = new Date()
-      const liste = file === "toutes" ? await chargerAgences(filtresServeur) : await chargerFile(file, quand)
+      const liste = file === "toutes" ? await chargerAgences(filtresServeur)
+        : file === "a_prospecter" ? retirerAuRepos(await chargerFile(file, quand, null, proprietaire), await lireRepos(quand))
+        : await chargerFile(file, quand, null, proprietaire)
       setAgences(liste); setMaintenant(quand); setErreur("")
     } catch (e) {
       setErreur(messageErreur(e))
     } finally {
       setChargement(false)
     }
-  }, [file, filtresServeur])
+  }, [file, filtresServeur, proprietaire, lireRepos])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
   // Arrivée depuis une autre page avec une étape à montrer.
   useEffect(() => {
@@ -196,7 +208,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
         <Compteurs<FileOuToutes>
           valeurs={[
             { id: "toutes", libelle: "Toutes", valeur: total, detail: "Sans les apporteurs" },
-            ...FILES.map((f) => ({ id: f.code, libelle: f.libelle, valeur: parFile[f.code], detail: f.aide, role: f.code === "rappels" && parFile.rappels > 0 ? ("alerte" as const) : undefined })),
+            ...FILES.map((f) => ({ id: f.code, libelle: f.libelle, valeur: parFile ? parFile[f.code] : "—", detail: parFile ? f.aide : "Comptage impossible pour l'instant (Réessayer)", role: f.code === "rappels" && parFile && parFile.rappels > 0 ? ("alerte" as const) : undefined })),
           ]}
           actif={file}
           onSelect={choisirFile}
@@ -293,7 +305,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
                           </button>
                           <div className="mt-0.5 chiffres text-colonne text-encre-2">{depuisTexte(a.etapeDepuis, maintenant)}</div>
                         </Td>
-                        <Td num className={a.tentatives >= SOMMEIL_APRES_TENTATIVES ? "text-alerte font-semibold" : ""}>{a.tentatives} / {SOMMEIL_APRES_TENTATIVES}</Td>
+                        <Td num className={a.tentatives >= SOMMEIL_APRES_TENTATIVES ? "text-alerte font-semibold" : ""}>{Math.min(a.tentatives, SOMMEIL_APRES_TENTATIVES)} / {SOMMEIL_APRES_TENTATIVES}</Td>
                         <Td>
                           {a.dernierAppelLe ? (
                             <>
