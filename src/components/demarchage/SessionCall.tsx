@@ -52,6 +52,7 @@ import {
 } from "../../demarchage/sessionOutils"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Interrupteur, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
+import AppelsANoter from "./AppelsANoter"
 import BarreResultat from "./BarreResultat"
 import ContactFormulaire from "./ContactFormulaire"
 
@@ -1237,6 +1238,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         sousTitre={enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile.` : "Choisis une pile, un secteur, et démarre."}
         droite={
           <>
+            <AppelsANoter
+              rafraichir={appelees.size}
+              onOuvrir={(id) => {
+                // Un appel en cours d'abord ; sinon l'agence s'ouvre, avec son bandeau « Noter le résultat ».
+                if (barreVisible || appel) setErreur("Note d'abord le résultat de l'appel en cours.")
+                else setDirecteId(id)
+              }}
+            />
             <div className="flex flex-wrap gap-1.5">
               {FILES.map((f) => {
                 const choisi = f.code === file

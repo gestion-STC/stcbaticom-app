@@ -408,6 +408,16 @@ export async function appelVerifier(agenceId: string, numero: string, direct: bo
   return (data as string | null) ?? null
 }
 
+// Les appels lancés dont le résultat n'a pas été noté (Mahdi, 13/10 : « une liste pour les
+// rentrer », pas un bandeau rouge). Ceux de moins de 5 minutes sont sans doute encore en ligne.
+export type AppelANoter = { id: string; agenceId: string; agenceNom: string; date: string; compteNom: string }
+export async function appelsANoter(): Promise<AppelANoter[]> {
+  type L = { id: string; agence_id: string; date: string; compte_nom: string; agences: { nom: string } | null }
+  const avant = new Date(Date.now() - 5 * 60_000).toISOString()
+  const lignes = await lireParLots<L>((d, f) => sb().from("activites").select("id, agence_id, date, compte_nom, agences(nom)").eq("type", "appel").eq("resultat", "lance").lt("date", avant).order("date").order("id").range(d, f) as unknown as PromiseLike<LotDe<L>>)
+  return lignes.map((l) => ({ id: l.id, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", date: l.date, compteNom: l.compte_nom }))
+}
+
 // Un appel entrant reconnu : journalisé sans toucher à l'étape.
 export async function journaliserAppelEntrant(agenceId: string, contactId: string | null, callId: string, compteNom: string): Promise<void> {
   const { error } = await sb().from("activites").insert({ agence_id: agenceId, contact_id: contactId, type: "appel", resultat: "joint", sens: "entrant", call_id: callId, compte_nom: compteNom, note: "Appel entrant", source: "session" })

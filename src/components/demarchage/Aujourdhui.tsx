@@ -9,6 +9,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, Video } from "lucide-react"
+import AppelsANoter from "./AppelsANoter"
 import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
@@ -104,7 +105,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
       setD({ files, base, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
       santeDemarchage()
-        .then((s) => { if (enVie.current) { setSante(s); setSanteErreur("") } })
+        .then((s) => { if (enVie.current) { setSante(s ? s.filter((e) => e.code !== "appel_non_note") : s); setSanteErreur("") } })
         .catch((e) => { if (enVie.current) setSanteErreur(message(e)) })
       setMaintenant(now)
       setErreur("")
@@ -216,6 +217,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         titre="Aujourd'hui"
         sousTitre={majusculeInitiale(dateLongue(maintenant))}
         droite={<>
+          <AppelsANoter onOuvrir={(id) => onOuvrirSession?.(id)} />
           <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => agir(async () => undefined)}>Actualiser</Bouton>
           <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
         </>}
