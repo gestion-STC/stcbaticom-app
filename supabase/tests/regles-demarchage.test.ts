@@ -333,3 +333,17 @@ describe("la santé de la base", () => {
     await q(`insert into public.activites (agence_id, type, echeance, titre) values ($1, 'tache', now() + interval '10 days', 'Relancer')`, [id])
   })
 })
+
+describe("apporteur d'affaires pendant un appel (13/10)", () => {
+  it("l'appel lancé est clos « apporteur », plus rien à compléter, plus aucune tâche", async () => {
+    const id = await agence()
+    await appel(id, "joint", "interesse")
+    await lancer(id)
+    await q(`update public.agences set type = 'apporteur' where id = $1`, [id])
+    const l = await q<{ resultat: string }>(`select resultat from public.activites where agence_id = $1 and type = 'appel' order by date`, [id])
+    expect(l.map((x) => x.resultat)).toEqual(["joint", "apporteur"])
+    expect(await ouvertes(id)).toEqual([])
+    const e = await q<{ exemples: string }>(`select exemples from public.sante_demarchage() where code = 'appel_non_note'`)
+    expect(e.length === 0 || !e[0].exemples.includes("Agence " + n)).toBe(true)
+  })
+})

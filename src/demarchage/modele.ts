@@ -67,6 +67,7 @@ export type Motif = (typeof MOTIFS)[number]["code"]
 export const RESULTAT_LANCE = "lance"
 export function libelleResultat(code: string): string {
   if (code === RESULTAT_LANCE) return "Appel lancé, résultat non noté"
+  if (code === "apporteur") return "Passée en apporteur d'affaires"
   return RESULTATS.find((r) => r.code === code)?.libelle ?? code
 }
 export function libelleIssue(code: string): string {

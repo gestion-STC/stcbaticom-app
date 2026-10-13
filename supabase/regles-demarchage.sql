@@ -267,6 +267,8 @@ begin
   -- Passée en apporteur d'affaires : elle sort du démarchage, plus aucune relance.
   if new.type = 'apporteur' and old.type is distinct from 'apporteur' then
     update public.activites set fait_le = now() where agence_id = new.id and type in ('tache', 'rdv') and fait_le is null;
+    -- L'appel en cours est clos : « passée en apporteur », rien d'autre à noter (Mahdi, 13/10).
+    update public.activites set resultat = 'apporteur' where agence_id = new.id and type = 'appel' and resultat = 'lance';
     return new;
   end if;
   if new.etape is not distinct from old.etape then return new; end if;
@@ -471,7 +473,7 @@ as $$
       ('agence_premier_os', 'ec639a4844d765424b15d87f25eb2bb8'),
       ('agence_suit_son_secteur', '6e7ba90b69d6e285a6ced23b0152f01a'),
       ('agences_etape_journal', 'fc6f7ba67ce22c7dc068d2559317e3db'),
-      ('agences_etape_relances', '4308ceb772c5906321b9bf035937520b'),
+      ('agences_etape_relances', '26ad1707da93b588e54772698725ef22'),
       ('appel_enregistrer', '6d025cbb9829df77339e41ce3162581a'),
       ('appel_lancer', '1a7719fcc50f051173c9dc47b44fabe4'),
       ('appel_verifier', '931c803ef41822ad589ab616b5cacdcf'),
@@ -492,6 +494,10 @@ as $$
     from ecarts group by code
 $$;
 grant execute on function public.sante_demarchage() to authenticated;
+
+-- Les appels lancés sur des agences DÉJÀ passées en apporteur : clos de la même façon.
+update public.activites x set resultat = 'apporteur'
+  from public.agences a where a.id = x.agence_id and a.type = 'apporteur' and x.type = 'appel' and x.resultat = 'lance';
 
 -- Contrôle : doit lister au plus les appels non notés (appel_non_note), et RIEN d'autre — surtout pas regle_modifiee.
 select code, nombre, left(exemples, 200) as exemples from public.sante_demarchage();

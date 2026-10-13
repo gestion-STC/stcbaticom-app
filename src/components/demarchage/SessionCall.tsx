@@ -846,6 +846,38 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // Un appel passé autrement (poste fixe, portable) : on note le résultat quand même.
   // Un appel lancé sans résultat noté (Mahdi, 13/10 : « je l'ai joint, la fiche dit 0 ») : on le complète.
+  // « Apporteur d'affaires » (Mahdi, 13/10) : pendant ou après l'appel, un clic suffit — l'agence
+  // part chez les apporteurs, l'appel lancé est clos par la base (« passée en apporteur », rien
+  // d'autre à cocher) et la session passe à la fiche suivante. Plus jamais grisé en session.
+  async function passerEnApporteur() {
+    const c = couranteRef.current
+    if (!c) return
+    const id = c.agence.id
+    const a = appelRef.current
+    try {
+      if (a && !a.manuel && !a.appelId && lancementRef.current?.debut === a.debut) await lancementRef.current.promesse // la ligne du clic, d'abord écrite
+      await passerApporteur(id, compteNom)
+      if (!enVie.current) return
+      if (a && a.agenceId === id) {
+        setAppel(null)
+        setBarreVisible(false)
+        setNote("")
+        setSuggestion(null)
+      }
+      setInfo(`${c.agence.nom} : passée en apporteur d'affaires, elle ne sera plus démarchée.`)
+      setAppelees((s) => new Set(s).add(id))
+      if (directeRef.current === id) setDirecteId(null)
+      else {
+        // Elle sort de la file : la suivante prend sa place (même index).
+        setFileAgences((arr) => arr.filter((x) => x.id !== id))
+        setIndex((i) => Math.min(i, Math.max(0, fileRef.current.length - 2)))
+      }
+      recompterFiles()
+    } catch (e) {
+      setErreur(messageDe(e))
+    }
+  }
+
   function noterAppelEnSuspens(ligne: Activite) {
     if (!fiche) return
     const t = Date.now()
@@ -1435,7 +1467,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                       <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => ouvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
                       {/* Un apporteur d'affaires découvert en ligne (Mahdi, 12/10) : un clic, elle sort du démarchage, la file avance.
                           Pas pendant un résultat à noter : recharger la file effacerait l'appel en cours. */}
-                      <Bouton variante="discret" icone={<Briefcase />} disabled={enCours || barreVisible} title={barreVisible ? "Note d'abord le résultat de l'appel en cours" : "Cette agence est un apporteur d'affaires : elle sort du démarchage, d'un clic"} onClick={async () => { try { await passerApporteur(fiche.agence.id, compteNom); setInfo(`${fiche.agence.nom} : passée en apporteur d'affaires, elle ne sera plus démarchée.`); void chargerLaFile(); recompterFiles() } catch (e) { setErreur(messageDe(e)) } }}>Apporteur d'affaires</Bouton>
+                      <Bouton variante="discret" icone={<Briefcase />} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, l'appel en cours est clos, on passe à la suivante" onClick={() => void passerEnApporteur()}>Apporteur d'affaires</Bouton>
                       <Bouton variante="discret" icone={<ExternalLink />} onClick={() => ouvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
                     </div>
                   ) : null}
