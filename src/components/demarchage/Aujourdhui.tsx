@@ -18,6 +18,7 @@ import {
   majusculeInitiale,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
+import { debutRepos, REPOS_JOURS } from "../../demarchage/sessionOutils"
 import { listerComptes } from "../../lib/comptes"
 import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
@@ -71,8 +72,11 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       // La fonction de chaque compte (Comptes) : seuls les commerciaux sont classés.
       const fonctions = await chargerFonctions().catch(() => ({}) as Record<string, never>)
       const horsClassement = new Set(Object.entries(fonctions).filter(([, f]) => !estAuClassement(f)).map(([id]) => id))
+      // « À prospecter » compte comme la session : sans les agences au repos (Réglages, 5 jours sinon).
+      const reposBrut = Number(await lireParametre("repos_appel_jours").catch(() => null))
+      const repos = Number.isInteger(reposBrut) && reposBrut >= 1 && reposBrut <= 60 ? reposBrut : REPOS_JOURS
       const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
-        compterFiles(now),
+        compterFiles(now, "tous", debutRepos(now, repos)).catch(() => compterFiles(now)),
         chargerTachesDuJour(now),
         compterPremiersOs(debutDuMois(now), finDuMois(now)),
         lireParametre(CLE_OBJECTIF),

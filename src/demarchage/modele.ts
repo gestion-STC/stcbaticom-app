@@ -279,21 +279,24 @@ export function fileDe(a: Agence, maintenant: Date): File | null {
 // on trie toute la base avant de revenir sur un numéro) ; dans chaque groupe, le
 // secteur du jour d'abord ; puis la tentative la plus ancienne ; à égalité, les
 // réseaux avant les indépendants.
-// Puis, une fois toute la base appelée : celles appelées UNE fois avant celles appelées
-// deux fois, etc. (13/10 : « on trie la base, on ne repasse pas toujours sur les mêmes »).
+// Puis, une fois toute la base appelée : « ce qu'on a appelé en premier passe ensuite »
+// (Mahdi, 13/10) — la plus anciennement appelée d'abord ; la base tourne, on ne repasse
+// jamais deux fois sur les mêmes avant d'avoir fait le tour.
 // Une agence sans aucun numéro passe en dernier : on ne peut pas l'appeler.
 export function ordonnerAProspecter(agences: Agence[], secteurDuJour: string | null): Agence[] {
   const sansNumero = (a: Agence) => (a.telephone.trim() || a.nbContacts > 0 ? 0 : 1)
-  const nbAppels = (a: Agence) => (a.dernierAppelLe ? Math.max(1, a.nbAppels) : 0)
   return [...agences].sort((x, y) => {
     if (sansNumero(x) !== sansNumero(y)) return sansNumero(x) - sansNumero(y)
-    const jx = nbAppels(x)
-    const jy = nbAppels(y)
+    const jx = x.dernierAppelLe ? 1 : 0
+    const jy = y.dernierAppelLe ? 1 : 0
     if (jx !== jy) return jx - jy
-    const sx = secteurDuJour && x.secteur === secteurDuJour ? 0 : 1
-    const sy = secteurDuJour && y.secteur === secteurDuJour ? 0 : 1
-    if (sx !== sy) return sx - sy
-    if (x.dernierAppelLe && y.dernierAppelLe && x.dernierAppelLe !== y.dernierAppelLe) return x.dernierAppelLe < y.dernierAppelLe ? -1 : 1
+    if (x.dernierAppelLe && y.dernierAppelLe) {
+      if (x.dernierAppelLe !== y.dernierAppelLe) return x.dernierAppelLe < y.dernierAppelLe ? -1 : 1
+    } else {
+      const sx = secteurDuJour && x.secteur === secteurDuJour ? 0 : 1
+      const sy = secteurDuJour && y.secteur === secteurDuJour ? 0 : 1
+      if (sx !== sy) return sx - sy
+    }
     const ex = x.enseigne ? 0 : 1
     const ey = y.enseigne ? 0 : 1
     if (ex !== ey) return ex - ey
@@ -336,6 +339,7 @@ export function effetAnnonce(resultat: Resultat, issue: Issue | null, a: Pick<Ag
     if (t >= SOMMEIL_APRES_TENTATIVES && (a.etape === "a_prospecter" || a.etape === "gestionnaire_joint")) {
       return `${t}e tentative sans gestionnaire : l'agence s'endort ${SOMMEIL_JOURS} jours.`
     }
+    if (a.etape === "interesse" || a.etape === "rdv_planifie") return `Elle reste intéressée : relance dans ${relanceJours()} jours.`
     return `Tentative ${t} sur ${SOMMEIL_APRES_TENTATIVES}. L'étape ne change pas.`
   }
   if (resultat === "faux_numero") return "La fiche sort en « hors cible ». Elle n'est pas supprimée."
@@ -354,4 +358,16 @@ export function dureeLisible(s: number | null | undefined): string {
   const m = Math.floor(s / 60)
   const r = s % 60
   return m ? `${m} min ${r.toString().padStart(2, "0")}` : `${r} s`
+}
+
+// Le PREMIER « intéressé » de chaque agence (Mahdi, 13/10 : des chiffres justes) : une
+// intéressée relancée tous les 10 jours redit souvent « intéressé » ; ce n'est pas une
+// nouvelle agence intéressée. Renvoie agence → id de l'appel qui l'a rendue intéressée.
+export function premiersInteresses(appels: { id: string; agence_id: string; date: string }[]): Map<string, string> {
+  const premier = new Map<string, { id: string; date: string }>()
+  for (const a of appels) {
+    const p = premier.get(a.agence_id)
+    if (!p || a.date < p.date || (a.date === p.date && a.id < p.id)) premier.set(a.agence_id, { id: a.id, date: a.date })
+  }
+  return new Map([...premier].map(([agence, p]) => [agence, p.id]))
 }

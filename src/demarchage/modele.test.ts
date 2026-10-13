@@ -9,6 +9,7 @@ import {
   nomCle,
   numeroParDefaut,
   ordonnerAProspecter,
+  premiersInteresses,
   ordonnerInteresses,
   secteurDepuis,
   type Agence,
@@ -110,17 +111,29 @@ describe("ordonnerAProspecter", () => {
       agence({ id: "appelee-secteur-du-jour", secteur: "75005", dernierAppelLe: "2026-09-01T10:00:00Z" }),
       agence({ id: "recente", secteur: "75013", dernierAppelLe: "2026-10-01T10:00:00Z" }),
     ]
-    // Une agence déjà appelée, même du secteur du jour, passe après TOUTES les jamais appelées.
-    expect(ordonnerAProspecter(liste, "75005").map((a) => a.id)).toEqual(["jamais-secteur-du-jour", "jamais-reseau", "jamais-indep", "appelee-secteur-du-jour", "vieille", "recente"])
+    // Une agence déjà appelée, même du secteur du jour, passe après TOUTES les jamais appelées, puis la plus anciennement appelée.
+    expect(ordonnerAProspecter(liste, "75005").map((a) => a.id)).toEqual(["jamais-secteur-du-jour", "jamais-reseau", "jamais-indep", "vieille", "appelee-secteur-du-jour", "recente"])
   })
-  it("appelées une fois avant deux fois, et une agence sans aucun numéro tout à la fin", () => {
+  it("une fois la base appelée : la plus anciennement appelée d'abord, et une agence sans aucun numéro tout à la fin", () => {
     const liste = [
-      agence({ id: "deux-fois", nbAppels: 2, dernierAppelLe: "2026-07-01T10:00:00Z" }),
+      agence({ id: "appelee-recemment", nbAppels: 1, dernierAppelLe: "2026-10-01T10:00:00Z" }),
       agence({ id: "sans-numero", telephone: "", nbContacts: 0 }),
-      agence({ id: "une-fois", nbAppels: 1, dernierAppelLe: "2026-10-01T10:00:00Z" }),
+      agence({ id: "appelee-en-juillet", nbAppels: 2, dernierAppelLe: "2026-07-01T10:00:00Z", secteur: "75013" }),
       agence({ id: "jamais" }),
     ]
-    expect(ordonnerAProspecter(liste, null).map((a) => a.id)).toEqual(["jamais", "une-fois", "deux-fois", "sans-numero"])
+    // Le secteur du jour ne fait pas repasser une agence appelée devant une plus ancienne.
+    expect(ordonnerAProspecter(liste, "75005").map((a) => a.id)).toEqual(["jamais", "appelee-en-juillet", "appelee-recemment", "sans-numero"])
+  })
+})
+
+describe("premiersInteresses", () => {
+  it("garde, par agence, le premier appel « intéressé » (les relances ne recomptent pas)", () => {
+    const m = premiersInteresses([
+      { id: "b", agence_id: "A", date: "2026-10-20T10:00:00Z" },
+      { id: "a", agence_id: "A", date: "2026-10-08T10:00:00Z" },
+      { id: "c", agence_id: "B", date: "2026-10-09T10:00:00Z" },
+    ])
+    expect([...m]).toEqual([["A", "a"], ["B", "c"]])
   })
 })
 
@@ -136,7 +149,7 @@ describe("effetAnnonce", () => {
   it("compte les tentatives et annonce le sommeil à la sixième", () => {
     expect(effetAnnonce("pas_de_reponse", null, { etape: "a_prospecter", tentatives: 0 })).toBe("Tentative 1 sur 6. L'étape ne change pas.")
     expect(effetAnnonce("standard", null, { etape: "a_prospecter", tentatives: 5 })).toContain("s'endort 60 jours")
-    expect(effetAnnonce("pas_de_reponse", null, { etape: "interesse", tentatives: 5 })).toBe("Tentative 6 sur 6. L'étape ne change pas.")
+    expect(effetAnnonce("pas_de_reponse", null, { etape: "interesse", tentatives: 5 })).toBe("Elle reste intéressée : relance dans 7 jours.")
   })
   it("décrit chaque issue", () => {
     expect(effetAnnonce("joint", "interesse", { etape: "a_prospecter", tentatives: 2 })).toContain("Relancer")
