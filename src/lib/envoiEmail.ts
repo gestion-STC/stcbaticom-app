@@ -2,7 +2,6 @@ import type { Prospect } from "../data"
 import { commercial } from "../data"
 import type { Email } from "../emails"
 import { decouperAdresses } from "./adressesEmail"
-import { logEmailEnvoye } from "./emailsEnvoyesDb"
 import { lienSuivi, remplirLiens } from "./liensSuivisDb"
 import { supabase, supabaseConfigure } from "./supabase"
 
@@ -116,6 +115,12 @@ export async function envoyerEmail(
     throw new Error((data as { error: string }).error)
   }
 
-  if (prospect.id)
-    await logEmailEnvoye({ prospectId: prospect.id, modeleNom: modele.nom, objet })
+  // Le mail sur la FICHE (Mahdi, 13/10 : « j'ai envoyé un mail à cette dame et il n'y a rien ») :
+  // depuis la refonte du 09/10, `prospect.id` est l'id de l'AGENCE ; le serveur, lui, cherchait
+  // encore dans l'ancienne table prospects. On rattache le message journalisé à l'agence.
+  const resendId = (data as { id?: string } | null)?.id ?? ""
+  if (prospect.id && resendId) {
+    const { error: e } = await supabase.from("messages").update({ agence_id: prospect.id }).eq("message_id", resendId).is("agence_id", null)
+    if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)
+  }
 }
