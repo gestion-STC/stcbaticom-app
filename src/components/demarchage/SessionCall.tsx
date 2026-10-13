@@ -29,7 +29,7 @@ import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, filtreCommercial, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import type { Message } from "../../lib/messagesDb"
-import { chargerNumeros } from "../../lib/numerosEmission"
+import { chargerNumerosDuCompte, estDansLaReserve } from "../../lib/numerosEmission"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { detailAppelRingover, lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
@@ -243,6 +243,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [directeId, setDirecteId] = useState<string | null>(null) // une agence appelée hors file
   const [appelees, setAppelees] = useState<Set<string>>(() => new Set())
   const [reserve, setReserve] = useState<string[]>([])
+  const [autresNumeros, setAutresNumeros] = useState<string[]>([]) // les numéros des collègues (13/10)
+  const autresNumerosRef = useRef<string[]>([])
+  const [sansNumero, setSansNumero] = useState(false) // des numéros sont attribués, aucun à moi
   const [compteursNumero, setCompteursNumero] = useState<Map<string, number>>(() => new Map())
   const [quota, setQuota] = useState(0)
   const [script, setScript] = useState("")
@@ -298,6 +301,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const directeRef = useRef(directeId)
   const agenceIdRef = useRef(agenceCouranteId)
   const reserveRef = useRef(reserve)
+  const sansNumeroRef = useRef(sansNumero)
   const noteRef = useRef(note)
   const goTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dicteeRef = useRef<Dictee | null>(null)
@@ -327,11 +331,12 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     directeRef.current = directeId
     agenceIdRef.current = agenceCouranteId
     reserveRef.current = reserve
+    sansNumeroRef.current = sansNumero
     noteRef.current = note
   })
 
   // ── Calculs d'affichage ──
-  const attribution = useMemo(() => (fiche && reserve.length ? numeroEmissionPour(fiche.agence, reserve, fileAgences) : null), [fiche, reserve, fileAgences])
+  const attribution = useMemo(() => (fiche && reserve.length ? numeroEmissionPour(fiche.agence, reserve, fileAgences, autresNumeros) : null), [fiche, reserve, fileAgences, autresNumeros])
   const emissionBloquee = Boolean(attribution?.bloque)
   const numeroEmission = attribution && !attribution.bloque ? attribution.numero : (fiche?.agence.numeroEmission ?? "")
   const jauge = useMemo(() => jaugeDuJour(numeroEmission, compteursNumero, quota), [numeroEmission, compteursNumero, quota])
@@ -364,7 +369,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
-      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
+      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
     ])
     if (!enVie.current) return
     setSecteurs(sect)
@@ -376,9 +381,15 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     }
     setAppelees(app)
     setCompteursNumero(parNumero)
-    if (res) setReserve(res)
+    if (res) {
+      // Mes numéros seulement (Ringover fait sonner le PROPRIÉTAIRE du numéro) ; ceux des collègues à part.
+      setReserve(res.miens)
+      autresNumerosRef.current = res.autres
+      setAutresNumeros(res.autres)
+      setSansNumero(res.parCompte && res.miens.length === 0)
+    }
     setMaintenant(Date.now())
-  }, [proprietaire, reposJours])
+  }, [proprietaire, reposJours, moiId])
   const premierReperes = useRef(true)
   useEffect(() => {
     compterFilesRef.current = (m: Date) => compterFiles(m, proprietaire, debutRepos(m, reposJours))
@@ -501,7 +512,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         if (annule) return
         // Première fois qu'on l'appelle : on lui attribue un numéro d'émission, écrit sur la fiche.
         const res = reserveRef.current
-        if (!c.agence.numeroEmission && res.length) {
+        if (res.length && (!c.agence.numeroEmission || estDansLaReserve(c.agence.numeroEmission, autresNumerosRef.current))) {
           const numero = numeroLeMoinsAttribue(res, fileRef.current)
           if (numero) {
             const id = c.agence.id
@@ -717,11 +728,17 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         setErreur("Numéro incorrect ou incomplet : corrige-le sur la fiche avant d'appeler.")
         return
       }
+      // Aucun numéro Ringover à moi : on n'appelle pas avec celui d'un collègue (ça le ferait sonner, lui).
+      if (sansNumeroRef.current) {
+        setErreur("Aucun numéro d'appel n'est attribué à ton compte : Réglages › Numéros d'appel, choisis « Utilisé par » pour ton numéro Ringover. (Tu peux toujours copier le numéro.)")
+        if (depuisAuto) setAuto(false)
+        return
+      }
       // L'agence est TOUJOURS appelée depuis son numéro attitré. Sorti de la réserve → bloqué.
       let from = c.agence.numeroEmission
       const res = reserveRef.current
       if (res.length) {
-        const att = numeroEmissionPour(c.agence, res, fileRef.current)
+        const att = numeroEmissionPour(c.agence, res, fileRef.current, autresNumerosRef.current)
         if (att.bloque) {
           setErreur(`Appel bloqué : ${c.agence.nom} a toujours été appelée depuis le ${formaterTelephone(att.numero)}, qui n'est plus dans la réserve. Réattribue-lui un numéro (bouton ci-dessous) ou réactive celui-ci dans Réglages.`)
           if (autoRef.current) goTimerRef.current = setTimeout(() => avancerRef.current(), 1500)

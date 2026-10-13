@@ -14,7 +14,9 @@ import { lireParametre, ecrireParametre } from "./parametresDb"
 const CLE = "numeros_emission"
 
 // Un numéro d'émission, éventuellement mis EN PAUSE (gardé mais retiré de la rotation).
-export type NumeroEmission = { numero: string; pause: boolean }
+// `compteId` (13/10) : la personne à qui ce numéro appartient dans Ringover. Ringover fait
+// sonner le propriétaire du numéro : on n'appelle donc QU'avec ses propres numéros.
+export type NumeroEmission = { numero: string; pause: boolean; compteId?: string }
 
 // Normalise un numéro pour comparer (ne garde que les chiffres).
 export function normaliser(n: string): string {
@@ -42,12 +44,13 @@ export function parserNumeros(brut: string | null): NumeroEmission[] {
           ? String((x as { numero?: unknown }).numero ?? "")
           : ""
     const pause = !!(x && typeof x === "object" && (x as { pause?: unknown }).pause)
+    const compteId = x && typeof x === "object" && typeof (x as { compteId?: unknown }).compteId === "string" ? (x as { compteId: string }).compteId : ""
     const t = numero.trim()
     if (!t) continue
     const c = normaliser(t)
     if (vus.has(c)) continue
     vus.add(c)
-    out.push({ numero: t, pause })
+    out.push(compteId ? { numero: t, pause, compteId } : { numero: t, pause })
   }
   return out
 }
@@ -72,6 +75,24 @@ export async function enregistrerNumerosComplet(liste: NumeroEmission[]): Promis
 // C'est ce que la logique d'appel utilise : un numéro en pause n'est plus attribué.
 export async function chargerNumeros(): Promise<string[]> {
   return (await chargerNumerosComplet()).filter((n) => !n.pause).map((n) => n.numero)
+}
+
+// Les numéros de CE compte (13/10) : « miens » = ceux avec lesquels il appelle ; « autres » = ceux
+// des collègues (une agence qui en porte un est réattribuée à mon numéro, jamais bloquée).
+// Tant qu'aucun numéro n'a de propriétaire, tout le monde utilise toute la réserve (comme avant).
+export type NumerosDuCompte = { miens: string[]; autres: string[]; parCompte: boolean }
+export function numerosDuCompte(liste: NumeroEmission[], compteId: string): NumerosDuCompte {
+  const actifs = liste.filter((n) => !n.pause)
+  const parCompte = liste.some((n) => n.compteId)
+  if (!parCompte) return { miens: actifs.map((n) => n.numero), autres: [], parCompte }
+  return {
+    miens: actifs.filter((n) => n.compteId === compteId).map((n) => n.numero),
+    autres: liste.filter((n) => n.compteId && n.compteId !== compteId).map((n) => n.numero),
+    parCompte,
+  }
+}
+export async function chargerNumerosDuCompte(compteId: string): Promise<NumerosDuCompte> {
+  return numerosDuCompte(await chargerNumerosComplet(), compteId)
 }
 
 // Vrai si `numero` (comparé sur les chiffres) est présent dans la réserve.

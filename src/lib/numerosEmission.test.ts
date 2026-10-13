@@ -6,6 +6,7 @@ import {
   numeroPourProspect,
   parserNumeros,
   compterAppelsParNumero,
+  numerosDuCompte,
 } from "./numerosEmission"
 import type { Prospect } from "../data"
 
@@ -138,5 +139,21 @@ describe("compterAppelsParNumero (jauge d'usage quotidien)", () => {
     const p1 = p({ id: "1", numeroEmission: "" })
     const compte = compterAppelsParNumero([{ prospectId: "1" }, { prospectId: "zz" }], [p1])
     expect(compte.size).toBe(0)
+  })
+})
+
+describe("un numéro, une personne (13/10)", () => {
+  const liste = [
+    { numero: "+33 1 84 80 61 28", pause: false, compteId: "mahdi" },
+    { numero: "33 1 89 70 86 23", pause: false, compteId: "horlann" },
+  ]
+  it("chacun n'appelle qu'avec ses numéros ; ceux du collègue sont à part", () => {
+    expect(numerosDuCompte(liste, "mahdi")).toEqual({ miens: ["+33 1 84 80 61 28"], autres: ["33 1 89 70 86 23"], parCompte: true })
+  })
+  it("sans propriétaire nulle part : toute la réserve, comme avant", () => {
+    expect(numerosDuCompte([{ numero: "01 00 00 00 01", pause: false }], "mahdi")).toEqual({ miens: ["01 00 00 00 01"], autres: [], parCompte: false })
+  })
+  it("le propriétaire survit à l'enregistrement", () => {
+    expect(parserNumeros(JSON.stringify(liste))).toEqual(liste)
   })
 })

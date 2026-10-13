@@ -11,7 +11,8 @@ import { chargerNumerosComplet, enregistrerNumerosComplet, normaliser, type Nume
 import { compterAppelsDuJourParNumero } from "../demarchage/db"
 import { lireParametre, ecrireParametre } from "../lib/parametresDb"
 import { supabaseConfigure } from "../lib/supabase"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Tableau, Td, Th, TitreCarte, Tr, Vide } from "../ui"
+import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Selecteur, Tableau, Td, Th, TitreCarte, Tr, Vide } from "../ui"
+import { listerComptes } from "../lib/comptes"
 
 const QUOTA_DEFAUT = 100 // appels/jour/numéro recommandés pour rester sous le radar « spam »
 
@@ -34,6 +35,14 @@ export default function NumerosManager() {
   const [quota, setQuota] = useState(QUOTA_DEFAUT)
   // La réserve n'a pas pu être lue : on n'enregistre rien (une liste vide écraserait les vrais numéros).
   const [lue, setLue] = useState(false)
+  // À qui appartient chaque numéro dans Ringover (13/10) : Ringover fait sonner son propriétaire.
+  const [comptes, setComptes] = useState<{ id: string; nom: string }[]>([])
+  useEffect(() => {
+    listerComptes().then((l) => setComptes(l.map((c) => ({ id: c.id, nom: c.nom || c.email })))).catch(() => setComptes([]))
+  }, [])
+  function changerProprietaire(numero: string, compteId: string) {
+    void sauver(numeros.map((x) => (x.numero === numero ? (compteId ? { ...x, compteId } : { numero: x.numero, pause: x.pause }) : x)))
+  }
 
   useEffect(() => {
     if (!supabaseConfigure) return
@@ -186,6 +195,7 @@ export default function NumerosManager() {
             <thead>
               <tr>
                 <Th>Numéro</Th>
+                <Th className="w-[200px]" title="La personne à qui ce numéro appartient dans Ringover : c'est son téléphone qui sonne quand on appelle avec.">Utilisé par</Th>
                 <Th className="w-[130px]">État</Th>
                 <Th className="w-[300px]">Aujourd'hui</Th>
                 <Th className="w-[220px]" />
@@ -203,6 +213,12 @@ export default function NumerosManager() {
                         <Phone size={14} className={n.pause ? "text-encre-3" : "text-encre-2"} />
                         <span className="chiffres">{n.numero}</span>
                       </span>
+                    </Td>
+                    <Td>
+                      <Selecteur value={n.compteId ?? ""} onChange={(e) => changerProprietaire(n.numero, e.target.value)} aria-label={`Utilisé par (${n.numero})`} className="w-full">
+                        <option value="">— tout le monde —</option>
+                        {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                      </Selecteur>
                     </Td>
                     <Td>
                       {n.pause ? (
