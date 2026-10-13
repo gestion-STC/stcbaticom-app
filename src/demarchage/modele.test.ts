@@ -113,6 +113,15 @@ describe("ordonnerAProspecter", () => {
     // Une agence déjà appelée, même du secteur du jour, passe après TOUTES les jamais appelées.
     expect(ordonnerAProspecter(liste, "75005").map((a) => a.id)).toEqual(["jamais-secteur-du-jour", "jamais-reseau", "jamais-indep", "appelee-secteur-du-jour", "vieille", "recente"])
   })
+  it("appelées une fois avant deux fois, et une agence sans aucun numéro tout à la fin", () => {
+    const liste = [
+      agence({ id: "deux-fois", nbAppels: 2, dernierAppelLe: "2026-07-01T10:00:00Z" }),
+      agence({ id: "sans-numero", telephone: "", nbContacts: 0 }),
+      agence({ id: "une-fois", nbAppels: 1, dernierAppelLe: "2026-10-01T10:00:00Z" }),
+      agence({ id: "jamais" }),
+    ]
+    expect(ordonnerAProspecter(liste, null).map((a) => a.id)).toEqual(["jamais", "une-fois", "deux-fois", "sans-numero"])
+  })
 })
 
 describe("appeleeAujourdHui", () => {

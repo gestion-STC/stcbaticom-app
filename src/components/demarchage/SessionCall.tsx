@@ -235,6 +235,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // ── L'appel ──
   const [appel, setAppel] = useState<AppelEnCours | null>(null)
   const [reposJours, setReposJours] = useState(REPOS_JOURS) // Réglages › Objectifs et script
+  // Les compteurs des piles : toujours dans la base choisie et avec le repos (pas « tous »).
+  const compterFilesRef = useRef((m: Date) => compterFiles(m, "tous", debutRepos(m)))
   const [barreVisible, setBarreVisible] = useState(false)
   const [contactEnLigne, setContactEnLigne] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<Resultat | null>(null)
@@ -321,7 +323,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const chargerReperes = useCallback(async () => {
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
-      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
+      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours)).catch(() => compterFiles(m, proprietaire)), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumeros().catch(() => null),
     ])
     if (!enVie.current) return
     setSecteurs(sect)
@@ -335,8 +337,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     setCompteursNumero(parNumero)
     if (res) setReserve(res)
     setMaintenant(Date.now())
-  }, [proprietaire])
+  }, [proprietaire, reposJours])
   const premierReperes = useRef(true)
+  useEffect(() => {
+    compterFilesRef.current = (m: Date) => compterFiles(m, proprietaire, debutRepos(m, reposJours))
+  }, [proprietaire, reposJours])
 
   // La file : rechargée quand on change de file, de secteur, ou la case des déjà appelées.
   const chargerLaFile = useCallback(async () => {
@@ -845,7 +850,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         setSuggestion(null)
         setIndice("")
         setErreur("")
-        compterFiles(m)
+        compterFilesRef.current(m)
           .then((x) => {
             if (enVie.current) setCompteurs(x)
           })
@@ -954,7 +959,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setDialogue(null)
       setErreur("")
       await rafraichirCourante()
-      compterFiles(new Date())
+      compterFilesRef.current(new Date())
         .then((x) => {
           if (enVie.current) setCompteurs(x)
         })
