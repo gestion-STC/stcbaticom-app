@@ -279,10 +279,16 @@ export function fileDe(a: Agence, maintenant: Date): File | null {
 // on trie toute la base avant de revenir sur un numéro) ; dans chaque groupe, le
 // secteur du jour d'abord ; puis la tentative la plus ancienne ; à égalité, les
 // réseaux avant les indépendants.
+// Puis, une fois toute la base appelée : celles appelées UNE fois avant celles appelées
+// deux fois, etc. (13/10 : « on trie la base, on ne repasse pas toujours sur les mêmes »).
+// Une agence sans aucun numéro passe en dernier : on ne peut pas l'appeler.
 export function ordonnerAProspecter(agences: Agence[], secteurDuJour: string | null): Agence[] {
+  const sansNumero = (a: Agence) => (a.telephone.trim() || a.nbContacts > 0 ? 0 : 1)
+  const nbAppels = (a: Agence) => (a.dernierAppelLe ? Math.max(1, a.nbAppels) : 0)
   return [...agences].sort((x, y) => {
-    const jx = x.dernierAppelLe ? 1 : 0
-    const jy = y.dernierAppelLe ? 1 : 0
+    if (sansNumero(x) !== sansNumero(y)) return sansNumero(x) - sansNumero(y)
+    const jx = nbAppels(x)
+    const jy = nbAppels(y)
     if (jx !== jy) return jx - jy
     const sx = secteurDuJour && x.secteur === secteurDuJour ? 0 : 1
     const sy = secteurDuJour && y.secteur === secteurDuJour ? 0 : 1
