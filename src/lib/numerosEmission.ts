@@ -53,8 +53,12 @@ export function parserNumeros(brut: string | null): NumeroEmission[] {
 }
 
 // Charge la liste COMPLÈTE (actifs + en pause) pour l'écran de gestion.
+// Une lecture ratée LÈVE (13/10) : une liste vide prise pour vraie, puis enregistrée, viderait la réserve.
 export async function chargerNumerosComplet(): Promise<NumeroEmission[]> {
-  const brut = await lireParametre(CLE).catch(() => null)
+  const brut = await lireParametre(CLE)
+  if (brut && brut.trim()) {
+    try { JSON.parse(brut) } catch { throw new Error("La liste des numéros enregistrée est illisible : rien n'est modifié.") }
+  }
   return parserNumeros(brut)
 }
 

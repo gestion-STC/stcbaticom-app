@@ -32,12 +32,14 @@ export default function NumerosManager() {
   // Jauge d'usage : appels passés AUJOURD'HUI par numéro (clé = chiffres du numéro).
   const [usage, setUsage] = useState<Map<string, number>>(new Map())
   const [quota, setQuota] = useState(QUOTA_DEFAUT)
+  // La réserve n'a pas pu être lue : on n'enregistre rien (une liste vide écraserait les vrais numéros).
+  const [lue, setLue] = useState(false)
 
   useEffect(() => {
     if (!supabaseConfigure) return
     chargerNumerosComplet()
-      .then(setNumeros)
-      .catch((e) => setErreur(e instanceof Error ? e.message : "Erreur inconnue"))
+      .then((l) => { setNumeros(l); setLue(true) })
+      .catch((e) => setErreur(`Numéros illisibles, rien ne peut être modifié : ${e instanceof Error ? e.message : "erreur inconnue"}`))
       .finally(() => setChargement(false))
     lireParametre("quota_appels_jour")
       .then((v) => {
@@ -65,6 +67,7 @@ export default function NumerosManager() {
   }, [enregistre])
 
   async function sauver(liste: NumeroEmission[]) {
+    if (!lue) { setErreur("La liste des numéros n'a pas pu être lue : recharge la page avant de la modifier."); return }
     setNumeros(liste)
     try {
       await enregistrerNumerosComplet(liste)
@@ -98,7 +101,9 @@ export default function NumerosManager() {
   function changerQuota(v: string) {
     const n = Math.max(10, Math.min(500, Number(v) || QUOTA_DEFAUT))
     setQuota(n)
-    ecrireParametre("quota_appels_jour", String(n)).catch(() => {})
+    ecrireParametre("quota_appels_jour", String(n))
+      .then(() => setEnregistre(true))
+      .catch((e) => setErreur(`Seuil non enregistré : ${e instanceof Error ? e.message : "erreur inconnue"}`))
   }
 
   const nbActifs = numeros.filter((n) => !n.pause).length

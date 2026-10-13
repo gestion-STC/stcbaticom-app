@@ -9,6 +9,7 @@
 import type { Prospect } from "../data"
 import type { Message } from "../lib/messagesDb"
 import { supabase } from "../lib/supabase"
+import { lireParLots } from "../lib/pagination"
 import {
   type Activite,
   type Agence,
@@ -128,6 +129,9 @@ export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
     if (f.enseigne && a.enseigne !== f.enseigne) return false
     if (f.jamaisJointe && a.jointFois > 0) return false
     if (f.avecContact && a.nbContacts === 0) return false
+    // « Attribuée à » (13/10) : appliqué aussi aux piles, chargées sans ce filtre.
+    if (f.attribuee === "aucun" && a.commercialId !== null) return false
+    if (f.attribuee && f.attribuee !== "aucun" && a.commercialId !== f.attribuee) return false
     if (texte) {
       const meule = plat([a.nom, a.enseigne, a.telephone, a.email, a.adresse, a.contactPrincipal, a.contactLigne, a.secteurLibelle].join(" "))
       const parTexte = meule.includes(texte)
@@ -136,6 +140,19 @@ export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
     }
     return true
   })
+}
+
+/** Le repos entre deux appels, comme la session et les compteurs : on retire les agences appelées depuis `reposDepuis`. */
+export function retirerAuRepos<T extends Pick<Agence, "dernierAppelLe">>(agences: T[], reposDepuis: string): T[] {
+  const borne = new Date(reposDepuis).getTime()
+  return agences.filter((a) => !a.dernierAppelLe || new Date(a.dernierAppelLe).getTime() < borne)
+}
+
+/** Le jour LOCAL (Paris) d'un horodatage, « 2026-10-13 » ; « » si vide. Jamais `.slice(0, 10)` d'une date UTC. */
+export function jourLocalDe(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? "" : jourPourChamp(d)
 }
 
 /** Les enseignes présentes, triées, sans vide. */
@@ -317,10 +334,10 @@ export type LigneExportAgence = {
 export function ligneExportAgence(a: Agence): LigneExportAgence {
   return {
     nom: a.nom, enseigne: a.enseigne, type: libelleType(a.type), secteur: a.secteurLibelle, adresse: a.adresse, telephone: a.telephone, email: a.email, site: a.site, nbLots: a.nbLots || "",
-    etape: libelleEtape(a.etape), etapeDepuis: a.etapeDepuis ? a.etapeDepuis.slice(0, 10) : "", tentatives: a.tentatives, jointFois: a.jointFois,
+    etape: libelleEtape(a.etape), etapeDepuis: jourLocalDe(a.etapeDepuis), tentatives: a.tentatives, jointFois: a.jointFois,
     contactPrincipal: a.contactPrincipal, contactLigne: a.contactLigne, nbContacts: a.nbContacts,
-    dernierAppel: a.dernierAppelLe ? a.dernierAppelLe.slice(0, 10) : "", dernierResultat: a.dernierResultat ? libelleResultat(a.dernierResultat) : "",
-    prochaineTache: a.prochaineTache, prochaineEcheance: a.prochaineEcheance ? a.prochaineEcheance.slice(0, 10) : "", premierOs: a.premierOsLe ?? "", motif: a.motif ? libelleMotif(a.motif) : "",
+    dernierAppel: jourLocalDe(a.dernierAppelLe), dernierResultat: a.dernierResultat ? libelleResultat(a.dernierResultat) : "",
+    prochaineTache: a.prochaineTache, prochaineEcheance: jourLocalDe(a.prochaineEcheance), premierOs: a.premierOsLe ?? "", motif: a.motif ? libelleMotif(a.motif) : "",
   }
 }
 export type LigneExportContact = { agence: string; enseigne: string; secteur: string; standard: string; prenom: string; nom: string; role: string; ligneDirecte: string; mobile: string; email: string; principal: string; parti: string; note: string }
@@ -346,11 +363,13 @@ export async function chargerContactsDesAgences(agenceIds: string[]): Promise<Co
   if (agenceIds.length === 0) return []
   type L = { id: string; agence_id: string; prenom: string; nom: string; role: Contact["role"]; ligne_directe: string; mobile: string; email: string; principal: boolean; parti: boolean; note: string; cree_le: string }
   const out: Contact[] = []
-  // PostgREST limite la longueur d'une URL : on interroge par paquets de 200 agences.
+  const s = supabase
+  // PostgREST limite la longueur d'une URL : on interroge par paquets de 200 agences ;
+  // et chaque paquet se lit par lots (le serveur s'arrête à 1 000 lignes sans le dire).
   for (let i = 0; i < agenceIds.length; i += 200) {
-    const { data, error } = await supabase.from("contacts").select("id, agence_id, prenom, nom, role, ligne_directe, mobile, email, principal, parti, note, cree_le").in("agence_id", agenceIds.slice(i, i + 200)).order("principal", { ascending: false }).limit(5000)
-    if (error) throw new Error(error.message)
-    for (const l of (data ?? []) as L[]) {
+    const paquet = agenceIds.slice(i, i + 200)
+    const lignes = await lireParLots<L>((de, a) => s.from("contacts").select("id, agence_id, prenom, nom, role, ligne_directe, mobile, email, principal, parti, note, cree_le").in("agence_id", paquet).order("principal", { ascending: false }).order("id").range(de, a))
+    for (const l of lignes) {
       out.push({ id: l.id, agenceId: l.agence_id, prenom: l.prenom ?? "", nom: l.nom ?? "", role: l.role ?? "gestionnaire", ligneDirecte: l.ligne_directe ?? "", mobile: l.mobile ?? "", email: l.email ?? "", principal: !!l.principal, parti: !!l.parti, note: l.note ?? "", creeLe: l.cree_le })
     }
   }

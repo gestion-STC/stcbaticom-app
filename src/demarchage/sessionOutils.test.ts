@@ -7,6 +7,7 @@ import {
   compteARebours,
   constituerFile,
   bilanAppels,
+  bilanDepuisAgence,
   debutRepos,
   texteBilanAppels,
   dateHeureCourte,
@@ -283,6 +284,19 @@ describe("le repos de 5 jours (13/10)", () => {
     expect(constituerFile([hier, jamais], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["hier", "jamais"])
     expect(constituerFile([hier, jamais], { file: "rappels", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["hier", "jamais"])
   })
+  it("le repos vaut sur toute la base : un standard composé ailleurs (autre étape, autre base) met la fiche au repos", () => {
+    const telsAuRepos = new Set(["0100000003"]) // « jamais » partage le standard d'une fiche appelée hors de cette file
+    const f = constituerFile([jamais, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis, telsAuRepos })
+    expect(f.map((x) => x.id)).toEqual(["il-y-a-5j"])
+    const g = constituerFile([jamais, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis, agencesAuRepos: new Set(["il-y-a-5j"]) })
+    expect(g.map((x) => x.id)).toEqual(["jamais"])
+  })
+  it("le repos de toute la base ne s'applique ni case cochée, ni sans repos (rappels, intéressés)", () => {
+    const o = { appeleesAujourdHui: new Set<string>(), telsAuRepos: new Set(["0100000003"]), agencesAuRepos: new Set(["il-y-a-5j"]) }
+    expect(constituerFile([jamais, ilYa5j], { ...o, file: "a_prospecter", inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
+    expect(constituerFile([jamais, ilYa5j], { ...o, file: "sans_nouvelle", inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
+    expect(constituerFile([jamais, ilYa5j], { ...o, file: "rappels", inclureDejaAppelees: false, reposDepuis: depuis }).map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
+  })
 })
 
 describe("bilanAppels : appels, joints et leurs dates (13/10)", () => {
@@ -302,5 +316,14 @@ describe("bilanAppels : appels, joints et leurs dates (13/10)", () => {
     expect(texteBilanAppels({ appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null })).toBe("jamais appelée")
     expect(texteBilanAppels(bilanAppels([ligne("standard", "2026-10-01T10:00:00Z")]))).toMatch(/^1 appel, dernier le .+ · jamais joint$/)
     expect(texteBilanAppels(bilanAppels([ligne("joint", "2026-10-01T10:00:00Z"), ligne("joint", "2026-10-02T10:00:00Z")]))).toMatch(/^2 appels, dernier le .+ · joint 2 fois, dernière fois le .+$/)
+  })
+  it("en tête de fiche : les compteurs de la liste, et la date du dernier joint lue dans le fil", () => {
+    const fil = [ligne("joint", "2026-10-05T10:00:00Z"), ligne("standard", "2026-10-06T10:00:00Z")]
+    const b = bilanDepuisAgence(agence({ nbAppels: 7, jointFois: 3, dernierAppelLe: "2026-10-12T09:00:00Z" }), fil)
+    expect(b).toEqual({ appels: 7, joints: 3, dernierAppelLe: "2026-10-12T09:00:00Z", dernierJointLe: "2026-10-05T10:00:00Z" })
+    expect(texteBilanAppels(b)).toMatch(/^7 appels, dernier le .+ · joint 3 fois, dernière fois le .+$/)
+    // Des joints de l'ancien logiciel, sans ligne dans le fil : le compte, sans date inventée.
+    expect(texteBilanAppels(bilanDepuisAgence(agence({ nbAppels: 2, jointFois: 1, dernierAppelLe: "2026-10-12T09:00:00Z" }), []))).toMatch(/^2 appels, dernier le .+ · joint 1 fois$/)
+    expect(texteBilanAppels(bilanDepuisAgence(agence(), []))).toBe("jamais appelée")
   })
 })

@@ -37,6 +37,8 @@ function App() {
   const [ficheSurEtape, setFicheSurEtape] = useState(false)
   // Agences, ouverte sur une étape précise (depuis « Où en est la base »).
   const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
+  // Une écriture sur une fiche (étape, contact, note, mail…) : la session recharge sa file et ses compteurs (13/10).
+  const [versionAgences, setVersionAgences] = useState(0)
   const naviguer = (p: PageId) => {
     setPage(p)
     if (!horsEspace(p)) setEspace(espaceDe(p))
@@ -113,12 +115,12 @@ function App() {
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant
               un appel, puis revenir). Simplement masquée hors de son onglet. */}
           <div className={page === "sessions" ? undefined : "hidden"}>
-            <SessionCall actif={page === "sessions"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} />
+            <SessionCall actif={page === "sessions"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} versionAgences={versionAgences} />
           </div>
         </main>
       </div>
 
-      {ficheOuverte && <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => setFicheOuverte(null)} onOuvrirSession={ouvrirSession} />}
+      {ficheOuverte && <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => setFicheOuverte(null)} onChange={() => setVersionAgences((v) => v + 1)} onOuvrirSession={ouvrirSession} />}
       <RappelsRdv />
       <TelephoneRingover onOuvrirAgence={ouvrirAgence} />
     </div>

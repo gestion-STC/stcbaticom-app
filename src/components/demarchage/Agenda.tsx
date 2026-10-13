@@ -85,7 +85,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
     finally { setOccupe(false) }
   }
   const decaler = (sens: -1 | 1) => setAncre((a) => ajouterJours(a, vue === "semaine" ? 7 * sens : sens))
-  const fermerSelection = () => { setSelection(null); setReport(null); setConfirmerSuppression(false) }
+  const fermerSelection = () => { setSelection(null); setReport(null); setConfirmerSuppression(false); setErreur("") }
 
   const basculerFait = (t: TacheAgenda) => agir(async () => { await terminerTache(t.id, !t.faitLe); fermerSelection() })
   const supprimer = (t: TacheAgenda) => agir(async () => { await supprimerActivite(t.id); fermerSelection() })
@@ -222,6 +222,8 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
             <Bouton variante="plein" icone={selection.faitLe ? <Undo2 /> : <Check />} chargement={occupe} onClick={() => basculerFait(selection)}>{selection.faitLe ? "Remettre à faire" : "Fait"}</Bouton>
           </>}
         >
+          {/* Un refus de la base (« Cette agence est sortie du démarchage… » sur « Remettre à faire ») se lit ICI, pas derrière la fenêtre. */}
+          {erreur ? <Bandeau role="alerte" className="mb-3">{erreur}</Bandeau> : null}
           <Ligne libelle="Agence">
             <button type="button" className="font-medium text-encre underline-offset-2 hover:underline" onClick={() => { onOuvrirAgence?.(selection.agenceId); fermerSelection() }}>{selection.agenceNom || "—"}</button>
             {selection.agenceTelephone ? <span className="chiffres text-encre-2"> · {selection.agenceTelephone}</span> : null}

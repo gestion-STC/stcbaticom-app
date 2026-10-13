@@ -12,7 +12,7 @@ import { Check, Clock, MapPin, Phone, Video, X } from "lucide-react"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerAgenda, terminerTache, type TacheAgenda } from "../demarchage/db"
 import { dansLaFenetreDeRappel, debutDuJour, finDuJour, heureCourte, libelleRelatif } from "../demarchage/aujourdhuiOutils"
-import { Bouton, Carte, Pastille } from "../ui"
+import { Bandeau, Bouton, Carte, Pastille } from "../ui"
 
 const RELIRE_MS = 60_000
 const HORLOGE_MS = 30_000
@@ -32,6 +32,8 @@ export default function RappelsRdv() {
   const [rdvs, setRdvs] = useState<TacheAgenda[]>([])
   const [maintenant, setMaintenant] = useState(() => new Date())
   const [ignores, setIgnores] = useState<Set<string>>(() => new Set())
+  // « Fait » refusé par la base (13/10) : on le dit, au lieu de faire réapparaître le RDV sans un mot.
+  const [erreur, setErreur] = useState("")
   // Les RDV déjà signalés par une notification (pour ne pas la répéter), et la
   // dernière liste lue (l'horloge la relit entre deux lectures de la base).
   const notifiesRef = useRef<Set<string>>(new Set())
@@ -81,17 +83,23 @@ export default function RappelsRdv() {
   }, [relire, notifier])
 
   const actifs = rdvs.filter((r) => !ignores.has(r.id) && dansLaFenetreDeRappel(r.echeance, maintenant.getTime()))
-  if (actifs.length === 0) return null
+  if (actifs.length === 0 && !erreur) return null
 
   const ignorer = (id: string) => setIgnores((x) => new Set(x).add(id))
   const fait = (r: TacheAgenda) => {
     setRdvs((liste) => liste.filter((x) => x.id !== r.id))
     rdvsRef.current = rdvsRef.current.filter((x) => x.id !== r.id)
-    terminerTache(r.id).catch(() => relire())
+    setErreur("")
+    terminerTache(r.id).catch((e) => {
+      console.error("[RappelsRdv] tache_terminer", e)
+      setErreur(`RDV « ${r.agenceNom || "agence"} » non marqué fait : ${e instanceof Error ? e.message : String(e)}`)
+      relire()
+    })
   }
 
   return (
     <div className="fixed bottom-4 right-4 z-[80] flex w-80 flex-col gap-2">
+      {erreur ? <Bandeau role="alerte" className="shadow-flottante" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
       {actifs.map((r) => (
         <Carte key={r.id} className="p-3 shadow-flottante">
           <div className="flex items-start gap-3">

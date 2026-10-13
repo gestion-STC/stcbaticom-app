@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { supabase } from "../lib/supabase"
 import type { StatsCompte, TacheAgenda } from "./db"
+import type { ChoixBase, Proprietaire } from "./attribution"
 import { ETAPES, ETAPES_ACTIVES, SORTIES, libelleEtape, pastilleEtape, type RolePastille } from "./modele"
 
 const MIN_MS = 60_000
@@ -188,17 +189,29 @@ export function tauxJoints(s: Pick<StatsCompte, "appels" | "joints">): number {
  *    « Intéressé c'est bien, mais ce qui compte, c'est le moment où on envoie
  *    l'ordre de service. »
  */
-export function tauxConversionInteresses(s: Pick<StatsCompte, "joints" | "interesses" | "rdv">): number {
-  return pourcent(s.interesses + s.rdv, s.joints)
+// 13/10 : les taux se calculent sur des AGENCES DISTINCTES (agencesJointes, agencesInteressees), plus
+// sur des appels (« 3 joints » pour une même agence faisaient monter le dénominateur), et ne dépassent
+// jamais 100 % (un premier OS peut venir d'une agence jointe avant la période).
+// Sans ces champs (anciennes lignes), repli sur les compteurs d'appels.
+export const baseConversion = (s: Pick<StatsCompte, "joints" | "agencesJointes">): number => s.agencesJointes ?? s.joints
+export function tauxConversionInteresses(s: Pick<StatsCompte, "joints" | "interesses" | "rdv" | "agencesJointes" | "agencesInteressees">): number {
+  return Math.min(100, pourcent(s.agencesInteressees ?? s.interesses + s.rdv, baseConversion(s)))
 }
-export function tauxConversionPremiersOs(s: Pick<StatsCompte, "joints" | "premiersOs">): number {
-  return pourcent(s.premiersOs, s.joints)
+export function tauxConversionPremiersOs(s: Pick<StatsCompte, "joints" | "premiersOs" | "agencesJointes">): number {
+  return Math.min(100, pourcent(s.premiersOs, baseConversion(s)))
 }
-/** La ligne « Total » d'un tableau par commercial. */
+/** La ligne « Total » d'un tableau par commercial. Les agences distinctes : l'union (une agence jointe par deux commerciaux compte une fois). */
 export function totalStats(stats: StatsCompte[]): StatsCompte {
   const t: StatsCompte = { compteId: null, compteNom: "Total", appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
   for (const s of stats) {
     t.appels += s.appels; t.joints += s.joints; t.interesses += s.interesses; t.rdv += s.rdv; t.pasInteresses += s.pasInteresses; t.premiersOs += s.premiersOs; t.dureeS += s.dureeS
+  }
+  if (stats.length && stats.every((s) => s.ids)) {
+    const j = new Set(stats.flatMap((s) => s.ids!.jointes))
+    const c = new Set(stats.flatMap((s) => s.ids!.interessees))
+    t.agencesJointes = j.size
+    t.agencesInteressees = c.size
+    t.ids = { jointes: [...j], interessees: [...c] }
   }
   return t
 }
@@ -238,7 +251,7 @@ export function classer(stats: StatsCompte[], comptes: { id: string; nom: string
   }
   const lignes: StatsCompte[] = comptes.map((c) => {
     const s = parId.get(c.id)
-    return s ? { ...s, compteNom: c.nom || s.compteNom } : { compteId: c.id, compteNom: c.nom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
+    return s ? { ...s, compteNom: c.nom || s.compteNom } : { compteId: c.id, compteNom: c.nom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0, agencesJointes: 0, agencesInteressees: 0, ids: { jointes: [], interessees: [] } }
   })
   for (const [id, s] of parId) if (!comptes.some((c) => c.id === id)) lignes.push(s.compteNom ? s : { ...s, compteNom: "(compte inconnu)" })
   lignes.push(...sansId)
@@ -305,6 +318,22 @@ export async function compterReveils(de: Date, a: Date): Promise<number> {
   return count ?? 0
 }
 const jourIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
+// ── La base affichée (Mahdi, 13/10 : les mêmes chiffres que la session, et on sait de quelle base on parle) ──
+/** Une tâche est-elle dans la base regardée ? (« tous » : tout ; « non_attribuees » : agence sans propriétaire). */
+export function dansLaBase(agenceCommercialId: string | null, p: Proprietaire): boolean {
+  if (p === "tous") return true
+  if (p === "non_attribuees") return agenceCommercialId === null
+  return agenceCommercialId === p.compteId
+}
+/** « Ma base », « Base de X », « Non attribuées », « Toute la base ». */
+export function libelleBase(choix: ChoixBase, comptes: { id: string; nom: string }[]): string {
+  if (choix === "moi") return "Ma base"
+  if (choix === "non_attribuees") return "Non attribuées"
+  if (choix === "tous") return "Toute la base"
+  const id = choix.slice("compte:".length)
+  return `Base de ${comptes.find((c) => c.id === id)?.nom || "un autre compte"}`
+}
 
 /** « vendredi 9 octobre » → « Vendredi 9 octobre » (seule la première lettre, le français ne met pas de majuscule aux mois). */
 export function majusculeInitiale(s: string): string {

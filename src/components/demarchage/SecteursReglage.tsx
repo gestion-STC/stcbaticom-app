@@ -104,11 +104,12 @@ export default function SecteursReglage() {
     setOccupe(true)
     try {
       const n = await attribuerSecteur(s.code, compteId || null)
-      setSecteurs(secteurs.map((x) => (x.code === s.code ? { ...x, commercialId: compteId || null } : x)))
-      if (compteId) setNonAttribuees(new Map(nonAttribuees).set(s.code, 0))
+      // On relit tout (13/10) : les compteurs « non attribuées » viennent de la base, jamais d'une supposition
+      // (« — personne — » et « sans secteur » les faisaient mentir).
       const qui = comptes.find((c) => c.id === compteId)?.nom ?? "personne"
       setInfo(compteId ? `${s.libelle} → ${qui} : ${n} agence${n > 1 ? "s" : ""} attribuée${n > 1 ? "s" : ""}.` : `${s.libelle} : plus personne en charge, ses agences ne sont plus attribuées.`)
       setErreur("")
+      await charger() // une relecture ratée s'affiche (charger pose l'erreur)
     } catch (e) {
       setErreur(message(e))
     } finally {

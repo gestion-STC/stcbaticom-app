@@ -2,7 +2,7 @@
 // est chargé À LA DEMANDE, au clic sur Exporter, pas au démarrage du logiciel
 // (le même choix que src/lib/exportProspects.ts).
 import type { Agence, Contact } from "./modele"
-import { chargerContactsDesAgences, ligneExportAgence, ligneExportApporteur, ligneExportContact } from "./agencesOutils"
+import { chargerContactsDesAgences, jourPourChamp, ligneExportAgence, ligneExportApporteur, ligneExportContact } from "./agencesOutils"
 
 type Colonne = { header: string; key: string; width: number }
 
@@ -24,7 +24,7 @@ async function telecharger(nomFeuille: string, colonnes: Colonne[], lignes: Reco
   URL.revokeObjectURL(url)
 }
 
-const jour = () => new Date().toISOString().slice(0, 10)
+const jour = () => jourPourChamp(new Date()) // le jour local : un export à 0 h 30 porte la date du jour, pas celle de la veille (UTC)
 
 const COLONNES_AGENCES: Colonne[] = [
   { header: "Agence", key: "nom", width: 32 },

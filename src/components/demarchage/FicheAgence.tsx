@@ -36,10 +36,10 @@ import {
   lendemainPourChamp, messageErreur, nomCommercial, noteLongue, pluriel, prospectDepuis, secteursParZone, tachesOuvertes,
 } from "../../demarchage/agencesOutils"
 import { useSession } from "../../lib/auth"
-import { listerComptes, nomAffiche } from "../../lib/comptes"
+import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Dialogue, Etiquette, Ligne, Onglets, Panneau, Pastille, Selecteur, TitreCarte, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
-import { bilanAppels, texteBilanAppels } from "../../demarchage/sessionOutils"
+import { bilanDepuisAgence, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
 
 const ICONES: Record<TypeActivite, ReactNode> = {
@@ -53,6 +53,8 @@ type FormIdentite = { nom: string; enseigne: string; type: TypeAgence; secteur: 
 export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, ouvrirEtape = false }: { id: string; onFermer: () => void; onChange?: () => void; onOuvrirSession?: (agenceId: string) => void; ouvrirEtape?: boolean }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
+  // Attribuer une agence est réservé aux admins (Mahdi, 11/10 : chacun SA base, un téléprospecteur ne se la redistribue pas).
+  const admin = estAdmin(session)
   const [donnees, setDonnees] = useState<AgenceComplete | null>(null)
   const [secteurs, setSecteurs] = useState<Secteur[]>([])
   const [comptes, setComptes] = useState<Compte[]>(COMMERCIAUX_PAR_DEFAUT)
@@ -129,7 +131,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
     if (!edition.nom.trim()) { setErreur("Le nom de l'agence est obligatoire."); return }
     const e = edition
     agir(async () => {
-      await majAgence(id, { nom: e.nom, enseigne: e.enseigne.trim(), type: e.type, secteur: e.secteur, adresse: e.adresse.trim(), telephone: e.telephone.trim(), email: e.email.trim().toLowerCase(), site: e.site.trim(), nbLots: Number(e.nbLots) || 0, commercialId: e.commercialId || null })
+      await majAgence(id, { nom: e.nom, enseigne: e.enseigne.trim(), type: e.type, secteur: e.secteur, adresse: e.adresse.trim(), telephone: e.telephone.trim(), email: e.email.trim().toLowerCase(), site: e.site.trim(), nbLots: Number(e.nbLots) || 0, ...(admin ? { commercialId: e.commercialId || null } : {}) })
       setEdition(null)
     }, "Fiche enregistrée.")
   }
@@ -158,7 +160,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
               <Pastille role={pastilleEtape(agence.etape)} point>{libelleEtape(agence.etape)}</Pastille>
             </button>
             <span className="text-colonne text-encre-2">{depuisTexte(agence.etapeDepuis, maintenant)}</span>
-            <span className="chiffres text-colonne text-encre-2">· {texteBilanAppels(bilanAppels(activites))}</span>
+            <span className="chiffres text-colonne text-encre-2">· {texteBilanAppels(bilanDepuisAgence(agence, activites))}</span>
             {/* Le dernier signal du site (11/10/2026) : lien ouvert, page « Créer un compte », compte ouvert sur STC Bâtiment */}
             {agence.compteOuvertLe ? (
               <Pastille role="fait" point>Compte STC Bâtiment ouvert {ilYA(agence.compteOuvertLe, maintenant)}</Pastille>
@@ -223,7 +225,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                     </Selecteur>
                   </Etiquette>
                   <Etiquette texte="Attribuée à">
-                    <Selecteur value={edition.commercialId} onChange={setEd("commercialId")}>
+                    <Selecteur value={edition.commercialId} onChange={setEd("commercialId")} disabled={!admin} title={admin ? undefined : "Seul un administrateur attribue une agence"}>
                       <option value="">— personne —</option>
                       {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
                     </Selecteur>
@@ -451,7 +453,12 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
           maintenant={maintenant}
           occupe={occupe}
           onFermer={() => setDialogue(null)}
-          onValider={(etape, motif, reveilLe) => agir(async () => { await changerEtape(id, etape, motif, reveilLe); setDialogue(null) }, `Étape : ${libelleEtape(etape)}.`)}
+          onValider={(etape, motif, reveilLe, dateOs) => agir(async () => {
+            // « Client » = le premier OS (la date compte pour le suivi du mois) : une seule porte, agence_premier_os.
+            if (etape === "client") await premierOs(id, dateOs)
+            else await changerEtape(id, etape, motif, reveilLe)
+            setDialogue(null)
+          }, etape === "client" ? "Premier OS enregistré : l'agence est cliente." : `Étape : ${libelleEtape(etape)}.`)}
         />
       ) : null}
       {dialogue === "premierOs" && agence ? (
@@ -485,16 +492,19 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
       {contactEdite ? (
         <ContactFormulaire agenceId={id} contact={contactEdite.contact} onFermer={() => setContactEdite(null)} onEnregistre={() => { setContactEdite(null); setInfo(contactEdite.contact ? "Contact enregistré." : "Contact ajouté."); charger(); onChange?.() }} />
       ) : null}
-      {emailPour !== undefined && agence ? <EnvoyerEmailModal prospect={prospectDepuis(agence, emailPour)} onClose={() => { setEmailPour(undefined); charger() }} /> : null}
+      {emailPour !== undefined && agence ? <EnvoyerEmailModal prospect={prospectDepuis(agence, emailPour)} onClose={() => { setEmailPour(undefined); charger(); onChange?.() }} /> : null}
     </Panneau>
   )
 }
 
 // ── Changer l'étape à la main ────────────────────────────────────────────────
-function DialogueEtape({ agence, maintenant, occupe, onFermer, onValider }: { agence: Agence; maintenant: Date; occupe: boolean; onFermer: () => void; onValider: (etape: Etape, motif: Motif | "", reveilLe: string | null) => void }) {
+function DialogueEtape({ agence, maintenant, occupe, onFermer, onValider }: { agence: Agence; maintenant: Date; occupe: boolean; onFermer: () => void; onValider: (etape: Etape, motif: Motif | "", reveilLe: string | null, dateOs: string) => void }) {
   const [etape, setEtape] = useState<Etape>(agence.etape)
   const [motif, setMotif] = useState<Motif>((MOTIFS.find((m) => m.code === agence.motif)?.code) ?? "autre")
   const [reveil, setReveil] = useState(() => agence.reveilLe?.slice(0, 10) || jourPourChamp(new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + SOMMEIL_JOURS)))
+  const [dateOs, setDateOs] = useState(() => agence.premierOsLe?.slice(0, 10) || jourPourChamp(maintenant)) // jour local, pas UTC
+  // Endormie sans date de réveil = endormie pour toujours : on ne valide pas. Cliente sans date de premier OS non plus.
+  const incomplet = (etape === "endormie" && !reveil) || (etape === "client" && !dateOs)
   return (
     <Dialogue
       titre="Changer l'étape"
@@ -504,7 +514,7 @@ function DialogueEtape({ agence, maintenant, occupe, onFermer, onValider }: { ag
       pied={
         <>
           <Bouton onClick={onFermer} disabled={occupe}>Annuler</Bouton>
-          <Bouton variante="plein" chargement={occupe} disabled={etape === agence.etape} onClick={() => onValider(etape, etape === "pas_interesse" ? motif : "", etape === "endormie" ? reveil || null : null)}>Changer</Bouton>
+          <Bouton variante="plein" chargement={occupe} disabled={etape === agence.etape || incomplet} title={etape === "endormie" && !reveil ? "Choisis une date de réveil" : etape === "client" && !dateOs ? "Choisis la date du premier OS" : undefined} onClick={() => onValider(etape, etape === "pas_interesse" ? motif : "", etape === "endormie" ? reveil || null : null, dateOs)}>Changer</Bouton>
         </>
       }
     >
@@ -525,6 +535,11 @@ function DialogueEtape({ agence, maintenant, occupe, onFermer, onValider }: { ag
         {etape === "endormie" ? (
           <Etiquette texte="Date de réveil" aide={`Elle ressortira dans « À réveiller » ce jour-là (${SOMMEIL_JOURS} jours par défaut).`}>
             <Champ type="date" value={reveil} onChange={(e) => setReveil(e.target.value)} />
+          </Etiquette>
+        ) : null}
+        {etape === "client" ? (
+          <Etiquette texte="Premier OS reçu le" aide="Une agence devient cliente à son premier ordre de service : la date sert au suivi du mois.">
+            <Champ type="date" value={dateOs} onChange={(e) => setDateOs(e.target.value)} className="w-48" />
           </Etiquette>
         ) : null}
       </div>
