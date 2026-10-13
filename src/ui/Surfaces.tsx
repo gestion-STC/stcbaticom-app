@@ -22,15 +22,17 @@ export function TitreCarte({ children, droite, className = "" }: { children: Rea
   )
 }
 
-/** En-tête de page : H1 avec le tiret signature, sous-titre, actions à droite. */
+/** En-tête de page : H1 avec le tiret signature, sous-titre, actions à droite.
+ *  Sur un petit écran (MacBook, 13/10) : le titre ne se coupe pas, mais le sous-titre passe à la
+ *  ligne au lieu de déborder SUR les boutons (il recouvrait « Nouvelle agence », plus cliquable). */
 export function EnTetePage({ titre, sousTitre, droite }: { titre: ReactNode; sousTitre?: ReactNode; droite?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div className="relative shrink-0 pb-3 after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-8 after:bg-signature">
-        <h1 className="text-h1 font-semibold tracking-[-0.025em] text-encre">{titre}</h1>
+    <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="relative min-w-0 pb-3 after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-8 after:bg-signature lg:flex-1">
+        <h1 className="whitespace-nowrap text-h1 font-semibold tracking-[-0.025em] text-encre">{titre}</h1>
         {sousTitre ? <p className="mt-1 text-legende text-encre-2">{sousTitre}</p> : null}
       </div>
-      {droite ? <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">{droite}</div> : null}
+      {droite ? <div className="relative z-10 flex flex-wrap items-center gap-2 lg:shrink-0 lg:justify-end">{droite}</div> : null}
     </div>
   )
 }
