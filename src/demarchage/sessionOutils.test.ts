@@ -314,16 +314,19 @@ describe("bilanAppels : appels, joints et leurs dates (13/10)", () => {
   })
   it("le dit en clair", () => {
     expect(texteBilanAppels({ appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null })).toBe("jamais appelée")
-    expect(texteBilanAppels(bilanAppels([ligne("standard", "2026-10-01T10:00:00Z")]))).toMatch(/^1 appel, dernier le .+ · jamais joint$/)
-    expect(texteBilanAppels(bilanAppels([ligne("joint", "2026-10-01T10:00:00Z"), ligne("joint", "2026-10-02T10:00:00Z")]))).toMatch(/^2 appels, dernier le .+ · joint 2 fois, dernière fois le .+$/)
+    expect(texteBilanAppels(bilanAppels([ligne("standard", "2026-10-01T10:00:00Z")]))).toMatch(/^1 appel, dernier le .+ · gestionnaire pas encore eu en ligne$/)
+    expect(texteBilanAppels(bilanAppels([ligne("joint", "2026-10-01T10:00:00Z"), ligne("joint", "2026-10-02T10:00:00Z")]))).toMatch(/^2 appels, dernier le .+ · gestionnaire eu 2 fois, dernière le .+$/)
   })
   it("en tête de fiche : les compteurs de la liste, et la date du dernier joint lue dans le fil", () => {
     const fil = [ligne("joint", "2026-10-05T10:00:00Z"), ligne("standard", "2026-10-06T10:00:00Z")]
     const b = bilanDepuisAgence(agence({ nbAppels: 7, jointFois: 3, dernierAppelLe: "2026-10-12T09:00:00Z" }), fil)
     expect(b).toEqual({ appels: 7, joints: 3, dernierAppelLe: "2026-10-12T09:00:00Z", dernierJointLe: "2026-10-05T10:00:00Z" })
-    expect(texteBilanAppels(b)).toMatch(/^7 appels, dernier le .+ · joint 3 fois, dernière fois le .+$/)
+    expect(texteBilanAppels(b)).toMatch(/^7 appels, dernier le .+ · gestionnaire eu 3 fois, dernière le .+$/)
     // Des joints de l'ancien logiciel, sans ligne dans le fil : le compte, sans date inventée.
-    expect(texteBilanAppels(bilanDepuisAgence(agence({ nbAppels: 2, jointFois: 1, dernierAppelLe: "2026-10-12T09:00:00Z" }), []))).toMatch(/^2 appels, dernier le .+ · joint 1 fois$/)
+    expect(texteBilanAppels(bilanDepuisAgence(agence({ nbAppels: 2, jointFois: 1, dernierAppelLe: "2026-10-12T09:00:00Z" }), []))).toMatch(/^2 appels, dernier le .+ · gestionnaire eu 1 fois$/)
     expect(texteBilanAppels(bilanDepuisAgence(agence(), []))).toBe("jamais appelée")
+    // Une agence en RDV ou intéressée n'est jamais « pas encore eue » : le contact peut dater d'avant le logiciel.
+    expect(texteBilanAppels({ appels: 1, joints: 0, dernierAppelLe: "2026-10-12T09:00:00Z", dernierJointLe: null }, "rdv_planifie")).toMatch(/^1 appel, dernier le .+$/)
+    expect(texteBilanAppels({ appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null }, "interesse")).toBe("aucun appel noté dans le logiciel")
   })
 })

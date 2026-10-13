@@ -1452,7 +1452,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                       <Pastille>{libelleType(fiche.agence.type)}</Pastille>
                       <Pastille role={pastilleEtape(fiche.agence.etape)} point>{libelleEtape(fiche.agence.etape)}</Pastille>
                       <span className="chiffres text-legende text-encre-2">
-                        {texteBilanAppels(bilanDepuisAgence(fiche.agence, fiche.activites))}
+                        {texteBilanAppels(bilanDepuisAgence(fiche.agence, fiche.activites), fiche.agence.etape)}
                       </span>
                       {fiche.agence.compteOuvertLe ? (
                         <Pastille role="fait" point>Compte STC Bâtiment ouvert le {dateCourte(fiche.agence.compteOuvertLe)}</Pastille>

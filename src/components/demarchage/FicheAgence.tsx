@@ -160,7 +160,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
               <Pastille role={pastilleEtape(agence.etape)} point>{libelleEtape(agence.etape)}</Pastille>
             </button>
             <span className="text-colonne text-encre-2">{depuisTexte(agence.etapeDepuis, maintenant)}</span>
-            <span className="chiffres text-colonne text-encre-2">· {texteBilanAppels(bilanDepuisAgence(agence, activites))}</span>
+            <span className="chiffres text-colonne text-encre-2">· {texteBilanAppels(bilanDepuisAgence(agence, activites), agence.etape)}</span>
             {/* Le dernier signal du site (11/10/2026) : lien ouvert, page « Créer un compte », compte ouvert sur STC Bâtiment */}
             {agence.compteOuvertLe ? (
               <Pastille role="fait" point>Compte STC Bâtiment ouvert {ilYA(agence.compteOuvertLe, maintenant)}</Pastille>
