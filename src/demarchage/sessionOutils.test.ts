@@ -330,3 +330,13 @@ describe("bilanAppels : appels, joints et leurs dates (13/10)", () => {
     expect(texteBilanAppels({ appels: 0, joints: 0, dernierAppelLe: null, dernierJointLe: null }, "interesse")).toBe("aucun appel noté dans le logiciel")
   })
 })
+
+describe("numéro d'une agence qui appartient à un collègue (13/10)", () => {
+  it("elle prend l'un de MES numéros (enregistré), au lieu d'appeler avec celui du collègue", () => {
+    const a = numeroEmissionPour({ numeroEmission: "33 1 89 70 86 23" }, ["+33 1 84 80 61 28"], [], ["33 1 89 70 86 23"])
+    expect(a).toEqual({ numero: "+33 1 84 80 61 28", aEnregistrer: true, bloque: false })
+  })
+  it("un numéro qui n'est à personne (retiré de la réserve) reste bloqué", () => {
+    expect(numeroEmissionPour({ numeroEmission: "01 99 99 99 99" }, ["+33 1 84 80 61 28"], [], ["33 1 89 70 86 23"]).bloque).toBe(true)
+  })
+})

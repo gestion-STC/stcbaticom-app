@@ -113,14 +113,17 @@ export function numeroLeMoinsAttribue(reserve: string[], agences: Pick<Agence, "
 // - BLOQUÉ si son numéro attitré est sorti de la réserve : on n'appelle jamais
 //   en douce avec un autre numéro (l'agence doit toujours voir le même) ;
 // - sinon le moins attribué, à enregistrer sur la fiche.
+// - (13/10) son numéro est celui d'un COLLÈGUE : Ringover ferait sonner le collègue → on lui
+//   donne l'un de MES numéros, enregistré sur la fiche (il gardera désormais celui-là).
 export function numeroEmissionPour(
   agence: Pick<Agence, "numeroEmission">,
   reserve: string[],
   toutes: Pick<Agence, "numeroEmission">[],
+  autres: string[] = [],
 ): AttributionNumero {
   const actuel = agence.numeroEmission ?? ""
   if (actuel && estDansLaReserve(actuel, reserve)) return { numero: actuel, aEnregistrer: false, bloque: false }
-  if (actuel) return { numero: actuel, aEnregistrer: false, bloque: true }
+  if (actuel && !estDansLaReserve(actuel, autres)) return { numero: actuel, aEnregistrer: false, bloque: true }
   const choisi = numeroLeMoinsAttribue(reserve, toutes)
   return { numero: choisi, aEnregistrer: Boolean(choisi), bloque: false }
 }
