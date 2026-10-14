@@ -2,7 +2,7 @@
 // L'identité, les bandeaux (appel direct, appel en suspens), les numéros et les contacts (reçus
 // tout prêts : `BlocNumeros`, `BlocContacts`), la note de l'appel, les autres actions.
 import type { Dispatch, ReactNode, SetStateAction } from "react"
-import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, Mic, MicOff, SquareCheck, StickyNote } from "lucide-react"
+import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, MapPin, Mic, MicOff, SquareCheck, StickyNote } from "lucide-react"
 import type { AgenceComplete } from "../../../demarchage/db"
 import { dateCourte } from "../../../demarchage/agencesOutils"
 import { libelleEtape, libelleType, pastilleEtape, type Activite } from "../../../demarchage/modele"
@@ -65,7 +65,16 @@ export default function FicheEnCours({
               <Pastille role="info" point>{fiche.agence.dernierSignal} le {dateCourte(fiche.agence.dernierSignalLe)}</Pastille>
             ) : null}
           </div>
-          {fiche.agence.adresse ? <div className="mt-1 text-legende text-encre-2">{fiche.agence.adresse}</div> : null}
+          {/* L'adresse, toujours visible (Mahdi, 14/10) : deux agences d'un même réseau dans le même arrondissement
+              (« Laforêt Paris 13 ») ne se confondent plus. Inconnue : on le dit, et l'e-mail aide à les distinguer. */}
+          <div className={"mt-1 flex items-start gap-1.5 text-legende " + (fiche.agence.adresse ? "text-encre" : "text-attention")}>
+            <MapPin size={14} className="mt-0.5 shrink-0" />
+            {fiche.agence.adresse ? (
+              <span>{fiche.agence.adresse}</span>
+            ) : (
+              <span>Adresse inconnue{fiche.agence.email ? ` · ${fiche.agence.email}` : ""} — complète-la sur la fiche si tu l'obtiens.</span>
+            )}
+          </div>
         </div>
         {ouvrirAgence ? (
           <div className="flex items-center gap-1">

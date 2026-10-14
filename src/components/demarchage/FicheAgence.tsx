@@ -158,6 +158,8 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
           <div className="flex flex-wrap items-center gap-2">
             {agence.enseigne ? <Pastille>{agence.enseigne}</Pastille> : null}
             {agence.secteurLibelle ? <Pastille>{agence.secteurLibelle}</Pastille> : null}
+            {/* L’adresse en tête de fiche (14/10) : deux agences d’un même réseau ne se confondent plus. */}
+            <span className={"text-colonne " + (agence.adresse ? "text-encre" : "text-attention")}>{agence.adresse || "adresse inconnue"}</span>
             <Pastille>{libelleType(agence.type)}</Pastille>
             <button type="button" title="Changer l'étape" className="rounded-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature" onClick={() => setDialogue("etape")}>
               <Pastille role={pastilleEtape(agence.etape)} point>{libelleEtape(agence.etape)}</Pastille>
