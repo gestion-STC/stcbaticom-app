@@ -77,16 +77,6 @@ export function libelleMotif(code: string): string {
   return MOTIFS.find((r) => r.code === code)?.libelle ?? code
 }
 
-// Les constantes des règles (les mêmes que dans appel_enregistrer, pour les textes d'aide).
-export const SOMMEIL_APRES_TENTATIVES = 6
-export const SOMMEIL_JOURS = 30
-export const RELANCE_JOURS = 7
-// Réglable (Mahdi, 12/10/2026) : Réglages › Objectifs et script, clé `relance_interesse_jours` ; la session le lit au démarrage.
-let relanceJoursReglee = RELANCE_JOURS
-export const reglerRelanceJours = (n: number): void => { relanceJoursReglee = Number.isInteger(n) && n >= 1 && n <= 365 ? n : RELANCE_JOURS }
-export const relanceJours = (): number => relanceJoursReglee
-export const SANS_NOUVELLE_JOURS = 7
-
 // ── Agences et contacts ──
 export const TYPES_AGENCE = [
   { code: "agence", libelle: "Agence immobilière" },
@@ -241,113 +231,34 @@ export type File = "a_prospecter" | "rappels" | "sans_nouvelle" | "a_reveiller"
 // « Intéressés » = TOUTES les agences intéressées ou en RDV (relance due en
 // premier), plus de condition « sans nouvelle depuis 7 jours » qui les cachait.
 export const FILES: { code: File; libelle: string; aide: string }[] = [
-  { code: "a_prospecter", libelle: "À prospecter", aide: "Jamais jointes d'abord, puis la tentative la plus ancienne" },
+  { code: "a_prospecter", libelle: "À prospecter", aide: "Jamais appelées d'abord, puis la plus anciennement appelée ; au repos retirées" },
   { code: "rappels", libelle: "À rappeler aujourd'hui", aide: "Les rappels et relances datés d'aujourd'hui ou en retard" },
   { code: "sans_nouvelle", libelle: "Intéressés", aide: "Toutes les agences intéressées ou en RDV, relance due d'abord" },
   { code: "a_reveiller", libelle: "À réveiller", aide: "Endormies dont la date de réveil est passée" },
 ]
 
-const JOUR_MS = 24 * 3600 * 1000
-function debutDeJour(d: Date): number {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-}
-function finDeJour(d: Date): number {
-  return debutDeJour(d) + JOUR_MS
-}
 // « 2026-10-09 » du jour local (une date de la base, sans heure, se compare en texte).
 export function jourLocal(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-// Dans quelle file se range une agence (null = dans aucune : elle n'est pas à appeler).
-export function fileDe(a: Agence, maintenant: Date): File | null {
-  if (a.type === "apporteur") return null
-  const echeance = a.prochaineEcheance ? new Date(a.prochaineEcheance).getTime() : null
-  if (echeance !== null && echeance < finDeJour(maintenant) && a.etape !== "hors_cible") return "rappels"
-  if (a.etape === "endormie") {
-    return a.reveilLe && a.reveilLe.slice(0, 10) <= jourLocal(maintenant) ? "a_reveiller" : null
-  }
-  if (a.etape === "interesse" || a.etape === "rdv_planifie") return "sans_nouvelle"
-  if (a.etape === "a_prospecter" || a.etape === "gestionnaire_joint") {
-    if (echeance !== null) return null // une tâche future : on attend sa date
-    return "a_prospecter"
-  }
-  return null
-}
-
-// L'ordre de la file « À prospecter » : les JAMAIS appelées d'abord, toujours
-// (Mahdi, 13/10 : « j'ai appelé A, je veux B, je ne veux pas retomber sur A » :
-// on trie toute la base avant de revenir sur un numéro) ; dans chaque groupe, le
-// secteur du jour d'abord ; puis la tentative la plus ancienne ; à égalité, les
-// réseaux avant les indépendants.
-// Puis, une fois toute la base appelée : « ce qu'on a appelé en premier passe ensuite »
-// (Mahdi, 13/10) — la plus anciennement appelée d'abord ; la base tourne, on ne repasse
-// jamais deux fois sur les mêmes avant d'avoir fait le tour.
-// Une agence sans aucun numéro passe en dernier : on ne peut pas l'appeler.
-export function ordonnerAProspecter(agences: Agence[], secteurDuJour: string | null): Agence[] {
-  const sansNumero = (a: Agence) => (a.telephone.trim() || a.nbContacts > 0 ? 0 : 1)
-  return [...agences].sort((x, y) => {
-    if (sansNumero(x) !== sansNumero(y)) return sansNumero(x) - sansNumero(y)
-    const jx = x.dernierAppelLe ? 1 : 0
-    const jy = y.dernierAppelLe ? 1 : 0
-    if (jx !== jy) return jx - jy
-    if (x.dernierAppelLe && y.dernierAppelLe) {
-      if (x.dernierAppelLe !== y.dernierAppelLe) return x.dernierAppelLe < y.dernierAppelLe ? -1 : 1
-    } else {
-      const sx = secteurDuJour && x.secteur === secteurDuJour ? 0 : 1
-      const sy = secteurDuJour && y.secteur === secteurDuJour ? 0 : 1
-      if (sx !== sy) return sx - sy
-    }
-    const ex = x.enseigne ? 0 : 1
-    const ey = y.enseigne ? 0 : 1
-    if (ex !== ey) return ex - ey
-    return x.nom.localeCompare(y.nom, "fr")
-  })
-}
-
-// L'ordre des rappels : en retard d'abord, puis par heure.
-export function ordonnerRappels(agences: Agence[]): Agence[] {
-  return [...agences].sort((x, y) => (x.prochaineEcheance ?? "") < (y.prochaineEcheance ?? "") ? -1 : 1)
-}
-
-// L'ordre des intéressés : relance due (en retard ou aujourd'hui) d'abord, puis
-// celles sans rien de prévu (les plus anciennes en premier), puis les relances à venir.
-export function ordonnerInteresses(agences: Agence[], maintenant: Date): Agence[] {
-  const fin = finDeJour(maintenant)
-  const rang = (a: Agence) => {
-    if (!a.prochaineEcheance) return 1
-    return new Date(a.prochaineEcheance).getTime() < fin ? 0 : 2
-  }
-  return [...agences].sort((x, y) => {
-    const rx = rang(x), ry = rang(y)
-    if (rx !== ry) return rx - ry
-    if (rx === 1) return (x.derniereActiviteLe ?? "") < (y.derniereActiviteLe ?? "") ? -1 : 1
-    return (x.prochaineEcheance ?? "") < (y.prochaineEcheance ?? "") ? -1 : 1
-  })
-}
-
-// Une agence déjà appelée aujourd'hui ne ressort pas (sauf tâche datée).
-export function appeleeAujourdHui(a: Pick<Agence, "dernierAppelLe">, maintenant: Date): boolean {
-  if (!a.dernierAppelLe) return false
-  const t = new Date(a.dernierAppelLe).getTime()
-  return t >= debutDeJour(maintenant) && t < finDeJour(maintenant)
-}
-
 // Ce que le résultat va faire, en une phrase (aide sous les boutons).
-export function effetAnnonce(resultat: Resultat, issue: Issue | null, a: Pick<Agence, "etape" | "tentatives">): string {
+// Les chiffres viennent des réglages (base) : jamais une valeur écrite ici.
+export type ReglagesTextes = { sommeilApres: number; sommeilJours: number; relanceJours: number }
+export function effetAnnonce(resultat: Resultat, issue: Issue | null, a: Pick<Agence, "etape" | "tentatives">, r: ReglagesTextes): string {
   if (resultat === "pas_de_reponse" || resultat === "standard") {
     const t = a.tentatives + 1
-    if (t >= SOMMEIL_APRES_TENTATIVES && (a.etape === "a_prospecter" || a.etape === "gestionnaire_joint")) {
-      return `${t}e tentative sans gestionnaire : l'agence s'endort ${SOMMEIL_JOURS} jours.`
+    if (t >= r.sommeilApres && (a.etape === "a_prospecter" || a.etape === "gestionnaire_joint")) {
+      return `${t}e tentative sans gestionnaire : l'agence s'endort ${r.sommeilJours} jours.`
     }
-    if (a.etape === "interesse" || a.etape === "rdv_planifie") return `Elle reste intéressée : relance dans ${relanceJours()} jours.`
+    if (a.etape === "interesse" || a.etape === "rdv_planifie") return `Elle reste intéressée : relance dans ${r.relanceJours} jours.`
     // Une endormie réveillée qu'on ne joint toujours pas (13/10) : elle repart dormir, pas « tentative 7 sur 6 ».
-    if (a.etape === "endormie") return `Toujours personne : elle se rendort ${SOMMEIL_JOURS} jours.`
-    return `Tentative ${t} sur ${SOMMEIL_APRES_TENTATIVES}. L'étape ne change pas.`
+    if (a.etape === "endormie") return `Toujours personne : elle se rendort ${r.sommeilJours} jours.`
+    return `Tentative ${t} sur ${r.sommeilApres}. L'étape ne change pas.`
   }
   if (resultat === "faux_numero") return "La fiche sort en « hors cible ». Elle n'est pas supprimée."
   switch (issue) {
-    case "interesse": return `Étape « Intéressé », tâche « Relancer » dans ${relanceJours()} jours.`
+    case "interesse": return `Étape « Intéressé », tâche « Relancer » dans ${r.relanceJours} jours.`
     case "rdv": return "Étape « RDV planifié », le rendez-vous va dans l'agenda."
     case "a_rappeler": return "Une tâche « Rappeler » à la date choisie."
     case "pas_interesse": return "Étape « Pas intéressé », avec le motif."

@@ -10,11 +10,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, Video } from "lucide-react"
 import AppelsANoter from "./AppelsANoter"
-import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
-import { lireRepos } from "../../demarchage/repos"
+import { useReglages } from "../../demarchage/reglages"
+import { chargerTachesDuJour, compterParEtape, compterPiles, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
-  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
+  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, estEnRetard, finDeSemaine, finDuMois,
   grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxConversionInteresses, tauxConversionPremiersOs, tauxJoints, totalStats, type MomentTache,
   PERIODES, bornesPeriode, classer, type Periode,
   majusculeInitiale, dansLaBase, libelleBase, baseConversion,
@@ -57,6 +57,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   onOuvrirEtape?: (etape: string) => void // ouvre Agences filtrée sur cette étape
 }) {
   const [d, setD] = useState<Donnees | null>(null)
+  const heureRelance = useReglages().reglages?.heure_relance ?? null // Réglages : l'heure des relances
   // L'heure de la dernière lecture : tout (bornes, retards, « dans 2 h ») s'y rapporte,
   // et le rendu reste pur (pas de new Date() pendant qu'on dessine).
   const [maintenant, setMaintenant] = useState(() => new Date())
@@ -88,15 +89,13 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       // La fonction de chaque compte (Comptes) : seuls les commerciaux sont classés.
       const fonctions = await chargerFonctions().catch(() => ({}) as Record<string, never>)
       const horsClassement = new Set(Object.entries(fonctions).filter(([, f]) => !estAuClassement(f)).map(([id]) => id))
-      // « À prospecter » compte comme la session : sans les agences au repos (Réglages, 5 jours sinon).
-      const repos = await lireRepos(now)
       const libre = nonAttribueesPourTous(await lireParametre(CLE_NON_ATTRIBUEES).catch(() => null))
       let choixBrut: string | null = null
       try { choixBrut = localStorage.getItem(CLE_CHOIX_LOCAL) } catch { /* poste sans stockage : « Ma base » */ }
       const proprietaire = proprietaireDepuisChoix(choixBrut, moiId, admin, libre)
       const base = libelleBase(moiId ? normaliserChoix(choixBrut, admin, libre) : "tous", comptes)
       const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
-        compterFiles(now, proprietaire, repos.depuis, repos.standardDepuis).catch(() => null),
+        compterPiles(proprietaire).catch(() => null), // LE calcul de la base, le même que la session
         chargerTachesDuJour(now).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
         compterPremiersOs(debutDuMois(now), finDuMois(now)),
         lireParametre(CLE_OBJECTIF),
@@ -151,7 +150,8 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     await deplacerTache(t.id, date.toISOString())
   })
   const ouvrirReport = (t: TacheAgenda) => {
-    const { jour, heure } = decomposerDate(demainA(new Date()).toISOString())
+    if (heureRelance === null) return
+    const { jour, heure } = decomposerDate(dansNJoursA(new Date(), 1, heureRelance).toISOString())
     setReport({ tache: t, jour, heure })
   }
   const validerReportLibre = (e: FormEvent) => {
@@ -367,8 +367,12 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
           pied={<><Bouton onClick={() => setReport(null)}>Annuler</Bouton><Bouton variante="plein" form="form-report" type="submit" chargement={occupe}>Reporter</Bouton></>}
         >
           <div className="mb-4 flex flex-wrap gap-2">
-            <Bouton taille="sm" disabled={occupe} onClick={() => reporterA(report.tache, demainA(new Date()))}>Demain 10 h</Bouton>
-            <Bouton taille="sm" disabled={occupe} onClick={() => reporterA(report.tache, dansNJoursA(new Date(), 3))}>Dans 3 jours, 10 h</Bouton>
+            {heureRelance !== null ? (
+              <>
+                <Bouton taille="sm" disabled={occupe} onClick={() => reporterA(report.tache, dansNJoursA(new Date(), 1, heureRelance))}>Demain {heureRelance} h</Bouton>
+                <Bouton taille="sm" disabled={occupe} onClick={() => reporterA(report.tache, dansNJoursA(new Date(), 3, heureRelance))}>Dans 3 jours, {heureRelance} h</Bouton>
+              </>
+            ) : null}
           </div>
           <form id="form-report" onSubmit={validerReportLibre} className="grid gap-3 sm:grid-cols-2">
             <Etiquette texte="Date"><Champ type="date" value={report.jour} onChange={(e) => setReport({ ...report, jour: e.target.value })} required /></Etiquette>

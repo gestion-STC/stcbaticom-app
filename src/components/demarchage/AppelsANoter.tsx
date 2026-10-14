@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { PhoneMissed } from "lucide-react"
 import { appelsANoter, type AppelANoter } from "../../demarchage/db"
+import { useReglages } from "../../demarchage/reglages"
 import { dateHeureCourte } from "../../demarchage/sessionOutils"
 import { Bandeau, Bouton, Dialogue } from "../../ui"
 
@@ -15,12 +16,15 @@ export default function AppelsANoter({ onOuvrir, rafraichir = 0 }: { onOuvrir: (
   const [liste, setListe] = useState<AppelANoter[]>([])
   const [ouvert, setOuvert] = useState(false)
   const [erreur, setErreur] = useState("")
+  // Le délai avant qu'un appel soit « à compléter » : celui du contrôle du matin (Réglages, 5 min).
+  const minutes = useReglages().reglages?.a_completer_minutes ?? null
 
   const charger = useCallback(() => {
-    appelsANoter()
+    if (minutes === null) return
+    appelsANoter(minutes)
       .then((l) => { setListe(l); setErreur("") })
       .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
-  }, [])
+  }, [minutes])
 
   useEffect(() => {
     const premier = setTimeout(charger, 0)

@@ -5,7 +5,8 @@ import { PGlite } from "@electric-sql/pglite"
 import { readFileSync, writeFileSync } from "node:fs"
 
 export const REGLES = ["activites_relance_continue", "activites_touche_agence", "agence_premier_os", "agence_suit_son_secteur", "agences_etape_journal",
-  "agences_etape_relances", "appel_enregistrer", "appel_lancer", "appel_verifier", "attribuer_secteur", "messages_rattacher_agence", "tache_terminer"]
+  "agences_etape_relances", "appel_enregistrer", "appel_lancer", "appel_verifier", "attribuer_secteur", "compter_piles", "demarchage_echeance",
+  "demarchage_repos", "messages_rattacher_agence", "pile_demarchage", "reglage_demarchage", "reglages_demarchage", "tache_terminer"]
 
 export async function empreintes(fichierRegles) {
   const db = new PGlite()

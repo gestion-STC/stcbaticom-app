@@ -27,7 +27,7 @@ import type { Prospect } from "../../data"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
-import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, filtreCommercial, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
+import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import type { Message } from "../../lib/messagesDb"
 import { chargerNumerosDuCompte, estDansLaReserve } from "../../lib/numerosEmission"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
@@ -35,21 +35,21 @@ import { detailAppelRingover, lancerAppelRingover, statutAppelsRingover } from "
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
 import { dateCourte } from "../../demarchage/agencesOutils"
 import {
-  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerFile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterFiles, creerContact, creerNote, creerRdv, creerTache,
-  appelLance, appelsDepuis, appelVerifier, enregistrerAppel, majAgence, type AgenceComplete,
+  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact, creerNote, creerRdv, creerTache,
+  appelLance, appelVerifier, enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
-  ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, ordonnerAProspecter, pastilleEtape,
+  ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, pastilleEtape,
   type Activite, type Agence, type Contact, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
-  reglerRelanceJours,
   RESULTAT_LANCE,
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
-  bilanDepuisAgence, compteARebours, constituerFile, dateHeureCourte, debutRepos, texteBilanAppels, REPOS_JOURS, REPOS_STANDARD_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, versIso,
+  bilanDepuisAgence, compteARebours, dateHeureCourte, texteBilanAppels, decrireActivite, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
+  observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, toursSansDemarrage, versIso,
   type ChoixResultat, type TypeRdv, type Verdict,
 } from "../../demarchage/sessionOutils"
+import { useReglages } from "../../demarchage/reglages"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Interrupteur, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
 import AppelsANoter from "./AppelsANoter"
@@ -196,6 +196,8 @@ const CANAL_SESSION = "baticom-session-call"
 export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence, versionAgences = 0 }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string, options?: { etape?: boolean }) => void; versionAgences?: number }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
+  // Tous les réglages des règles viennent de la base (Réglages › Objectifs et règles) : aucun n'est écrit ici.
+  const { reglages, erreur: erreurReglages } = useReglages()
 
   // ── Les réglages et la file ──
   const [file, setFile] = useState<File>("a_prospecter")
@@ -235,7 +237,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     : undefined
   // Un autre onglet a déjà la session ouverte (BroadcastChannel) : celui-ci ne compose pas.
   const [autreOnglet, setAutreOnglet] = useState(false)
-  const [cadence, setCadence] = useState(5)
+  // La cadence du mode automatique : celle des Réglages, modifiable pour la session.
+  const [cadenceChoisie, setCadence] = useState<number | null>(null)
+  const cadence = cadenceChoisie ?? reglages?.cadence_auto_secondes ?? null
   const [enCours, setEnCours] = useState(false)
   const [fileAgences, setFileAgences] = useState<Agence[]>([])
   const [chargementFile, setChargementFile] = useState(true)
@@ -247,7 +251,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const autresNumerosRef = useRef<string[]>([])
   const [sansNumero, setSansNumero] = useState(false) // des numéros sont attribués, aucun à moi
   const [compteursNumero, setCompteursNumero] = useState<Map<string, number>>(() => new Map())
-  const [quota, setQuota] = useState(0)
+  const quota = reglages?.quota_appels_jour ?? 0
   const [script, setScript] = useState("")
   const [scriptOuvert, setScriptOuvert] = useState(false)
   const [scriptEdit, setScriptEdit] = useState(false)
@@ -265,10 +269,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── L'appel ──
   const [appel, setAppel] = useState<AppelEnCours | null>(null)
-  const [reposJours, setReposJours] = useState(REPOS_JOURS) // Réglages › Objectifs et script
-  const [reposStandardJours, setReposStandardJours] = useState(REPOS_STANDARD_JOURS)
-  // Les compteurs des piles : toujours dans la base choisie et avec le repos (pas « tous »).
-  const compterFilesRef = useRef((m: Date) => compterFiles(m, "tous", debutRepos(m)))
   const [barreVisible, setBarreVisible] = useState(false)
   const [contactEnLigne, setContactEnLigne] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<Resultat | null>(null)
@@ -318,9 +318,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const verificationEnCours = useRef(false) // les vérifications avant de composer, en route
   const directeEnAttente = useRef<string | null>(null) // une agence demandée d'ailleurs pendant un résultat à noter
   const pileRef = useRef(file)
+  const toursMaxRef = useRef(0) // la sonnerie réglée, en tours de surveillance
+  const relanceJoursRef = useRef(0)
   const etapeFiltreRef = useRef(etapeFiltre)
   const autreOngletRef = useRef(autreOnglet)
   useEffect(() => {
+    toursMaxRef.current = reglages ? toursSansDemarrage(reglages.sonnerie_secondes) : 0
+    relanceJoursRef.current = reglages?.relance_interesse_jours ?? 0
     pileRef.current = file
     etapeFiltreRef.current = etapeFiltre
     autreOngletRef.current = autreOnglet
@@ -346,7 +350,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const lignes = useMemo(() => (fiche ? lignesNumeros(fiche.agence, fiche.contacts) : []), [fiche])
   const defaut = useMemo(() => (fiche ? numeroParDefaut(fiche.agence, fiche.contacts) : null), [fiche])
   const dateMaintenant = useMemo(() => new Date(maintenant), [maintenant])
-  const defautDemain = useMemo(() => demainDixHeures(dateMaintenant), [dateMaintenant])
+  const heureRelance = reglages?.heure_relance ?? null
+  const defautDemain = useMemo(() => (heureRelance === null ? "" : demainALHeure(dateMaintenant, heureRelance)), [dateMaintenant, heureRelance])
   const compte = compteARebours(compteFin, maintenant)
   const libre = appel === null && !barreVisible // on peut composer
   const fileTerminee = fileAgences.length > 0 && index >= fileAgences.length
@@ -358,15 +363,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Lectures ──
   const chargerReglages = useCallback(async () => {
-    const [q, s, r, rp, rs] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null), lireParametre("relance_interesse_jours").catch(() => null), lireParametre("repos_appel_jours").catch(() => null), lireParametre("repos_standard_jours").catch(() => null)])
+    const s = await lireParametre("script_appel").catch(() => null)
     if (!enVie.current) return
-    setQuota(Number(q) || 0)
     setScript(s ?? "")
-    reglerRelanceJours(Number(r)) // le délai de relance des intéressés, réglé dans Réglages (7 jours sinon)
-    const n = Number(rp)
-    setReposJours(Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS) // le repos entre deux appels, réglé dans Réglages
-    const ns = Number(rs)
-    setReposStandardJours(Number.isInteger(ns) && ns >= 1 && ns <= 90 ? ns : REPOS_STANDARD_JOURS) // après un « standard »
   }, [])
 
   // Les repères : secteurs, compteurs des files, appels du jour, réserve de numéros.
@@ -379,7 +378,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
-      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours), debutRepos(m, reposStandardJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
+      chargerSecteurs().catch(() => [] as Secteur[]), compterPiles(proprietaire).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
     ])
     if (!enVie.current || jeton !== jetonCompteurs.current) return
     setSecteurs(sect)
@@ -399,15 +398,16 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setSansNumero(res.parCompte && res.miens.length === 0)
     }
     setMaintenant(Date.now())
-  }, [proprietaire, reposJours, reposStandardJours, moiId])
+  }, [proprietaire, moiId])
   const premierReperes = useRef(true)
+  const proprietaireRef = useRef(proprietaire)
   useEffect(() => {
-    compterFilesRef.current = (m: Date) => compterFiles(m, proprietaire, debutRepos(m, reposJours), debutRepos(m, reposStandardJours))
-  }, [proprietaire, reposJours, reposStandardJours])
+    proprietaireRef.current = proprietaire
+  }, [proprietaire])
   // Recompter les piles (après un résultat, une tâche, un apporteur) ; en échec : « — ».
   const recompterFiles = useCallback(() => {
     const jeton = ++jetonCompteurs.current
-    compterFilesRef.current(new Date())
+    compterPiles(proprietaireRef.current)
       .then((x) => {
         if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(x)
       })
@@ -416,42 +416,29 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       })
   }, [])
 
-  // La file : rechargée quand on change de file, de secteur, ou la case des déjà appelées.
+  // La file : rechargée quand on change de pile, de secteur, d'étape, de sourçage, ou la case des
+  // déjà appelées. LA BASE la calcule (pile_demarchage : l'ordre, le repos, un numéro = un appel
+  // par jour, la base de chacun) ; l'écran l'affiche telle quelle. Une étape choisie = TOUTES les
+  // agences de cette étape, quelle que soit la pile (Mahdi, 09/10 : « je ne vois pas mes intéressés »).
   const chargerLaFile = useCallback(async () => {
     if (!moiId) return // la base n'est connue qu'avec le compte
     const jeton = ++jetonFile.current
     setChargementFile(true)
     try {
-      const m = new Date()
-      // Le repos de 5 jours : partout sauf les rappels datés et les intéressés (ils ont leur relance).
-      const avecRepos = etapeFiltre ? !["interesse", "rdv_planifie"].includes(etapeFiltre) : file === "a_prospecter" || file === "a_reveiller"
-      const reposDepuis = avecRepos ? debutRepos(m, reposJours) : null
-      const reposStandardDepuis = avecRepos ? debutRepos(m, reposStandardJours) : null
-      // Le repos vaut sur TOUTE la base (Mahdi, 13/10) : un standard composé depuis une autre étape,
-      // une autre base ou par un collègue met aussi au repos les fiches qui le partagent.
-      const reposBase = reposDepuis && !inclureDejaAppelees ? appelsDepuis(reposDepuis).catch(() => null) : Promise.resolve(null)
-      // Une étape choisie = TOUTES les agences de cette étape, quelle que soit la pile
-      // (Mahdi, 09/10 : « je ne vois pas mes intéressés »). Sinon, la pile.
-      const [agences, app, base] = await Promise.all([
-        etapeFiltre
-          ? chargerAgences({ etape: etapeFiltre as Agence["etape"], secteur: secteurDuJour || undefined, commercialId: filtreCommercial(proprietaire), limite: 3000 }).then((l) => ordonnerAProspecter(l, secteurDuJour || null))
-          : chargerFile(file, m, secteurDuJour || null, proprietaire),
-        agencesAppeleesAujourdHui(m),
-        reposBase,
+      const [agences, app] = await Promise.all([
+        chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees }),
+        agencesAppeleesAujourdHui(new Date()),
       ])
       if (!enVie.current || jeton !== jetonFile.current) return // une lecture plus récente est en route
       setAppelees(app)
-      const retenues = agences
-        .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
-      if (reposDepuis && !inclureDejaAppelees && !base) setErreur("Le repos sur toute la base n'a pas pu être vérifié : la file ne retire que les appels de cette pile. La vérification juste avant de composer reste active.")
-      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis, agencesAuRepos: base?.agences, telsAuRepos: base?.tels, reposStandardDepuis }))
+      setFileAgences(agences)
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
       if (enVie.current && jeton === jetonFile.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, reposJours, reposStandardJours, moiId])
+  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, moiId])
 
   useEffect(() => {
     enVie.current = true
@@ -784,8 +771,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }
       verificationEnCours.current = true
       try {
-        const m = new Date()
-        const debutJour = new Date(m.getFullYear(), m.getMonth(), m.getDate()).toISOString()
         const precedent = depuisAuto ? "" : dernierCallIdRef.current
         const [st, garde] = await Promise.all([
           precedent ? statutAppelsRingover(precedent).catch(() => null) : Promise.resolve(null),
@@ -796,13 +781,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           setErreur("Ton appel précédent est encore en ligne sur Ringover : raccroche avant d'en lancer un autre.")
           return
         }
-        let refus = garde ?? null
-        if (garde === undefined && !directeRef.current && pileRef.current !== "rappels") {
-          // Garde pas encore installée en base : la vérification de l'écran (même numéro aujourd'hui).
-          const jour = await appelsDepuis(debutJour).catch(() => null)
-          const compose = chiffresTel(numeroAppele)
-          if (jour && compose && jour.tels.has(compose)) refus = "Ce numéro a déjà été appelé aujourd'hui (par toi ou un collègue) : on ne le recompose pas."
-        }
+        // La garde n'a pas répondu (réseau) : on ne compose pas à l'aveugle (Mahdi, 14/10 : verrouillé).
+        const refus = garde === undefined ? "La vérification avant d'appeler n'a pas pu se faire (réseau) : réessaie dans un instant." : garde
         if (refus) {
           if (depuisAuto) {
             setInfo(`${c.agence.nom} passée : ${refus}`)
@@ -991,7 +971,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         enVol = false
       }
       if (annule) return
-      const { suite, verdict } = observerAppel(etat, { ok: st.ok, actif: st.ok && st.actif })
+      const { suite, verdict } = observerAppel(etat, { ok: st.ok, actif: st.ok && st.actif }, toursMaxRef.current)
       etat = suite
       if (suite.vuActif) {
         const t = Date.now()
@@ -1012,7 +992,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // ── Mode automatique : compte à rebours, puis l'appel du numéro par défaut ──
   const courantePrete = Boolean(fiche)
   useEffect(() => {
-    if (!auto || !enCours || !libre || !courantePrete || !agenceCouranteId || autreOnglet) return
+    if (!auto || !enCours || !libre || !courantePrete || !agenceCouranteId || autreOnglet || cadence === null) return
     const c = couranteRef.current
     if (!c || c.agence.id !== agenceCouranteId) return
     // Un appel lancé sans résultat noté sur cette agence : on ne recompose pas par-dessus.
@@ -1119,7 +1099,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         })
         if (!enVie.current) return
         const m = new Date()
-        setInfo(`${c.agence.nom} : ${resumeEcriture(bilan, choix, m)}`)
+        setInfo(`${c.agence.nom} : ${resumeEcriture(bilan, choix, m, relanceJoursRef.current)}`)
         setAppelees((s) => new Set(s).add(c.agence.id))
         const n = appelId ? "" : chiffresTel(a?.numeroEmission ?? "") // déjà compté au clic
         if (n) {
@@ -1229,7 +1209,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     }
   }
   function ouvrirAction(type: Exclude<Action, "passer">) {
-    setFormAction({ titre: type === "tache" ? "Rappeler" : type === "rdv" ? "Rendez-vous" : "", quand: demainDixHeures(new Date()), type: "telephone", note: "" })
+    setFormAction({ titre: type === "tache" ? "Rappeler" : type === "rdv" ? "Rendez-vous" : "", quand: heureRelance === null ? "" : demainALHeure(new Date(), heureRelance), type: "telephone", note: "" })
     setDialogue(type)
   }
   async function validerAction() {
@@ -1351,17 +1331,17 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               <option value="non_sourcees">Non sourcées · standard seul</option>
             </Selecteur>
             <label className="flex items-center gap-2 text-legende text-encre">
-              <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" disabled={autreOnglet} /> Mode automatique
+              <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" disabled={autreOnglet || cadence === null} /> Mode automatique
             </label>
             <label className="flex items-center gap-1.5 text-legende text-encre-2">
               cadence
-              <Champ type="number" min={2} max={120} value={cadence || ""} onChange={(e) => setCadence(Number(e.target.value) || 0)} className="chiffres w-16" aria-label="Cadence en secondes (2 au minimum)" />
+              <Champ type="number" min={2} max={120} value={cadence ?? ""} onChange={(e) => setCadence(Number(e.target.value) || 0)} className="chiffres w-16" aria-label="Cadence en secondes (2 au minimum)" />
               s
             </label>
             {enCours ? (
               <Bouton variante="plein" icone={<Square />} onClick={arreter}>Arrêter</Bouton>
             ) : (
-              <Bouton variante="plein" icone={<Play />} onClick={demarrer} disabled={!fileAgences.length || chargementFile || autreOnglet} title={bloqueOnglet}>Démarrer</Bouton>
+              <Bouton variante="plein" icone={<Play />} onClick={demarrer} disabled={!fileAgences.length || chargementFile || autreOnglet || !reglages} title={bloqueOnglet ?? (!reglages ? "Lecture des réglages…" : undefined)}>Démarrer</Bouton>
             )}
           </>
         }
@@ -1371,6 +1351,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         <Bandeau role="alerte" className="mb-4">La session de call est déjà ouverte dans un autre onglet : ferme l'un des deux pour ne pas appeler deux fois le même numéro.</Bandeau>
       ) : null}
 
+      {erreurReglages ? <Bandeau role="alerte" className="mb-4">{erreurReglages} On n'appelle pas sans les réglages : recharge la page.</Bandeau> : null}
       {erreur ? (
         <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>OK</Bouton>}>{erreur}</Bandeau>
       ) : null}
@@ -1420,7 +1401,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             <Bouton taille="sm" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
           </div>
           <div className="border-b border-fond-4 px-4 py-2">
-            <Case texte={`inclure les agences appelées ces ${reposJours} derniers jours`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
+            <Case texte={`inclure les agences appelées ces ${reglages?.repos_appel_jours ?? "…"} derniers jours (jamais celles d'aujourd'hui)`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {chargementFile ? (

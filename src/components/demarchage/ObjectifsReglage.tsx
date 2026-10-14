@@ -1,46 +1,36 @@
 // ════════════════════════════════════════════════════════════════════════════
-// RÉGLAGES › OBJECTIFS ET SCRIPT — les trois réglages du démarchage, lus et
-// écrits dans `parametres` : l'objectif mensuel d'ordres de service, le script
-// d'appel, le seuil d'appels par jour et par numéro. Un seul bouton
-// « Enregistrer », grisé tant que rien n'a changé.
+// RÉGLAGES › OBJECTIFS ET RÈGLES — l'objectif mensuel, le script d'appel, et
+// TOUS les réglages des règles du démarchage (14/10/2026).
+//
+// Les réglages des règles, leurs bornes et leurs valeurs par défaut viennent de
+// la base (`reglages_demarchage()`) : cet écran n'en connaît aucun. Ce qu'on
+// enregistre ici, la base et tous les écrans l'appliquent aussitôt.
+// Un seul bouton « Enregistrer », grisé tant que rien n'a changé.
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from "react"
 import { Save } from "lucide-react"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
-import { REPOS_JOURS, REPOS_STANDARD_JOURS } from "../../demarchage/sessionOutils"
+import { chargerDefinitionsReglages, oublierReglages, TEXTES_REGLAGES, type CleReglage, type DefinitionReglage } from "../../demarchage/reglages"
 import { supabaseConfigure } from "../../lib/supabase"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Etiquette, TitreCarte, Zone } from "../../ui"
 
-// Les clés, les mêmes que celles lues par le tableau de bord, les sessions de call et les numéros d'appel.
+// Les clés lues par le tableau de bord et les sessions de call.
 const CLE_OBJECTIF = "objectif_os_mensuel"
 const CLE_SCRIPT = "script_appel"
-const CLE_QUOTA = "quota_appels_jour"
-const CLE_RELANCE = "relance_interesse_jours" // lue aussi par la règle d'appel en base (appel_enregistrer) et par la session
-const QUOTA_MIN = 10
-const QUOTA_MAX = 500
-const RELANCE_MIN = 1
-const RELANCE_MAX = 365
-const CLE_REPOS = "repos_appel_jours" // lue par la session de call au démarrage
-const REPOS_MIN = 1
-const REPOS_MAX = 60
-const CLE_REPOS_STANDARD = "repos_standard_jours" // après un « standard » (14/10) : lu par la session et par la garde en base
-const REPOS_STANDARD_MAX = 90
 
-type Valeurs = { objectif: string; script: string; quota: string; relance: string; repos: string; reposStandard: string }
-const memes = (a: Valeurs, b: Valeurs) => a.objectif === b.objectif && a.script === b.script && a.quota === b.quota && a.relance === b.relance && a.repos === b.repos && a.reposStandard === b.reposStandard
+type Valeurs = { objectif: string; script: string; regles: Record<CleReglage, string> }
+const memes = (a: Valeurs, b: Valeurs) =>
+  a.objectif === b.objectif && a.script === b.script && TEXTES_REGLAGES.every((t) => a.regles[t.cle] === b.regles[t.cle])
 
-function valider(v: Valeurs): string[] {
+function valider(v: Valeurs, defs: Map<CleReglage, DefinitionReglage>): string[] {
   const e: string[] = []
   const objectif = Number(v.objectif)
   if (v.objectif.trim() === "" || !Number.isInteger(objectif) || objectif < 0) e.push("L'objectif mensuel doit être un nombre entier (0 si tu ne veux pas d'objectif).")
-  const quota = Number(v.quota)
-  if (v.quota.trim() === "" || !Number.isInteger(quota) || quota < QUOTA_MIN || quota > QUOTA_MAX) e.push(`Le seuil d'appels par jour doit être entre ${QUOTA_MIN} et ${QUOTA_MAX}.`)
-  const relance = Number(v.relance)
-  if (v.relance.trim() === "" || !Number.isInteger(relance) || relance < RELANCE_MIN || relance > RELANCE_MAX) e.push(`La relance des intéressés doit être entre ${RELANCE_MIN} et ${RELANCE_MAX} jours.`)
-  const repos = Number(v.repos)
-  if (v.repos.trim() === "" || !Number.isInteger(repos) || repos < REPOS_MIN || repos > REPOS_MAX) e.push(`Le repos entre deux appels doit être entre ${REPOS_MIN} et ${REPOS_MAX} jours.`)
-  const rs = Number(v.reposStandard)
-  if (v.reposStandard.trim() === "" || !Number.isInteger(rs) || rs < REPOS_MIN || rs > REPOS_STANDARD_MAX) e.push(`Le repos après un « standard » doit être entre ${REPOS_MIN} et ${REPOS_STANDARD_MAX} jours.`)
+  for (const t of TEXTES_REGLAGES) {
+    const d = defs.get(t.cle)
+    const n = Number(v.regles[t.cle])
+    if (d && (v.regles[t.cle].trim() === "" || !Number.isInteger(n) || n < d.mini || n > d.maxi)) e.push(`« ${t.titre} » : entre ${d.mini} et ${d.maxi} ${t.unite}.`)
+  }
   return e
 }
 
@@ -48,6 +38,7 @@ export default function ObjectifsReglage() {
   // `origine` = ce que la base sait ; `brouillon` = ce que l'écran montre.
   const [origine, setOrigine] = useState<Valeurs | null>(null)
   const [brouillon, setBrouillon] = useState<Valeurs | null>(null)
+  const [defs, setDefs] = useState<Map<CleReglage, DefinitionReglage>>(() => new Map())
   const [chargement, setChargement] = useState(supabaseConfigure)
   const [erreurs, setErreurs] = useState<string[]>(supabaseConfigure ? [] : ["Base non configurée."])
   const [enreg, setEnreg] = useState(false)
@@ -55,9 +46,12 @@ export default function ObjectifsReglage() {
 
   useEffect(() => {
     if (!supabaseConfigure) return
-    Promise.all([lireParametre(CLE_OBJECTIF), lireParametre(CLE_SCRIPT), lireParametre(CLE_QUOTA), lireParametre(CLE_RELANCE), lireParametre(CLE_REPOS), lireParametre(CLE_REPOS_STANDARD)])
-      .then(([objectif, script, quota, relance, repos, reposStandard]) => {
-        const v: Valeurs = { objectif: objectif ?? "0", script: script ?? "", quota: quota ?? "100", relance: relance ?? "10", repos: repos ?? String(REPOS_JOURS), reposStandard: reposStandard ?? String(REPOS_STANDARD_JOURS) }
+    Promise.all([lireParametre(CLE_OBJECTIF), lireParametre(CLE_SCRIPT), chargerDefinitionsReglages()])
+      .then(([objectif, script, d]) => {
+        const parCle = new Map(d.map((x) => [x.cle, x]))
+        const regles = Object.fromEntries(TEXTES_REGLAGES.map((t) => [t.cle, String(parCle.get(t.cle)?.valeur ?? "")])) as Record<CleReglage, string>
+        const v: Valeurs = { objectif: objectif ?? "0", script: script ?? "", regles }
+        setDefs(parCle)
         setOrigine(v)
         setBrouillon(v)
       })
@@ -72,26 +66,29 @@ export default function ObjectifsReglage() {
     return () => clearTimeout(t)
   }, [ok])
 
-  const set = (k: keyof Valeurs, v: string) => {
+  const set = (k: "objectif" | "script", v: string) => {
     setBrouillon((prev) => (prev ? { ...prev, [k]: v } : prev))
+    setOk(false)
+  }
+  const setRegle = (k: CleReglage, v: string) => {
+    setBrouillon((prev) => (prev ? { ...prev, regles: { ...prev.regles, [k]: v } } : prev))
     setOk(false)
   }
 
   async function enregistrer() {
     if (!brouillon || !origine) return
-    const e = valider(brouillon)
+    const e = valider(brouillon, defs)
     setErreurs(e)
     if (e.length) return
     setEnreg(true)
     try {
-      const propre: Valeurs = { objectif: String(Number(brouillon.objectif)), script: brouillon.script.trim(), quota: String(Number(brouillon.quota)), relance: String(Number(brouillon.relance)), repos: String(Number(brouillon.repos)), reposStandard: String(Number(brouillon.reposStandard)) }
+      const regles = Object.fromEntries(TEXTES_REGLAGES.map((t) => [t.cle, String(Number(brouillon.regles[t.cle]))])) as Record<CleReglage, string>
+      const propre: Valeurs = { objectif: String(Number(brouillon.objectif)), script: brouillon.script.trim(), regles }
       // On n'écrit que ce qui a changé.
       if (propre.objectif !== origine.objectif) await ecrireParametre(CLE_OBJECTIF, propre.objectif)
       if (propre.script !== origine.script) await ecrireParametre(CLE_SCRIPT, propre.script)
-      if (propre.quota !== origine.quota) await ecrireParametre(CLE_QUOTA, propre.quota)
-      if (propre.relance !== origine.relance) await ecrireParametre(CLE_RELANCE, propre.relance)
-      if (propre.repos !== origine.repos) await ecrireParametre(CLE_REPOS, propre.repos)
-      if (propre.reposStandard !== origine.reposStandard) await ecrireParametre(CLE_REPOS_STANDARD, propre.reposStandard)
+      for (const t of TEXTES_REGLAGES) if (propre.regles[t.cle] !== origine.regles[t.cle]) await ecrireParametre(t.cle, propre.regles[t.cle])
+      oublierReglages() // tous les écrans ouverts relisent
       setOrigine(propre)
       setBrouillon(propre)
       setOk(true)
@@ -109,7 +106,7 @@ export default function ObjectifsReglage() {
   return (
     <div className="max-w-3xl space-y-5">
       <p className="text-legende text-encre-2">
-        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, quand relancer une agence intéressée, combien de jours laisser une agence tranquille entre deux appels, et jusqu'où un numéro peut appeler dans la journée.
+        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, et toutes les règles des appels. Ce qui est enregistré ici s'applique aussitôt, pour tout le monde.
       </p>
       {erreurs.length ? <Bandeau role="alerte">{erreurs.join(" ")}</Bandeau> : null}
       {ok ? <Bandeau role="ok">Enregistré.</Bandeau> : null}
@@ -133,32 +130,16 @@ export default function ObjectifsReglage() {
       </Carte>
 
       <Carte>
-        <TitreCarte>Relance des intéressés</TitreCarte>
-        <div className="px-5 pb-5">
-          <Etiquette texte="Une agence « intéressée » revient dans « À rappeler aujourd'hui » au bout de… (jours)" aide="Après un appel conclu « intéressé », la tâche « Relancer » se pose à ce délai, à 10 h. 7 jours jusqu'ici ; 15 jours ou 30 jours laissent plus de temps à l'agence. Ne change pas les relances déjà posées.">
-            <Champ type="number" min={RELANCE_MIN} max={RELANCE_MAX} step={1} value={brouillon.relance} onChange={(e) => set("relance", e.target.value)} className="chiffres max-w-[160px]" />
-          </Etiquette>
-        </div>
-      </Carte>
-
-      <Carte>
-        <TitreCarte>Repos entre deux appels</TitreCarte>
-        <div className="px-5 pb-5">
-          <Etiquette texte="Une agence déjà appelée ne revient dans la session qu'au bout de… (jours)" aide="Pour ne pas appeler les mêmes numéros tous les jours : une agence appelée (et toute fiche au même standard) sort de « À prospecter » pendant ce délai. On peut toujours l'appeler par la recherche. Les rappels datés et les intéressés ne sont pas concernés : ils reviennent à leur date.">
-            <Champ type="number" min={REPOS_MIN} max={REPOS_MAX} step={1} value={brouillon.repos} onChange={(e) => set("repos", e.target.value)} className="chiffres max-w-[160px]" />
-          </Etiquette>
-          <Etiquette className="mt-4" texte="Après « Standard, pas de gestionnaire » : l'agence ne revient qu'au bout de… (jours)" aide="Quelqu'un a décroché, mais pas le gestionnaire. Pour ne pas harceler l'accueil (et se faire barrer), l'agence sort de « À prospecter » plus longtemps qu'après une simple absence de réponse.">
-            <Champ type="number" min={REPOS_MIN} max={REPOS_STANDARD_MAX} step={1} value={brouillon.reposStandard} onChange={(e) => set("reposStandard", e.target.value)} className="chiffres max-w-[160px]" />
-          </Etiquette>
-        </div>
-      </Carte>
-
-      <Carte>
-        <TitreCarte>Appels par jour et par numéro</TitreCarte>
-        <div className="px-5 pb-5">
-          <Etiquette texte="Seuil d'appels sortants par jour, pour chaque numéro d'émission" aide={`Au-delà, les opérateurs signalent le numéro « spam » et les agences décrochent moins. La jauge de l'onglet Numéros d'appel s'appuie sur ce seuil (entre ${QUOTA_MIN} et ${QUOTA_MAX} ; 100 est prudent).`}>
-            <Champ type="number" min={QUOTA_MIN} max={QUOTA_MAX} step={1} value={brouillon.quota} onChange={(e) => set("quota", e.target.value)} className="chiffres max-w-[160px]" />
-          </Etiquette>
+        <TitreCarte>Les règles des appels</TitreCarte>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 pb-5 sm:grid-cols-2">
+          {TEXTES_REGLAGES.map((t) => {
+            const d = defs.get(t.cle)
+            return (
+              <Etiquette key={t.cle} texte={`${t.titre} (${t.unite})`} aide={`${t.aide}${d ? ` Par défaut : ${d.defaut} ${t.unite}.` : ""}`}>
+                <Champ type="number" min={d?.mini} max={d?.maxi} step={1} value={brouillon.regles[t.cle]} onChange={(e) => setRegle(t.cle, e.target.value)} className="chiffres max-w-[160px]" />
+              </Etiquette>
+            )
+          })}
         </div>
       </Carte>
 

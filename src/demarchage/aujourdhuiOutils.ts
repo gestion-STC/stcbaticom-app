@@ -53,10 +53,8 @@ export function ajouterJours(d: Date, n: number): Date {
 }
 
 // ── Les dates à proposer pour « Reporter » ──
-export function demainA(maintenant: Date, heure = 10): Date {
-  return new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1, heure, 0, 0, 0)
-}
-export function dansNJoursA(maintenant: Date, n: number, heure = 10): Date {
+// Dans N jours à l'heure dite (l'heure des relances, Réglages) : LA fonction du « demain 10 h ».
+export function dansNJoursA(maintenant: Date, n: number, heure: number): Date {
   return new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + n, heure, 0, 0, 0)
 }
 /** « 2026-10-12 » + « 14:30 » → la date locale ; null si l'un des deux manque ou est illisible. */
@@ -290,14 +288,12 @@ export function segmentsBase(parEtape: Record<string, number>): SegmentBase[] {
   })
 }
 
-// ── La fenêtre de rappel d'un RDV : de 5 min avant à 20 min après ──
-export const RAPPEL_AVANT_MIN = 5
-export const RAPPEL_APRES_MIN = 20
-export function dansLaFenetreDeRappel(echeance: string | null, maintenantMs: number): boolean {
+// ── La fenêtre de rappel d'un RDV : de N min avant à M min après (Réglages : 5 et 20) ──
+export function dansLaFenetreDeRappel(echeance: string | null, maintenantMs: number, avantMin: number, apresMin: number): boolean {
   if (!echeance) return false
   const t = new Date(echeance).getTime()
   if (Number.isNaN(t)) return false
-  return maintenantMs >= t - RAPPEL_AVANT_MIN * MIN_MS && maintenantMs <= t + RAPPEL_APRES_MIN * MIN_MS
+  return maintenantMs >= t - avantMin * MIN_MS && maintenantMs <= t + apresMin * MIN_MS
 }
 
 // ── Deux comptes en base qui manquaient (count exact, sans charger les lignes) ──

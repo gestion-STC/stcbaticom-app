@@ -14,7 +14,6 @@ import {
   ETAPES,
   MOTIFS,
   SORTIES,
-  SOMMEIL_JOURS,
   TYPES_AGENCE,
   type Activite,
   type Agence,
@@ -39,6 +38,7 @@ import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Dialogue, Etiquette, Ligne, Onglets, Panneau, Pastille, Selecteur, TitreCarte, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
+import { useReglages } from "../../demarchage/reglages"
 import { bilanDepuisAgence, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
 
@@ -60,6 +60,8 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
   const [comptes, setComptes] = useState<Compte[]>(COMMERCIAUX_PAR_DEFAUT)
   const [doublons, setDoublons] = useState<Agence[]>([])
   const [maintenant, setMaintenant] = useState(() => new Date())
+  const { reglages } = useReglages() // l'heure des relances, la durée du sommeil (Réglages)
+  const heureRelance = reglages?.heure_relance ?? null
   const [erreur, setErreur] = useState("")
   const [info, setInfo] = useState("")
   const [occupe, setOccupe] = useState(false)
@@ -137,7 +139,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
   }
 
   const reporter = (t: Activite) => {
-    const iso = isoDepuisChamp(reportDate)
+    const iso = heureRelance === null ? null : isoDepuisChamp(reportDate, heureRelance)
     if (!iso) { setErreur("Choisis une date pour reporter."); return }
     agir(async () => { await deplacerTache(t.id, iso); setReportId(null) }, `Reportée au ${dateHeure(iso)}.`)
   }
@@ -342,6 +344,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
               {ajout ? (
                 <FormulaireAjout
                   type={ajout}
+                  heureRelance={heureRelance}
                   contacts={contacts.filter((c) => !c.parti)}
                   maintenant={maintenant}
                   occupe={occupe}
@@ -379,7 +382,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
-                            <Bouton taille="sm" variante="discret" disabled={occupe} onClick={() => { setReportId(t.id); setReportDate(lendemainPourChamp(maintenant)) }}>Reporter</Bouton>
+                            <Bouton taille="sm" variante="discret" disabled={occupe || heureRelance === null} onClick={() => { if (heureRelance === null) return; setReportId(t.id); setReportDate(lendemainPourChamp(maintenant, heureRelance)) }}>Reporter</Bouton>
                             <Bouton taille="sm" icone={<Check />} disabled={occupe} onClick={() => agir(() => terminerTache(t.id), t.type === "rdv" ? "RDV marqué fait." : "Tâche faite.")}>Fait</Bouton>
                           </div>
                         )}
@@ -447,9 +450,10 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
       ) : null}
 
       {/* ── Dialogues ── */}
-      {dialogue === "etape" && agence ? (
+      {dialogue === "etape" && agence && reglages ? (
         <DialogueEtape
           agence={agence}
+          sommeilJours={reglages.sommeil_jours}
           maintenant={maintenant}
           occupe={occupe}
           onFermer={() => setDialogue(null)}
@@ -498,10 +502,10 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
 }
 
 // ── Changer l'étape à la main ────────────────────────────────────────────────
-function DialogueEtape({ agence, maintenant, occupe, onFermer, onValider }: { agence: Agence; maintenant: Date; occupe: boolean; onFermer: () => void; onValider: (etape: Etape, motif: Motif | "", reveilLe: string | null, dateOs: string) => void }) {
+function DialogueEtape({ agence, sommeilJours, maintenant, occupe, onFermer, onValider }: { agence: Agence; sommeilJours: number; maintenant: Date; occupe: boolean; onFermer: () => void; onValider: (etape: Etape, motif: Motif | "", reveilLe: string | null, dateOs: string) => void }) {
   const [etape, setEtape] = useState<Etape>(agence.etape)
   const [motif, setMotif] = useState<Motif>((MOTIFS.find((m) => m.code === agence.motif)?.code) ?? "autre")
-  const [reveil, setReveil] = useState(() => agence.reveilLe?.slice(0, 10) || jourPourChamp(new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + SOMMEIL_JOURS)))
+  const [reveil, setReveil] = useState(() => agence.reveilLe?.slice(0, 10) || jourPourChamp(new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + sommeilJours)))
   const [dateOs, setDateOs] = useState(() => agence.premierOsLe?.slice(0, 10) || jourPourChamp(maintenant)) // jour local, pas UTC
   // Endormie sans date de réveil = endormie pour toujours : on ne valide pas. Cliente sans date de premier OS non plus.
   const incomplet = (etape === "endormie" && !reveil) || (etape === "client" && !dateOs)
@@ -533,7 +537,7 @@ function DialogueEtape({ agence, maintenant, occupe, onFermer, onValider }: { ag
           </Etiquette>
         ) : null}
         {etape === "endormie" ? (
-          <Etiquette texte="Date de réveil" aide={`Elle ressortira dans « À réveiller » ce jour-là (${SOMMEIL_JOURS} jours par défaut).`}>
+          <Etiquette texte="Date de réveil" aide={`Elle ressortira dans « À réveiller » ce jour-là (${sommeilJours} jours par défaut, Réglages).`}>
             <Champ type="date" value={reveil} onChange={(e) => setReveil(e.target.value)} />
           </Etiquette>
         ) : null}
@@ -574,9 +578,9 @@ type NouvelElement =
   | { type: "tache"; titre: string; echeance: string; note: string; contactId: string | null }
   | { type: "rdv"; titre: string; echeance: string; rdvType: "telephone" | "visio" | "sur_place"; note: string; contactId: string | null }
 
-function FormulaireAjout({ type, contacts, maintenant, occupe, onAnnuler, onEnregistrer }: { type: "tache" | "rdv" | "note"; contacts: Contact[]; maintenant: Date; occupe: boolean; onAnnuler: () => void; onEnregistrer: (p: NouvelElement) => void }) {
+function FormulaireAjout({ type, heureRelance, contacts, maintenant, occupe, onAnnuler, onEnregistrer }: { type: "tache" | "rdv" | "note"; heureRelance: number | null; contacts: Contact[]; maintenant: Date; occupe: boolean; onAnnuler: () => void; onEnregistrer: (p: NouvelElement) => void }) {
   const [titre, setTitre] = useState(type === "tache" ? "Rappeler" : "")
-  const [echeance, setEcheance] = useState(() => lendemainPourChamp(maintenant))
+  const [echeance, setEcheance] = useState(() => (heureRelance === null ? "" : lendemainPourChamp(maintenant, heureRelance)))
   const [rdvType, setRdvType] = useState<"telephone" | "visio" | "sur_place">("telephone")
   const [note, setNote] = useState("")
   const [contactId, setContactId] = useState(() => contacts.find((c) => c.principal)?.id ?? "")
@@ -587,7 +591,7 @@ function FormulaireAjout({ type, contacts, maintenant, occupe, onAnnuler, onEnre
       if (!note.trim()) { setErreur("La note est vide."); return }
       onEnregistrer({ type, note: note.trim(), contactId: cid }); return
     }
-    const iso = isoDepuisChamp(echeance)
+    const iso = heureRelance === null ? null : isoDepuisChamp(echeance, heureRelance)
     if (!iso) { setErreur("Il faut une date."); return }
     if (type === "rdv") { onEnregistrer({ type, titre: titre.trim(), echeance: iso, rdvType, note: note.trim(), contactId: cid }); return }
     if (!titre.trim()) { setErreur("Il faut un titre à la tâche."); return }
