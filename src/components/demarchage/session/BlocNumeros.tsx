@@ -116,6 +116,7 @@ export default function BlocNumeros({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   Tu appelles depuis le <b className="chiffres">{formaterTelephone(numeroEmission)}</b>
+                  <span className="text-encre-2" title="Ringover fait sonner le propriétaire du numéro : ouvre Ringover sur ce poste, connecté avec TON compte, avant d'appeler."> · ton Ringover doit être ouvert sur ce poste</span>
                 </span>
                 <span className={"chiffres " + (jauge.depasse ? "font-medium text-alerte" : "text-encre-2")}>{jauge.texte}</span>
               </div>

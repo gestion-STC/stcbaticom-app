@@ -4,6 +4,9 @@ import {
   estDansLaReserve,
   parserNumeros,
   numerosDuCompte,
+  attribuerNumero,
+  libererNumero,
+  numerosDe,
 } from "./numerosEmission"
 
 const A = "+33 1 84 80 77 86"
@@ -54,5 +57,36 @@ describe("un numéro, une personne (13/10)", () => {
   })
   it("le propriétaire survit à l'enregistrement", () => {
     expect(parserNumeros(JSON.stringify(liste))).toEqual(liste)
+  })
+})
+
+describe("le numéro Ringover de chaque compte (réglé dans Comptes, 14/10)", () => {
+  const liste = [
+    { numero: "+33 1 84 80 61 28", pause: false, compteId: "mahdi" },
+    { numero: "33 1 89 70 86 23", pause: false },
+  ]
+  it("un nouveau numéro est ajouté à la réserve et rattaché au compte", () => {
+    const l = attribuerNumero(liste, "01 89 70 00 01", "nouveau")
+    expect(numerosDe(l, "nouveau").map((n) => n.numero)).toEqual(["01 89 70 00 01"])
+    expect(l).toHaveLength(3)
+  })
+  it("un numéro libre de la réserve est rattaché, sans doublon", () => {
+    const l = attribuerNumero(liste, "+33 1 89 70 86 23", "horlann")
+    expect(l).toHaveLength(2)
+    expect(numerosDe(l, "horlann")).toHaveLength(1)
+  })
+  it("le numéro d'un collègue est refusé : Ringover ferait sonner le collègue", () => {
+    expect(() => attribuerNumero(liste, "01 84 80 61 28", "horlann")).toThrow(/autre compte/)
+  })
+  it("le même numéro écrit autrement (+33, 33, 01) est reconnu, jamais en double", () => {
+    expect(attribuerNumero(liste, "01 89 70 86 23", "horlann")).toHaveLength(2)
+  })
+  it("un numéro incomplet est refusé", () => {
+    expect(() => attribuerNumero(liste, "01 84", "x")).toThrow(/incomplet/)
+  })
+  it("libérer un numéro le garde dans la réserve, sans propriétaire", () => {
+    const l = libererNumero(liste, "01 84 80 61 28")
+    expect(l).toHaveLength(2)
+    expect(numerosDe(l, "mahdi")).toHaveLength(0)
   })
 })

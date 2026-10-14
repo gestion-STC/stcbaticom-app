@@ -94,3 +94,26 @@ export function estDansLaReserve(numero: string, reserve: string[]): boolean {
   const n = normaliser(numero)
   return reserve.some((r) => normaliser(r) === n)
 }
+
+// ── Le numéro Ringover de chaque compte (14/10, réglé dans Comptes) ──
+// Un même numéro s'écrit « +33 1 84… », « 33 1 84… » ou « 01 84… » : comparé sous sa forme nationale.
+const national = (n: string): string => { const c = normaliser(n); return c.startsWith("0033") ? "0" + c.slice(4) : c.startsWith("33") && c.length === 11 ? "0" + c.slice(2) : c }
+// Les numéros d'un compte, actifs ou en pause.
+export function numerosDe(liste: NumeroEmission[], compteId: string): NumeroEmission[] {
+  return liste.filter((n) => n.compteId === compteId)
+}
+// Donne `numero` à `compteId` : ajouté à la réserve s'il n'y est pas, sinon rattaché à ce compte.
+// Refusé s'il appartient déjà à un collègue (Ringover ferait sonner le collègue) : on le libère d'abord.
+export function attribuerNumero(liste: NumeroEmission[], numero: string, compteId: string): NumeroEmission[] {
+  const c = national(numero)
+  if (c.length < 10) throw new Error("Numéro Ringover incomplet.")
+  const existant = liste.find((n) => national(n.numero) === c)
+  if (existant?.compteId && existant.compteId !== compteId) throw new Error("Ce numéro est déjà attribué à un autre compte : retire-le d'abord de ce compte.")
+  if (existant) return liste.map((n) => (national(n.numero) === c ? { ...n, compteId } : n))
+  return [...liste, { numero: numero.trim(), pause: false, compteId }]
+}
+// Retire `numero` d'un compte : il reste dans la réserve, sans propriétaire (personne ne l'utilise).
+export function libererNumero(liste: NumeroEmission[], numero: string): NumeroEmission[] {
+  const c = national(numero)
+  return liste.map((n) => (national(n.numero) === c ? { numero: n.numero, pause: n.pause } : n))
+}
