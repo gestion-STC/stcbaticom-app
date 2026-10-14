@@ -38,6 +38,8 @@ export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, o
         {a.secteurLibelle ? <span>{a.secteurLibelle}</span> : null}
         {a.enseigne ? <span>· {a.enseigne}</span> : null}
       </div>
+      {/* L'adresse dans la file : deux agences du même réseau dans le même secteur se distinguent d'un coup d'œil. */}
+      <div className="mt-0.5 truncate text-colonne text-encre-2" title={a.adresse || undefined}>{a.adresse || "adresse inconnue"}</div>
       <div className="mt-0.5 text-colonne text-encre-2">
         {texteDernierAppel(a, maintenant)}
         {a.prochaineEcheance ? ` · ${a.prochaineTache || "tâche"} le ${dateHeureCourte(a.prochaineEcheance)}` : ""}
