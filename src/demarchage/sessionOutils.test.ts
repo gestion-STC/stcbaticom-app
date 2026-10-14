@@ -340,3 +340,15 @@ describe("numéro d'une agence qui appartient à un collègue (13/10)", () => {
     expect(numeroEmissionPour({ numeroEmission: "01 99 99 99 99" }, ["+33 1 84 80 61 28"], [], ["33 1 89 70 86 23"]).bloque).toBe(true)
   })
 })
+
+describe("le repos après un « standard » (14/10)", () => {
+  const maintenant = new Date(2026, 9, 14, 10, 0)
+  const il_y_a = (j: number) => new Date(2026, 9, 14 - j, 11, 0).toISOString()
+  const std8 = agence({ id: "std8", telephone: "01 00 00 00 11", dernierAppelLe: il_y_a(8), dernierResultat: "standard" })
+  const pdr8 = agence({ id: "pdr8", telephone: "01 00 00 00 12", dernierAppelLe: il_y_a(8), dernierResultat: "pas_de_reponse" })
+  const std20 = agence({ id: "std20", telephone: "01 00 00 00 13", dernierAppelLe: il_y_a(20), dernierResultat: "standard" })
+  it("un standard récent sort du grattage ; une absence de réponse revient après 5 jours", () => {
+    const f = constituerFile([std8, pdr8, std20], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: debutRepos(maintenant, 5), reposStandardDepuis: debutRepos(maintenant, 15) })
+    expect(f.map((x) => x.id)).toEqual(["pdr8", "std20"])
+  })
+})

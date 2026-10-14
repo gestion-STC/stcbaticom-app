@@ -45,10 +45,18 @@ export type OptionsFile = {
   // ce standard (doublon dans une autre étape, chez un collègue) reste au repos elle aussi.
   agencesAuRepos?: Set<string>
   telsAuRepos?: Set<string>
+  // « Standard » (Mahdi, 14/10) : quelqu'un a décroché, pas le gestionnaire. On ne harcèle pas
+  // l'accueil : l'agence sort du grattage pendant un repos plus long (Réglages, 15 jours).
+  reposStandardDepuis?: string | null
 }
 
 // Le repos entre deux appels d'une même agence, en jours (on reste joignable par la recherche).
 export const REPOS_JOURS = 5
+export const REPOS_STANDARD_JOURS = 15
+/** Le dernier appel est-il un « standard » encore au repos ? */
+export function auReposStandard(a: Pick<Agence, "dernierResultat" | "dernierAppelLe">, reposStandardDepuis: string | null | undefined): boolean {
+  return Boolean(reposStandardDepuis && a.dernierResultat === "standard" && a.dernierAppelLe && a.dernierAppelLe >= reposStandardDepuis)
+}
 export function debutRepos(maintenant: Date, jours = REPOS_JOURS): string {
   return new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - jours + 1).toISOString()
 }
@@ -63,7 +71,7 @@ export function constituerFile(agences: Agence[], o: OptionsFile): Agence[] {
   // Les standards des agences déjà appelées : une fiche en double partage le numéro.
   const auRepos = (a: Agence) =>
     !garderAppelees &&
-    (o.appeleesAujourdHui.has(a.id) || Boolean(o.reposDepuis && a.dernierAppelLe && a.dernierAppelLe >= o.reposDepuis) || Boolean(o.reposDepuis && o.agencesAuRepos?.has(a.id)))
+    (o.appeleesAujourdHui.has(a.id) || Boolean(o.reposDepuis && a.dernierAppelLe && a.dernierAppelLe >= o.reposDepuis) || Boolean(o.reposDepuis && o.agencesAuRepos?.has(a.id)) || auReposStandard(a, o.reposStandardDepuis))
   const telsAppeles = new Set<string>(!garderAppelees && o.reposDepuis && o.telsAuRepos ? o.telsAuRepos : [])
   for (const a of agences) {
     const t = chiffresTel(a.telephone)

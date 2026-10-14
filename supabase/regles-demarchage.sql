@@ -380,6 +380,8 @@ declare
   v_debut_jour timestamptz := date_trunc('day', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris';
   v_fin_jour timestamptz := (date_trunc('day', now() at time zone 'Europe/Paris') + interval '1 day') at time zone 'Europe/Paris';
   v_repos integer := coalesce((select valeur::integer from public.parametres where cle = 'repos_appel_jours' and valeur ~ '^[0-9]+$' and valeur::integer between 1 and 60), 5);
+  v_repos_standard integer := coalesce((select valeur::integer from public.parametres where cle = 'repos_standard_jours' and valeur ~ '^[0-9]+$' and valeur::integer between 1 and 90), 15);
+  v_dernier_resultat text;
   v_rappel_du boolean;
   v_lance timestamptz;
   v_dernier timestamptz;
@@ -405,7 +407,12 @@ begin
     if a.type = 'apporteur' or a.etape in ('pas_interesse', 'hors_cible', 'client') then
       return 'Cette agence est sortie du démarchage.';
     end if;
-    select max(date) into v_dernier from public.activites where agence_id = p_agence_id and type = 'appel' and sens <> 'entrant';
+    select date, resultat into v_dernier, v_dernier_resultat from public.activites where agence_id = p_agence_id and type = 'appel' and sens <> 'entrant' order by date desc limit 1;
+    -- « Standard » (Mahdi, 14/10) : l'accueil a décroché, pas le gestionnaire. On ne harcèle pas : repos plus long.
+    if v_dernier_resultat = 'standard' and not v_rappel_du
+       and v_dernier >= (date_trunc('day', now() at time zone 'Europe/Paris') - ((v_repos_standard - 1) || ' days')::interval) at time zone 'Europe/Paris' then
+      return 'Standard eu le ' || to_char(v_dernier at time zone 'Europe/Paris', 'DD/MM') || ' sans le gestionnaire : on laisse reposer l''accueil ' || v_repos_standard || ' jours.';
+    end if;
     if v_dernier is not null and not v_rappel_du
        and v_dernier >= (date_trunc('day', now() at time zone 'Europe/Paris') - ((v_repos - 1) || ' days')::interval) at time zone 'Europe/Paris' then
       return 'Agence au repos : appelée le ' || to_char(v_dernier at time zone 'Europe/Paris', 'DD/MM') || ', elle revient dans ' || v_repos || ' jours.';
@@ -476,7 +483,7 @@ as $$
       ('agences_etape_relances', '26ad1707da93b588e54772698725ef22'),
       ('appel_enregistrer', '6d025cbb9829df77339e41ce3162581a'),
       ('appel_lancer', '1a7719fcc50f051173c9dc47b44fabe4'),
-      ('appel_verifier', '931c803ef41822ad589ab616b5cacdcf'),
+      ('appel_verifier', '2ef56536374ecfb5ea2540288f4c7434'),
       ('attribuer_secteur', '36fed4398857d71bcd61cf41c66c8b23'),
       ('messages_rattacher_agence', '706c38b5a6e088b688311d7f13ebb60a'),
       ('tache_terminer', '301665f092e9fd0a8928dcbf693e4aa2')

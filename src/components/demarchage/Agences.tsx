@@ -10,15 +10,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus, Upload } from "lucide-react"
 import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape, SOMMEIL_APRES_TENTATIVES } from "../../demarchage/modele"
-import { chargerAgences, chargerFile, chargerSecteurs, compterApporteurs, compterFiles, compterParEtape, type FiltresAgences } from "../../demarchage/db"
+import { chargerAgences, chargerFile, chargerSecteurs, compterApporteurs, compterFiles, compterParEtape, lireRepos, type FiltresAgences } from "../../demarchage/db"
 import {
   FILTRES_VIDES, type CleTri, type FileOuToutes, type FiltresLocaux, type Tri, basculerTri, dateCourte, depuisTexte, enRetard, enseignesDistinctes, filtrerAgences, ilYA, messageErreur, pluriel,
   retirerAuRepos, secteursParZone, sousTitreAgences, trierAgences,
 } from "../../demarchage/agencesOutils"
 import { exporterAgencesExcel, exporterContactsExcel } from "../../demarchage/exportAgences"
 import { nomProprietaire, type Proprietaire } from "../../demarchage/attribution"
-import { debutRepos, REPOS_JOURS } from "../../demarchage/sessionOutils"
-import { lireParametre } from "../../lib/parametresDb"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes } from "../../lib/comptes"
 import { supabaseConfigure } from "../../lib/supabase"
@@ -75,24 +73,21 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   // Les piles comptent comme la session et Aujourd'hui (13/10 : trois écrans, un seul chiffre) :
   // la base choisie dans « Attribuée à » et le repos entre deux appels (Réglages, 5 jours sinon).
   const proprietaire = useMemo<Proprietaire>(() => (!filtres.attribuee ? "tous" : filtres.attribuee === "aucun" ? "non_attribuees" : { compteId: filtres.attribuee }), [filtres.attribuee])
-  const lireRepos = useCallback(async (quand: Date) => {
-    const n = Number(await lireParametre("repos_appel_jours").catch(() => null))
-    return debutRepos(quand, Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS)
-  }, [])
+  const lireReposAgences = useCallback((quand: Date) => lireRepos(quand), [])
   const chargerCompteurs = useCallback(async () => {
     const quand = new Date()
-    const repos = await lireRepos(quand)
-    const [e, f, ap] = await Promise.all([compterParEtape(), compterFiles(quand, proprietaire, repos).catch(() => null), compterApporteurs().catch(() => 0)])
+    const repos = await lireReposAgences(quand)
+    const [e, f, ap] = await Promise.all([compterParEtape(), compterFiles(quand, proprietaire, repos.depuis, repos.standardDepuis).catch(() => null), compterApporteurs().catch(() => 0)])
     setApporteurs(ap)
     setParEtape(e); setParFile(f)
-  }, [proprietaire, lireRepos])
+  }, [proprietaire, lireReposAgences])
 
   const charger = useCallback(async () => {
     if (!supabaseConfigure) return
     try {
       const quand = new Date()
       const liste = file === "toutes" ? await chargerAgences(filtresServeur)
-        : file === "a_prospecter" ? retirerAuRepos(await chargerFile(file, quand, null, proprietaire), await lireRepos(quand))
+        : file === "a_prospecter" ? await (async () => { const r = await lireReposAgences(quand); return retirerAuRepos(await chargerFile(file, quand, null, proprietaire), r.depuis, r.standardDepuis) })()
         : await chargerFile(file, quand, null, proprietaire)
       setAgences(liste); setMaintenant(quand); setErreur("")
     } catch (e) {
@@ -100,7 +95,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
     } finally {
       setChargement(false)
     }
-  }, [file, filtresServeur, proprietaire, lireRepos])
+  }, [file, filtresServeur, proprietaire, lireReposAgences])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
   // Arrivée depuis une autre page avec une étape à montrer.
   useEffect(() => {

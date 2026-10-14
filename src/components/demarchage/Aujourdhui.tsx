@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, Video } from "lucide-react"
 import AppelsANoter from "./AppelsANoter"
-import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
+import { chargerTachesDuJour, compterFiles, compterParEtape, compterPremiersOs, deplacerTache, lireRepos, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
   composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, demainA, estEnRetard, finDeSemaine, finDuMois,
@@ -19,7 +19,6 @@ import {
   majusculeInitiale, dansLaBase, libelleBase, baseConversion,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
-import { debutRepos, REPOS_JOURS } from "../../demarchage/sessionOutils"
 import { estAdmin, listerComptes } from "../../lib/comptes"
 import { useSession } from "../../lib/auth"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, proprietaireDepuisChoix } from "../../demarchage/attribution"
@@ -84,15 +83,14 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       const fonctions = await chargerFonctions().catch(() => ({}) as Record<string, never>)
       const horsClassement = new Set(Object.entries(fonctions).filter(([, f]) => !estAuClassement(f)).map(([id]) => id))
       // « À prospecter » compte comme la session : sans les agences au repos (Réglages, 5 jours sinon).
-      const reposBrut = Number(await lireParametre("repos_appel_jours").catch(() => null))
-      const repos = Number.isInteger(reposBrut) && reposBrut >= 1 && reposBrut <= 60 ? reposBrut : REPOS_JOURS
+      const repos = await lireRepos(now)
       const libre = nonAttribueesPourTous(await lireParametre(CLE_NON_ATTRIBUEES).catch(() => null))
       let choixBrut: string | null = null
       try { choixBrut = localStorage.getItem(CLE_CHOIX_LOCAL) } catch { /* poste sans stockage : « Ma base » */ }
       const proprietaire = proprietaireDepuisChoix(choixBrut, moiId, admin, libre)
       const base = libelleBase(moiId ? normaliserChoix(choixBrut, admin, libre) : "tous", comptes)
       const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
-        compterFiles(now, proprietaire, debutRepos(now, repos)).catch(() => null),
+        compterFiles(now, proprietaire, repos.depuis, repos.standardDepuis).catch(() => null),
         chargerTachesDuJour(now).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
         compterPremiersOs(debutDuMois(now), finDuMois(now)),
         lireParametre(CLE_OBJECTIF),

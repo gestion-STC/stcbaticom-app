@@ -294,11 +294,11 @@ describe("on ne tue pas les numéros : la garde avant de composer", () => {
   })
   it("au repos : appelée il y a 3 jours → refus ; il y a 5 jours → permis", async () => {
     const recent = await agence()
-    await appel(recent, "standard")
+    await appel(recent, "pas_de_reponse")
     await q(`update public.activites set date = now() - interval '3 days' where agence_id = $1 and type = 'appel'`, [recent])
     expect(await verifier(recent, await telDe(recent))).toMatch(/au repos/)
     const ancien = await agence()
-    await appel(ancien, "standard")
+    await appel(ancien, "pas_de_reponse")
     await q(`update public.activites set date = (date_trunc('day', now() at time zone 'Europe/Paris') - interval '5 days' + interval '9 hours') at time zone 'Europe/Paris' where agence_id = $1 and type = 'appel'`, [ancien])
     expect(await verifier(ancien, await telDe(ancien))).toBeNull()
   })
@@ -345,5 +345,22 @@ describe("apporteur d'affaires pendant un appel (13/10)", () => {
     expect(await ouvertes(id)).toEqual([])
     const e = await q<{ exemples: string }>(`select exemples from public.sante_demarchage() where code = 'appel_non_note'`)
     expect(e.length === 0 || !e[0].exemples.includes("Agence " + n)).toBe(true)
+  })
+})
+
+describe("« standard » : on ne harcèle pas l'accueil (14/10)", () => {
+  it("après un standard, l'agence est au repos 15 jours (pas 5)", async () => {
+    const id = await agence()
+    await appel(id, "standard")
+    await q(`update public.activites set date = (date_trunc('day', now() at time zone 'Europe/Paris') - interval '8 days' + interval '9 hours') at time zone 'Europe/Paris' where agence_id = $1 and type = 'appel'`, [id])
+    expect(await verifier(id, await telDe(id))).toMatch(/Standard eu le .* reposer l'accueil 15 jours/)
+    await q(`update public.activites set date = (date_trunc('day', now() at time zone 'Europe/Paris') - interval '15 days' + interval '9 hours') at time zone 'Europe/Paris' where agence_id = $1 and type = 'appel'`, [id])
+    expect(await verifier(id, await telDe(id))).toBeNull()
+  })
+  it("après un « pas de réponse » il y a 8 jours : appel permis (nouvel essai légitime)", async () => {
+    const id = await agence()
+    await appel(id, "pas_de_reponse")
+    await q(`update public.activites set date = now() - interval '8 days' where agence_id = $1 and type = 'appel'`, [id])
+    expect(await verifier(id, await telDe(id))).toBeNull()
   })
 })
