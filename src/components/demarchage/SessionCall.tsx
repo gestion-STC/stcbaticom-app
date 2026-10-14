@@ -46,7 +46,7 @@ import {
 } from "../../demarchage/modele"
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
-  bilanDepuisAgence, compteARebours, constituerFile, dateHeureCourte, debutRepos, texteBilanAppels, REPOS_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
+  bilanDepuisAgence, compteARebours, constituerFile, dateHeureCourte, debutRepos, texteBilanAppels, REPOS_JOURS, REPOS_STANDARD_JOURS, decrireActivite, demainDixHeures, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
   observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, versIso,
   type ChoixResultat, type TypeRdv, type Verdict,
 } from "../../demarchage/sessionOutils"
@@ -266,6 +266,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // ── L'appel ──
   const [appel, setAppel] = useState<AppelEnCours | null>(null)
   const [reposJours, setReposJours] = useState(REPOS_JOURS) // Réglages › Objectifs et script
+  const [reposStandardJours, setReposStandardJours] = useState(REPOS_STANDARD_JOURS)
   // Les compteurs des piles : toujours dans la base choisie et avec le repos (pas « tous »).
   const compterFilesRef = useRef((m: Date) => compterFiles(m, "tous", debutRepos(m)))
   const [barreVisible, setBarreVisible] = useState(false)
@@ -355,13 +356,15 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Lectures ──
   const chargerReglages = useCallback(async () => {
-    const [q, s, r, rp] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null), lireParametre("relance_interesse_jours").catch(() => null), lireParametre("repos_appel_jours").catch(() => null)])
+    const [q, s, r, rp, rs] = await Promise.all([lireParametre("quota_appels_jour").catch(() => null), lireParametre("script_appel").catch(() => null), lireParametre("relance_interesse_jours").catch(() => null), lireParametre("repos_appel_jours").catch(() => null), lireParametre("repos_standard_jours").catch(() => null)])
     if (!enVie.current) return
     setQuota(Number(q) || 0)
     setScript(s ?? "")
     reglerRelanceJours(Number(r)) // le délai de relance des intéressés, réglé dans Réglages (7 jours sinon)
     const n = Number(rp)
     setReposJours(Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS) // le repos entre deux appels, réglé dans Réglages
+    const ns = Number(rs)
+    setReposStandardJours(Number.isInteger(ns) && ns >= 1 && ns <= 90 ? ns : REPOS_STANDARD_JOURS) // après un « standard »
   }, [])
 
   // Les repères : secteurs, compteurs des files, appels du jour, réserve de numéros.
@@ -369,7 +372,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
-      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
+      chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours), debutRepos(m, reposStandardJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
     ])
     if (!enVie.current) return
     setSecteurs(sect)
@@ -389,11 +392,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setSansNumero(res.parCompte && res.miens.length === 0)
     }
     setMaintenant(Date.now())
-  }, [proprietaire, reposJours, moiId])
+  }, [proprietaire, reposJours, reposStandardJours, moiId])
   const premierReperes = useRef(true)
   useEffect(() => {
-    compterFilesRef.current = (m: Date) => compterFiles(m, proprietaire, debutRepos(m, reposJours))
-  }, [proprietaire, reposJours])
+    compterFilesRef.current = (m: Date) => compterFiles(m, proprietaire, debutRepos(m, reposJours), debutRepos(m, reposStandardJours))
+  }, [proprietaire, reposJours, reposStandardJours])
   // Recompter les piles (après un résultat, une tâche, un apporteur) ; en échec : « — ».
   const recompterFiles = useCallback(() => {
     compterFilesRef.current(new Date())
@@ -413,6 +416,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       // Le repos de 5 jours : partout sauf les rappels datés et les intéressés (ils ont leur relance).
       const avecRepos = etapeFiltre ? !["interesse", "rdv_planifie"].includes(etapeFiltre) : file === "a_prospecter" || file === "a_reveiller"
       const reposDepuis = avecRepos ? debutRepos(m, reposJours) : null
+      const reposStandardDepuis = avecRepos ? debutRepos(m, reposStandardJours) : null
       // Le repos vaut sur TOUTE la base (Mahdi, 13/10) : un standard composé depuis une autre étape,
       // une autre base ou par un collègue met aussi au repos les fiches qui le partagent.
       const reposBase = reposDepuis && !inclureDejaAppelees ? appelsDepuis(reposDepuis).catch(() => null) : Promise.resolve(null)
@@ -430,14 +434,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const retenues = agences
         .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
       if (reposDepuis && !inclureDejaAppelees && !base) setErreur("Le repos sur toute la base n'a pas pu être vérifié : la file ne retire que les appels de cette pile. La vérification juste avant de composer reste active.")
-      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis, agencesAuRepos: base?.agences, telsAuRepos: base?.tels }))
+      setFileAgences(constituerFile(retenues, { file, appeleesAujourdHui: app, inclureDejaAppelees, reposDepuis, agencesAuRepos: base?.agences, telsAuRepos: base?.tels, reposStandardDepuis }))
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
       if (enVie.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, reposJours])
+  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, reposJours, reposStandardJours])
 
   useEffect(() => {
     enVie.current = true

@@ -8,6 +8,8 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
+import { lireParametre } from "../lib/parametresDb"
+import { debutRepos, REPOS_JOURS, REPOS_STANDARD_JOURS } from "./sessionOutils"
 import type { Proprietaire } from "./attribution"
 import type { Message } from "../lib/messagesDb"
 import {
@@ -165,7 +167,7 @@ export async function chargerFile(file: File, maintenant: Date, secteurDuJour: s
 }
 
 // `reposDepuis` : le compteur « À prospecter » retire, comme la file, les agences encore au repos.
-export async function compterFiles(maintenant: Date, proprietaire: Proprietaire = "tous", reposDepuis: string | null = null): Promise<Record<File, number>> {
+export async function compterFiles(maintenant: Date, proprietaire: Proprietaire = "tous", reposDepuis: string | null = null, reposStandardDepuis: string | null = null): Promise<Record<File, number>> {
   const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
   const aujourdHui = jourLocal(maintenant)
   const fp = filtreProprietaire(proprietaire)
@@ -174,9 +176,13 @@ export async function compterFiles(maintenant: Date, proprietaire: Proprietaire 
     return fp ? q.filter(fp[0], fp[1], fp[2]) : q
   }
   const [a, b, c, d] = await Promise.all([
-    reposDepuis
-      ? base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null).or(`dernier_appel_le.is.null,dernier_appel_le.lt."${reposDepuis}"`)
-      : base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null),
+    (() => {
+      let q = base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null)
+      if (reposDepuis) q = q.or(`dernier_appel_le.is.null,dernier_appel_le.lt."${reposDepuis}"`)
+      // Un « standard » récent n'est pas un numéro à gratter (Mahdi, 14/10).
+      if (reposStandardDepuis) q = q.or(`dernier_resultat.is.null,dernier_resultat.neq.standard,dernier_appel_le.lt."${reposStandardDepuis}"`)
+      return q
+    })(),
     base().neq("etape", "hors_cible").lt("prochaine_echeance", finJour),
     base().in("etape", ["interesse", "rdv_planifie"]),
     base().eq("etape", "endormie").lte("reveil_le", aujourdHui),
@@ -184,6 +190,15 @@ export async function compterFiles(maintenant: Date, proprietaire: Proprietaire 
   // Un comptage en échec ne s'affiche jamais comme un vrai chiffre : l'appelant garde « — ».
   for (const r of [a, b, c, d]) erreur(r.error)
   return { a_prospecter: a.count ?? 0, rappels: b.count ?? 0, sans_nouvelle: c.count ?? 0, a_reveiller: d.count ?? 0 }
+}
+
+// Les deux repos de Réglages, lus en un endroit : après n'importe quel appel (5 j) et après un « standard » (15 j).
+export async function lireRepos(quand: Date): Promise<{ depuis: string; standardDepuis: string; jours: number; joursStandard: number }> {
+  const [a, b] = await Promise.all([lireParametre("repos_appel_jours").catch(() => null), lireParametre("repos_standard_jours").catch(() => null)])
+  const n = Number(a), s = Number(b)
+  const jours = Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS
+  const joursStandard = Number.isInteger(s) && s >= 1 && s <= 90 ? s : REPOS_STANDARD_JOURS
+  return { depuis: debutRepos(quand, jours), standardDepuis: debutRepos(quand, joursStandard), jours, joursStandard }
 }
 
 export async function compterParEtape(): Promise<Record<string, number>> {

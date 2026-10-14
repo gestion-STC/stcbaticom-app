@@ -143,9 +143,15 @@ export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
 }
 
 /** Le repos entre deux appels, comme la session et les compteurs : on retire les agences appelées depuis `reposDepuis`. */
-export function retirerAuRepos<T extends Pick<Agence, "dernierAppelLe">>(agences: T[], reposDepuis: string): T[] {
+export function retirerAuRepos<T extends Pick<Agence, "dernierAppelLe" | "dernierResultat">>(agences: T[], reposDepuis: string, reposStandardDepuis: string | null = null): T[] {
   const borne = new Date(reposDepuis).getTime()
-  return agences.filter((a) => !a.dernierAppelLe || new Date(a.dernierAppelLe).getTime() < borne)
+  const borneStandard = reposStandardDepuis ? new Date(reposStandardDepuis).getTime() : null
+  return agences.filter((a) => {
+    if (!a.dernierAppelLe) return true
+    const t = new Date(a.dernierAppelLe).getTime()
+    if (t >= borne) return false
+    return !(borneStandard !== null && a.dernierResultat === "standard" && t >= borneStandard)
+  })
 }
 
 /** Le jour LOCAL (Paris) d'un horodatage, « 2026-10-13 » ; « » si vide. Jamais `.slice(0, 10)` d'une date UTC. */
