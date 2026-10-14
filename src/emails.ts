@@ -15,7 +15,7 @@ export type Email = {
   pieces: PieceJointe[]
 }
 
-// Variables insérables dans les emails (remplacées à l'envoi par les données du prospect).
+// Variables insérables dans les emails (remplacées à l'envoi par les données de l'agence et de son contact).
 export const variables: { cle: string; label: string; exemple: string }[] = [
   { cle: "{{entreprise}}", label: "Agence", exemple: "Cabinet Dupont" },
   { cle: "{{contact}}", label: "Contact", exemple: "M. Martin" },

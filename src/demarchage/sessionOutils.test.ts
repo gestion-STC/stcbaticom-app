@@ -19,7 +19,6 @@ import {
   numeroEmissionPour,
   numeroLeMoinsAttribue,
   observerAppel,
-  prospectDepuisAgence,
   resultatPourTouche,
   resumeEcriture,
   suggestionDepuisDetail,
@@ -227,14 +226,6 @@ describe("resumeEcriture", () => {
     expect(resumeEcriture({ etape: "gestionnaire_joint", tacheId: "t", tentatives: 1 }, choix({ issue: "a_rappeler", rappelLe: new Date(2026, 9, 16, 10, 0).toISOString() }), midi, 7)).toBe("Étape → Gestionnaire joint · tâche Rappeler le 16/10 10:00")
     expect(resumeEcriture({ etape: "pas_interesse", tacheId: null, tentatives: 1 }, choix({ issue: "pas_interesse", motif: "deja_prestataire" }), midi, 7)).toBe("Étape → Pas intéressé · motif « Déjà un prestataire »")
     expect(resumeEcriture({ etape: "hors_cible", tacheId: null, tentatives: 1 }, choix({ resultat: "faux_numero" }), midi, 7)).toBe("Étape → Hors cible")
-  })
-})
-
-describe("prospectDepuisAgence", () => {
-  it("construit le Prospect attendu par le modal d'e-mail, le contact d'abord", () => {
-    const a = agence({ email: "agence@ex.fr", adresse: "1 rue de Test", numeroEmission: "0186000001" })
-    expect(prospectDepuisAgence(a, null)).toMatchObject({ id: "a1", entreprise: "Agence Test", contact: "", telephone: "01 43 00 00 00", email: "agence@ex.fr", adresse: "1 rue de Test", arrondissement: "Paris 5", priorite: "—", numeroEmission: "0186000001" })
-    expect(prospectDepuisAgence(a, contact({ email: "sophie@ex.fr", ligneDirecte: "01 43 00 00 10" }))).toMatchObject({ contact: "Sophie Martin", email: "sophie@ex.fr", telephone: "01 43 00 00 10" })
   })
 })
 

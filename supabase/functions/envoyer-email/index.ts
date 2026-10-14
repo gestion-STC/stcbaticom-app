@@ -1,11 +1,13 @@
 // Relais Resend UNIFIÉ — accepte les DEUX contrats :
-//  A) contrat de l'interface : { to, subject, html, reply_to? }
-//     (composition côté client : variables + signature + PJ en liens ; le front
-//      journalise lui-même emails_envoyes) → on journalise ici SEULEMENT `messages`.
-//  B) contrat du moteur de règles / boîte de réception : { prospect_id, email_id |
-//     modele_nom | objet+corps, to?, in_reply_to?, signature_html?, commercial? }
-//     → composition côté serveur (variables, signature, PJ en vraies pièces
-//     jointes) + journalise messages ET emails_envoyes.
+//  A) contrat de l'interface : { to, subject, html, reply_to?, agence_id? }
+//     (composition côté client : variables + signature + PJ en liens) → journalisé dans `messages`.
+//  B) contrat de la boîte de réception : { agence_id?, email_id | modele_nom | objet+corps, to?,
+//     in_reply_to?, signature_html?, commercial? } → composition côté serveur (variables,
+//     signature, PJ en vraies pièces jointes) + journalisé dans `messages`.
+//  14/10/2026 : l'ancienne table « prospects » et le journal « emails_envoyes » ne sont plus
+//  lus ni écrits. Le message est rangé sur l'AGENCE : celle envoyée (agence_id), sinon la base
+//  la retrouve par l'adresse (déclencheur messages_rattacher_agence). Un ancien « prospect_id »
+//  envoyé par une page restée ouverte est ignoré, jamais une erreur.
 //     · signature_html / commercial (07/10/2026) : la boîte de réception envoie la
 //       signature STC Bâtiment AU NOM DU COMPTE CONNECTÉ et son prénom ; sans eux
 //       (moteur de règles, automatique), la signature STC Bâtiment au nom du
@@ -62,8 +64,8 @@ Deno.serve(async (req: Request) => {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     let payload: Record<string, unknown>;
-    let journalEmailsEnvoyes: { prospect_id: string; modele_nom: string; objet: string } | null = null;
-    let prospectIdPourMessage: string | null = null;
+    // L'agence de la fiche d'où part le mail (démarchage) : le message est rangé sur elle.
+    const agenceId: string | null = typeof corps?.agence_id === "string" && corps.agence_id ? corps.agence_id : null;
     let sousTraitantIdPourMessage: string | null = null;
     let objetFinal = "", corpsTextFinal = "", corpsHtmlFinal = "", destinataire = "", aPourMessage = "";
 
@@ -88,27 +90,21 @@ Deno.serve(async (req: Request) => {
       // En-têtes (désinscription en un clic) et étiquettes, posés par le moteur de recrutement.
       if (corps?.headers && typeof corps.headers === "object") payload.headers = corps.headers;
       if (Array.isArray(corps?.tags)) payload.tags = corps.tags;
-      if (espace === "demarchage") {
-        // La fiche peut porter plusieurs adresses dans son champ e-mail : on
-        // cherche l'adresse exacte, sinon la fiche qui la CONTIENT.
-        let { data: p } = await admin.from("prospects").select("id").ilike("email", destinataire).limit(1).maybeSingle();
-        if (!p) ({ data: p } = await admin.from("prospects").select("id").ilike("email", `%${destinataire}%`).limit(1).maybeSingle());
-        prospectIdPourMessage = p?.id ?? null;
-      } else {
+      if (espace === "recrutement") {
         const { data: s } = await admin.from("st_sous_traitants").select("id").ilike("email", destinataire).limit(1).maybeSingle();
         sousTraitantIdPourMessage = s?.id ?? null;
       }
     } else {
       // ── Contrat B (moteur / boîte) : composition serveur ──
-      const { prospect_id, to, email_id, modele_nom, objet, corps: corpsDirect, in_reply_to, signature_html, commercial } = corps ?? {};
-      type ProspectLu = { id: string; contact: string | null; entreprise: string | null; email: string | null; telephone: string | null; arrondissement: string | null };
-      let prospect: ProspectLu | null = null;
-      if (prospect_id) {
-        const { data } = await admin.from("prospects").select("id, contact, entreprise, email, telephone, arrondissement").eq("id", prospect_id).maybeSingle();
-        prospect = data;
-        if (!prospect) return json({ error: "Prospect introuvable" }, 404);
+      const { to, email_id, modele_nom, objet, corps: corpsDirect, in_reply_to, signature_html, commercial } = corps ?? {};
+      // Les variables des modèles : l'agence et son contact principal, s'ils sont connus.
+      type Fiche = { contact: string; entreprise: string; email: string; telephone: string; arrondissement: string };
+      let fiche: Fiche | null = null;
+      if (agenceId) {
+        const { data: a } = await admin.from("agences_liste").select("nom, email, telephone, secteur_libelle, contact_principal").eq("id", agenceId).maybeSingle();
+        if (a) fiche = { contact: a.contact_principal ?? "", entreprise: a.nom ?? "", email: a.email ?? "", telephone: a.telephone ?? "", arrondissement: a.secteur_libelle ?? "" };
       }
-      destinataire = adresse(to || prospect?.email || "");
+      destinataire = adresse(to || fiche?.email || "");
       if (!destinataire.includes("@")) return json({ error: "Destinataire manquant ou invalide." }, 400);
       type ModeleLu = { nom: string; objet: string; corps: string; pieces_jointes: unknown };
       let modele: ModeleLu | null = null;
@@ -130,11 +126,11 @@ Deno.serve(async (req: Request) => {
       const prenomCommercial = typeof commercial === "string" && commercial.trim() ? commercial.trim() : prenomDe(nomAuto);
       const signature = typeof signature_html === "string" && signature_html.trim() ? signature_html : signatureStc(nomAuto);
       const subst = (s: string) => s
-        .split("{{contact}}").join(prospect?.contact || "")
-        .split("{{entreprise}}").join(prospect?.entreprise || "")
-        .split("{{telephone}}").join(prospect?.telephone || "")
-        .split("{{email}}").join(prospect?.email || "")
-        .split("{{arrondissement}}").join(prospect?.arrondissement || "")
+        .split("{{contact}}").join(fiche?.contact || "")
+        .split("{{entreprise}}").join(fiche?.entreprise || "")
+        .split("{{telephone}}").join(fiche?.telephone || "")
+        .split("{{email}}").join(fiche?.email || "")
+        .split("{{arrondissement}}").join(fiche?.arrondissement || "")
         .split("{{commercial}}").join(prenomCommercial);
       objetFinal = subst(objetFinal);
       corpsTextFinal = subst(corpsTextFinal);
@@ -142,8 +138,6 @@ Deno.serve(async (req: Request) => {
       const pieces = (Array.isArray(modele?.pieces_jointes) ? modele.pieces_jointes : []) as Array<{ url?: string; nom?: string }>;
       const attachments = pieces.filter((x) => x?.url).map((x) => ({ filename: x.nom || "document.pdf", path: x.url }));
       payload = { from, to: [destinataire], subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(attachments.length ? { attachments } : {}), ...(in_reply_to ? { headers: { "In-Reply-To": in_reply_to, References: in_reply_to } } : {}) };
-      prospectIdPourMessage = prospect?.id ?? null;
-      if (prospect?.id) journalEmailsEnvoyes = { prospect_id: prospect.id, modele_nom: modele?.nom ?? "(libre)", objet: objetFinal };
     }
 
     const r = await fetch("https://api.resend.com/emails", {
@@ -162,15 +156,14 @@ Deno.serve(async (req: Request) => {
     let id = "";
     try { id = JSON.parse(texte)?.id ?? ""; } catch { /* ok */ }
 
-    // Journal de la boîte (les 2 contrats) + suivi des envois (contrat B uniquement,
-    // le front journalise lui-même emails_envoyes en contrat A).
-    await admin.from("messages").insert({
+    // Journal de la boîte (les 2 contrats), rangé sur l'agence quand on la connaît.
+    const { error: errJournal } = await admin.from("messages").insert({
       sens: "sortant", de: adresse(from), a: aPourMessage || destinataire, objet: objetFinal,
       corps_text: corpsTextFinal, corps_html: corpsHtmlFinal, message_id: id || null,
-      in_reply_to: (corps?.in_reply_to as string) ?? null, prospect_id: prospectIdPourMessage, lu: true,
-      espace, sous_traitant_id: sousTraitantIdPourMessage,
+      in_reply_to: (corps?.in_reply_to as string) ?? null, lu: true,
+      espace, sous_traitant_id: sousTraitantIdPourMessage, ...(agenceId && espace === "demarchage" ? { agence_id: agenceId } : {}),
     });
-    if (journalEmailsEnvoyes) await admin.from("emails_envoyes").insert(journalEmailsEnvoyes);
+    if (errJournal) console.error(`[ENVOYER-EMAIL] journal: ${errJournal.message}`);
 
     console.log(`[ENVOYER-EMAIL] ok → ${destinataire} objet="${objetFinal.slice(0, 60)}"`);
     return json({ ok: true, id, resend_id: id });

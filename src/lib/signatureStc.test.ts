@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { signatureStc, prenomDe, ADRESSE_CRM, FIXE_STC } from "./signatureStc"
 import { composer, remplir } from "./envoiEmail"
-import type { Prospect } from "../data"
+import type { Destinataire } from "./destinataire"
 
 // La signature des mails envoyés depuis le CRM est celle de STC Bâtiment, au
 // nom du compte connecté (Mahdi, 07/10/2026). Ces tests lisent le HTML produit.
@@ -50,7 +50,7 @@ describe("prenomDe", () => {
 })
 
 describe("{{commercial}} suit le compte connecté", () => {
-  const prospect = { entreprise: "Agence Test", contact: "Mme Durand", email: "a@b.fr" } as Prospect
+  const prospect: Destinataire = { agenceId: "a1", entreprise: "Agence Test", contact: "Mme Durand", email: "a@b.fr", telephone: "", arrondissement: "" }
 
   it("remplir() utilise le prénom donné", () => {
     expect(remplir("Je suis {{commercial}} de STC", prospect, "Mahdi")).toBe("Je suis Mahdi de STC")

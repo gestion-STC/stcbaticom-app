@@ -1,7 +1,7 @@
-import type { Prospect } from "../data"
 import { commercial } from "../data"
 import type { Email } from "../emails"
 import { decouperAdresses } from "./adressesEmail"
+import type { Destinataire } from "./destinataire"
 import { lienSuivi, remplirLiens } from "./liensSuivisDb"
 import { supabase, supabaseConfigure } from "./supabase"
 
@@ -10,10 +10,10 @@ import { supabase, supabaseConfigure } from "./supabase"
 // si le relais ou la clé Resend manquent, l'erreur est remontée clairement à l'envoi.
 export const emailConfigure = supabaseConfigure
 
-// Remplace les variables par les vraies données du prospect.
+// Remplace les variables par les vraies données du destinataire (l'agence, son contact).
 // `prenomCommercial` : le prénom du compte connecté (Mahdi, 07/10/2026) ; sans lui,
 // le profil par défaut (mode démo).
-export function remplir(texte: string, p: Prospect, prenomCommercial: string = commercial.prenom): string {
+export function remplir(texte: string, p: Destinataire, prenomCommercial: string = commercial.prenom): string {
   return texte
     .split("{{entreprise}}").join(p.entreprise || "")
     .split("{{contact}}").join(p.contact || "")
@@ -40,15 +40,15 @@ function nettoyerTexte(t: string): string {
 // Construit l'objet + le corps HTML (corps + signature + liens des pièces jointes).
 export function composer(
   modele: Email,
-  prospect: Prospect,
+  d: Destinataire,
   signature: string,
   prenomCommercial?: string,
 ): { objet: string; corpsHtml: string } {
   // Nettoyage uniquement sur l'objet et le corps (PAS la signature, dont le HTML
   // contient des espaces avant « : » qu'on doit préserver).
-  const objet = nettoyerTexte(remplir(modele.objet, prospect, prenomCommercial))
-  let corpsHtml = nettoyerTexte(remplir(modele.corps, prospect, prenomCommercial)).replace(/\n/g, "<br>")
-  if (signature) corpsHtml += "<br><br>" + remplir(signature, prospect, prenomCommercial)
+  const objet = nettoyerTexte(remplir(modele.objet, d, prenomCommercial))
+  let corpsHtml = nettoyerTexte(remplir(modele.corps, d, prenomCommercial)).replace(/\n/g, "<br>")
+  if (signature) corpsHtml += "<br><br>" + remplir(signature, d, prenomCommercial)
   if (modele.pieces && modele.pieces.length) {
     corpsHtml +=
       "<br><br>Pièces jointes :<br>" +
@@ -71,7 +71,7 @@ export function enveloppeMontserrat(html: string): string {
 
 // Envoie l'email (via le relais serveur Resend) puis le journalise.
 export async function envoyerEmail(
-  prospect: Prospect,
+  d: Destinataire,
   modele: Email,
   signature: string,
   prenomCommercial?: string,
@@ -81,21 +81,21 @@ export async function envoyerEmail(
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
   // PLUSIEURS DESTINATAIRES (08/10/2026) : la liste donnée par l'écran, sinon
   // le champ e-mail de la fiche (qui peut en contenir plusieurs). Cc et Cci (09/10).
-  const to = destinataires && destinataires.length ? destinataires : decouperAdresses(prospect.email || "")
-  if (to.length === 0) throw new Error("Ce prospect n'a pas d'adresse email.")
-  const compose = composer(modele, prospect, signature, prenomCommercial)
+  const to = destinataires && destinataires.length ? destinataires : decouperAdresses(d.email || "")
+  if (to.length === 0) throw new Error("Cette agence n'a pas d'adresse e-mail.")
+  const compose = composer(modele, d, signature, prenomCommercial)
   // Les liens suivis (11/10/2026) : {{lien_creer_compte}}, {{lien_site}} deviennent des liens propres à
   // l'agence ; quand elle clique, sa fiche le sait (fonction evenements-site).
-  const objet = await remplirLiens(compose.objet, prospect.id, "texte")
-  let corpsHtml = await remplirLiens(compose.corpsHtml, prospect.id, "html")
+  const objet = await remplirLiens(compose.objet, d.agenceId, "texte")
+  let corpsHtml = await remplirLiens(compose.corpsHtml, d.agenceId, "html")
   // Les pièces jointes (plaquette…) aussi : le clic devient « Plaquette ouverte » sur la fiche.
-  if (prospect.id) for (const pj of modele.pieces ?? []) {
+  if (d.agenceId) for (const pj of modele.pieces ?? []) {
     if (!pj.url) continue
-    try { corpsHtml = corpsHtml.split('href="' + pj.url + '"').join('href="' + (await lienSuivi(prospect.id, "plaquette", pj.url)) + '"') } catch { /* lien brut */ }
+    try { corpsHtml = corpsHtml.split('href="' + pj.url + '"').join('href="' + (await lienSuivi(d.agenceId, "plaquette", pj.url)) + '"') } catch { /* lien brut */ }
   }
 
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
-    body: { to, subject: objet, html: corpsHtml, ...(copie.cc?.length ? { cc: copie.cc } : {}), ...(copie.cci?.length ? { bcc: copie.cci } : {}) },
+    body: { to, subject: objet, html: corpsHtml, agence_id: d.agenceId, ...(copie.cc?.length ? { cc: copie.cc } : {}), ...(copie.cci?.length ? { bcc: copie.cci } : {}) },
   })
   if (error) {
     // Récupère le VRAI message renvoyé par la fonction (souvent dans error.context).
@@ -116,22 +116,21 @@ export async function envoyerEmail(
   }
 
   // Le mail sur la FICHE (Mahdi, 13/10 : « j'ai envoyé un mail à cette dame et il n'y a rien ») :
-  // depuis la refonte du 09/10, `prospect.id` est l'id de l'AGENCE ; le serveur, lui, cherchait
-  // encore dans l'ancienne table prospects. On rattache le message journalisé à l'agence.
+  // le serveur range le message sur l'agence envoyée (agence_id) ; on le vérifie ici.
   // La fiche ouverte est la vérité (13/10) : on rattache toujours, même si le serveur avait deviné une autre agence.
   // Si la ligne du journal manque (pas d'id Resend, journal raté), le front l'écrit lui-même : jamais un mail absent de la fiche.
   const resendId = (data as { id?: string } | null)?.id ?? ""
-  if (!prospect.id) return
+  if (!d.agenceId) return
   let rattaches = 0
   if (resendId) {
-    const { data: lignes, error: e } = await supabase.from("messages").update({ agence_id: prospect.id }).eq("message_id", resendId).select("id")
+    const { data: lignes, error: e } = await supabase.from("messages").update({ agence_id: d.agenceId }).eq("message_id", resendId).select("id")
     if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)
     rattaches = lignes?.length ?? 0
   }
   if (rattaches === 0) {
     const { error: e } = await supabase.from("messages").insert({
       sens: "sortant", espace: "demarchage", de: "contact@crm.stcbatiment.fr", a: libelleDestinataires(to, copie), objet, corps_html: corpsHtml,
-      message_id: resendId || null, lu: true, agence_id: prospect.id,
+      message_id: resendId || null, lu: true, agence_id: d.agenceId,
     })
     if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)
   }

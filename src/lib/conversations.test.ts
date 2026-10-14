@@ -15,7 +15,7 @@ function msg(partiel: Partial<MessageConv> & { id: string }): MessageConv {
     de: "Jean Dupont <jean@ex.fr>",
     a: "contact@crm.stcbatiment.fr",
     objet: "Devis",
-    prospectId: null,
+    agenceId: null,
     lu: true,
     date: "2026-10-01T10:00:00Z",
     ...partiel,
@@ -65,8 +65,8 @@ describe("grouperEnConversations", () => {
   })
   it("regroupe par prospect quand il est connu, même si l'adresse change", () => {
     const deux = grouperEnConversations([
-      msg({ id: "a", de: "pro@ex.fr", prospectId: "P1", date: "2026-10-01T10:00:00Z" }),
-      msg({ id: "b", de: "perso@gmail.com", prospectId: "P1", date: "2026-10-02T10:00:00Z" }),
+      msg({ id: "a", de: "pro@ex.fr", agenceId: "P1", date: "2026-10-01T10:00:00Z" }),
+      msg({ id: "b", de: "perso@gmail.com", agenceId: "P1", date: "2026-10-02T10:00:00Z" }),
     ])
     expect(deux).toHaveLength(1)
   })

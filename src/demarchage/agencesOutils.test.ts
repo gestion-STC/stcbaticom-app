@@ -21,13 +21,13 @@ import {
   nomCommercial,
   noteLongue,
   peutChercherDoublons,
-  prospectDepuis,
   secteursParZone,
   sousTitreAgences,
   tachesOuvertes,
   texteActivite,
   trierAgences,
 } from "./agencesOutils"
+import { destinataireDepuis } from "../lib/destinataire"
 
 function agence(p: Partial<Agence> = {}): Agence {
   return {
@@ -48,7 +48,7 @@ function activite(p: Partial<Activite> = {}): Activite {
   }
 }
 function message(p: Partial<Message> = {}): Message {
-  return { id: "m1", sens: "entrant", espace: "demarchage", sousTraitantId: null, de: "sophie@agence.fr", a: "os@stcbatiment.fr", objet: "Re: Plaquette", corpsText: "", corpsHtml: "", messageId: null, inReplyTo: null, prospectId: null, lu: true, date: "2026-10-08T15:00:00", piecesJointes: [], ...p }
+  return { id: "m1", sens: "entrant", espace: "demarchage", sousTraitantId: null, de: "sophie@agence.fr", a: "os@stcbatiment.fr", objet: "Re: Plaquette", corpsText: "", corpsHtml: "", messageId: null, inReplyTo: null, agenceId: null, lu: true, date: "2026-10-08T15:00:00", piecesJointes: [], ...p }
 }
 const midi = new Date(2026, 9, 9, 12, 0, 0) // vendredi 9 octobre 2026, 12 h
 
@@ -217,14 +217,14 @@ describe("le fil", () => {
   })
 })
 
-describe("prospectDepuis", () => {
+describe("destinataireDepuis (le destinataire d'un e-mail)", () => {
   it("prend les coordonnées du contact, sinon celles de l'agence", () => {
     const a = agence({ email: "contact@agence.fr" })
-    const avec = prospectDepuis(a, contact())
+    const avec = destinataireDepuis(a, contact())
     expect(avec.contact).toBe("Sophie Martin")
     expect(avec.email).toBe("sophie@agence.fr")
     expect(avec.telephone).toBe("01 43 00 00 10")
-    const sans = prospectDepuis(a, null)
+    const sans = destinataireDepuis(a, null)
     expect(sans.contact).toBe("")
     expect(sans.email).toBe("contact@agence.fr")
     expect(sans.telephone).toBe("01 43 00 00 00")

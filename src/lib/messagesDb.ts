@@ -20,7 +20,7 @@ export type Message = {
   corpsHtml: string
   messageId: string | null
   inReplyTo: string | null
-  prospectId: string | null
+  agenceId: string | null
   lu: boolean
   date: string
   piecesJointes: PieceRecue[]
@@ -38,7 +38,7 @@ type Ligne = {
   corps_html: string
   message_id: string | null
   in_reply_to: string | null
-  prospect_id: string | null
+  agence_id: string | null
   lu: boolean
   created_at: string
   pieces_jointes: PieceRecue[] | null
@@ -57,7 +57,7 @@ function vers(l: Ligne): Message {
     corpsHtml: l.corps_html,
     messageId: l.message_id,
     inReplyTo: l.in_reply_to,
-    prospectId: l.prospect_id,
+    agenceId: l.agence_id,
     lu: l.lu,
     date: l.created_at,
     piecesJointes: Array.isArray(l.pieces_jointes) ? l.pieces_jointes : [],
@@ -65,7 +65,7 @@ function vers(l: Ligne): Message {
 }
 
 const COLONNES =
-  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at, pieces_jointes"
+  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, lu, created_at, pieces_jointes"
 
 // Sans `espace`, on lit tout (ancien comportement).
 export async function chargerMessages(espace?: Espace): Promise<Message[]> {
@@ -149,7 +149,7 @@ export async function repondreMessage(r: {
   objet: string
   corps: string
   inReplyTo?: string | null
-  prospectId?: string | null
+  agenceId?: string | null
   signatureHtml?: string
   commercial?: string
   espace?: Espace
@@ -161,7 +161,7 @@ export async function repondreMessage(r: {
       objet: r.objet,
       corps: r.corps,
       ...(r.inReplyTo ? { in_reply_to: r.inReplyTo } : {}),
-      ...(r.prospectId ? { prospect_id: r.prospectId } : {}),
+      ...(r.agenceId ? { agence_id: r.agenceId } : {}),
       ...(r.signatureHtml ? { signature_html: r.signatureHtml } : {}),
       ...(r.commercial ? { commercial: r.commercial } : {}),
       ...(r.espace ? { espace: r.espace } : {}),

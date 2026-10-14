@@ -12,8 +12,8 @@
 //
 // DEUX BOÎTES : la même interface sert au démarchage et au recrutement, mais
 // chacune ne voit que les messages de son espace et répond depuis l'adresse
-// de son espace. Les campagnes (e-mails de démarchage journalisés sans corps)
-// ont leur propre dossier, côté démarchage seulement.
+// de son espace. Chaque conversation de démarchage porte le nom de son agence.
+// (14/10 : l'ancien dossier « Campagnes », figé depuis le 08/10, est retiré ; son historique reste archivé.)
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import {
@@ -26,7 +26,6 @@ import {
   Loader2,
   Mail,
   MailOpen,
-  Megaphone,
   Paperclip,
   Pencil,
   RefreshCw,
@@ -49,7 +48,6 @@ import {
 import { useSession } from "../lib/auth"
 import { nomAffiche } from "../lib/comptes"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
-import { chargerEmailsEnvoyes, type EmailEnvoye } from "../lib/emailsEnvoyesDb"
 import { apercuTexte, dateCourte, nomCorrespondant, objetReponse, objetTransfert } from "../lib/messagesUtils"
 import {
   compterNonLues,
@@ -66,7 +64,7 @@ import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Vide, Zone } from 
 import FicheArtisan from "./recrutement/FicheArtisan"
 
 type Conv = Conversation<Message>
-type Vue = Dossier | "campagnes"
+type Vue = Dossier
 type Mode = "repondre" | "transferer" | null
 
 const ADRESSE_VALIDE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -250,8 +248,7 @@ export default function Messages({ espace }: { espace: Espace }) {
   const prenomCommercial = prenomDe(nomSignataire)
 
   const [messages, setMessages] = useState<Message[]>([])
-  const [campagnes, setCampagnes] = useState<EmailEnvoye[]>([])
-  const [prospects, setProspects] = useState<Record<string, string>>({})
+  const [agences, setAgences] = useState<Record<string, string>>({}) // id → nom, pour nommer les conversations
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState("")
 
@@ -259,7 +256,6 @@ export default function Messages({ espace }: { espace: Espace }) {
   const [recherche, setRecherche] = useState("")
   const [pageListe, setPageListe] = useState(1)
   const [cleOuverte, setCleOuverte] = useState<string | null>(null)
-  const [campagneOuverte, setCampagneOuverte] = useState<EmailEnvoye | null>(null)
   const [depiles, setDepiles] = useState<string[]>([])
   const [fiche, setFiche] = useState<string | null>(null)
 
@@ -277,21 +273,17 @@ export default function Messages({ espace }: { espace: Espace }) {
     setChargement(true)
     setErreur("")
     try {
-      const [liste, envois] = await Promise.all([
-        chargerMessages(espace),
-        // Les campagnes commerciales (emails_envoyes) n'existent que côté démarchage.
-        espace === "demarchage" ? chargerEmailsEnvoyes().catch(() => [] as EmailEnvoye[]) : Promise.resolve([] as EmailEnvoye[]),
-      ])
+      const liste = await chargerMessages(espace)
       setMessages(liste)
-      setCampagnes(envois)
-      const ids = [...new Set([...liste.map((m) => m.prospectId), ...envois.map((e) => e.prospectId)].filter(Boolean))] as string[]
+      // Le nom de l'agence de chaque conversation (par lots : la liste d'ids peut être longue).
+      const ids = [...new Set(liste.map((m) => m.agenceId).filter(Boolean))] as string[]
       if (ids.length && supabase) {
-        const { data } = await supabase.from("prospects").select("id, entreprise, contact").in("id", ids)
         const map: Record<string, string> = {}
-        for (const p of (data ?? []) as { id: string; entreprise: string; contact: string }[]) {
-          map[p.id] = p.entreprise || p.contact || ""
+        for (let i = 0; i < ids.length; i += 200) {
+          const { data } = await supabase.from("agences").select("id, nom").in("id", ids.slice(i, i + 200))
+          for (const a of (data ?? []) as { id: string; nom: string }[]) map[a.id] = a.nom || ""
         }
-        setProspects(map)
+        setAgences(map)
       }
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e))
@@ -308,23 +300,16 @@ export default function Messages({ espace }: { espace: Espace }) {
   const conversations = useMemo(() => grouperEnConversations(messages), [messages])
   const nbNonLues = useMemo(() => compterNonLues(conversations), [conversations])
   const visibles = useMemo(
-    () => (vue === "campagnes" ? [] : filtrerConversations(conversations, vue, recherche)),
+    () => filtrerConversations(conversations, vue, recherche),
     [conversations, vue, recherche],
   )
   const pagination = useMemo(() => paginer(visibles, pageListe), [visibles, pageListe])
-  const campagnesVisibles = useMemo(() => {
-    const q = recherche.trim().toLowerCase()
-    const triees = [...campagnes].sort((a, b) => ((a.envoyeLe ?? "") < (b.envoyeLe ?? "") ? 1 : -1))
-    if (!q) return triees
-    return triees.filter((e) => [prospects[e.prospectId], e.objet, e.modeleNom].some((v) => (v || "").toLowerCase().includes(q)))
-  }, [campagnes, recherche, prospects])
-  const pagesCampagnes = useMemo(() => paginer(campagnesVisibles, pageListe), [campagnesVisibles, pageListe])
   const ouverte: Conv | null = useMemo(() => conversations.find((c) => c.cle === cleOuverte) ?? null, [conversations, cleOuverte])
 
-  // Le nom qu'on affiche : la fiche prospect si elle est connue, sinon le correspondant.
-  const nomDe = useCallback((c: Conv) => (c.prospectId && prospects[c.prospectId]) || c.nom, [prospects])
+  // Le nom qu'on affiche : l'agence si elle est connue, sinon le correspondant.
+  const nomDe = useCallback((c: Conv) => (c.agenceId && agences[c.agenceId]) || c.nom, [agences])
 
-  const enLecture = campagneOuverte !== null || ouverte !== null
+  const enLecture = ouverte !== null
 
   // Échap = retour à la liste, comme Gmail (sauf pendant une saisie).
   useEffect(() => {
@@ -332,7 +317,6 @@ export default function Messages({ espace }: { espace: Espace }) {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setCleOuverte(null)
-        setCampagneOuverte(null)
       }
     }
     window.addEventListener("keydown", onKey)
@@ -341,7 +325,6 @@ export default function Messages({ espace }: { espace: Espace }) {
 
   function retourListe() {
     setCleOuverte(null)
-    setCampagneOuverte(null)
     setMode(null)
     setEnvoiErreur("")
   }
@@ -360,7 +343,6 @@ export default function Messages({ espace }: { espace: Espace }) {
   }
 
   function ouvrirConversation(c: Conv) {
-    setCampagneOuverte(null)
     setCleOuverte(c.cle)
     setMode(null)
     setEnvoiErreur("")
@@ -383,12 +365,6 @@ export default function Messages({ espace }: { espace: Espace }) {
 
   function basculerMessage(id: string) {
     setDepiles((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-  }
-
-  function ouvrirCampagne(env: EmailEnvoye) {
-    setCleOuverte(null)
-    setMode(null)
-    setCampagneOuverte(env)
   }
 
   // Ouvre la zone « Répondre » ou « Transférer » sous la conversation.
@@ -439,7 +415,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           objet: objetReponse(dernier.objet),
           corps: compoCorps.trim(),
           inReplyTo: dernier.messageId,
-          prospectId: ouvert.prospectId,
+          agenceId: ouvert.agenceId,
           signatureHtml,
           commercial: prenomCommercial,
           espace,
@@ -451,7 +427,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           objet: objetTransfert(ouvert.dernier.objet),
           corps: compoCorps.trim(),
           inReplyTo: null,
-          prospectId: null,
+          agenceId: null,
           signatureHtml,
           commercial: prenomCommercial,
           espace,
@@ -475,10 +451,9 @@ export default function Messages({ espace }: { espace: Espace }) {
     { id: "nonlus", label: "Non lus", icone: MailOpen },
     { id: "envoyes", label: "Envoyés", icone: Send },
     { id: "tous", label: "Tous les messages", icone: Layers },
-    ...(espace === "demarchage" ? [{ id: "campagnes" as Vue, label: "Campagnes", icone: Megaphone }] : []),
   ]
   const libelleVue = dossiers.find((d) => d.id === vue)?.label ?? ""
-  const pages = vue === "campagnes" ? pagesCampagnes : pagination
+  const pages = pagination
 
   return (
     <div className="page flex min-h-full gap-6">
@@ -532,30 +507,7 @@ export default function Messages({ espace }: { espace: Espace }) {
         )}
 
         <Carte className="overflow-hidden">
-          {campagneOuverte ? (
-            /* ── Un e-mail de campagne (en-tête seul) ── */
-            <>
-              <div className="flex h-12 items-center gap-1 border-b border-trait px-3">
-                <Bouton variante="discret" taille="icone" onClick={retourListe} aria-label="Retour à la liste" title="Retour (Échap)">
-                  <ArrowLeft />
-                </Bouton>
-              </div>
-              <div className="px-6 py-5">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-balance text-section font-semibold text-encre">{campagneOuverte.objet || "(sans objet)"}</h2>
-                  <Pastille role="inerte">Campagne</Pastille>
-                </div>
-                <p className="mt-1 text-legende text-encre-2">
-                  À {prospects[campagneOuverte.prospectId] || "prospect"} · modèle « {campagneOuverte.modeleNom} »
-                  {campagneOuverte.envoyeLe && <> · {new Date(campagneOuverte.envoyeLe).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</>}
-                </p>
-                {campagneOuverte.aRepondu && <p className="mt-2 text-legende font-medium text-ok">Le prospect a répondu.</p>}
-                <div className="mt-5 rounded-4 border border-dashed border-trait bg-fond-2 px-4 py-6 text-center text-legende text-encre-2">
-                  Le contenu de cet e-mail de campagne n'a pas été archivé, seul l'en-tête est conservé (objet, modèle, date).
-                </div>
-              </div>
-            </>
-          ) : ouvert ? (
+          {ouvert ? (
             /* ── Une conversation ── */
             <>
               <div className="flex h-12 items-center gap-1 border-b border-trait px-3">
@@ -684,33 +636,12 @@ export default function Messages({ espace }: { espace: Espace }) {
               {chargement && messages.length === 0 && !erreur && <Chargement texte="Lecture des messages…" />}
               {!chargement && !erreur && pages.total === 0 && (
                 <Vide
-                  titre={recherche.trim() ? "Aucun résultat" : vue === "campagnes" ? "Aucun e-mail de campagne" : vue === "envoyes" ? "Aucun message envoyé" : vue === "nonlus" ? "Tout est lu" : "Aucun message"}
+                  titre={recherche.trim() ? "Aucun résultat" : vue === "envoyes" ? "Aucun message envoyé" : vue === "nonlus" ? "Tout est lu" : "Aucun message"}
                   texte={recherche.trim() ? "Essayez un autre mot : nom, adresse, objet ou contenu." : undefined}
                 />
               )}
 
-              {vue === "campagnes"
-                ? pagesCampagnes.tranche.map((e) => (
-                    <button
-                      key={e.id ?? `${e.prospectId}-${e.envoyeLe}`}
-                      type="button"
-                      onClick={() => ouvrirCampagne(e)}
-                      className="flex h-11 w-full items-center gap-3 border-b border-fond-4 bg-fond-2 px-4 text-left last:border-b-0 hover:z-10 hover:shadow-[0_1px_3px_rgba(0,0,0,0.18)]"
-                    >
-                      <span className="w-[230px] shrink-0 truncate text-corps text-encre">À : {prospects[e.prospectId] || "prospect"}</span>
-                      <span className="min-w-0 flex-1 truncate text-corps">
-                        <span className="text-encre">{e.objet || "(sans objet)"}</span>
-                        <span className="text-encre-3">
-                          {" "}
-                          — Campagne · {e.modeleNom}
-                          {e.aRepondu ? " · a répondu" : ""}
-                        </span>
-                      </span>
-                      <Megaphone size={14} className="shrink-0 text-encre-3" />
-                      <span className="w-16 shrink-0 text-right text-legende text-encre-3">{e.envoyeLe ? dateCourte(e.envoyeLe) : ""}</span>
-                    </button>
-                  ))
-                : pagination.tranche.map((c) => (
+              {pagination.tranche.map((c) => (
                     <LigneConversation key={c.cle} c={c} nom={nomDe(c)} onOuvrir={() => ouvrirConversation(c)} onBasculerLu={() => basculerLu(c)} />
                   ))}
             </>

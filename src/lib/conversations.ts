@@ -16,7 +16,7 @@ export type Conversation<M extends MessageConv> = {
   cle: string // correspondant + objet normalisé
   adresse: string // adresse e-mail du correspondant
   nom: string // nom affichable du correspondant
-  prospectId: string | null
+  agenceId: string | null
   sousTraitantId: string | null
   objet: string // l'objet du dernier message
   messages: M[] // du plus ancien au plus récent
@@ -42,7 +42,7 @@ export function grouperEnConversations<M extends MessageConv>(messages: M[]): Co
   const convs = new Map<string, Conversation<M>>()
   for (const m of messages) {
     const adresse = adresseCorrespondant(m)
-    const contact = m.prospectId || m.sousTraitantId || adresse || "(inconnu)"
+    const contact = m.agenceId || m.sousTraitantId || adresse || "(inconnu)"
     const cle = `${contact}|${objetNormalise(m.objet)}`
     let c = convs.get(cle)
     if (!c) {
@@ -50,7 +50,7 @@ export function grouperEnConversations<M extends MessageConv>(messages: M[]): Co
         cle,
         adresse,
         nom: "",
-        prospectId: m.prospectId,
+        agenceId: m.agenceId,
         sousTraitantId: m.sousTraitantId ?? null,
         objet: m.objet,
         messages: [],
@@ -63,7 +63,7 @@ export function grouperEnConversations<M extends MessageConv>(messages: M[]): Co
       convs.set(cle, c)
     }
     c.messages.push(m)
-    if (!c.prospectId && m.prospectId) c.prospectId = m.prospectId
+    if (!c.agenceId && m.agenceId) c.agenceId = m.agenceId
     if (!c.sousTraitantId && m.sousTraitantId) c.sousTraitantId = m.sousTraitantId
     if (!c.adresse && adresse) c.adresse = adresse
     if (m.sens === "entrant") {

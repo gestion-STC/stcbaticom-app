@@ -32,12 +32,13 @@ import {
 import { changerEtape, chargerAgence, chargerSecteurs, chercherDoublons, creerNote, creerRdv, creerTache, deplacerTache, fusionnerAgences, majAgence, majContact, passerApporteur, premierOs, terminerTache, type AgenceComplete } from "../../demarchage/db"
 import {
   COMMERCIAUX_PAR_DEFAUT, FILTRES_FIL, type FiltreFil, dateHeure, dateLongue, depuisTexte, enRetard, filtrerFil, fusionnerFil, grouperParJour, heure, ilYA, isoDepuisChamp, jourPourChamp,
-  lendemainPourChamp, messageErreur, nomCommercial, noteLongue, pluriel, prospectDepuis, secteursParZone, tachesOuvertes,
+  lendemainPourChamp, messageErreur, nomCommercial, noteLongue, pluriel, secteursParZone, tachesOuvertes,
 } from "../../demarchage/agencesOutils"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Dialogue, Etiquette, Ligne, Onglets, Panneau, Pastille, Selecteur, TitreCarte, Zone } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
+import { destinataireDepuis } from "../../lib/destinataire"
 import { useReglages } from "../../demarchage/reglages"
 import { bilanDepuisAgence, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
@@ -496,7 +497,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
       {contactEdite ? (
         <ContactFormulaire agenceId={id} contact={contactEdite.contact} onFermer={() => setContactEdite(null)} onEnregistre={() => { setContactEdite(null); setInfo(contactEdite.contact ? "Contact enregistré." : "Contact ajouté."); charger(); onChange?.() }} />
       ) : null}
-      {emailPour !== undefined && agence ? <EnvoyerEmailModal prospect={prospectDepuis(agence, emailPour)} onClose={() => { setEmailPour(undefined); charger(); onChange?.() }} /> : null}
+      {emailPour !== undefined && agence ? <EnvoyerEmailModal destinataire={destinataireDepuis(agence, emailPour)} onClose={() => { setEmailPour(undefined); charger(); onChange?.() }} /> : null}
     </Panneau>
   )
 }

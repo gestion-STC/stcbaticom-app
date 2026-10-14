@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { versionPerimee } from "../../lib/versionEnLigne"
 import { ChevronLeft, ChevronRight, Phone } from "lucide-react"
-import type { Prospect } from "../../data"
+import { destinataireDepuis, type Destinataire } from "../../lib/destinataire"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
@@ -44,7 +44,7 @@ import {
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS,
   compteARebours, dateHeureCourte, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  prospectDepuisAgence, resumeEcriture, toursSansDemarrage, versIso,
+  resumeEcriture, toursSansDemarrage, versIso,
   type ChoixResultat, type TypeRdv,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
@@ -152,7 +152,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [resultats, setResultats] = useState<Agence[] | null>(null)
   const [dialogue, setDialogue] = useState<Action | null>(null)
   const [formAction, setFormAction] = useState({ titre: "", quand: "", type: "telephone" as TypeRdv, note: "" })
-  const [envoiPour, setEnvoiPour] = useState<Prospect | null>(null)
+  const [envoiPour, setEnvoiPour] = useState<Destinataire | null>(null)
 
   const agenceCouranteId = directeId ?? fileAgences[index]?.id ?? null
   // La fiche affichée : seulement si c'est bien celle de l'agence en cours (pas la précédente pendant le chargement).
@@ -986,7 +986,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   function ouvrirEmail() {
     if (!fiche) return
     const k = fiche.contacts.find((x) => x.id === (contactEnLigne ?? defaut?.contactId)) ?? fiche.contacts.find((x) => x.principal && !x.parti) ?? null
-    setEnvoiPour(prospectDepuisAgence(fiche.agence, k))
+    setEnvoiPour(destinataireDepuis(fiche.agence, k))
   }
   function copier(numero: string) {
     navigator.clipboard
@@ -1214,7 +1214,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       ) : null}
       {envoiPour ? (
         <EnvoyerEmailModal
-          prospect={envoiPour}
+          destinataire={envoiPour}
           onClose={() => {
             setEnvoiPour(null)
             void rafraichirCourante()

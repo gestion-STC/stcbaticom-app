@@ -6,7 +6,6 @@
 // qui suit un appel Ringover, les raccourcis clavier, les dates et les textes.
 // L'écran (`components/demarchage/SessionCall.tsx`) ne fait qu'appeler.
 // ════════════════════════════════════════════════════════════════════════════
-import type { Prospect } from "../data"
 import { estDansLaReserve, normaliser } from "../lib/numerosEmission"
 import { chiffresTel, formaterTelephone } from "../lib/telephone"
 import { dansNJoursA } from "./aujourdhuiOutils"
@@ -33,8 +32,8 @@ import {
 
 export type AttributionNumero = { numero: string; aEnregistrer: boolean; bloque: boolean }
 
-// Le numéro de la réserve le moins attribué parmi les agences connues (même
-// règle que `numeroLeMoinsUtilise`, écrite pour des agences et non des prospects).
+// Le numéro de la réserve le moins attribué parmi les agences connues (équilibrage ;
+// à égalité, l'ordre de la réserve).
 export function numeroLeMoinsAttribue(reserve: string[], agences: Pick<Agence, "numeroEmission">[]): string {
   if (reserve.length === 0) return ""
   const compte = new Map<string, number>(reserve.map((r) => [normaliser(r), 0]))
@@ -54,7 +53,7 @@ export function numeroLeMoinsAttribue(reserve: string[], agences: Pick<Agence, "
   return meilleur
 }
 
-// Quel numéro pour appeler cette agence (la règle de `numeroPourProspect`) :
+// Quel numéro pour appeler cette agence :
 // - son numéro attitré s'il est encore dans la réserve ;
 // - BLOQUÉ si son numéro attitré est sorti de la réserve : on n'appelle jamais
 //   en douce avec un autre numéro (l'agence doit toujours voir le même) ;
@@ -291,26 +290,6 @@ export function resumeEcriture(bilan: Pick<BilanAppel, "etape" | "tacheId" | "te
     if (bilan.tacheId && !["rdv", "a_rappeler", "interesse"].includes(choix.issue)) parts.push("une tâche créée")
   }
   return parts.join(" · ")
-}
-
-// ── L'e-mail : le Prospect qu'attend EnvoyerEmailModal ──────────────────────
-
-export function prospectDepuisAgence(agence: Agence, contact: Contact | null): Prospect {
-  return {
-    id: agence.id,
-    entreprise: agence.nom,
-    contact: contact ? nomContact(contact) : "",
-    telephone: contact?.ligneDirecte || contact?.mobile || agence.telephone,
-    email: contact?.email || agence.email,
-    adresse: agence.adresse,
-    arrondissement: agence.secteurLibelle,
-    commentaire: "",
-    type: "",
-    statut: "",
-    priorite: "—",
-    prochaineRelance: "",
-    numeroEmission: agence.numeroEmission,
-  }
 }
 
 // ── Le fil ───────────────────────────────────────────────────────────────────
