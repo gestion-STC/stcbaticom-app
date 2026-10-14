@@ -443,7 +443,11 @@ describe("les piles : un seul calcul, la base de chacun", () => {
     s++
     const r = await un<{ id: string }>(`insert into public.agences (nom, telephone, secteur) values ($1, $2, $3) returning id`,
       [nom, extra.tel ?? `01 46 ${String(s).padStart(2, "0")} 00 00`, extra.secteur ?? "75006"])
-    if (extra.etape) await q(`update public.agences set etape = $2 where id = $1`, [r.id, extra.etape])
+    if (extra.etape) {
+      await q(`select set_config('app.proprietaire_gere', '1', false)`)
+      await q(`update public.agences set etape = $2 where id = $1`, [r.id, extra.etape])
+      await q(`select set_config('app.proprietaire_gere', '', false)`)
+    }
     return r.id
   }
   const pile = async (p: string, o: { inclure?: boolean; secteur?: string; proprietaire?: string } = {}) =>
@@ -497,7 +501,11 @@ describe("les piles : un seul calcul, la base de chacun", () => {
     const r = await chez("R-rappel 9 h", { etape: "gestionnaire_joint" })
     await q(`insert into public.activites (agence_id, type, echeance, titre) values ($1, 'tache', now() - interval '2 hours', 'Rappeler')`, [r])
     const i = await chez("I-intéressée appelée ce matin")
-    await appel(i, "joint", "interesse")
+    // C'est Horlann qui l'appelle : elle reste dans sa base (14/10 : celui qui travaille l'agence la garde).
+    await q(`select set_config('request.jwt.claims', '{"sub":"${HORLANN}","role":"authenticated","user_metadata":{"nom":"Horlann"}}', false)`)
+    try { await appel(i, "joint", "interesse") } finally {
+      await q(`select set_config('request.jwt.claims', '{"sub":"${MAHDI}","role":"authenticated","app_metadata":{"role":"admin"},"user_metadata":{"nom":"Mahdi"}}', false)`)
+    }
     expect((await pile("rappels")).filter((x) => x.startsWith("R-"))).toEqual(["R-rappel 9 h"])
     expect(await pile("sans_nouvelle")).toContain("I-intéressée appelée ce matin")
     expect(await pile("a_prospecter")).not.toContain("I-intéressée appelée ce matin")
@@ -512,5 +520,77 @@ describe("les piles : un seul calcul, la base de chacun", () => {
     const l = await q<{ id: string; tel: string }>(`select agence->>'id' as id, agence->>'telephone' as tel from public.pile_demarchage('a_prospecter', $1)`, [HORLANN])
     expect(l.length).toBeGreaterThan(3)
     for (const a of l) expect([a.id, await verifier(a.id, a.tel)]).toEqual([a.id, null])
+  })
+})
+
+// ── 14/10 : « chacun ses clients » — le secteur pour la prospection, l'agence travaillée à qui l'a travaillée ──
+describe("qui a quelle agence : le secteur pour prospecter, celui qui l'a travaillée pour la suite", () => {
+  const HORLANN = "7c1e6a3e-1111-4c4c-9a9a-000000000001"
+  const commeHorlann = () => q(`select set_config('request.jwt.claims', '{"sub":"${HORLANN}","role":"authenticated","user_metadata":{"nom":"Horlann"}}', false)`)
+  const commeMahdi = () => q(`select set_config('request.jwt.claims', '{"sub":"${MAHDI}","role":"authenticated","app_metadata":{"role":"admin"},"user_metadata":{"nom":"Mahdi"}}', false)`)
+  const proprio = async (id: string) => (await un<{ c: string | null }>(`select commercial_id::text as c from public.agences where id = $1`, [id])).c
+  beforeAll(async () => {
+    await q(`insert into public.secteurs (code, libelle, zone, commercial_id) values ('75008', 'Paris 8', 'Paris', $1) on conflict (code) do update set commercial_id = excluded.commercial_id`, [MAHDI])
+  })
+  async function agenceDeMahdi(nom: string): Promise<string> {
+    const r = await un<{ id: string }>(`insert into public.agences (nom, telephone, secteur) values ($1, $2, '75008') returning id`, [nom, `01 48 ${String(Math.floor(Math.random() * 90) + 10)} ${String(Math.floor(Math.random() * 90) + 10)} 00`])
+    return r.id
+  }
+
+  it("une agence jamais travaillée appartient au démarcheur de son secteur", async () => {
+    const id = await agenceDeMahdi("T-neuve")
+    expect(await proprio(id)).toBe(MAHDI)
+  })
+  it("Horlann rend intéressée une agence du secteur de Mahdi : elle est à Horlann", async () => {
+    const id = await agenceDeMahdi("T-intéressée par Horlann")
+    await commeHorlann()
+    try { await appel(id, "joint", "interesse") } finally { await commeMahdi() }
+    expect(await proprio(id)).toBe(HORLANN)
+  })
+  it("Horlann promet un rappel : l'agence est à Horlann, et le rappel est dans SA pile", async () => {
+    const id = await agenceDeMahdi("T-rappel promis par Horlann")
+    await commeHorlann()
+    try { await appel(id, "joint", "a_rappeler", { rappel: new Date(Date.now() - 60_000).toISOString() }) } finally { await commeMahdi() }
+    expect(await proprio(id)).toBe(HORLANN)
+    // la date du rappel est passée : il tombe dans « À rappeler aujourd'hui » de Horlann, pas de Mahdi
+    const pile = async (c: string) => (await q<{ id: string }>(`select agence->>'id' as id from public.pile_demarchage('rappels', $1)`, [c])).map((x) => x.id)
+    await q(`update public.activites set date = now() - interval '1 day' where agence_id = $1 and type = 'appel'`, [id])
+    expect(await pile(HORLANN)).toContain(id)
+    expect(await pile(MAHDI)).not.toContain(id)
+  })
+  it("le secteur change de main : les agences travaillées restent à celui qui les a travaillées", async () => {
+    const neuve = await agenceDeMahdi("T-neuve 2")
+    const travaillee = await agenceDeMahdi("T-travaillée par Mahdi")
+    await appel(travaillee, "joint", "interesse")
+    expect(await proprio(travaillee)).toBe(MAHDI)
+    await q(`select public.attribuer_secteur('75008', $1::uuid)`, [HORLANN])
+    expect(await proprio(neuve)).toBe(HORLANN)
+    expect(await proprio(travaillee)).toBe(MAHDI)
+    await q(`select public.attribuer_secteur('75008', $1::uuid)`, [MAHDI])
+  })
+  it("pas intéressée : elle n'est plus travaillée, elle retourne au démarcheur du secteur", async () => {
+    const id = await agenceDeMahdi("T-pas intéressée")
+    await commeHorlann()
+    try {
+      await appel(id, "joint", "interesse")
+      expect(await proprio(id)).toBe(HORLANN)
+      await q(`update public.activites set date = now() - interval '1 day' where agence_id = $1 and type = 'appel'`, [id])
+      await appel(id, "joint", "pas_interesse")
+    } finally { await commeMahdi() }
+    expect(await proprio(id)).toBe(MAHDI)
+  })
+  it("passée à la main en « Intéressé » sur la fiche : elle est à celui qui l'a passée", async () => {
+    const id = await agenceDeMahdi("T-fiche")
+    await commeHorlann()
+    try { await q(`update public.agences set etape = 'interesse' where id = $1`, [id]) } finally { await commeMahdi() }
+    expect(await proprio(id)).toBe(HORLANN)
+  })
+  it("la santé signale une agence travaillée qui n'est à personne", async () => {
+    const id = await agenceDeMahdi("T-orpheline")
+    await appel(id, "joint", "interesse")
+    await q(`update public.agences set commercial_id = null where id = $1`, [id])
+    const e = await q<{ code: string }>(`select code from public.sante_demarchage()`)
+    expect(e.map((x) => x.code)).toContain("travaillee_sans_proprietaire")
+    await q(`update public.agences set commercial_id = $2 where id = $1`, [id, MAHDI])
   })
 })
