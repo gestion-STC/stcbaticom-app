@@ -9,17 +9,16 @@
 import type { Prospect } from "../data"
 import { estDansLaReserve, normaliser } from "../lib/numerosEmission"
 import { chiffresTel, formaterTelephone } from "../lib/telephone"
+import { dansNJoursA } from "./aujourdhuiOutils"
 import type { BilanAppel } from "./db"
 import {
   type Activite,
   type Agence,
   type Contact,
-  type File,
   type Issue,
   type Motif,
   type Resultat,
   ISSUES,
-  relanceJours,
   RESULTATS,
   libelleEtape,
   libelleIssue,
@@ -29,67 +28,6 @@ import {
   nomContact,
   numeroParDefaut,
 } from "./modele"
-
-// ── La file ──────────────────────────────────────────────────────────────────
-
-export type OptionsFile = {
-  file: File
-  appeleesAujourdHui: Set<string> // ids d'agences déjà appelées aujourd'hui
-  inclureDejaAppelees: boolean // la case « inclure les agences appelées ces derniers jours »
-  // Le repos (Mahdi, 13/10 : « on ne peut pas les rappeler avant 5 jours ») : une agence
-  // appelée après cette date ne revient pas dans la file, ni une fiche qui partage son standard.
-  // Absent = pas de repos (rappels datés, intéressés).
-  reposDepuis?: string | null
-  // Le repos sur TOUTE la base (Mahdi, 13/10) : les agences et les standards (chiffres) composés
-  // pendant le repos, quelle que soit leur étape ou leur base. Une fiche de la file qui partage
-  // ce standard (doublon dans une autre étape, chez un collègue) reste au repos elle aussi.
-  agencesAuRepos?: Set<string>
-  telsAuRepos?: Set<string>
-  // « Standard » (Mahdi, 14/10) : quelqu'un a décroché, pas le gestionnaire. On ne harcèle pas
-  // l'accueil : l'agence sort du grattage pendant un repos plus long (Réglages, 15 jours).
-  reposStandardDepuis?: string | null
-}
-
-// Le repos entre deux appels d'une même agence, en jours (on reste joignable par la recherche).
-export const REPOS_JOURS = 5
-export const REPOS_STANDARD_JOURS = 15
-/** Le dernier appel est-il un « standard » encore au repos ? */
-export function auReposStandard(a: Pick<Agence, "dernierResultat" | "dernierAppelLe">, reposStandardDepuis: string | null | undefined): boolean {
-  return Boolean(reposStandardDepuis && a.dernierResultat === "standard" && a.dernierAppelLe && a.dernierAppelLe >= reposStandardDepuis)
-}
-export function debutRepos(maintenant: Date, jours = REPOS_JOURS): string {
-  return new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - jours + 1).toISOString()
-}
-
-// La file telle qu'on l'appelle : l'ordre de `chargerFile` est gardé, on retire
-// celles appelées ce matin (sauf dans « À rappeler aujourd'hui » : une tâche datée est
-// une tâche datée), celles encore au repos (appelées il y a moins de 5 jours), et on
-// ne compose jamais deux fois le même standard — deux fiches derrière le même numéro
-// tomberaient sur la même personne deux fois.
-export function constituerFile(agences: Agence[], o: OptionsFile): Agence[] {
-  const garderAppelees = o.inclureDejaAppelees || o.file === "rappels"
-  // Les standards des agences déjà appelées : une fiche en double partage le numéro.
-  const auRepos = (a: Agence) =>
-    !garderAppelees &&
-    (o.appeleesAujourdHui.has(a.id) || Boolean(o.reposDepuis && a.dernierAppelLe && a.dernierAppelLe >= o.reposDepuis) || Boolean(o.reposDepuis && o.agencesAuRepos?.has(a.id)) || auReposStandard(a, o.reposStandardDepuis))
-  const telsAppeles = new Set<string>(!garderAppelees && o.reposDepuis && o.telsAuRepos ? o.telsAuRepos : [])
-  for (const a of agences) {
-    const t = chiffresTel(a.telephone)
-    if (t && auRepos(a)) telsAppeles.add(t)
-  }
-  const telsVus = new Set<string>()
-  const out: Agence[] = []
-  for (const a of agences) {
-    const t = chiffresTel(a.telephone)
-    if (auRepos(a) || (t && telsAppeles.has(t))) continue
-    if (t) {
-      if (telsVus.has(t)) continue
-      telsVus.add(t)
-    }
-    out.push(a)
-  }
-  return out
-}
 
 // ── Le numéro d'émission ─────────────────────────────────────────────────────
 
@@ -237,11 +175,12 @@ export function choixComplet(c: { resultat: Resultat | null; issue: Issue | ""; 
 //
 // Toutes les 4 s on demande « cet appel est-il en ligne ? ». Une fois vu en
 // ligne, deux tours de suite à « non » = raccroché (anti-hoquet, mise en
-// attente passagère). Jamais vu en ligne après 7 tours (≈ 28 s) = pas de
-// réponse. Huit vérifications ratées d'affilée = on cesse de prétendre suivre.
+// attente passagère). Jamais vu en ligne après la sonnerie réglée (Réglages, 28 s par défaut)
+// = pas de réponse. Huit vérifications ratées d'affilée = on cesse de prétendre suivre.
 
 export const INTERVALLE_SURVEILLANCE_MS = 4000
-export const TOURS_SANS_DEMARRAGE = 7
+// Le nombre de tours sans décroché avant « pas de réponse » : la sonnerie réglée (Réglages, 28 s).
+export const toursSansDemarrage = (sonnerieSecondes: number): number => Math.max(2, Math.ceil((sonnerieSecondes * 1000) / INTERVALLE_SURVEILLANCE_MS))
 export const TOURS_A_ZERO_POUR_RACCROCHE = 2
 export const ECHECS_AVANT_ABANDON = 8
 export const DELAI_ANTI_DOUBLE_APPEL_MS = 1500
@@ -252,7 +191,7 @@ export type Surveillance = { vuActif: boolean; zeros: number; sansDemarrage: num
 export const SURVEILLANCE_INITIALE: Surveillance = { vuActif: false, zeros: 0, sansDemarrage: 0, echecs: 0 }
 export type Verdict = "continuer" | "raccroche" | "pas_de_reponse" | "indisponible"
 
-export function observerAppel(s: Surveillance, obs: { ok: boolean; actif: boolean }): { suite: Surveillance; verdict: Verdict } {
+export function observerAppel(s: Surveillance, obs: { ok: boolean; actif: boolean }, toursMax: number): { suite: Surveillance; verdict: Verdict } {
   if (!obs.ok) {
     const echecs = s.echecs + 1
     return { suite: { ...s, echecs }, verdict: echecs >= ECHECS_AVANT_ABANDON ? "indisponible" : "continuer" }
@@ -263,7 +202,7 @@ export function observerAppel(s: Surveillance, obs: { ok: boolean; actif: boolea
     return { suite: { ...s, zeros, echecs: 0 }, verdict: zeros >= TOURS_A_ZERO_POUR_RACCROCHE ? "raccroche" : "continuer" }
   }
   const sansDemarrage = s.sansDemarrage + 1
-  return { suite: { ...s, sansDemarrage, echecs: 0 }, verdict: sansDemarrage >= TOURS_SANS_DEMARRAGE ? "pas_de_reponse" : "continuer" }
+  return { suite: { ...s, sansDemarrage, echecs: 0 }, verdict: sansDemarrage >= toursMax ? "pas_de_reponse" : "continuer" }
 }
 
 // Le relevé final de Ringover (last_state / is_failed) → un résultat à proposer.
@@ -297,9 +236,9 @@ export function dateHeureLocale(d: Date): string {
 export function plusJours(d: Date, jours: number): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + jours, d.getHours(), d.getMinutes())
 }
-// Le défaut de « À rappeler le… » et d'un RDV : demain 10 h.
-export function demainDixHeures(maintenant: Date): string {
-  return dateHeureLocale(new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1, 10, 0))
+// Le défaut de « À rappeler le… » et d'un RDV : demain, à l'heure des relances (Réglages, 10 h).
+export function demainALHeure(maintenant: Date, heure: number): string {
+  return dateHeureLocale(dansNJoursA(maintenant, 1, heure))
 }
 // « 2026-10-10T10:00 » (heure locale) → ISO, ou null si ce n'est pas une date.
 export function versIso(local: string): string | null {
@@ -341,13 +280,13 @@ export function texteDernierAppel(a: Pick<Agence, "dernierAppelLe">, maintenant:
 
 // ── Le résumé de ce que la validation a écrit ────────────────────────────────
 
-export function resumeEcriture(bilan: Pick<BilanAppel, "etape" | "tacheId" | "tentatives">, choix: ChoixResultat, maintenant: Date): string {
+export function resumeEcriture(bilan: Pick<BilanAppel, "etape" | "tacheId" | "tentatives">, choix: ChoixResultat, maintenant: Date, relanceJours: number): string {
   const parts = [`Étape → ${libelleEtape(bilan.etape)}`]
   if (choix.resultat === "pas_de_reponse" || choix.resultat === "standard") parts.push(`tentative ${bilan.tentatives}`)
   if (choix.resultat === "joint") {
     if (choix.issue === "rdv") parts.push(`RDV le ${dateHeureCourte(choix.rdvLe)}`)
     else if (choix.issue === "a_rappeler") parts.push(`tâche Rappeler le ${dateHeureCourte(choix.rappelLe)}`)
-    else if (choix.issue === "interesse") parts.push(`tâche Relancer le ${dateCourte(plusJours(maintenant, relanceJours()).toISOString())}`)
+    else if (choix.issue === "interesse") parts.push(`tâche Relancer le ${dateCourte(plusJours(maintenant, relanceJours).toISOString())}`)
     else if (choix.issue === "pas_interesse") parts.push(`motif « ${libelleMotif(choix.motif)} »`)
     if (bilan.tacheId && !["rdv", "a_rappeler", "interesse"].includes(choix.issue)) parts.push("une tâche créée")
   }

@@ -3,7 +3,7 @@
 //
 // Monté une fois dans App, sans props. Il lit les RDV du jour non faits dans
 // `activites` (via chargerAgenda) toutes les 60 s, et montre chaque RDV de
-// 5 min avant à 20 min après son heure, avec la notification du navigateur si
+// N min avant à M min après son heure (Réglages : 5 et 20), avec la notification du navigateur si
 // elle est autorisée (une seule par RDV). Il ne peut pas naviguer : il montre
 // l'agence, le contact, le type, et un bouton « Fait ».
 // ════════════════════════════════════════════════════════════════════════════
@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Clock, MapPin, Phone, Video, X } from "lucide-react"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerAgenda, terminerTache, type TacheAgenda } from "../demarchage/db"
+import { useReglages } from "../demarchage/reglages"
 import { dansLaFenetreDeRappel, debutDuJour, finDuJour, heureCourte, libelleRelatif } from "../demarchage/aujourdhuiOutils"
 import { Bandeau, Bouton, Carte, Pastille } from "../ui"
 
@@ -42,11 +43,15 @@ export default function RappelsRdv() {
   const notifiesRef = useRef<Set<string>>(new Set())
   const rdvsRef = useRef<TacheAgenda[]>([])
   const enVie = useRef(true)
+  const { reglages } = useReglages()
+  const avant = reglages?.rdv_rappel_avant_minutes ?? null
+  const apres = reglages?.rdv_rappel_apres_minutes ?? null
+  const dansLaFenetre = useCallback((echeance: string | null, ms: number) => avant !== null && apres !== null && dansLaFenetreDeRappel(echeance, ms, avant, apres), [avant, apres])
 
   const notifier = useCallback((liste: TacheAgenda[], now: Date) => {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return
     for (const r of liste) {
-      if (!r.echeance || !dansLaFenetreDeRappel(r.echeance, now.getTime()) || notifiesRef.current.has(r.id)) continue
+      if (!r.echeance || !dansLaFenetre(r.echeance, now.getTime()) || notifiesRef.current.has(r.id)) continue
       notifiesRef.current.add(r.id)
       try {
         const n = new Notification(`Rappel RDV — ${heureCourte(r.echeance)}`, {
@@ -58,7 +63,7 @@ export default function RappelsRdv() {
         // Un navigateur qui refuse : le bandeau à l'écran suffit.
       }
     }
-  }, [])
+  }, [dansLaFenetre])
 
   const relire = useCallback(async () => {
     if (!supabaseConfigure) return
@@ -85,7 +90,7 @@ export default function RappelsRdv() {
     return () => { enVie.current = false; clearTimeout(premier); clearInterval(lecture); clearInterval(horloge) }
   }, [relire, notifier])
 
-  const actifs = rdvs.filter((r) => !ignores.has(r.id) && dansLaFenetreDeRappel(r.echeance, maintenant.getTime()))
+  const actifs = rdvs.filter((r) => !ignores.has(r.id) && dansLaFenetre(r.echeance, maintenant.getTime()))
   if (actifs.length === 0 && !erreur) return null
 
   const ignorer = (id: string) => setIgnores((x) => new Set(x).add(id))

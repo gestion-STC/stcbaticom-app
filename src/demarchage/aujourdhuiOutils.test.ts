@@ -10,7 +10,6 @@ import {
   debutDuJour,
   debutDuMois,
   decomposerDate,
-  demainA,
   estEnRetard,
   finDeSemaine,
   finDuJour,
@@ -78,9 +77,9 @@ describe("les bornes", () => {
 
 describe("les dates de report", () => {
   it("demain 10 h et dans 3 jours 10 h", () => {
-    expect(demainA(maintenant)).toEqual(new Date(2026, 9, 10, 10, 0))
-    expect(dansNJoursA(maintenant, 3)).toEqual(new Date(2026, 9, 12, 10, 0))
-    expect(dansNJoursA(new Date(2026, 9, 30, 9), 3)).toEqual(new Date(2026, 10, 2, 10, 0))
+    expect(dansNJoursA(maintenant, 1, 10)).toEqual(new Date(2026, 9, 10, 10, 0))
+    expect(dansNJoursA(maintenant, 3, 10)).toEqual(new Date(2026, 9, 12, 10, 0))
+    expect(dansNJoursA(new Date(2026, 9, 30, 9), 3, 14)).toEqual(new Date(2026, 10, 2, 14, 0))
   })
   it("compose et décompose date + heure", () => {
     expect(composerDate("2026-10-12", "14:30")).toEqual(new Date(2026, 9, 12, 14, 30))
@@ -249,12 +248,12 @@ describe("segmentsBase", () => {
 describe("dansLaFenetreDeRappel", () => {
   const rdv = local(2026, 10, 9, 14, 0)
   it("de 5 min avant à 20 min après", () => {
-    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 13, 54).getTime())).toBe(false)
-    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 13, 55).getTime())).toBe(true)
-    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 14, 20).getTime())).toBe(true)
-    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 14, 21).getTime())).toBe(false)
+    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 13, 54).getTime(), 5, 20)).toBe(false)
+    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 13, 55).getTime(), 5, 20)).toBe(true)
+    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 14, 20).getTime(), 5, 20)).toBe(true)
+    expect(dansLaFenetreDeRappel(rdv, new Date(2026, 9, 9, 14, 21).getTime(), 5, 20)).toBe(false)
   })
   it("jamais sans échéance", () => {
-    expect(dansLaFenetreDeRappel(null, maintenant.getTime())).toBe(false)
+    expect(dansLaFenetreDeRappel(null, maintenant.getTime(), 5, 20)).toBe(false)
   })
 })

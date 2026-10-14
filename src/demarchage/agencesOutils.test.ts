@@ -9,7 +9,6 @@ import {
   enseignesDistinctes,
   filtrerAgences,
   jourLocalDe,
-  retirerAuRepos,
   filtrerFil,
   fusionnerFil,
   grouperParJour,
@@ -78,10 +77,10 @@ describe("les dates", () => {
     expect(enRetard(null, midi)).toBe(false)
   })
   it("convertit un champ date en ISO (9 h par défaut pour un jour seul)", () => {
-    expect(isoDepuisChamp("")).toBeNull()
-    expect(isoDepuisChamp("n'importe quoi")).toBeNull()
-    expect(new Date(isoDepuisChamp("2026-10-12")!).getHours()).toBe(9)
-    expect(new Date(isoDepuisChamp("2026-10-12T14:30")!).getMinutes()).toBe(30)
+    expect(isoDepuisChamp("", 9)).toBeNull()
+    expect(isoDepuisChamp("n'importe quoi", 9)).toBeNull()
+    expect(new Date(isoDepuisChamp("2026-10-12", 9)!).getHours()).toBe(9)
+    expect(new Date(isoDepuisChamp("2026-10-12T14:30", 9)!).getMinutes()).toBe(30)
   })
 })
 
@@ -118,11 +117,6 @@ describe("filtrerAgences", () => {
     expect(filtrerAgences(base, { ...FILTRES_VIDES, attribuee: "moi" }).map((a) => a.id)).toEqual(["a"])
     expect(filtrerAgences(base, { ...FILTRES_VIDES, attribuee: "aucun" }).map((a) => a.id)).toEqual(["c"])
     expect(filtrerAgences(base, FILTRES_VIDES).map((a) => a.id)).toEqual(["a", "b", "c"])
-  })
-  it("retirerAuRepos : comme la session, une agence appelée pendant le repos sort de la pile", () => {
-    const debut = new Date(2026, 9, 9).toISOString()
-    const base = [agence({ id: "jamais", dernierAppelLe: null }), agence({ id: "avant", dernierAppelLe: new Date(2026, 9, 8, 18).toISOString() }), agence({ id: "pendant", dernierAppelLe: new Date(2026, 9, 9, 0, 5).toISOString() })]
-    expect(retirerAuRepos(base, debut).map((a) => a.id)).toEqual(["jamais", "avant"])
   })
   it("jourLocalDe : le jour local, pas le jour UTC", () => {
     expect(jourLocalDe(new Date(2026, 9, 13, 0, 30).toISOString())).toBe("2026-10-13")

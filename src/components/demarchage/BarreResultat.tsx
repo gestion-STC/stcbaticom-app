@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from "react"
 import { Check } from "lucide-react"
+import { useReglages } from "../../demarchage/reglages"
 import { ISSUES, MOTIFS, RESULTATS, effetAnnonce, nomContact, type Agence, type Contact, type Issue, type Motif, type Resultat } from "../../demarchage/modele"
 import { TYPES_RDV, choixComplet, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
 import { Bouton, Carte, Etiquette, Champ, Selecteur } from "../../ui"
@@ -64,13 +65,14 @@ export default function BarreResultat({
   suggestion?: Resultat | null
   /** Une phrase d'explication de la suggestion (« Ringover dit : répondeur. »). */
   indice?: string
-  /** Valeurs datetime-local par défaut (demain 10 h), calculées par le parent. */
+  /** Valeurs datetime-local par défaut (demain, heure des relances), calculées par le parent. */
   defautRappel: string
   defautRdv: string
   raccourcis?: boolean
   enregistrement?: boolean
   onValider: (choix: ChoixResultat) => void
 }) {
+  const { reglages } = useReglages()
   const [choisi, setChoisi] = useState<Resultat | null>(null)
   const [issue, setIssue] = useState<Issue | "">("")
   const [motif, setMotif] = useState<Motif | "">("")
@@ -196,7 +198,7 @@ export default function BarreResultat({
         </div>
       ) : null}
 
-      <p className="mt-3 text-legende text-encre-2">{resultat ? effetAnnonce(resultat, joint ? (issue || null) : null, agence) : "Choisis ce qui s'est passé : l'étape et les tâches suivent toutes seules."}</p>
+      <p className="mt-3 text-legende text-encre-2">{resultat && reglages ? effetAnnonce(resultat, joint ? (issue || null) : null, agence, { sommeilApres: reglages.sommeil_apres_tentatives, sommeilJours: reglages.sommeil_jours, relanceJours: reglages.relance_interesse_jours }) : "Choisis ce qui s'est passé : l'étape et les tâches suivent toutes seules."}</p>
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3 border-t border-fond-4 pt-3">
         <div className="w-full max-w-xs">

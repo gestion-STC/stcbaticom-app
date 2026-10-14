@@ -9,12 +9,12 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus, Upload } from "lucide-react"
-import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape, SOMMEIL_APRES_TENTATIVES } from "../../demarchage/modele"
-import { chargerAgences, chargerFile, chargerSecteurs, compterApporteurs, compterFiles, compterParEtape, type FiltresAgences } from "../../demarchage/db"
-import { lireRepos } from "../../demarchage/repos"
+import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape } from "../../demarchage/modele"
+import { chargerAgences, chargerPile, chargerSecteurs, compterApporteurs, compterParEtape, compterPiles, type FiltresAgences } from "../../demarchage/db"
+import { useReglages } from "../../demarchage/reglages"
 import {
   FILTRES_VIDES, type CleTri, type FileOuToutes, type FiltresLocaux, type Tri, basculerTri, dateCourte, depuisTexte, enRetard, enseignesDistinctes, filtrerAgences, ilYA, messageErreur, pluriel,
-  retirerAuRepos, secteursParZone, sousTitreAgences, trierAgences,
+  secteursParZone, sousTitreAgences, trierAgences,
 } from "../../demarchage/agencesOutils"
 import { exporterAgencesExcel, exporterContactsExcel } from "../../demarchage/exportAgences"
 import { nomProprietaire, type Proprietaire } from "../../demarchage/attribution"
@@ -71,32 +71,29 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
     recherche: recherchePrete, jamaisJointe: filtres.jamaisJointe, avecContact: filtres.avecContact, commercialId: filtres.attribuee || undefined,
   }), [filtres.etape, filtres.secteur, filtres.type, filtres.enseigne, filtres.jamaisJointe, filtres.avecContact, filtres.attribuee, recherchePrete])
 
-  // Les piles comptent comme la session et Aujourd'hui (13/10 : trois écrans, un seul chiffre) :
-  // la base choisie dans « Attribuée à » et le repos entre deux appels (Réglages, 5 jours sinon).
+  // Les piles : LE calcul de la base (pile_demarchage), le même que la session et Aujourd'hui
+  // (trois écrans, un seul chiffre), dans la base choisie dans « Attribuée à ».
   const proprietaire = useMemo<Proprietaire>(() => (!filtres.attribuee ? "tous" : filtres.attribuee === "aucun" ? "non_attribuees" : { compteId: filtres.attribuee }), [filtres.attribuee])
-  const lireReposAgences = useCallback((quand: Date) => lireRepos(quand), [])
+  const sommeilApres = useReglages().reglages?.sommeil_apres_tentatives ?? null
   const chargerCompteurs = useCallback(async () => {
-    const quand = new Date()
-    const repos = await lireReposAgences(quand)
-    const [e, f, ap] = await Promise.all([compterParEtape(), compterFiles(quand, proprietaire, repos.depuis, repos.standardDepuis).catch(() => null), compterApporteurs().catch(() => 0)])
+    const [e, f, ap] = await Promise.all([compterParEtape(), compterPiles(proprietaire).catch(() => null), compterApporteurs().catch(() => 0)])
     setApporteurs(ap)
     setParEtape(e); setParFile(f)
-  }, [proprietaire, lireReposAgences])
+  }, [proprietaire])
 
   const charger = useCallback(async () => {
     if (!supabaseConfigure) return
     try {
       const quand = new Date()
       const liste = file === "toutes" ? await chargerAgences(filtresServeur)
-        : file === "a_prospecter" ? await (async () => { const r = await lireReposAgences(quand); return retirerAuRepos(await chargerFile(file, quand, null, proprietaire), r.depuis, r.standardDepuis) })()
-        : await chargerFile(file, quand, null, proprietaire)
+        : await chargerPile(file, { proprietaire })
       setAgences(liste); setMaintenant(quand); setErreur("")
     } catch (e) {
       setErreur(messageErreur(e))
     } finally {
       setChargement(false)
     }
-  }, [file, filtresServeur, proprietaire, lireReposAgences])
+  }, [file, filtresServeur, proprietaire])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
   // Arrivée depuis une autre page avec une étape à montrer.
   useEffect(() => {
@@ -301,7 +298,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
                           </button>
                           <div className="mt-0.5 chiffres text-colonne text-encre-2">{depuisTexte(a.etapeDepuis, maintenant)}</div>
                         </Td>
-                        <Td num className={a.tentatives >= SOMMEIL_APRES_TENTATIVES ? "text-alerte font-semibold" : ""}>{Math.min(a.tentatives, SOMMEIL_APRES_TENTATIVES)} / {SOMMEIL_APRES_TENTATIVES}</Td>
+                        <Td num className={sommeilApres !== null && a.tentatives >= sommeilApres ? "text-alerte font-semibold" : ""}>{sommeilApres === null ? a.tentatives : `${Math.min(a.tentatives, sommeilApres)} / ${sommeilApres}`}</Td>
                         <Td>
                           {a.dernierAppelLe ? (
                             <>

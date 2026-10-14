@@ -2,18 +2,15 @@ import { describe, expect, it } from "vitest"
 import type { Activite, Agence, Contact } from "./modele"
 import {
   SURVEILLANCE_INITIALE,
-  TOURS_SANS_DEMARRAGE,
   choixComplet,
   compteARebours,
-  constituerFile,
   bilanAppels,
   bilanDepuisAgence,
-  debutRepos,
   texteBilanAppels,
   dateHeureCourte,
   dateHeureLocale,
   decrireActivite,
-  demainDixHeures,
+  demainALHeure,
   dureeAppel,
   estChampDeSaisie,
   issuePourTouche,
@@ -27,6 +24,7 @@ import {
   resumeEcriture,
   suggestionDepuisDetail,
   texteDernierAppel,
+  toursSansDemarrage,
   versIso,
   type ChoixResultat,
 } from "./sessionOutils"
@@ -50,26 +48,6 @@ function activite(p: Partial<Activite> = {}): Activite {
   }
 }
 const midi = new Date(2026, 9, 9, 12, 0, 0) // vendredi 9 octobre 2026, 12 h
-
-describe("constituerFile", () => {
-  const a = agence({ id: "a", nom: "A", telephone: "01 00 00 00 01" })
-  const b = agence({ id: "b", nom: "B", telephone: "01 00 00 00 02" })
-  const c = agence({ id: "c", nom: "C", telephone: "01 00 00 00 01" }) // même standard que A
-  const d = agence({ id: "d", nom: "D", telephone: "" })
-
-  it("garde l'ordre donné et retire les doublons de téléphone", () => {
-    const f = constituerFile([b, a, c, d], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false })
-    expect(f.map((x) => x.id)).toEqual(["b", "a", "d"])
-  })
-  it("retire les agences appelées aujourd'hui, et celles qui partagent leur standard", () => {
-    const f = constituerFile([a, b, c, d], { file: "a_prospecter", appeleesAujourdHui: new Set(["a"]), inclureDejaAppelees: false })
-    expect(f.map((x) => x.id)).toEqual(["b", "d"])
-  })
-  it("les garde si la case est cochée, et toujours dans les rappels du jour", () => {
-    expect(constituerFile([a, b], { file: "a_prospecter", appeleesAujourdHui: new Set(["a"]), inclureDejaAppelees: true }).map((x) => x.id)).toEqual(["a", "b"])
-    expect(constituerFile([a, b], { file: "rappels", appeleesAujourdHui: new Set(["a"]), inclureDejaAppelees: false }).map((x) => x.id)).toEqual(["a", "b"])
-  })
-})
 
 describe("numéro d'émission", () => {
   const reserve = ["01 86 00 00 01", "01 86 00 00 02"]
@@ -162,38 +140,41 @@ describe("choixComplet", () => {
 describe("observerAppel (la surveillance de l'appel)", () => {
   it("raccroché = vu en ligne, puis deux tours à « non » de suite", () => {
     let s = SURVEILLANCE_INITIALE
-    let r = observerAppel(s, { ok: true, actif: true })
+    let r = observerAppel(s, { ok: true, actif: true }, 7)
     expect(r.verdict).toBe("continuer")
     s = r.suite
-    r = observerAppel(s, { ok: true, actif: false })
+    r = observerAppel(s, { ok: true, actif: false }, 7)
     expect(r.verdict).toBe("continuer") // un seul tour à zéro : un hoquet
-    r = observerAppel(r.suite, { ok: true, actif: true }) // ça reprend : compteur remis à zéro
+    r = observerAppel(r.suite, { ok: true, actif: true }, 7) // ça reprend : compteur remis à zéro
     expect(r.suite.zeros).toBe(0)
-    r = observerAppel(r.suite, { ok: true, actif: false })
-    r = observerAppel(r.suite, { ok: true, actif: false })
+    r = observerAppel(r.suite, { ok: true, actif: false }, 7)
+    r = observerAppel(r.suite, { ok: true, actif: false }, 7)
     expect(r.verdict).toBe("raccroche")
   })
-  it("pas de réponse = jamais en ligne après 7 tours", () => {
+  it("pas de réponse = jamais en ligne après la sonnerie réglée (28 s = 7 tours de 4 s)", () => {
+    const tours = toursSansDemarrage(28)
+    expect(tours).toBe(7)
+    expect(toursSansDemarrage(40)).toBe(10)
     let s = SURVEILLANCE_INITIALE
     let verdict = "continuer"
-    for (let i = 0; i < TOURS_SANS_DEMARRAGE; i++) {
-      const r = observerAppel(s, { ok: true, actif: false })
+    for (let i = 0; i < tours; i++) {
+      const r = observerAppel(s, { ok: true, actif: false }, tours)
       s = r.suite
       verdict = r.verdict
-      if (i < TOURS_SANS_DEMARRAGE - 1) expect(verdict).toBe("continuer")
+      if (i < tours - 1) expect(verdict).toBe("continuer")
     }
     expect(verdict).toBe("pas_de_reponse")
   })
   it("une vérification ratée ne compte ni pour ni contre ; huit d'affilée = indisponible", () => {
     let s = SURVEILLANCE_INITIALE
     for (let i = 0; i < 7; i++) {
-      const r = observerAppel(s, { ok: false, actif: false })
+      const r = observerAppel(s, { ok: false, actif: false }, 7)
       expect(r.verdict).toBe("continuer")
       s = r.suite
     }
     expect(s.sansDemarrage).toBe(0)
-    expect(observerAppel(s, { ok: false, actif: false }).verdict).toBe("indisponible")
-    expect(observerAppel(s, { ok: true, actif: true }).suite.echecs).toBe(0)
+    expect(observerAppel(s, { ok: false, actif: false }, 7).verdict).toBe("indisponible")
+    expect(observerAppel(s, { ok: true, actif: true }, 7).suite.echecs).toBe(0)
   })
 })
 
@@ -223,7 +204,8 @@ describe("durées et compte à rebours", () => {
 describe("dates", () => {
   it("écrit et relit une date locale pour un champ datetime-local", () => {
     expect(dateHeureLocale(new Date(2026, 9, 10, 9, 5))).toBe("2026-10-10T09:05")
-    expect(demainDixHeures(midi)).toBe("2026-10-10T10:00")
+    expect(demainALHeure(midi, 10)).toBe("2026-10-10T10:00")
+    expect(demainALHeure(midi, 14)).toBe("2026-10-10T14:00")
     const iso = versIso("2026-10-10T10:00")
     expect(iso).not.toBeNull()
     expect(dateHeureCourte(iso)).toBe("10/10 10:00")
@@ -240,11 +222,11 @@ describe("dates", () => {
 describe("resumeEcriture", () => {
   const choix = (p: Partial<ChoixResultat>): ChoixResultat => ({ resultat: "joint", issue: "", motif: "", contactId: null, rappelLe: null, rdvLe: null, rdvType: "telephone", ...p })
   it("résume l'étape et la tâche posées", () => {
-    expect(resumeEcriture({ etape: "interesse", tacheId: "t", tentatives: 1 }, choix({ issue: "interesse" }), midi)).toBe("Étape → Intéressé · tâche Relancer le 16/10")
-    expect(resumeEcriture({ etape: "a_prospecter", tacheId: null, tentatives: 3 }, choix({ resultat: "pas_de_reponse" }), midi)).toBe("Étape → À prospecter · tentative 3")
-    expect(resumeEcriture({ etape: "gestionnaire_joint", tacheId: "t", tentatives: 1 }, choix({ issue: "a_rappeler", rappelLe: new Date(2026, 9, 16, 10, 0).toISOString() }), midi)).toBe("Étape → Gestionnaire joint · tâche Rappeler le 16/10 10:00")
-    expect(resumeEcriture({ etape: "pas_interesse", tacheId: null, tentatives: 1 }, choix({ issue: "pas_interesse", motif: "deja_prestataire" }), midi)).toBe("Étape → Pas intéressé · motif « Déjà un prestataire »")
-    expect(resumeEcriture({ etape: "hors_cible", tacheId: null, tentatives: 1 }, choix({ resultat: "faux_numero" }), midi)).toBe("Étape → Hors cible")
+    expect(resumeEcriture({ etape: "interesse", tacheId: "t", tentatives: 1 }, choix({ issue: "interesse" }), midi, 7)).toBe("Étape → Intéressé · tâche Relancer le 16/10")
+    expect(resumeEcriture({ etape: "a_prospecter", tacheId: null, tentatives: 3 }, choix({ resultat: "pas_de_reponse" }), midi, 7)).toBe("Étape → À prospecter · tentative 3")
+    expect(resumeEcriture({ etape: "gestionnaire_joint", tacheId: "t", tentatives: 1 }, choix({ issue: "a_rappeler", rappelLe: new Date(2026, 9, 16, 10, 0).toISOString() }), midi, 7)).toBe("Étape → Gestionnaire joint · tâche Rappeler le 16/10 10:00")
+    expect(resumeEcriture({ etape: "pas_interesse", tacheId: null, tentatives: 1 }, choix({ issue: "pas_interesse", motif: "deja_prestataire" }), midi, 7)).toBe("Étape → Pas intéressé · motif « Déjà un prestataire »")
+    expect(resumeEcriture({ etape: "hors_cible", tacheId: null, tentatives: 1 }, choix({ resultat: "faux_numero" }), midi, 7)).toBe("Étape → Hors cible")
   })
 })
 
@@ -262,40 +244,6 @@ describe("decrireActivite", () => {
     expect(decrireActivite(activite({ type: "tache", titre: "Relancer", echeance: new Date(2026, 9, 16, 10, 0).toISOString() }))).toMatchObject({ titre: "Tâche · Relancer", etat: "ouvert" })
     expect(decrireActivite(activite({ type: "etape", etapeDe: "a_prospecter", etapeVers: "interesse" })).titre).toBe("Étape · À prospecter → Intéressé")
     expect(decrireActivite(activite({ sens: "entrant" })).titre).toBe("Appel entrant")
-  })
-})
-
-describe("le repos de 5 jours (13/10)", () => {
-  const maintenant = new Date(2026, 9, 13, 10, 0)
-  const depuis = debutRepos(maintenant)
-  const hier = agence({ id: "hier", telephone: "01 00 00 00 01", dernierAppelLe: new Date(2026, 9, 12, 15, 0).toISOString() })
-  const memeStandard = agence({ id: "meme-standard", telephone: "01 00 00 00 01" }) // une fiche en double, jamais appelée
-  const ilYa5j = agence({ id: "il-y-a-5j", telephone: "01 00 00 00 02", dernierAppelLe: new Date(2026, 9, 8, 15, 0).toISOString() })
-  const jamais = agence({ id: "jamais", telephone: "01 00 00 00 03" })
-
-  it("le repos commence 4 jours avant aujourd'hui à minuit : appelée le 08, elle revient le 13", () => {
-    expect(depuis).toBe(new Date(2026, 9, 9).toISOString())
-  })
-  it("retire les agences appelées il y a moins de 5 jours, et les fiches qui partagent leur standard", () => {
-    const f = constituerFile([jamais, memeStandard, hier, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis })
-    expect(f.map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
-  })
-  it("sans repos demandé (rappels datés) ou case cochée : rien n'est retiré", () => {
-    expect(constituerFile([hier, jamais], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["hier", "jamais"])
-    expect(constituerFile([hier, jamais], { file: "rappels", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["hier", "jamais"])
-  })
-  it("le repos vaut sur toute la base : un standard composé ailleurs (autre étape, autre base) met la fiche au repos", () => {
-    const telsAuRepos = new Set(["0100000003"]) // « jamais » partage le standard d'une fiche appelée hors de cette file
-    const f = constituerFile([jamais, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis, telsAuRepos })
-    expect(f.map((x) => x.id)).toEqual(["il-y-a-5j"])
-    const g = constituerFile([jamais, ilYa5j], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: depuis, agencesAuRepos: new Set(["il-y-a-5j"]) })
-    expect(g.map((x) => x.id)).toEqual(["jamais"])
-  })
-  it("le repos de toute la base ne s'applique ni case cochée, ni sans repos (rappels, intéressés)", () => {
-    const o = { appeleesAujourdHui: new Set<string>(), telsAuRepos: new Set(["0100000003"]), agencesAuRepos: new Set(["il-y-a-5j"]) }
-    expect(constituerFile([jamais, ilYa5j], { ...o, file: "a_prospecter", inclureDejaAppelees: true, reposDepuis: depuis }).map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
-    expect(constituerFile([jamais, ilYa5j], { ...o, file: "sans_nouvelle", inclureDejaAppelees: false, reposDepuis: null }).map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
-    expect(constituerFile([jamais, ilYa5j], { ...o, file: "rappels", inclureDejaAppelees: false, reposDepuis: depuis }).map((x) => x.id)).toEqual(["jamais", "il-y-a-5j"])
   })
 })
 
@@ -338,17 +286,5 @@ describe("numéro d'une agence qui appartient à un collègue (13/10)", () => {
   })
   it("un numéro qui n'est à personne (retiré de la réserve) reste bloqué", () => {
     expect(numeroEmissionPour({ numeroEmission: "01 99 99 99 99" }, ["+33 1 84 80 61 28"], [], ["33 1 89 70 86 23"]).bloque).toBe(true)
-  })
-})
-
-describe("le repos après un « standard » (14/10)", () => {
-  const maintenant = new Date(2026, 9, 14, 10, 0)
-  const il_y_a = (j: number) => new Date(2026, 9, 14 - j, 11, 0).toISOString()
-  const std8 = agence({ id: "std8", telephone: "01 00 00 00 11", dernierAppelLe: il_y_a(8), dernierResultat: "standard" })
-  const pdr8 = agence({ id: "pdr8", telephone: "01 00 00 00 12", dernierAppelLe: il_y_a(8), dernierResultat: "pas_de_reponse" })
-  const std20 = agence({ id: "std20", telephone: "01 00 00 00 13", dernierAppelLe: il_y_a(20), dernierResultat: "standard" })
-  it("un standard récent sort du grattage ; une absence de réponse revient après 5 jours", () => {
-    const f = constituerFile([std8, pdr8, std20], { file: "a_prospecter", appeleesAujourdHui: new Set(), inclureDejaAppelees: false, reposDepuis: debutRepos(maintenant, 5), reposStandardDepuis: debutRepos(maintenant, 15) })
-    expect(f.map((x) => x.id)).toEqual(["pdr8", "std20"])
   })
 })

@@ -10,6 +10,7 @@ import type { Prospect } from "../data"
 import type { Message } from "../lib/messagesDb"
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
+import { dansNJoursA } from "./aujourdhuiOutils"
 import {
   type Activite,
   type Agence,
@@ -84,16 +85,15 @@ export function enRetard(echeance: string | null | undefined, maintenant: Date):
 export function jourPourChamp(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
-/** « 2026-10-09T10:00 » pour un <input type="datetime-local"> : demain 10 h par défaut. */
-export function lendemainPourChamp(d: Date, heureDuJour = 10): string {
-  const l = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, heureDuJour, 0, 0)
-  return `${jourPourChamp(l)}T${String(heureDuJour).padStart(2, "0")}:00`
+/** « 2026-10-09T10:00 » pour un <input type="datetime-local"> : demain, à l'heure des relances (Réglages). */
+export function lendemainPourChamp(d: Date, heureDuJour: number): string {
+  return `${jourPourChamp(dansNJoursA(d, 1, heureDuJour))}T${String(heureDuJour).padStart(2, "0")}:00`
 }
-/** Une valeur de champ date (jour seul ou jour + heure) → ISO complet, ou null si vide. */
-export function isoDepuisChamp(valeur: string): string | null {
+/** Une valeur de champ date (jour seul ou jour + heure) → ISO complet, ou null si vide. Jour seul = à l'heure des relances. */
+export function isoDepuisChamp(valeur: string, heureDuJour: number): string | null {
   const v = (valeur || "").trim()
   if (!v) return null
-  const d = v.length <= 10 ? new Date(`${v}T09:00:00`) : new Date(v)
+  const d = v.length <= 10 ? new Date(`${v}T${String(heureDuJour).padStart(2, "0")}:00:00`) : new Date(v)
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
@@ -139,18 +139,6 @@ export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
       if (!parTexte && !parNumero) return false
     }
     return true
-  })
-}
-
-/** Le repos entre deux appels, comme la session et les compteurs : on retire les agences appelées depuis `reposDepuis`. */
-export function retirerAuRepos<T extends Pick<Agence, "dernierAppelLe" | "dernierResultat">>(agences: T[], reposDepuis: string, reposStandardDepuis: string | null = null): T[] {
-  const borne = new Date(reposDepuis).getTime()
-  const borneStandard = reposStandardDepuis ? new Date(reposStandardDepuis).getTime() : null
-  return agences.filter((a) => {
-    if (!a.dernierAppelLe) return true
-    const t = new Date(a.dernierAppelLe).getTime()
-    if (t >= borne) return false
-    return !(borneStandard !== null && a.dernierResultat === "standard" && t >= borneStandard)
   })
 }
 

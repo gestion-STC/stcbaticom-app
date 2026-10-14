@@ -23,9 +23,6 @@ import {
   jourLocal,
   premiersInteresses,
   nomCle,
-  ordonnerAProspecter,
-  ordonnerInteresses,
-  ordonnerRappels,
 } from "./modele"
 
 type LigneAgence = {
@@ -101,10 +98,6 @@ export async function passerApporteur(agenceId: string, compteNom: string): Prom
 // ── Agences : les listes ──
 export type FiltresAgences = { etape?: Etape | "actives" | ""; secteur?: string; type?: Agence["type"] | ""; enseigne?: string; recherche?: string; jamaisJointe?: boolean; avecContact?: boolean; commercialId?: string; limite?: number }
 
-// Le propriétaire (attribution de la base, 11/10/2026) : les agences d'un compte, les non attribuées, ou tout.
-// Un filtre PostgREST : (colonne, opérateur, valeur), appliqué par `.filter`, qui ne fait pas exploser les types.
-const filtreProprietaire = (p: Proprietaire): [string, string, string] | null =>
-  p === "tous" ? null : p === "non_attribuees" ? ["commercial_id", "is", "null"] : ["commercial_id", "eq", p.compteId]
 
 // ⚠ PostgREST s'arrête à 1 000 lignes sans le dire (10/10 : « 1000 agences · 8 intéressées »
 // alors qu'il y en a 2 372 et 17). Toute lecture qui peut dépasser passe par lireParLots.
@@ -137,57 +130,33 @@ export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> 
   return lignes.slice(0, limite).map(versAgence)
 }
 
-// Les quatre files. Le tri fin se fait ici (secteur du jour, jamais appelées…).
-export async function chargerFile(file: File, maintenant: Date, secteurDuJour: string | null = null, proprietaire: Proprietaire = "tous"): Promise<Agence[]> {
-  const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
-  const aujourdHui = jourLocal(maintenant)
-  // Lecture complète par lots (la file « À prospecter » dépasse 2 000 agences) ; le tri métier se fait en mémoire.
-  const fp = filtreProprietaire(proprietaire)
-  const base = (de: number, a: number) => {
-    const q = sb().from("agences_liste").select(COLONNES_AGENCE).neq("type", "apporteur")
-    return (fp ? q.filter(fp[0], fp[1], fp[2]) : q).order("id").range(de, a)
+// ── Les piles de la session : CALCULÉES PAR LA BASE (14/10) ──
+// L'ordre (jamais appelées d'abord…), le repos, le « standard », un numéro = un appel par jour,
+// les fiches au même standard, la base de chacun : tout est dans `pile_demarchage`
+// (supabase/regles-demarchage.sql, testé avant chaque mise en ligne). L'écran ne trie ni ne
+// filtre plus rien : il affiche. Les compteurs sont la longueur de ces mêmes listes.
+const versProprietaireSql = (p: Proprietaire): string => (p === "tous" || p === "non_attribuees" ? p : p.compteId)
+export type OptionsPile = { proprietaire: Proprietaire; etape?: Etape | ""; secteur?: string | null; sourcage?: "" | "sourcees" | "non_sourcees"; inclureAppelees?: boolean }
+export async function chargerPile(pile: File, o: OptionsPile): Promise<Agence[]> {
+  const args = {
+    p_pile: o.etape ? "etape" : pile,
+    p_proprietaire: versProprietaireSql(o.proprietaire),
+    p_etape: o.etape || null,
+    p_secteur: o.secteur || null,
+    p_sourcage: o.sourcage ?? "",
+    p_inclure_appelees: Boolean(o.inclureAppelees),
   }
-  if (file === "a_prospecter") {
-    const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null))
-    return ordonnerAProspecter(lignes.map(versAgence), secteurDuJour)
-  }
-  if (file === "rappels") {
-    const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).neq("etape", "hors_cible").lt("prochaine_echeance", finJour))
-    return ordonnerRappels(lignes.map(versAgence))
-  }
-  if (file === "sans_nouvelle") {
-    // « Intéressés » (10/10) : toutes les intéressées et les RDV, relance due d'abord.
-    const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).in("etape", ["interesse", "rdv_planifie"]))
-    return ordonnerInteresses(lignes.map(versAgence), maintenant)
-  }
-  const lignes = await lireParLots<LigneAgence>((de, a) => base(de, a).eq("etape", "endormie").lte("reveil_le", aujourdHui))
-  return lignes.map(versAgence).sort((x, y) => (x.reveilLe ?? "").localeCompare(y.reveilLe ?? ""))
+  type L = { rang: number; agence: LigneAgence }
+  const lignes = await lireParLots<L>((de, a) => sb().rpc("pile_demarchage", args).select("rang, agence").order("rang").range(de, a) as unknown as PromiseLike<LotDe<L>>)
+  return lignes.map((l) => versAgence(l.agence))
 }
-
-// `reposDepuis` : le compteur « À prospecter » retire, comme la file, les agences encore au repos.
-export async function compterFiles(maintenant: Date, proprietaire: Proprietaire = "tous", reposDepuis: string | null = null, reposStandardDepuis: string | null = null): Promise<Record<File, number>> {
-  const finJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
-  const aujourdHui = jourLocal(maintenant)
-  const fp = filtreProprietaire(proprietaire)
-  const base = () => {
-    const q = sb().from("agences_liste").select("id", { count: "exact", head: true }).neq("type", "apporteur")
-    return fp ? q.filter(fp[0], fp[1], fp[2]) : q
-  }
-  const [a, b, c, d] = await Promise.all([
-    (() => {
-      let q = base().in("etape", ["a_prospecter", "gestionnaire_joint"]).is("prochaine_echeance", null)
-      if (reposDepuis) q = q.or(`dernier_appel_le.is.null,dernier_appel_le.lt."${reposDepuis}"`)
-      // Un « standard » récent n'est pas un numéro à gratter (Mahdi, 14/10).
-      if (reposStandardDepuis) q = q.or(`dernier_resultat.is.null,dernier_resultat.neq.standard,dernier_appel_le.lt."${reposStandardDepuis}"`)
-      return q
-    })(),
-    base().neq("etape", "hors_cible").lt("prochaine_echeance", finJour),
-    base().in("etape", ["interesse", "rdv_planifie"]),
-    base().eq("etape", "endormie").lte("reveil_le", aujourdHui),
-  ])
-  // Un comptage en échec ne s'affiche jamais comme un vrai chiffre : l'appelant garde « — ».
-  for (const r of [a, b, c, d]) erreur(r.error)
-  return { a_prospecter: a.count ?? 0, rappels: b.count ?? 0, sans_nouvelle: c.count ?? 0, a_reveiller: d.count ?? 0 }
+export async function compterPiles(proprietaire: Proprietaire): Promise<Record<File, number>> {
+  const { data, error } = await sb().rpc("compter_piles", { p_proprietaire: versProprietaireSql(proprietaire) })
+  erreur(error)
+  const c = (data ?? {}) as Partial<Record<File, number>>
+  // Un comptage incomplet ne s'affiche jamais comme un vrai chiffre : l'appelant garde « — ».
+  if ([c.a_prospecter, c.rappels, c.sans_nouvelle, c.a_reveiller].some((n) => typeof n !== "number")) throw new Error("Compteurs des piles incomplets (SQL du 14/10 non collé ?)")
+  return c as Record<File, number>
 }
 
 export async function compterParEtape(): Promise<Record<string, number>> {
@@ -375,20 +344,6 @@ export async function appelLance(p: { agenceId: string; contactId: string | null
 // Une page lue par lots dont les jointures (agences(...)) sont typées à la main.
 type LotDe<T> = { data: T[] | null; error: { message: string } | null }
 
-// Les appels sortants passés depuis une date, sur TOUTE la base (toutes étapes, tous commerciaux) :
-// les agences et les standards (chiffres) déjà composés. Sert au repos des fiches au même
-// standard et à la vérification juste avant de composer (un collègue, un autre onglet).
-export async function appelsDepuis(depuis: string): Promise<{ agences: Set<string>; tels: Set<string> }> {
-  type L = { id: string; agence_id: string; agences: { telephone: string | null } | null }
-  const lignes = await lireParLots<L>((de, a) => sb().from("activites").select("id, agence_id, agences(telephone)").eq("type", "appel").eq("sens", "sortant").gte("date", depuis).order("id").range(de, a) as unknown as PromiseLike<LotDe<L>>)
-  const tels = new Set<string>()
-  for (const l of lignes) {
-    const t = chiffres(l.agences?.telephone ?? "")
-    if (t.length >= 9) tels.add(t)
-  }
-  return { agences: new Set(lignes.map((l) => l.agence_id)), tels }
-}
-
 // La santé du démarchage (bloc 9 du contrôle du 13/10) : chaque ligne devrait valoir 0.
 // null = contrôle pas encore installé en base (SQL du 13/10 non collé).
 export type EcartSante = { code: string; libelle: string; nombre: number; exemples: string }
@@ -413,11 +368,11 @@ export async function appelVerifier(agenceId: string, numero: string, direct: bo
 }
 
 // Les appels lancés dont le résultat n'a pas été noté (Mahdi, 13/10 : « une liste pour les
-// rentrer », pas un bandeau rouge). Ceux de moins de 5 minutes sont sans doute encore en ligne.
+// rentrer », pas un bandeau rouge). Ceux de moins du délai réglé (Réglages, 5 min) sont sans doute encore en ligne.
 export type AppelANoter = { id: string; agenceId: string; agenceNom: string; date: string; compteNom: string }
-export async function appelsANoter(): Promise<AppelANoter[]> {
+export async function appelsANoter(minutes: number): Promise<AppelANoter[]> {
   type L = { id: string; agence_id: string; date: string; compte_nom: string; agences: { nom: string } | null }
-  const avant = new Date(Date.now() - 5 * 60_000).toISOString()
+  const avant = new Date(Date.now() - minutes * 60_000).toISOString()
   const lignes = await lireParLots<L>((d, f) => sb().from("activites").select("id, agence_id, date, compte_nom, agences(nom)").eq("type", "appel").eq("resultat", "lance").lt("date", avant).order("date").order("id").range(d, f) as unknown as PromiseLike<LotDe<L>>)
   return lignes.map((l) => ({ id: l.id, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", date: l.date, compteNom: l.compte_nom }))
 }

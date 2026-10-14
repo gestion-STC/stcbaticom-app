@@ -9,12 +9,11 @@ import { useEffect, useMemo, useState } from "react"
 import { Pause, Phone, Play, Plus, Trash2 } from "lucide-react"
 import { chargerNumerosComplet, enregistrerNumerosComplet, normaliser, type NumeroEmission } from "../lib/numerosEmission"
 import { compterAppelsDuJourParNumero } from "../demarchage/db"
-import { lireParametre, ecrireParametre } from "../lib/parametresDb"
+import { chargerDefinitionsReglages, enregistrerReglage, type DefinitionReglage } from "../demarchage/reglages"
 import { supabaseConfigure } from "../lib/supabase"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Selecteur, Tableau, Td, Th, TitreCarte, Tr, Vide } from "../ui"
 import { listerComptes } from "../lib/comptes"
 
-const QUOTA_DEFAUT = 100 // appels/jour/numéro recommandés pour rester sous le radar « spam »
 
 // La jauge compare sur les 9 derniers chiffres : « +33 1 84 80 77 86 » et « 01 84 80 77 86 » sont le même numéro.
 const finDeNumero = (n: string) => normaliser(n).slice(-9)
@@ -32,7 +31,9 @@ export default function NumerosManager() {
   const [erreur, setErreur] = useState<string | null>(supabaseConfigure ? null : "Supabase non configuré.")
   // Jauge d'usage : appels passés AUJOURD'HUI par numéro (clé = chiffres du numéro).
   const [usage, setUsage] = useState<Map<string, number>>(new Map())
-  const [quota, setQuota] = useState(QUOTA_DEFAUT)
+  // Le seuil par jour et par numéro : un réglage du démarchage (valeur, bornes et défaut en base).
+  const [quota, setQuota] = useState<number | null>(null)
+  const [defQuota, setDefQuota] = useState<DefinitionReglage | null>(null)
   // La réserve n'a pas pu être lue : on n'enregistre rien (une liste vide écraserait les vrais numéros).
   const [lue, setLue] = useState(false)
   // À qui appartient chaque numéro dans Ringover (13/10) : Ringover fait sonner son propriétaire.
@@ -50,12 +51,12 @@ export default function NumerosManager() {
       .then((l) => { setNumeros(l); setLue(true) })
       .catch((e) => setErreur(`Numéros illisibles, rien ne peut être modifié : ${e instanceof Error ? e.message : "erreur inconnue"}`))
       .finally(() => setChargement(false))
-    lireParametre("quota_appels_jour")
-      .then((v) => {
-        const n = Number(v)
-        if (Number.isFinite(n) && n >= 10) setQuota(n)
+    chargerDefinitionsReglages()
+      .then((d) => {
+        const q = d.find((x) => x.cle === "quota_appels_jour")
+        if (q) { setDefQuota(q); setQuota(q.valeur) }
       })
-      .catch(() => {})
+      .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
     // Usage du jour : les appels SORTANTS réels (les activités du démarchage), par numéro
     // d'émission vraiment utilisé. Un appel entrant ne « spamme » pas, il n'est pas compté.
     // Rafraîchi toutes les 60 s (la jauge avance pendant tes sessions).
@@ -108,10 +109,16 @@ export default function NumerosManager() {
   }
 
   function changerQuota(v: string) {
-    const n = Math.max(10, Math.min(500, Number(v) || QUOTA_DEFAUT))
-    setQuota(n)
-    ecrireParametre("quota_appels_jour", String(n))
-      .then(() => setEnregistre(true))
+    if (!defQuota) return
+    const n = Number(v)
+    if (!Number.isInteger(n) || n < defQuota.mini || n > defQuota.maxi) {
+      setErreur(`Seuil : entre ${defQuota.mini} et ${defQuota.maxi} appels.`)
+      setQuota(defQuota.valeur)
+      return
+    }
+    if (n === defQuota.valeur) return
+    enregistrerReglage(defQuota, n)
+      .then(() => { setEnregistre(true); setDefQuota({ ...defQuota, valeur: n }) })
       .catch((e) => setErreur(`Seuil non enregistré : ${e instanceof Error ? e.message : "erreur inconnue"}`))
   }
 
@@ -119,7 +126,7 @@ export default function NumerosManager() {
   const enPause = numeros.some((n) => n.pause)
   // Numéros actifs ayant atteint le seuil du jour (à mettre en pause).
   const auSeuil = useMemo(
-    () => numeros.filter((n) => !n.pause && (usage.get(finDeNumero(n.numero)) ?? 0) >= quota),
+    () => (quota === null ? [] : numeros.filter((n) => !n.pause && (usage.get(finDeNumero(n.numero)) ?? 0) >= quota)),
     [numeros, usage, quota],
   )
 
@@ -158,9 +165,10 @@ export default function NumerosManager() {
                 Seuil par jour et par numéro
                 <Champ
                   type="number"
-                  min={10}
-                  max={500}
-                  value={quota}
+                  min={defQuota?.mini}
+                  max={defQuota?.maxi}
+                  value={quota ?? ""}
+                  disabled={!defQuota}
                   onChange={(e) => setQuota(Number(e.target.value) || 0)}
                   onBlur={(e) => changerQuota(e.target.value)}
                   className="chiffres w-20"
@@ -204,8 +212,8 @@ export default function NumerosManager() {
             <tbody>
               {numeros.map((n) => {
                 const compte = usage.get(finDeNumero(n.numero)) ?? 0
-                const pct = quota > 0 ? Math.min(100, Math.round((compte / quota) * 100)) : 0
-                const plein = compte >= quota
+                const pct = quota ? Math.min(100, Math.round((compte / quota) * 100)) : 0
+                const plein = quota !== null && compte >= quota
                 return (
                   <Tr key={n.numero}>
                     <Td>
@@ -235,11 +243,11 @@ export default function NumerosManager() {
                         <span className="text-colonne text-encre-3">Hors rotation</span>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-fond-3" role="progressbar" aria-valuemin={0} aria-valuemax={quota} aria-valuenow={compte}>
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-fond-3" role="progressbar" aria-valuemin={0} aria-valuemax={quota ?? 0} aria-valuenow={compte}>
                             <div className={"h-full rounded-full transition-all " + (plein ? "bg-alerte" : "bg-action")} style={{ width: `${pct}%` }} />
                           </div>
                           <span className={"chiffres shrink-0 text-colonne " + (plein ? "font-medium text-alerte" : "text-encre-2")}>
-                            {compte} / {quota}
+                            {compte} / {quota ?? "—"}
                           </span>
                         </div>
                       )}

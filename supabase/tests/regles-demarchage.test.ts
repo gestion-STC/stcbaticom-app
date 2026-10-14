@@ -287,10 +287,11 @@ describe("on ne tue pas les numéros : la garde avant de composer", () => {
     await appel(id, "standard")
     expect(await verifier(id, "06 12 34 56 78", true)).toBeNull()
   })
-  it("un rappel prévu aujourd'hui autorise le rappel du même numéro", async () => {
+  it("un numéro, un appel par jour : même un rappel prévu aujourd'hui ne le recompose pas (Mahdi, 14/10)", async () => {
     const id = await agence()
     await appel(id, "joint", "a_rappeler", { rappel: new Date(Date.now() + 60_000).toISOString() })
-    expect(await verifier(id, await telDe(id))).toBeNull()
+    expect(await verifier(id, await telDe(id))).toMatch(/déjà été appelé aujourd'hui/)
+    expect(await verifier(id, await telDe(id), true)).toMatch(/déjà été appelé aujourd'hui/)
   })
   it("au repos : appelée il y a 3 jours → refus ; il y a 5 jours → permis", async () => {
     const recent = await agence()
@@ -362,5 +363,154 @@ describe("« standard » : on ne harcèle pas l'accueil (14/10)", () => {
     await appel(id, "pas_de_reponse")
     await q(`update public.activites set date = now() - interval '8 days' where agence_id = $1 and type = 'appel'`, [id])
     expect(await verifier(id, await telDe(id))).toBeNull()
+  })
+})
+
+// ── 14/10 : chaque réglage à UN endroit, lu par toutes les règles ───────────
+describe("les réglages : une seule source, lue par toutes les règles", () => {
+  const regler = (cle: string, valeur: string | null) =>
+    valeur === null ? q(`delete from public.parametres where cle = $1`, [cle]) : q(`insert into public.parametres (cle, valeur) values ($1, $2) on conflict (cle) do update set valeur = excluded.valeur`, [cle, valeur])
+  const reglage = async (cle: string) => (await un<{ v: number }>(`select public.reglage_demarchage($1) as v`, [cle])).v
+
+  it("les valeurs par défaut décidées par Mahdi", async () => {
+    const l = await q<{ cle: string; defaut: number }>(`select cle, defaut from public.reglages_demarchage() order by cle`)
+    expect(Object.fromEntries(l.map((x) => [x.cle, x.defaut]))).toEqual({
+      a_completer_minutes: 5, cadence_auto_secondes: 5, heure_relance: 10, quota_appels_jour: 100, rdv_rappel_apres_minutes: 20,
+      rdv_rappel_avant_minutes: 5, relance_interesse_jours: 10, repos_appel_jours: 5, repos_standard_jours: 15,
+      sommeil_apres_tentatives: 6, sommeil_jours: 30, sonnerie_secondes: 28,
+    })
+  })
+  it("une valeur hors bornes ou illisible dans Réglages = la valeur par défaut", async () => {
+    await regler("sommeil_jours", "999")
+    expect(await reglage("sommeil_jours")).toBe(30)
+    await regler("sommeil_jours", "abc")
+    expect(await reglage("sommeil_jours")).toBe(30)
+    await regler("sommeil_jours", null)
+  })
+  it("un réglage inconnu est une erreur, jamais un trou silencieux", async () => {
+    await expect(q(`select public.reglage_demarchage('n_existe_pas')`)).rejects.toThrow(/réglage inconnu/)
+  })
+  it("sommeil réglé à 4 essais et 45 jours : la règle d'appel suit", async () => {
+    await regler("sommeil_apres_tentatives", "4")
+    await regler("sommeil_jours", "45")
+    try {
+      const id = await agence()
+      for (let i = 0; i < 4; i++) {
+        await appel(id, "pas_de_reponse")
+        await q(`update public.activites set date = date - interval '6 days' where agence_id = $1 and type = 'appel'`, [id])
+      }
+      const f = await fiche(id)
+      expect([f.etape, f.reveil_j]).toEqual(["endormie", 45])
+    } finally {
+      await regler("sommeil_apres_tentatives", null)
+      await regler("sommeil_jours", null)
+    }
+  })
+  it("heure des relances réglée à 14 h : la relance d'une intéressée tombe à 14 h (heure de Paris)", async () => {
+    await regler("heure_relance", "14")
+    try {
+      const id = await agence()
+      await appel(id, "joint", "interesse")
+      const r = await un<{ h: number; j: number }>(
+        `select extract(hour from echeance at time zone 'Europe/Paris')::int as h, ((echeance at time zone 'Europe/Paris')::date - (now() at time zone 'Europe/Paris')::date) as j
+           from public.activites where agence_id = $1 and type = 'tache' and fait_le is null`, [id])
+      expect([r.h, r.j]).toEqual([14, 10])
+    } finally {
+      await regler("heure_relance", null)
+    }
+  })
+  it("relance réglée à 12 jours : la relance suit", async () => {
+    await regler("relance_interesse_jours", "12")
+    try {
+      const id = await agence()
+      await appel(id, "joint", "interesse")
+      expect(await ouvertes(id)).toEqual(["Relancer@J+12"])
+    } finally {
+      await regler("relance_interesse_jours", "10")
+    }
+  })
+})
+
+// ── 14/10 : les piles calculées par la base, et leurs compteurs = leur longueur ──
+describe("les piles : un seul calcul, la base de chacun", () => {
+  const HORLANN = "7c1e6a3e-1111-4c4c-9a9a-000000000001"
+  let s = 0
+  beforeAll(async () => {
+    await q(`insert into public.secteurs (code, libelle, zone, commercial_id) values ('75006', 'Paris 6', 'Paris', $1), ('75007', 'Paris 7', 'Paris', $2) on conflict do nothing`, [HORLANN, MAHDI])
+  })
+  // Une agence de la base de Horlann (secteur 75006), avec son propre standard.
+  async function chez(nom: string, extra: { tel?: string; etape?: string; secteur?: string } = {}): Promise<string> {
+    s++
+    const r = await un<{ id: string }>(`insert into public.agences (nom, telephone, secteur) values ($1, $2, $3) returning id`,
+      [nom, extra.tel ?? `01 46 ${String(s).padStart(2, "0")} 00 00`, extra.secteur ?? "75006"])
+    if (extra.etape) await q(`update public.agences set etape = $2 where id = $1`, [r.id, extra.etape])
+    return r.id
+  }
+  const pile = async (p: string, o: { inclure?: boolean; secteur?: string; proprietaire?: string } = {}) =>
+    (await q<{ nom: string }>(`select agence->>'nom' as nom from public.pile_demarchage($1, $2, null, $3, '', $4) order by rang`, [p, o.proprietaire ?? HORLANN, o.secteur ?? null, o.inclure ?? false])).map((x) => x.nom)
+  const compteurs = async (proprietaire = HORLANN) => (await un<{ c: Record<string, number> }>(`select public.compter_piles($1) as c`, [proprietaire])).c
+  const vieillir = (id: string, jours: number) =>
+    q(`update public.activites set date = (date_trunc('day', now() at time zone 'Europe/Paris') - ($2 || ' days')::interval + interval '9 hours') at time zone 'Europe/Paris' where agence_id = $1 and type = 'appel'`, [id, jours])
+
+  it("À prospecter : jamais appelées d'abord, puis la plus anciennement appelée ; au repos retirées", async () => {
+    const vieille = await chez("P-appelée il y a 20 j")
+    await appel(vieille, "pas_de_reponse"); await vieillir(vieille, 20)
+    const moins = await chez("P-appelée il y a 9 j")
+    await appel(moins, "pas_de_reponse"); await vieillir(moins, 9)
+    const repos = await chez("P-appelée il y a 2 j")
+    await appel(repos, "pas_de_reponse"); await vieillir(repos, 2)
+    await chez("P-jamais B")
+    await chez("P-jamais A")
+    const l = (await pile("a_prospecter")).filter((x) => x.startsWith("P-"))
+    expect(l).toEqual(["P-jamais A", "P-jamais B", "P-appelée il y a 20 j", "P-appelée il y a 9 j"])
+    // La case « inclure les appelées » lève le repos de 5 jours…
+    expect(await pile("a_prospecter", { inclure: true })).toContain("P-appelée il y a 2 j")
+  })
+  it("un numéro appelé aujourd'hui ne ressort NULLE PART, même avec la case cochée", async () => {
+    const id = await chez("P-appelée ce matin")
+    await appel(id, "pas_de_reponse")
+    expect(await pile("a_prospecter", { inclure: true })).not.toContain("P-appelée ce matin")
+  })
+  it("deux fiches au même standard : une seule dans la pile ; l'une appelée → l'autre au repos aussi", async () => {
+    await chez("P-jumelle 1", { tel: "01 47 00 00 01" })
+    await chez("P-jumelle 2", { tel: "01.47.00.00.01" })
+    expect((await pile("a_prospecter")).filter((x) => x.startsWith("P-jumelle"))).toEqual(["P-jumelle 1"])
+    const autre = await chez("P-jumelle chez Mahdi", { tel: "0147000001", secteur: "75007" })
+    await appel(autre, "pas_de_reponse"); await vieillir(autre, 2)
+    expect((await pile("a_prospecter")).filter((x) => x.startsWith("P-jumelle"))).toEqual([])
+  })
+  it("un « standard » il y a 8 jours : encore au repos (15 j), un « pas de réponse » non", async () => {
+    const st = await chez("P-standard 8 j")
+    await appel(st, "standard"); await vieillir(st, 8)
+    const pdr = await chez("P-pas de réponse 8 j")
+    await appel(pdr, "pas_de_reponse"); await vieillir(pdr, 8)
+    const l = await pile("a_prospecter")
+    expect(l).not.toContain("P-standard 8 j")
+    expect(l).toContain("P-pas de réponse 8 j")
+  })
+  it("chacun sa base : les agences de Mahdi ne sont jamais dans la pile de Horlann", async () => {
+    await chez("P-chez Mahdi", { secteur: "75007" })
+    expect(await pile("a_prospecter")).not.toContain("P-chez Mahdi")
+    expect(await pile("a_prospecter", { proprietaire: MAHDI })).toContain("P-chez Mahdi")
+  })
+  it("À rappeler aujourd'hui : les rappels dus ; Intéressés : tout le portefeuille, même appelé ce matin", async () => {
+    const r = await chez("R-rappel 9 h", { etape: "gestionnaire_joint" })
+    await q(`insert into public.activites (agence_id, type, echeance, titre) values ($1, 'tache', now() - interval '2 hours', 'Rappeler')`, [r])
+    const i = await chez("I-intéressée appelée ce matin")
+    await appel(i, "joint", "interesse")
+    expect((await pile("rappels")).filter((x) => x.startsWith("R-"))).toEqual(["R-rappel 9 h"])
+    expect(await pile("sans_nouvelle")).toContain("I-intéressée appelée ce matin")
+    expect(await pile("a_prospecter")).not.toContain("I-intéressée appelée ce matin")
+  })
+  it("les compteurs sont EXACTEMENT la longueur des listes, pour chaque pile et chaque base", async () => {
+    for (const proprietaire of [HORLANN, MAHDI, "tous", "non_attribuees"]) {
+      const c = await compteurs(proprietaire)
+      for (const p of ["a_prospecter", "rappels", "sans_nouvelle", "a_reveiller"]) expect([proprietaire, p, c[p]]).toEqual([proprietaire, p, (await pile(p, { proprietaire })).length])
+    }
+  })
+  it("la pile et la garde disent la même chose : rien dans « À prospecter » n'est refusé au moment d'appeler", async () => {
+    const l = await q<{ id: string; tel: string }>(`select agence->>'id' as id, agence->>'telephone' as tel from public.pile_demarchage('a_prospecter', $1)`, [HORLANN])
+    expect(l.length).toBeGreaterThan(3)
+    for (const a of l) expect([a.id, await verifier(a.id, a.tel)]).toEqual([a.id, null])
   })
 })
