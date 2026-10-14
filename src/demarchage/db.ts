@@ -183,16 +183,16 @@ export async function chargerAgence(id: string): Promise<AgenceComplete> {
     s.from("agences").select("dernier_signal, dernier_signal_le, compte_ouvert_le, compte_email").eq("id", id).maybeSingle(),
     s.from("contacts").select(COLONNES_CONTACT).eq("agence_id", id).order("principal", { ascending: false }).order("cree_le"),
     s.from("activites").select(COLONNES_ACTIVITE).eq("agence_id", id).order("date", { ascending: false }).limit(300),
-    s.from("messages").select("id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, prospect_id, lu, created_at, pieces_jointes").eq("agence_id", id).order("created_at", { ascending: false }).limit(100),
+    s.from("messages").select("id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, lu, created_at, pieces_jointes").eq("agence_id", id).order("created_at", { ascending: false }).limit(100),
   ])
   erreur(a.error)
   erreur(c.error)
   erreur(t.error)
   if (!a.data) throw new Error("Agence introuvable.")
-  type LigneMessage = { id: string; sens: "entrant" | "sortant"; espace: "demarchage" | "recrutement" | null; sous_traitant_id: string | null; de: string; a: string; objet: string; corps_text: string; corps_html: string; message_id: string | null; in_reply_to: string | null; prospect_id: string | null; lu: boolean; created_at: string; pieces_jointes: Message["piecesJointes"] | null }
+  type LigneMessage = { id: string; sens: "entrant" | "sortant"; espace: "demarchage" | "recrutement" | null; sous_traitant_id: string | null; de: string; a: string; objet: string; corps_text: string; corps_html: string; message_id: string | null; in_reply_to: string | null; agence_id: string | null; lu: boolean; created_at: string; pieces_jointes: Message["piecesJointes"] | null }
   const messages: Message[] = ((m.data ?? []) as LigneMessage[]).map((l) => ({
     id: l.id, sens: l.sens, espace: l.espace ?? "demarchage", sousTraitantId: l.sous_traitant_id, de: l.de, a: l.a, objet: l.objet, corpsText: l.corps_text, corpsHtml: l.corps_html,
-    messageId: l.message_id, inReplyTo: l.in_reply_to, prospectId: l.prospect_id, lu: l.lu, date: l.created_at, piecesJointes: Array.isArray(l.pieces_jointes) ? l.pieces_jointes : [],
+    messageId: l.message_id, inReplyTo: l.in_reply_to, agenceId: l.agence_id, lu: l.lu, date: l.created_at, piecesJointes: Array.isArray(l.pieces_jointes) ? l.pieces_jointes : [],
   }))
   return { agence: versAgence({ ...(a.data as LigneAgence), ...((sg.error ? {} : sg.data ?? {}) as Partial<LigneAgence>) }), contacts: ((c.data ?? []) as LigneContact[]).map(versContact), activites: ((t.data ?? []) as LigneActivite[]).map(versActivite), messages }
 }

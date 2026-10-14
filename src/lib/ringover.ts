@@ -1,7 +1,7 @@
 import { supabase } from "./supabase"
 
 // Déclenche un appel via le relais Ringover (Edge Function « rapid-task »).
-// `to`   = numéro du prospect à joindre.
+// `to`   = numéro de l'agence (ou du contact) à joindre.
 // `from` = numéro d'émission attribué (celui qui doit s'afficher / sonner).
 //
 // Renvoie { ok: true, callId } si le callback est parti, sinon { ok: false, message }.

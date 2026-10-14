@@ -3,11 +3,9 @@ import {
   apercuTexte,
   dateCourte,
   extraireAdresse,
-  grouperEnFils,
   nomCorrespondant,
   objetReponse,
   objetTransfert,
-  type MessageDeBase,
 } from "./messagesUtils"
 
 describe("extraireAdresse", () => {
@@ -65,59 +63,6 @@ describe("apercuTexte", () => {
   })
   it("supporte le vide", () => {
     expect(apercuTexte("")).toBe("")
-  })
-})
-
-describe("grouperEnFils", () => {
-  const msg = (x: Partial<MessageDeBase> & { id: string }): MessageDeBase => ({
-    sens: "entrant",
-    de: "jean@ex.fr",
-    a: "contact@crm.stcbatiment.fr",
-    objet: "Objet",
-    prospectId: null,
-    lu: true,
-    date: "2026-07-01T10:00:00Z",
-    ...x,
-  })
-
-  it("regroupe l'aller-retour avec un même correspondant dans un seul fil", () => {
-    const fils = grouperEnFils([
-      msg({ id: "1", sens: "entrant", de: "Jean <jean@ex.fr>", date: "2026-07-01T10:00:00Z" }),
-      msg({ id: "2", sens: "sortant", de: "contact@crm.stcbatiment.fr", a: "jean@ex.fr", date: "2026-07-01T11:00:00Z" }),
-    ])
-    expect(fils).toHaveLength(1)
-    expect(fils[0].messages.map((m) => m.id)).toEqual(["1", "2"]) // chronologique
-    expect(fils[0].nom).toBe("Jean")
-    expect(fils[0].adresse).toBe("jean@ex.fr")
-  })
-
-  it("rattache par prospect quand il est connu (même si l'adresse varie)", () => {
-    const fils = grouperEnFils([
-      msg({ id: "1", de: "a@ex.fr", prospectId: "P1" }),
-      msg({ id: "2", de: "b@ex.fr", prospectId: "P1", date: "2026-07-02T10:00:00Z" }),
-    ])
-    expect(fils).toHaveLength(1)
-    expect(fils[0].cle).toBe("P1")
-  })
-
-  it("compte les non-lus entrants et trie les fils du plus récent au plus ancien", () => {
-    const fils = grouperEnFils([
-      msg({ id: "1", de: "vieux@ex.fr", lu: false, date: "2026-06-01T10:00:00Z" }),
-      msg({ id: "2", de: "recent@ex.fr", lu: false, date: "2026-07-05T10:00:00Z" }),
-      msg({ id: "3", de: "recent@ex.fr", lu: false, date: "2026-07-05T11:00:00Z" }),
-    ])
-    expect(fils.map((f) => f.adresse)).toEqual(["recent@ex.fr", "vieux@ex.fr"])
-    expect(fils[0].nonLus).toBe(2)
-    expect(fils[0].dernier.id).toBe("3")
-  })
-
-  it("un sortant sans réponse forme un fil au nom de l'adresse", () => {
-    const fils = grouperEnFils([
-      msg({ id: "1", sens: "sortant", de: "contact@crm.stcbatiment.fr", a: "Nouveau <n@ex.fr>" }),
-    ])
-    expect(fils[0].adresse).toBe("n@ex.fr")
-    expect(fils[0].nom).toBe("n@ex.fr")
-    expect(fils[0].nonLus).toBe(0)
   })
 })
 

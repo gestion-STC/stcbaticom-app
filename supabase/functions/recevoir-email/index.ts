@@ -83,14 +83,8 @@ Deno.serve(async (req: Request) => {
     }
     const espace = pourLeCrm.some((a) => ADRESSES_RECRUTEMENT.includes(a)) || sousTraitantId ? "recrutement" : "demarchage";
 
-    let prospectId: string | null = null;
-    if (de && espace === "demarchage") {
-      // La fiche peut porter plusieurs adresses dans son champ e-mail (08/10/2026) :
-      // l'adresse exacte d'abord, sinon la fiche qui la CONTIENT.
-      let { data: p } = await admin.from("prospects").select("id").ilike("email", de).limit(1).maybeSingle();
-      if (!p) ({ data: p } = await admin.from("prospects").select("id").ilike("email", `%${de}%`).limit(1).maybeSingle());
-      prospectId = p?.id ?? null;
-    }
+    // L'agence : la base range le mail sur sa fiche (déclencheur messages_rattacher_agence, par
+    // l'adresse du contact puis celle de l'agence). L'ancienne table « prospects » n'est plus lue (14/10).
 
     const pieces: { nom: string; chemin: string; taille: number; type: string }[] = [];
     const attachs = Array.isArray(d.attachments) ? d.attachments : [];
@@ -115,17 +109,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const { error } = await admin.from("messages").insert({
+    const { data: insere, error } = await admin.from("messages").insert({
       sens: "entrant", de, a: pourLeCrm.join(", "), objet,
       corps_text: corpsText, corps_html: corpsHtml,
       message_id: messageId, in_reply_to: d.in_reply_to ?? d.inReplyTo ?? null,
-      prospect_id: prospectId, sous_traitant_id: sousTraitantId, espace, lu: false, brut: payload, pieces_jointes: pieces,
-    });
+      sous_traitant_id: sousTraitantId, espace, lu: false, brut: payload, pieces_jointes: pieces,
+    }).select("agence_id").single();
     if (error) throw error;
-
-    if (prospectId) {
-      await admin.from("emails_envoyes").update({ a_repondu: true }).eq("prospect_id", prospectId).eq("a_repondu", false);
-    }
+    const agenceId: string | null = insere?.agence_id ?? null;
 
     // ── LA DÉSINSCRIPTION PAR RÉPONSE ──
     let desinscrit = false;
@@ -137,7 +128,7 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log(`[RECEVOIR-EMAIL] de=${de} espace=${espace} corps=${corpsText.length}t/${corpsHtml.length}h pj=${pieces.length}/${attachs.length}${desinscrit ? " DÉSINSCRIT" : ""}`);
-    return json({ ok: true, espace, prospect_id: prospectId, sous_traitant_id: sousTraitantId, desinscrit, corps: corpsText.length + corpsHtml.length, pieces_jointes: pieces.length });
+    return json({ ok: true, espace, agence_id: agenceId, sous_traitant_id: sousTraitantId, desinscrit, corps: corpsText.length + corpsHtml.length, pieces_jointes: pieces.length });
   } catch (e) {
     console.error("[RECEVOIR-EMAIL] erreur:", e);
     return json({ error: "Erreur de traitement" }, 500);

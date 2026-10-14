@@ -16,182 +16,55 @@
 // si elle est affichée : on rafraîchit les repères au retour, jamais la file
 // pendant une session.
 // ════════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+//
+// L'écran est découpé (14/10) : un fichier par rôle dans `session/` (en-tête, file, fiche,
+// numéros, contacts, script, fil, dialogue ; dictée, surveillance, onglet unique). Ce fichier
+// garde l'état, les lectures, la logique de l'appel, et assemble les morceaux.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { versionPerimee } from "../../lib/versionEnLigne"
-import {
-  ArrowRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Mail, Mic, MicOff, Phone, PhoneIncoming, PhoneOutgoing,
-  Pencil, Play, Plus, Search, Square, SquareCheck, StickyNote, type LucideIcon,
-  ArrowRightLeft, Briefcase,
-} from "lucide-react"
-import type { Prospect } from "../../data"
+import { ChevronLeft, ChevronRight, Phone } from "lucide-react"
+import { destinataireDepuis, type Destinataire } from "../../lib/destinataire"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
-import type { Message } from "../../lib/messagesDb"
 import { chargerNumerosDuCompte, estDansLaReserve } from "../../lib/numerosEmission"
-import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
-import { detailAppelRingover, lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
+import { lireParametre } from "../../lib/parametresDb"
+import { lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
-import { dateCourte } from "../../demarchage/agencesOutils"
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact, creerNote, creerRdv, creerTache,
   appelLance, appelVerifier, enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
-  ETAPES, FILES, ROLES_CONTACT, SORTIES, dureeLisible, libelleEtape, libelleRole, libelleType, nomContact, numeroParDefaut, pastilleEtape,
-  type Activite, type Agence, type Contact, type File, type Resultat, type RoleContact, type Secteur, type TypeActivite,
+  libelleEtape, numeroParDefaut,
+  type Activite, type Agence, type Contact, type File, type Resultat, type Secteur,
   RESULTAT_LANCE,
 } from "../../demarchage/modele"
 import {
-  DELAI_ANTI_DOUBLE_APPEL_MS, ESSAIS_DETAIL, INTERVALLE_SURVEILLANCE_MS, PAUSE_DETAIL_MS, SURVEILLANCE_INITIALE, TYPES_RDV,
-  bilanDepuisAgence, compteARebours, dateHeureCourte, texteBilanAppels, decrireActivite, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  observerAppel, prospectDepuisAgence, resumeEcriture, suggestionDepuisDetail, texteDernierAppel, toursSansDemarrage, versIso,
-  type ChoixResultat, type TypeRdv, type Verdict,
+  DELAI_ANTI_DOUBLE_APPEL_MS,
+  compteARebours, dateHeureCourte, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
+  resumeEcriture, toursSansDemarrage, versIso,
+  type ChoixResultat, type TypeRdv,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
-import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Interrupteur, Pastille, Selecteur, Vide, Zone } from "../../ui"
+import { Bandeau, Bouton, Carte, Chargement, EnTetePage, Vide } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
-import AppelsANoter from "./AppelsANoter"
 import BarreResultat from "./BarreResultat"
 import ContactFormulaire from "./ContactFormulaire"
-
-// ── La dictée vocale du navigateur (Chrome / Edge), typée sans `any` ──
-type ResultatDictee = { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }
-type Dictee = {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  onresult: ((e: ResultatDictee) => void) | null
-  onend: (() => void) | null
-  onerror: (() => void) | null
-  start(): void
-  stop(): void
-}
-type FabriqueDictee = new () => Dictee
-const FABRIQUE_DICTEE: FabriqueDictee | null = (() => {
-  if (typeof window === "undefined") return null
-  const w = window as unknown as { SpeechRecognition?: FabriqueDictee; webkitSpeechRecognition?: FabriqueDictee }
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
-})()
-
-// ── L'appel en cours ──
-type EtapeAppel = "attente" | "en_cours" | "termine" | "sans_suivi"
-type AppelEnCours = {
-  agenceId: string
-  numeroAppele: string
-  contactId: string | null
-  numeroEmission: string
-  callId: string
-  debut: number // lancement
-  enLigneDepuis: number | null // première fois vu en ligne (la durée part de là)
-  fin: number | null
-  etape: EtapeAppel
-  manuel: boolean // « Noter un appel sans Ringover »
-  appelId?: string // la ligne écrite au clic (appelLance), que le résultat complète
-}
-const TEXTES_APPEL: Record<EtapeAppel, string> = {
-  attente: "Appel lancé : décroche sur ton poste Ringover, l'agence est composée ensuite.",
-  en_cours: "En ligne",
-  termine: "Appel terminé : note le résultat ci-dessous.",
-  sans_suivi: "Suivi indisponible : note le résultat à la main.",
-}
-
-const CONTACT_VIDE = { prenom: "", nom: "", role: "gestionnaire" as RoleContact, ligneDirecte: "", mobile: "", email: "" }
-type Action = "tache" | "rdv" | "note" | "passer"
-const messageDe = (e: unknown) => (e instanceof Error ? e.message : String(e))
-
-// ── Petits morceaux d'écran ──
-function Section({ titre, droite, children }: { titre: string; droite?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="mt-4">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">{titre}</h3>
-        {droite}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick }: { agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={bloquee}
-      title={bloquee ? "Note d'abord le résultat de l'appel en cours" : undefined}
-      aria-current={courante ? "true" : undefined}
-      className={"block w-full border-b border-l-2 border-b-fond-4 px-4 py-2 text-left transition-colors hover:bg-fond-2 disabled:cursor-not-allowed disabled:hover:bg-transparent " + (courante ? "border-l-signature bg-fond-3" : "border-l-transparent")}
-    >
-      <div className="flex items-center gap-2">
-        <span className={"min-w-0 flex-1 truncate text-legende " + (courante ? "font-semibold" : "font-medium") + " text-encre"}>{a.nom}</span>
-        {appelee ? <Check size={14} className="shrink-0 text-ok" aria-label="Appelée aujourd'hui" /> : null}
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-colonne text-encre-2">
-        <Pastille role={pastilleEtape(a.etape)}>{libelleEtape(a.etape)}</Pastille>
-        {a.nbContacts > 0 ? <Pastille role="info" point>sourcée</Pastille> : null}
-        {a.secteurLibelle ? <span>{a.secteurLibelle}</span> : null}
-        {a.enseigne ? <span>· {a.enseigne}</span> : null}
-      </div>
-      <div className="mt-0.5 text-colonne text-encre-2">
-        {texteDernierAppel(a, maintenant)}
-        {a.prochaineEcheance ? ` · ${a.prochaineTache || "tâche"} le ${dateHeureCourte(a.prochaineEcheance)}` : ""}
-      </div>
-    </button>
-  )
-}
-
-const ICONES_FIL: Record<TypeActivite, LucideIcon> = { appel: PhoneOutgoing, email: Mail, rdv: CalendarClock, tache: SquareCheck, note: StickyNote, etape: ArrowRight }
-function LigneFil({ a }: { a: Activite }) {
-  const d = decrireActivite(a)
-  const Icone = a.type === "appel" && a.sens === "entrant" ? PhoneIncoming : (ICONES_FIL[a.type] ?? StickyNote)
-  return (
-    <li className="flex gap-3 py-2.5">
-      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fond-3 text-encre-2">
-        <Icone size={14} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate text-legende font-medium text-encre">{d.titre}</span>
-          <span className="chiffres shrink-0 text-colonne text-encre-2">{dateHeureCourte(a.date)}</span>
-        </div>
-        {d.detail ? <div className="text-colonne text-encre-2">{d.detail}</div> : null}
-        {d.etat ? <Pastille role={d.etat === "fait" ? "fait" : "attente"} className="mt-1">{d.etat === "fait" ? "faite" : "ouverte"}</Pastille> : null}
-        {a.note ? <p className="mt-1 whitespace-pre-line text-legende text-encre">{a.note}</p> : null}
-      </div>
-    </li>
-  )
-}
-
-function LigneMessage({ m }: { m: Message }) {
-  return (
-    <div className="flex items-center gap-2 py-1.5 text-legende">
-      <Mail size={14} className="shrink-0 text-encre-2" />
-      <span className="min-w-0 flex-1 truncate text-encre">
-        {m.sens === "entrant" ? "Reçu" : "Envoyé"} · {m.objet || "(sans objet)"}
-      </span>
-      <span className="chiffres shrink-0 text-colonne text-encre-2">{dateHeureCourte(m.date)}</span>
-    </div>
-  )
-}
-
-// Une agence qui n'a plus sa place dans la pile affichée (modifiée depuis sa fiche) : sortie,
-// client, apporteur, ou une intéressée dans « À prospecter » (Mahdi, 13/10).
-function horsDeLaPile(a: Pick<Agence, "etape" | "type">, pile: File, etapeFiltre: string): boolean {
-  if (a.type === "apporteur") return true
-  if (etapeFiltre) return a.etape !== etapeFiltre
-  if (["pas_interesse", "hors_cible", "client"].includes(a.etape)) return true
-  return pile === "a_prospecter" && (a.etape === "interesse" || a.etape === "rdv_planifie")
-}
-
-// L'appel lancé dont le résultat n'a pas été noté (la ligne « lance » du fil), hors l'appel en cours.
-function appelNonNote(activites: Activite[], saufId?: string): Activite | null {
-  return activites.find((x) => x.type === "appel" && x.sens !== "entrant" && x.resultat === RESULTAT_LANCE && x.id !== saufId) ?? null
-}
-
-// L'onglet « Sessions de call » ouvert deux fois : deux sessions composeraient le même numéro.
-const CANAL_SESSION = "baticom-session-call"
+import BlocContacts from "./session/BlocContacts"
+import BlocNumeros from "./session/BlocNumeros"
+import ColonneFil from "./session/ColonneFil"
+import ColonneFile from "./session/ColonneFile"
+import DialogueAction from "./session/DialogueAction"
+import EnTeteSession from "./session/EnTeteSession"
+import FicheEnCours from "./session/FicheEnCours"
+import ScriptAppel from "./session/ScriptAppel"
+import { CONTACT_VIDE, appelNonNote, horsDeLaPile, messageDe, type Action, type AppelEnCours, type Dictee } from "./session/outils"
+import { useDictee } from "./session/useDictee"
+import { useOngletUnique } from "./session/useOngletUnique"
+import { useScriptAppel } from "./session/useScriptAppel"
+import { useSurveillanceAppel } from "./session/useSurveillanceAppel"
 
 export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence, versionAgences = 0 }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string, options?: { etape?: boolean }) => void; versionAgences?: number }) {
   const session = useSession()
@@ -236,7 +109,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }
     : undefined
   // Un autre onglet a déjà la session ouverte (BroadcastChannel) : celui-ci ne compose pas.
-  const [autreOnglet, setAutreOnglet] = useState(false)
+  const autreOnglet = useOngletUnique()
   // La cadence du mode automatique : celle des Réglages, modifiable pour la session.
   const [cadenceChoisie, setCadence] = useState<number | null>(null)
   const cadence = cadenceChoisie ?? reglages?.cadence_auto_secondes ?? null
@@ -252,15 +125,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [sansNumero, setSansNumero] = useState(false) // des numéros sont attribués, aucun à moi
   const [compteursNumero, setCompteursNumero] = useState<Map<string, number>>(() => new Map())
   const quota = reglages?.quota_appels_jour ?? 0
-  const [script, setScript] = useState("")
-  const [scriptOuvert, setScriptOuvert] = useState(false)
-  const [scriptEdit, setScriptEdit] = useState(false)
-  const [scriptBrouillon, setScriptBrouillon] = useState("")
 
   // ── L'agence en cours ──
   const [courante, setCourante] = useState<AgenceComplete | null>(null)
   const [note, setNote] = useState("")
-  const [ecoute, setEcoute] = useState(false)
   const [formContact, setFormContact] = useState(false)
   const [nouveauContact, setNouveauContact] = useState(CONTACT_VIDE)
   // Mahdi, 09/10 : « souvent il y a des erreurs, il faut pouvoir modifier les contacts » → depuis la session aussi.
@@ -284,7 +152,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [resultats, setResultats] = useState<Agence[] | null>(null)
   const [dialogue, setDialogue] = useState<Action | null>(null)
   const [formAction, setFormAction] = useState({ titre: "", quand: "", type: "telephone" as TypeRdv, note: "" })
-  const [envoiPour, setEnvoiPour] = useState<Prospect | null>(null)
+  const [envoiPour, setEnvoiPour] = useState<Destinataire | null>(null)
 
   const agenceCouranteId = directeId ?? fileAgences[index]?.id ?? null
   // La fiche affichée : seulement si c'est bien celle de l'agence en cours (pas la précédente pendant le chargement).
@@ -342,6 +210,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     noteRef.current = note
   })
 
+  // ── La dictée : on parle, ça s'ajoute à la note de l'appel ──
+  const { ecoute, dicter } = useDictee({ dicteeRef, agenceCouranteId, agenceIdRef, setNote, setErreur })
+  // ── Le script d'appel : lu au montage, modifiable sur place ──
+  const scriptAppel = useScriptAppel(setErreur)
+
   // ── Calculs d'affichage ──
   const attribution = useMemo(() => (fiche && reserve.length ? numeroEmissionPour(fiche.agence, reserve, fileAgences, autresNumeros) : null), [fiche, reserve, fileAgences, autresNumeros])
   const emissionBloquee = Boolean(attribution?.bloque)
@@ -362,12 +235,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const bloqueOnglet = autreOnglet ? "La session est ouverte dans un autre onglet" : undefined
 
   // ── Lectures ──
-  const chargerReglages = useCallback(async () => {
-    const s = await lireParametre("script_appel").catch(() => null)
-    if (!enVie.current) return
-    setScript(s ?? "")
-  }, [])
-
   // Les repères : secteurs, compteurs des files, appels du jour, réserve de numéros.
   // Les chiffres de MA base, toujours (Mahdi, 14/10 : « 2 100, puis 646 quand je clique ») :
   // rien n'est compté tant que le compte n'est pas connu (sinon on compterait toute la base),
@@ -443,14 +310,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   useEffect(() => {
     enVie.current = true
     const t = setTimeout(() => {
-      void chargerReglages()
       void chargerReperes()
     }, 0)
     return () => {
       enVie.current = false
       clearTimeout(t)
     }
-  }, [chargerReglages, chargerReperes])
+  }, [chargerReperes])
 
   useEffect(() => {
     const t = setTimeout(() => void chargerLaFile(), 0)
@@ -665,24 +531,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     couperMinuterie()
   }
 
-  // Deux onglets sur la session (Mahdi, 13/10) : chacun s'annonce ; si un autre répond, les deux
-  // cessent de composer jusqu'à ce que l'un se ferme (il prévient en partant).
-  useEffect(() => {
-    if (typeof BroadcastChannel === "undefined") return
-    const canal = new BroadcastChannel(CANAL_SESSION)
-    canal.onmessage = (e: MessageEvent) => {
-      if (e.data === "presence") {
-        canal.postMessage("deja_ouverte")
-        setAutreOnglet(true)
-      } else if (e.data === "deja_ouverte") setAutreOnglet(true)
-      else if (e.data === "depart") setAutreOnglet(false)
-    }
-    canal.postMessage("presence")
-    return () => {
-      canal.postMessage("depart")
-      canal.close()
-    }
-  }, [])
+  // Deux onglets sur la session (Mahdi, 13/10) : voir `useOngletUnique`. Un autre onglet ouvert
+  // coupe le mode automatique et la minuterie de celui-ci.
   useEffect(() => {
     if (!autreOnglet) return
     const t = setTimeout(() => {
@@ -918,76 +768,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // ── Surveiller l'appel : toutes les 4 s, « cet appel est-il en ligne ? » ──
   const debutAppel = appel?.debut ?? null
   const appelManuel = appel?.manuel ?? false
-  useEffect(() => {
-    if (!debutAppel || appelManuel) return
-    const debut: number = debutAppel // capturé : les fonctions hissées ci-dessous ne voient pas la garde
-    let annule = false
-    let etat = SURVEILLANCE_INITIALE
-    let enVol = false
-    let detailLance = false
-    const horloge = setInterval(() => setMaintenant(Date.now()), 1000)
-
-    // Le relevé final de Ringover (jusqu'à ~90 s) : numéro invalide ? répondeur ? → une suggestion.
-    async function resoudreDetail(callId: string) {
-      for (let i = 0; i < ESSAIS_DETAIL && !annule; i++) {
-        const det = await detailAppelRingover(callId)
-        if (annule) return
-        if (det.ok && det.trouve && det.last_state) {
-          const s = suggestionDepuisDetail(det.last_state, det.is_failed)
-          if (s.resultat) setSuggestion(s.resultat)
-          if (s.texte) setIndice(s.texte)
-          return
-        }
-        await new Promise((r) => setTimeout(r, PAUSE_DETAIL_MS))
-      }
-    }
-    function finir(verdict: Verdict) {
-      clearInterval(sondage)
-      const fin = Date.now()
-      setAppel((a) => {
-        if (!a || a.debut !== debut) return a
-        if (verdict === "indisponible") return { ...a, etape: "sans_suivi" }
-        return { ...a, etape: "termine", fin }
-      })
-      if (verdict === "pas_de_reponse") setSuggestion("pas_de_reponse")
-      if (verdict === "indisponible") setErreur("Statut Ringover indisponible : note le résultat à la main quand tu auras raccroché.")
-      const callId = appelRef.current?.callId ?? ""
-      if (callId && !detailLance) {
-        detailLance = true
-        void resoudreDetail(callId)
-      }
-    }
-    async function sonder() {
-      if (annule || enVol) return
-      // Sans identifiant d'appel, le relais répond « y a-t-il un appel en ligne » (toute l'équipe) :
-      // on laisse 8 s à l'identifiant pour arriver avant de s'y fier.
-      const callId = appelRef.current?.callId ?? ""
-      if (!callId && Date.now() - debut < 8000) return
-      enVol = true
-      let st: { ok: boolean; actif: boolean }
-      try {
-        st = await statutAppelsRingover(callId || undefined)
-      } finally {
-        enVol = false
-      }
-      if (annule) return
-      const { suite, verdict } = observerAppel(etat, { ok: st.ok, actif: st.ok && st.actif }, toursMaxRef.current)
-      etat = suite
-      if (suite.vuActif) {
-        const t = Date.now()
-        setAppel((a) => (a && a.debut === debut && a.etape === "attente" ? { ...a, etape: "en_cours", enLigneDepuis: t } : a))
-      }
-      if (verdict !== "continuer") finir(verdict)
-    }
-    const sondage = setInterval(() => void sonder(), INTERVALLE_SURVEILLANCE_MS)
-    const premier = setTimeout(() => void sonder(), 1500)
-    return () => {
-      annule = true
-      clearInterval(sondage)
-      clearTimeout(premier)
-      clearInterval(horloge)
-    }
-  }, [debutAppel, appelManuel])
+  useSurveillanceAppel({ debutAppel, appelManuel, appelRef, toursMaxRef, setMaintenant, setAppel, setSuggestion, setIndice, setErreur })
 
   // ── Mode automatique : compte à rebours, puis l'appel du numéro par défaut ──
   const courantePrete = Boolean(fiche)
@@ -1152,43 +933,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     setInfo(`Nouveau numéro attribué à ${fiche.agence.nom} : ${formaterTelephone(numero)}. Tu peux appeler.`)
   }
 
-  // ── La dictée : on parle, ça s'ajoute à la note de l'appel ──
-  function dicter() {
-    if (!FABRIQUE_DICTEE) {
-      setErreur("La dictée vocale n'est pas disponible sur ce navigateur : utilise Google Chrome ou Edge.")
-      return
-    }
-    if (dicteeRef.current) {
-      dicteeRef.current.stop()
-      return
-    }
-    const cible = agenceCouranteId
-    if (!cible) return
-    const reco = new FABRIQUE_DICTEE()
-    reco.lang = "fr-FR"
-    reco.continuous = true
-    reco.interimResults = false
-    reco.onresult = (e) => {
-      let txt = ""
-      for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) txt += e.results[i][0].transcript
-      txt = txt.trim()
-      if (!txt || agenceIdRef.current !== cible) return // on a changé d'agence : la phrase en retard est ignorée
-      setNote((n) => (n && !/\s$/.test(n) ? n + " " : n) + txt)
-    }
-    reco.onend = () => {
-      setEcoute(false)
-      dicteeRef.current = null
-    }
-    reco.onerror = () => {
-      setEcoute(false)
-      dicteeRef.current = null
-    }
-    dicteeRef.current = reco
-    reco.start()
-    setEcoute(true)
-  }
-
-  // ── Contacts, actions, e-mail, copie, script ──
+  // ── Contacts, actions, e-mail, copie ──
   async function creerLeContact() {
     if (!fiche) return
     const k = nouveauContact
@@ -1241,7 +986,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   function ouvrirEmail() {
     if (!fiche) return
     const k = fiche.contacts.find((x) => x.id === (contactEnLigne ?? defaut?.contactId)) ?? fiche.contacts.find((x) => x.principal && !x.parti) ?? null
-    setEnvoiPour(prospectDepuisAgence(fiche.agence, k))
+    setEnvoiPour(destinataireDepuis(fiche.agence, k))
   }
   function copier(numero: string) {
     navigator.clipboard
@@ -1252,27 +997,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       })
       .catch(() => {})
   }
-  function basculerScriptEdit() {
-    if (scriptEdit) {
-      ecrireParametre("script_appel", scriptBrouillon)
-        .then(() => setScript(scriptBrouillon))
-        .catch((e) => setErreur(`Enregistrement du script : ${messageDe(e)}`))
-      setScriptEdit(false)
-    } else {
-      setScriptBrouillon(script)
-      setScriptEdit(true)
-      setScriptOuvert(true)
-    }
-  }
-
-  // ── L'état de l'appel, en une ligne ──
-  const dureeAffichee = appel
-    ? appel.etape === "en_cours" && appel.enLigneDepuis
-      ? dureeLisible(dureeAppel(appel.enLigneDepuis, maintenant))
-      : appel.fin && appel.enLigneDepuis
-        ? dureeLisible(dureeAppel(appel.enLigneDepuis, appel.fin))
-        : ""
-    : ""
 
   return (
     <div className="page">
@@ -1280,70 +1004,40 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         titre="Sessions de call"
         sousTitre={enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile.` : "Choisis une pile, un secteur, et démarre."}
         droite={
-          <>
-            <AppelsANoter
-              rafraichir={appelees.size}
-              onOuvrir={(id) => {
-                // Un appel en cours d'abord ; sinon l'agence s'ouvre, avec son bandeau « Noter le résultat ».
-                if (barreVisible || appel) setErreur("Note d'abord le résultat de l'appel en cours.")
-                else setDirecteId(id)
-              }}
-            />
-            <div className="flex flex-wrap gap-1.5">
-              {FILES.map((f) => {
-                const choisi = f.code === file
-                // La pile affichée compte SA liste (Mahdi, 13/10 : la pastille = ce qu'on voit) ; les
-                // autres, la base. Un comptage en échec affiche « — », jamais un faux chiffre.
-                const n = choisi && !etapeFiltre && !chargementFile ? fileAgences.length : compteurs ? compteurs[f.code] : "—"
-                return (
-                  <button key={f.code} type="button" disabled={enCours || barreVisible} title={f.aide} onClick={() => setFile(f.code)} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2 disabled:opacity-60">
-                    <Pastille role={choisi ? "info" : "inerte"} point={choisi}>
-                      {f.libelle}
-                      <span className="chiffres font-semibold">{n}</span>
-                    </Pastille>
-                  </button>
-                )
-              })}
-            </div>
-            {optionsDeBase.length > 1 ? (
-              <Selecteur value={normaliserChoix(choixBase, admin, nonAttribueesLibres)} onChange={(e) => choisirBase(e.target.value)} disabled={enCours || barreVisible} className="w-44" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
-                {optionsDeBase.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Selecteur>
-            ) : null}
-            <Selecteur value={secteurDuJour} onChange={(e) => setSecteurDuJour(e.target.value)} disabled={enCours || barreVisible} className="w-44" aria-label="Secteur du jour">
-              <option value="">Tous les secteurs</option>
-              {secteurs.map((s) => (
-                <option key={s.code} value={s.code}>{s.libelle}</option>
-              ))}
-            </Selecteur>
-            <Selecteur value={etapeFiltre} onChange={(e) => setEtapeFiltre(e.target.value)} disabled={enCours || barreVisible} className="w-48" aria-label="Étape" title="N'appeler que les agences de cette étape (dans la file choisie)">
-              <option value="">Toutes les étapes</option>
-              {ETAPES.map((e) => (
-                <option key={e.code} value={e.code}>{e.libelle}</option>
-              ))}
-              {SORTIES.map((s) => (
-                <option key={s.code} value={s.code}>{s.libelle}</option>
-              ))}
-            </Selecteur>
-            <Selecteur value={sourcage} onChange={(e) => setSourcage(e.target.value as "" | "sourcees" | "non_sourcees")} disabled={enCours || barreVisible} className="w-52" aria-label="Sourçage" title="Sourcée = on connaît au moins un gestionnaire (nom, ligne directe ou e-mail)">
-              <option value="">Sourcées et non sourcées</option>
-              <option value="sourcees">Sourcées · gestionnaire connu</option>
-              <option value="non_sourcees">Non sourcées · standard seul</option>
-            </Selecteur>
-            <label className="flex items-center gap-2 text-legende text-encre">
-              <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" disabled={autreOnglet || cadence === null} /> Mode automatique
-            </label>
-            <label className="flex items-center gap-1.5 text-legende text-encre-2">
-              cadence
-              <Champ type="number" min={2} max={120} value={cadence ?? ""} onChange={(e) => setCadence(Number(e.target.value) || 0)} className="chiffres w-16" aria-label="Cadence en secondes (2 au minimum)" />
-              s
-            </label>
-            {enCours ? (
-              <Bouton variante="plein" icone={<Square />} onClick={arreter}>Arrêter</Bouton>
-            ) : (
-              <Bouton variante="plein" icone={<Play />} onClick={demarrer} disabled={!fileAgences.length || chargementFile || autreOnglet || !reglages} title={bloqueOnglet ?? (!reglages ? "Lecture des réglages…" : undefined)}>Démarrer</Bouton>
-            )}
-          </>
+          <EnTeteSession
+            rafraichirAppelsANoter={appelees.size}
+            onOuvrirAppelANoter={(id) => {
+              // Un appel en cours d'abord ; sinon l'agence s'ouvre, avec son bandeau « Noter le résultat ».
+              if (barreVisible || appel) setErreur("Note d'abord le résultat de l'appel en cours.")
+              else setDirecteId(id)
+            }}
+            file={file}
+            setFile={setFile}
+            etapeFiltre={etapeFiltre}
+            setEtapeFiltre={setEtapeFiltre}
+            chargementFile={chargementFile}
+            nbFile={fileAgences.length}
+            compteurs={compteurs}
+            enCours={enCours}
+            barreVisible={barreVisible}
+            optionsDeBase={optionsDeBase}
+            valeurBase={normaliserChoix(choixBase, admin, nonAttribueesLibres)}
+            choisirBase={choisirBase}
+            secteurDuJour={secteurDuJour}
+            setSecteurDuJour={setSecteurDuJour}
+            secteurs={secteurs}
+            sourcage={sourcage}
+            setSourcage={setSourcage}
+            auto={auto}
+            setAuto={setAuto}
+            autreOnglet={autreOnglet}
+            cadence={cadence}
+            setCadence={setCadence}
+            arreter={arreter}
+            demarrer={demarrer}
+            reglagesLus={Boolean(reglages)}
+            bloqueOnglet={bloqueOnglet}
+          />
         }
       />
 
@@ -1361,58 +1055,31 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_380px]">
         {/* ── 1. La file ── */}
-        <Carte className="flex flex-col lg:max-h-[calc(100vh-200px)]">
-          <div className="flex items-center justify-between px-4 pb-2 pt-4">
-            <h2 className="text-sous-titre font-semibold text-encre">La file</h2>
-            <span className="chiffres text-legende text-encre-2">{Math.min(index + 1, fileAgences.length)} / {fileAgences.length}</span>
-          </div>
-          <div className="px-4 pb-2">
-            <div className="relative">
-              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-encre-3" />
-              <Champ value={recherche} onChange={(e) => setRecherche(e.target.value)} disabled={barreVisible} placeholder="Appeler une agence directement…" className="pl-8" aria-label="Appeler une agence directement" />
-            </div>
-            {resultats ? (
-              <div className="mt-1 overflow-hidden rounded-4 border border-trait bg-fond shadow-flottante">
-                {resultats.length === 0 ? (
-                  <div className="px-3 py-2 text-legende text-encre-2">Aucune agence trouvée.</div>
-                ) : (
-                  resultats.map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onClick={() => {
-                        setDirecteId(a.id)
-                        setRecherche("")
-                      }}
-                      className="block w-full border-b border-fond-4 px-3 py-2 text-left hover:bg-fond-2 last:border-0"
-                    >
-                      <div className="truncate text-legende font-medium text-encre">{a.nom}</div>
-                      <div className="truncate text-colonne text-encre-2">
-                        {[a.secteurLibelle, formaterTelephone(a.telephone), a.contactPrincipal].filter(Boolean).join(" · ") || "sans numéro"}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-1 border-b border-trait px-4 pb-3">
-            <Bouton taille="sm" icone={<ChevronLeft />} onClick={reculer} disabled={barreVisible || (index === 0 && !directeId)}>Précédente</Bouton>
-            <Bouton taille="sm" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
-          </div>
-          <div className="border-b border-fond-4 px-4 py-2">
-            <Case texte={`inclure les agences appelées ces ${reglages?.repos_appel_jours ?? "…"} derniers jours (jamais celles d'aujourd'hui)`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {chargementFile ? (
-              <Chargement texte="Lecture de la file…" />
-            ) : fileAgences.length === 0 ? (
-              <Vide titre="Rien à appeler dans cette file" texte={FILES.find((f) => f.code === file)?.aide} />
-            ) : (
-              fileAgences.map((a, i) => <LigneFile key={a.id} agence={a} courante={!directeId && i === index} appelee={appelees.has(a.id)} maintenant={dateMaintenant} bloquee={barreVisible && !(i === index && !directeId)} onClick={() => allerA(i)} />)
-            )}
-          </div>
-        </Carte>
+        <ColonneFile
+          index={index}
+          fileAgences={fileAgences}
+          file={file}
+          recherche={recherche}
+          setRecherche={setRecherche}
+          resultats={resultats}
+          onAppelerDirect={(id) => {
+            setDirecteId(id)
+            setRecherche("")
+          }}
+          barreVisible={barreVisible}
+          enCours={enCours}
+          directeId={directeId}
+          fileTerminee={fileTerminee}
+          reculer={reculer}
+          avancer={avancer}
+          reposJours={reglages?.repos_appel_jours}
+          inclureDejaAppelees={inclureDejaAppelees}
+          setInclureDejaAppelees={setInclureDejaAppelees}
+          chargementFile={chargementFile}
+          appelees={appelees}
+          dateMaintenant={dateMaintenant}
+          allerA={allerA}
+        />
 
         {/* ── 2. L'agence en cours ── */}
         <div className="min-w-0 space-y-4">
@@ -1454,187 +1121,55 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             </Carte>
           ) : (
             <>
-              <Carte className="px-5 py-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-section font-semibold tracking-[-0.015em] text-encre">{fiche.agence.nom}</h2>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      {fiche.agence.enseigne ? <Pastille>{fiche.agence.enseigne}</Pastille> : null}
-                      {fiche.agence.secteurLibelle ? <Pastille>{fiche.agence.secteurLibelle}</Pastille> : null}
-                      <Pastille>{libelleType(fiche.agence.type)}</Pastille>
-                      <Pastille role={pastilleEtape(fiche.agence.etape)} point>{libelleEtape(fiche.agence.etape)}</Pastille>
-                      <span className="chiffres text-legende text-encre-2">
-                        {texteBilanAppels(bilanDepuisAgence(fiche.agence, fiche.activites), fiche.agence.etape)}
-                      </span>
-                      {fiche.agence.compteOuvertLe ? (
-                        <Pastille role="fait" point>Compte STC Bâtiment ouvert le {dateCourte(fiche.agence.compteOuvertLe)}</Pastille>
-                      ) : fiche.agence.dernierSignal ? (
-                        <Pastille role="info" point>{fiche.agence.dernierSignal} le {dateCourte(fiche.agence.dernierSignalLe)}</Pastille>
-                      ) : null}
-                    </div>
-                    {fiche.agence.adresse ? <div className="mt-1 text-legende text-encre-2">{fiche.agence.adresse}</div> : null}
-                  </div>
-                  {ouvrirAgence ? (
-                    <div className="flex items-center gap-1">
-                      <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => ouvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
-                      {/* Un apporteur d'affaires découvert en ligne (Mahdi, 12/10) : un clic, elle sort du démarchage, la file avance.
-                          Pas pendant un résultat à noter : recharger la file effacerait l'appel en cours. */}
-                      <Bouton variante="discret" icone={<Briefcase />} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, l'appel en cours est clos, on passe à la suivante" onClick={() => void passerEnApporteur()}>Apporteur d'affaires</Bouton>
-                      <Bouton variante="discret" icone={<ExternalLink />} onClick={() => ouvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
-                    </div>
-                  ) : null}
-                </div>
-                {directeId ? (
-                  <Bandeau role="info" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setDirecteId(null)}>Revenir à la file</Bouton>}>
-                    Appel direct, hors file.
-                  </Bandeau>
-                ) : null}
-                {appelEnSuspens ? (
-                  <Bandeau role="attention" className="mt-3" action={<Bouton taille="sm" variante="plein" onClick={() => noterAppelEnSuspens(appelEnSuspens)} disabled={barreVisible}>Noter le résultat</Bouton>}>
-                    Appel du {dateHeureCourte(appelEnSuspens.date)} : résultat non noté. Tant qu'il ne l'est pas, la fiche ne sait pas si tu as eu quelqu'un.
-                  </Bandeau>
-                ) : null}
-
-                {/* Numéros */}
-                <Section
-                  titre="Numéros"
-                  droite={
-                    <Bouton taille="sm" variante="discret" icone={<StickyNote />} onClick={noterSansRingover} disabled={barreVisible || Boolean(appelEnSuspens)} title={titreSuspens}>Noter un appel sans Ringover</Bouton>
-                  }
-                >
-                  {lignes.length === 0 ? (
-                    <Vide titre="Aucun numéro" texte="Complète le standard sur la fiche, ou ajoute un contact avec sa ligne directe." />
-                  ) : (
-                    <div className="divide-y divide-fond-4">
-                      {lignes.map((l) => (
-                        <div key={l.cle} className="flex flex-wrap items-center gap-3 py-2">
-                          <div className="min-w-0 flex-1">
-                            <div className={"chiffres text-sous-titre font-semibold " + (l.valide ? "text-encre" : "text-alerte")}>{formaterTelephone(l.numero) || l.numero}</div>
-                            <div className="text-legende text-encre-2">
-                              {l.libelle} · {l.detail}
-                              {!l.valide ? " · numéro incomplet" : ""}
-                            </div>
-                          </div>
-                          <Bouton variante="discret" taille="icone" aria-label="Copier le numéro" title="Copier" onClick={() => copier(l.numero)}>
-                            {copie === l.numero ? <Check className="text-ok" /> : <Copy />}
-                          </Bouton>
-                          <Bouton
-                            variante={l.parDefaut ? "plein" : "contour"}
-                            icone={<Phone />}
-                            disabled={!l.valide || emissionBloquee || !libre || Boolean(appelEnSuspens) || autreOnglet}
-                            title={emissionBloquee ? "Numéro d'émission hors réserve : voir le bandeau" : !libre ? "Note d'abord le résultat de l'appel en cours" : (titreSuspens ?? bloqueOnglet)}
-                            onClick={() => void lancerAppel(l.numero, l.contactId)}
-                          >
-                            Appeler
-                          </Bouton>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {appel && !appel.manuel ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-legende text-encre">
-                      <Pastille role={appel.etape === "en_cours" ? "fait" : appel.etape === "termine" ? "info" : appel.etape === "sans_suivi" ? "attente" : "actif"} point>
-                        {appel.etape === "en_cours" ? "En ligne" : appel.etape === "termine" ? "Terminé" : appel.etape === "sans_suivi" ? "Sans suivi" : "Appel lancé"}
-                      </Pastille>
-                      {dureeAffichee ? <span className="chiffres font-medium">{dureeAffichee}</span> : null}
-                      <span className="text-encre-2">{TEXTES_APPEL[appel.etape]}</span>
-                    </div>
-                  ) : null}
-                </Section>
-
-                {/* Numéro d'émission + jauge */}
-                {emissionBloquee && attribution ? (
-                  <Bandeau role="alerte" className="mt-3" action={<Bouton taille="sm" onClick={reattribuerNumero}>Réattribuer un numéro</Bouton>}>
-                    Appel bloqué : cette agence a toujours été appelée depuis le <b className="chiffres">{formaterTelephone(attribution.numero)}</b>, qui n'est plus dans la réserve. On n'appelle jamais en douce avec un autre numéro : réactive-le dans Réglages, ou réattribue en connaissance de cause.
-                  </Bandeau>
-                ) : (
-                  <div className="mt-3 rounded-4 border border-trait bg-fond-2 px-3 py-2 text-legende text-encre">
-                    {numeroEmission ? (
-                      <>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span>
-                            Tu appelles depuis le <b className="chiffres">{formaterTelephone(numeroEmission)}</b>
-                          </span>
-                          <span className={"chiffres " + (jauge.depasse ? "font-medium text-alerte" : "text-encre-2")}>{jauge.texte}</span>
-                        </div>
-                        {jauge.quota > 0 ? (
-                          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-fond-4" role="progressbar" aria-valuemin={0} aria-valuemax={jauge.quota} aria-valuenow={jauge.utilises}>
-                            <div className={"h-full rounded-full " + (jauge.depasse ? "bg-alerte" : "bg-signature")} style={{ width: `${Math.round(jauge.part * 100)}%` }} />
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <span className="text-encre-2">Aucun numéro d'émission réglé : Ringover choisira le sien. La réserve se règle dans Réglages › Numéros d'appel.</span>
-                    )}
-                  </div>
-                )}
-
-                {/* Contacts */}
-                <Section
-                  titre="Contacts"
-                  droite={
-                    <Bouton taille="sm" variante="discret" icone={<Plus />} onClick={() => setFormContact((v) => !v)}>contact</Bouton>
-                  }
-                >
-                  {contactsActifs.length === 0 && !formContact ? (
-                    <p className="text-legende text-encre-2">Aucun contact connu. Qui décroche ? Ajoute-le pendant l'appel.</p>
-                  ) : (
-                    <div className="divide-y divide-fond-4">
-                      {contactsActifs.map((k) => (
-                        <div key={k.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 text-legende">
-                          <button type="button" title="Modifier ce contact" onClick={() => setContactAModifier(k)} className="rounded-3 font-medium text-encre underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">{nomContact(k)}</button>
-                          <span className="text-encre-2">{libelleRole(k.role)}</span>
-                          {k.principal ? <Pastille role="info">principal</Pastille> : null}
-                          {k.email ? <span className="truncate text-encre-2">· {k.email}</span> : null}
-                          <Bouton variante="discret" taille="sm" icone={<Pencil />} className="ml-auto" onClick={() => setContactAModifier(k)}>Modifier</Bouton>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {formContact ? (
-                    <div className="mt-2 rounded-4 border border-trait bg-fond-2 p-3">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <Etiquette texte="Prénom"><Champ value={nouveauContact.prenom} onChange={(e) => setNouveauContact({ ...nouveauContact, prenom: e.target.value })} autoFocus /></Etiquette>
-                        <Etiquette texte="Nom"><Champ value={nouveauContact.nom} onChange={(e) => setNouveauContact({ ...nouveauContact, nom: e.target.value })} /></Etiquette>
-                        <Etiquette texte="Rôle">
-                          <Selecteur value={nouveauContact.role} onChange={(e) => setNouveauContact({ ...nouveauContact, role: e.target.value as RoleContact })}>
-                            {ROLES_CONTACT.map((r) => (
-                              <option key={r.code} value={r.code}>{r.libelle}</option>
-                            ))}
-                          </Selecteur>
-                        </Etiquette>
-                        <Etiquette texte="Ligne directe"><Champ value={nouveauContact.ligneDirecte} onChange={(e) => setNouveauContact({ ...nouveauContact, ligneDirecte: e.target.value })} placeholder="01 …" /></Etiquette>
-                        <Etiquette texte="Mobile"><Champ value={nouveauContact.mobile} onChange={(e) => setNouveauContact({ ...nouveauContact, mobile: e.target.value })} placeholder="06 …" /></Etiquette>
-                        <Etiquette texte="E-mail"><Champ type="email" value={nouveauContact.email} onChange={(e) => setNouveauContact({ ...nouveauContact, email: e.target.value })} /></Etiquette>
-                      </div>
-                      <div className="mt-3 flex justify-end gap-2">
-                        <Bouton taille="sm" variante="discret" onClick={() => setFormContact(false)}>Annuler</Bouton>
-                        <Bouton taille="sm" icone={<Plus />} onClick={() => void creerLeContact()}>Ajouter le contact</Bouton>
-                      </div>
-                    </div>
-                  ) : null}
-                </Section>
-
-                {/* Note de l'appel */}
-                <Section
-                  titre="Note de l'appel"
-                  droite={
-                    FABRIQUE_DICTEE ? (
-                      <Bouton taille="sm" variante={ecoute ? "danger" : "discret"} icone={ecoute ? <MicOff /> : <Mic />} onClick={dicter}>{ecoute ? "Arrêter la dictée" : "Dicter"}</Bouton>
-                    ) : null
-                  }
-                >
-                  <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />
-                </Section>
-
-                {/* Autres actions */}
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-fond-4 pt-3">
-                  <Bouton icone={<Mail />} onClick={ouvrirEmail}>E-mail</Bouton>
-                  <Bouton icone={<SquareCheck />} onClick={() => ouvrirAction("tache")}>Tâche</Bouton>
-                  <Bouton icone={<CalendarClock />} onClick={() => ouvrirAction("rdv")}>RDV</Bouton>
-                  <Bouton icone={<StickyNote />} onClick={() => ouvrirAction("note")}>Note</Bouton>
-                </div>
-              </Carte>
+              <FicheEnCours
+                fiche={fiche}
+                ouvrirAgence={ouvrirAgence}
+                passerEnApporteur={passerEnApporteur}
+                directeId={directeId}
+                onRevenirFile={() => setDirecteId(null)}
+                appelEnSuspens={appelEnSuspens}
+                noterAppelEnSuspens={noterAppelEnSuspens}
+                barreVisible={barreVisible}
+                blocNumeros={
+                  <BlocNumeros
+                    lignes={lignes}
+                    appel={appel}
+                    maintenant={maintenant}
+                    barreVisible={barreVisible}
+                    appelEnSuspens={Boolean(appelEnSuspens)}
+                    titreSuspens={titreSuspens}
+                    noterSansRingover={noterSansRingover}
+                    copie={copie}
+                    copier={copier}
+                    emissionBloquee={emissionBloquee}
+                    libre={libre}
+                    autreOnglet={autreOnglet}
+                    bloqueOnglet={bloqueOnglet}
+                    lancerAppel={lancerAppel}
+                    attribution={attribution}
+                    reattribuerNumero={reattribuerNumero}
+                    numeroEmission={numeroEmission}
+                    jauge={jauge}
+                  />
+                }
+                blocContacts={
+                  <BlocContacts
+                    contactsActifs={contactsActifs}
+                    formContact={formContact}
+                    setFormContact={setFormContact}
+                    setContactAModifier={setContactAModifier}
+                    nouveauContact={nouveauContact}
+                    setNouveauContact={setNouveauContact}
+                    creerLeContact={creerLeContact}
+                  />
+                }
+                ecoute={ecoute}
+                dicter={dicter}
+                note={note}
+                setNote={setNote}
+                ouvrirEmail={ouvrirEmail}
+                ouvrirAction={ouvrirAction}
+              />
 
               {barreVisible ? (
                 <BarreResultat
@@ -1654,70 +1189,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               ) : null}
 
               {/* Script d'appel, repliable */}
-              <Carte>
-                <button type="button" onClick={() => setScriptOuvert((v) => !v)} aria-expanded={scriptOuvert} className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left">
-                  <span className="text-sous-titre font-semibold text-encre">Script d'appel</span>
-                  <span className="flex items-center gap-2 text-legende text-encre-2">
-                    {!scriptOuvert && script.trim() ? <span className="max-w-[40ch] truncate">{script.trim().split("\n")[0]}</span> : null}
-                    {scriptOuvert ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  </span>
-                </button>
-                {scriptOuvert ? (
-                  <div className="border-t border-fond-4 px-5 py-4">
-                    {scriptEdit ? (
-                      <Zone value={scriptBrouillon} onChange={(e) => setScriptBrouillon(e.target.value)} rows={8} placeholder="Ton accroche, tes arguments, les objections types…" />
-                    ) : script.trim() ? (
-                      <p className="whitespace-pre-line text-corps text-encre">{script}</p>
-                    ) : (
-                      <p className="text-legende text-encre-2">Aucun script. Écris ton accroche et tes arguments : ils resteront affichés pendant les appels.</p>
-                    )}
-                    <div className="mt-3 flex justify-end gap-2">
-                      {scriptEdit ? <Bouton taille="sm" variante="discret" onClick={() => setScriptEdit(false)}>Annuler</Bouton> : null}
-                      <Bouton taille="sm" onClick={basculerScriptEdit}>{scriptEdit ? "Enregistrer" : "Modifier"}</Bouton>
-                    </div>
-                  </div>
-                ) : null}
-              </Carte>
+              <ScriptAppel {...scriptAppel} />
             </>
           )}
         </div>
 
         {/* ── 3. Le fil ── */}
-        <Carte className="flex flex-col lg:max-h-[calc(100vh-200px)]">
-          <div className="px-4 pb-2 pt-4">
-            <h2 className="text-sous-titre font-semibold text-encre">Le fil</h2>
-            {fiche ? (
-              <p className="text-legende text-encre-2">
-                {fiche.activites.length} activité{fiche.activites.length > 1 ? "s" : ""} · les plus récentes en haut
-              </p>
-            ) : null}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            {!fiche ? (
-              <Vide titre="Aucune agence en cours" />
-            ) : (
-              <>
-                {fiche.messages.length ? (
-                  <div className="mb-3 border-b border-fond-4 pb-2">
-                    <div className="mb-1 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Boîte de réception</div>
-                    {fiche.messages.slice(0, 3).map((m) => (
-                      <LigneMessage key={m.id} m={m} />
-                    ))}
-                  </div>
-                ) : null}
-                {fiche.activites.length === 0 ? (
-                  <Vide titre="Rien encore" texte="Le premier appel ouvrira le fil." />
-                ) : (
-                  <ol className="divide-y divide-fond-4">
-                    {fiche.activites.map((a) => (
-                      <LigneFil key={a.id} a={a} />
-                    ))}
-                  </ol>
-                )}
-              </>
-            )}
-          </div>
-        </Carte>
+        <ColonneFil fiche={fiche} />
       </div>
 
       {/* ── Dialogues ── */}
@@ -1725,48 +1203,18 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         <ContactFormulaire agenceId={courante.agence.id} contact={contactAModifier} onFermer={() => setContactAModifier(null)} onEnregistre={() => { setContactAModifier(null); rafraichirCourante() }} />
       ) : null}
       {dialogue === "tache" || dialogue === "rdv" || dialogue === "note" ? (
-        <Dialogue
-          titre={dialogue === "tache" ? "Nouvelle tâche" : dialogue === "rdv" ? "Nouveau rendez-vous" : "Nouvelle note"}
-          description={fiche?.agence.nom}
+        <DialogueAction
+          dialogue={dialogue}
+          nomAgence={fiche?.agence.nom}
+          formAction={formAction}
+          setFormAction={setFormAction}
           onFermer={() => setDialogue(null)}
-          pied={
-            <>
-              <Bouton variante="discret" onClick={() => setDialogue(null)}>Annuler</Bouton>
-              <Bouton variante="plein" icone={<Check />} onClick={() => void validerAction()} disabled={dialogue === "note" ? !formAction.note.trim() : !formAction.quand}>
-                Enregistrer
-              </Bouton>
-            </>
-          }
-        >
-          <div className="space-y-3">
-            {dialogue !== "note" ? (
-              <>
-                <Etiquette texte="Titre"><Champ value={formAction.titre} onChange={(e) => setFormAction({ ...formAction, titre: e.target.value })} autoFocus /></Etiquette>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Etiquette texte={dialogue === "rdv" ? "Le" : "Pour le"}>
-                    <Champ type="datetime-local" value={formAction.quand} onChange={(e) => setFormAction({ ...formAction, quand: e.target.value })} />
-                  </Etiquette>
-                  {dialogue === "rdv" ? (
-                    <Etiquette texte="Type">
-                      <Selecteur value={formAction.type} onChange={(e) => setFormAction({ ...formAction, type: e.target.value as TypeRdv })}>
-                        {TYPES_RDV.map((t) => (
-                          <option key={t.code} value={t.code}>{t.libelle}</option>
-                        ))}
-                      </Selecteur>
-                    </Etiquette>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-            <Etiquette texte={dialogue === "note" ? "Note" : "Précisions"}>
-              <Zone value={formAction.note} onChange={(e) => setFormAction({ ...formAction, note: e.target.value })} rows={4} autoFocus={dialogue === "note"} />
-            </Etiquette>
-          </div>
-        </Dialogue>
+          onValider={() => void validerAction()}
+        />
       ) : null}
       {envoiPour ? (
         <EnvoyerEmailModal
-          prospect={envoiPour}
+          destinataire={envoiPour}
           onClose={() => {
             setEnvoiPour(null)
             void rafraichirCourante()

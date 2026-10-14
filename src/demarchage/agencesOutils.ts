@@ -3,10 +3,9 @@
 //
 // Filtres locaux, tris, textes de dates (« il y a 3 jours »), le fil d'une
 // fiche (activités + messages fusionnés, groupés par jour), les lignes d'export,
-// le Prospect que réclame le modal d'e-mail. Pur et testé dans
+// pur et testé dans
 // agencesOutils.test.ts ; les écrans ne font qu'appeler.
 // ════════════════════════════════════════════════════════════════════════════
-import type { Prospect } from "../data"
 import type { Message } from "../lib/messagesDb"
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
@@ -29,7 +28,6 @@ import {
   libelleResultat,
   libelleRole,
   libelleType,
-  nomContact,
 } from "./modele"
 
 // ── Les deux commerciaux, au cas où la liste des comptes ne répond pas ──
@@ -299,24 +297,6 @@ export function tachesOuvertes(activites: Activite[]): Activite[] {
 /** Une note est « longue » au-delà de trois lignes ou de 240 caractères : on la replie. */
 export function noteLongue(note: string): boolean {
   return (note || "").split("\n").length > 3 || (note || "").length > 240
-}
-
-// ── Le Prospect que réclame le modal d'e-mail (on ne le réécrit pas) ──
-export function prospectDepuis(agence: Agence, contact: Contact | null): Prospect {
-  return {
-    id: agence.id,
-    entreprise: agence.nom,
-    contact: contact ? nomContact(contact) : "",
-    telephone: contact?.ligneDirecte || contact?.mobile || agence.telephone,
-    email: contact?.email || agence.email,
-    adresse: agence.adresse,
-    arrondissement: agence.secteurLibelle,
-    commentaire: "",
-    type: "",
-    statut: "",
-    priorite: "—",
-    prochaineRelance: "",
-  }
 }
 
 // ── Les lignes d'export ──

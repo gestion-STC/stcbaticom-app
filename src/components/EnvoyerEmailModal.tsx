@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AlertTriangle, Check, Loader2, Paperclip, Send, Sparkles, Trash2, Undo2, Users } from "lucide-react"
-import type { Prospect } from "../data"
+import type { Destinataire } from "../lib/destinataire"
 import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
 import { useSession } from "../lib/auth"
@@ -21,7 +21,7 @@ import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Selecteur, Zone 
 // Destinataires (Mahdi, 08-09/10) : « À » accepte plusieurs adresses séparées
 // par une virgule ; « Cc » et « Cci » s'ouvrent d'un clic, comme dans Gmail.
 // Un seul e-mail part, avec tout le monde dedans.
-export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Prospect; onClose: () => void }) {
+export default function EnvoyerEmailModal({ destinataire, onClose }: { destinataire: Destinataire; onClose: () => void }) {
   const [emails, setEmails] = useState<Email[]>([])
   // Signature STC Bâtiment au nom du compte connecté : chacun signe de son nom.
   const session = useSession()
@@ -29,7 +29,7 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
   const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
   const prenomCommercial = prenomDe(nomSignataire)
   const [modeleId, setModeleId] = useState("")
-  const [aTexte, setATexte] = useState(() => joindreAdresses(decouperAdresses(prospect.email || "")))
+  const [aTexte, setATexte] = useState(() => joindreAdresses(decouperAdresses(destinataire.email || "")))
   const [ccTexte, setCcTexte] = useState("")
   const [cciTexte, setCciTexte] = useState("")
   const [copiesOuvertes, setCopiesOuvertes] = useState(false)
@@ -96,7 +96,7 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
   const aEnvoyer = useMemo<Email>(() => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces }), [emails, modeleId, objet, corps, pieces])
   // L'aperçu montre les liens comme ils partiront ({{lien_creer_compte}} → « Créer mon compte STC Bâtiment ») ; à l'envoi,
   // envoyerEmail les remplace par des liens suivis propres à l'agence.
-  const apercu = useMemo(() => { const c = composer(aEnvoyer, prospect, signature, prenomCommercial); return { ...c, corpsHtml: apercuLiens(c.corpsHtml) } }, [aEnvoyer, prospect, signature, prenomCommercial])
+  const apercu = useMemo(() => { const c = composer(aEnvoyer, destinataire, signature, prenomCommercial); return { ...c, corpsHtml: apercuLiens(c.corpsHtml) } }, [aEnvoyer, destinataire, signature, prenomCommercial])
   const a = useMemo(() => decouperAdresses(aTexte), [aTexte])
   const cc = useMemo(() => decouperAdresses(ccTexte), [ccTexte])
   const cci = useMemo(() => decouperAdresses(cciTexte), [cciTexte])
@@ -146,7 +146,7 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
     setErreur(null)
     setEnvoi(true)
     try {
-      await envoyerEmail(prospect, aEnvoyer, signature, prenomCommercial, a, { cc, cci })
+      await envoyerEmail(destinataire, aEnvoyer, signature, prenomCommercial, a, { cc, cci })
       setFait(true)
       setTimeout(onClose, 900)
     } catch (e) {
@@ -168,7 +168,7 @@ export default function EnvoyerEmailModal({ prospect, onClose }: { prospect: Pro
   return (
     <Dialogue
       titre="Envoyer un e-mail"
-      description={<>Fiche <strong className="text-encre">{prospect.entreprise}</strong>{prospect.contact ? <> · {prospect.contact}</> : null}</>}
+      description={<>Fiche <strong className="text-encre">{destinataire.entreprise}</strong>{destinataire.contact ? <> · {destinataire.contact}</> : null}</>}
       onFermer={onClose}
       largeur="max-w-2xl"
       pied={
