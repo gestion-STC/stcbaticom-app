@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { extraireNom, statutDepuisCouleur, parseCsv } from "./importProspects"
+import { extraireNom, parseCsv } from "./lectureImport"
 
 // --- Nettoyage des noms de gestionnaires ---------------------------------
 describe("extraireNom", () => {
@@ -21,30 +21,6 @@ describe("extraireNom", () => {
 
   it("renvoie vide sur une entrée vide", () => {
     expect(extraireNom("")).toBe("")
-  })
-})
-
-// --- Couleur de fond du Sheet → état -------------------------------------
-describe("statutDepuisCouleur", () => {
-  it("blanc → Nouveau prospect", () => {
-    expect(statutDepuisCouleur("FFFFFFFF")).toBe("Nouveau prospect")
-  })
-
-  it("vert (vif ou pastel) → Client signé", () => {
-    expect(statutDepuisCouleur("FF00B050")).toBe("Client signé") // vert vif
-    expect(statutDepuisCouleur("FFB6D7A8")).toBe("Client signé") // vert pastel
-  })
-
-  it("bleu et cyan → À rappeler (déjà contacté dans le Sheet)", () => {
-    expect(statutDepuisCouleur("FF0000FF")).toBe("À rappeler") // bleu
-    expect(statutDepuisCouleur("FF00FFFF")).toBe("À rappeler") // cyan
-    expect(statutDepuisCouleur("FFCFE2F3")).toBe("À rappeler") // bleu pastel
-  })
-
-  it("gris / absence de couleur / transparent → Nouveau prospect", () => {
-    expect(statutDepuisCouleur("FF808080")).toBe("Nouveau prospect") // gris
-    expect(statutDepuisCouleur(undefined)).toBe("Nouveau prospect") // aucune
-    expect(statutDepuisCouleur("00FF0000")).toBe("Nouveau prospect") // transparent (alpha 00)
   })
 })
 

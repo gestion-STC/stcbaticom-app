@@ -29,21 +29,6 @@ function vers(l: Ligne): EmailEnvoye {
   }
 }
 
-// Journalise un email envoyé.
-export async function logEmailEnvoye(e: {
-  prospectId: string
-  modeleNom: string
-  objet: string
-}): Promise<void> {
-  if (!supabase) return
-  const { error } = await supabase.from("emails_envoyes").insert({
-    prospect_id: e.prospectId,
-    modele_nom: e.modeleNom,
-    objet: e.objet,
-  })
-  if (error) console.error("Log email :", error.message)
-}
-
 export async function chargerEmailsEnvoyes(): Promise<EmailEnvoye[]> {
   if (!supabase) throw new Error("Supabase non configuré")
   const { data, error } = await supabase
@@ -53,14 +38,4 @@ export async function chargerEmailsEnvoyes(): Promise<EmailEnvoye[]> {
     .limit(2000)
   if (error) throw new Error(error.message)
   return (data as Ligne[]).map(vers)
-}
-
-// Marque un email (ou un prospect) comme « a répondu ».
-export async function marquerReponse(prospectId: string): Promise<void> {
-  if (!supabase) return
-  const { error } = await supabase
-    .from("emails_envoyes")
-    .update({ a_repondu: true })
-    .eq("prospect_id", prospectId)
-  if (error) console.error("Marquer réponse :", error.message)
 }

@@ -14,7 +14,7 @@
 import type ExcelJS from "exceljs"
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
-import { extraireNom, parseCsv } from "../lib/importProspects"
+import { extraireNom, parseCsv } from "../lib/lectureImport"
 import { creerAgence, creerContact } from "./db"
 import { enseigneDe, nomCle, secteurDepuis, type TypeAgence } from "./modele"
 import { assurerSecteurs } from "./secteursOutils"
