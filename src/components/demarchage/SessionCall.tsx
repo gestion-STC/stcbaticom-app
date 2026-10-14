@@ -581,7 +581,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }
       // Aucun numéro Ringover à moi : on n'appelle pas avec celui d'un collègue (ça le ferait sonner, lui).
       if (sansNumeroRef.current) {
-        setErreur("Aucun numéro d'appel n'est attribué à ton compte : Réglages › Numéros d'appel, choisis « Utilisé par » pour ton numéro Ringover. (Tu peux toujours copier le numéro.)")
+        setErreur("Aucun numéro Ringover n'est attribué à ton compte : un administrateur le règle dans Comptes (colonne « Numéro Ringover »). (Tu peux toujours copier le numéro.)")
         if (depuisAuto) setAuto(false)
         return
       }

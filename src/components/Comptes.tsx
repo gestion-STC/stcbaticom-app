@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react"
 import type { Session } from "@supabase/supabase-js"
-import { KeyRound, Loader2, Plus, RefreshCw, Copy, Check, ShieldCheck, Headset, PenLine } from "lucide-react"
+import { KeyRound, Loader2, Plus, RefreshCw, Copy, Check, ShieldCheck, Headset, PenLine, Phone, X } from "lucide-react"
 import { chargerFonctions, FONCTIONS, LIBELLE_FONCTION, poserFonction, type Fonction, type FonctionsParCompte } from "../lib/fonctionsComptes"
+import { attribuerNumero, chargerNumerosComplet, enregistrerNumerosComplet, libererNumero, numerosDe, type NumeroEmission } from "../lib/numerosEmission"
 import {
   ROLES,
   LIBELLE_ROLE,
@@ -20,6 +21,10 @@ import {
 // Onglet « Comptes » (Mahdi, 07/10/2026) : ouvrir des comptes et donner un rôle.
 // Visible et utilisable par les administrateurs seulement ; la fonction serveur
 // refuse de toute façon un téléprospecteur.
+//
+// Le numéro Ringover de chaque compte (Mahdi, 14/10) : Ringover fait sonner le PROPRIÉTAIRE
+// du numéro qui appelle. Chaque téléprospecteur a donc son propre numéro, réglé ici (à la
+// création ou ensuite) ; la session de call n'appelle qu'avec les numéros de la personne connectée.
 
 const dateCourte = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—"
@@ -41,11 +46,15 @@ export default function Comptes({ session }: { session: Session | null }) {
   const [fonctions, setFonctions] = useState<FonctionsParCompte>({})
   // Le compte dont on est en train de modifier le nom (celui qui signe les e-mails).
   const [renommage, setRenommage] = useState<{ id: string; nom: string } | null>(null)
+  // Les numéros Ringover (la réserve, avec le compte de chacun). null = pas encore lue : on n'écrit rien.
+  const [numeros, setNumeros] = useState<NumeroEmission[] | null>(null)
+  const [ajoutNumero, setAjoutNumero] = useState<{ id: string; numero: string } | null>(null)
 
   // Formulaire de création
   const [nom, setNom] = useState("")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<Role>("telepro")
+  const [numeroRingover, setNumeroRingover] = useState("")
   const [motDePasse, setMotDePasse] = useState(() => genererMotDePasse())
   const [creation, setCreation] = useState(false)
   const [erreurForm, setErreurForm] = useState<string | null>(null)
@@ -56,6 +65,7 @@ export default function Comptes({ session }: { session: Session | null }) {
   useEffect(() => {
     if (!admin) return
     chargerFonctions().then(setFonctions).catch(() => undefined)
+    chargerNumerosComplet().then(setNumeros).catch((e) => setErreur(`Numéros Ringover illisibles : ${e instanceof Error ? e.message : "erreur"}`))
     listerComptes()
       .then(setComptes)
       .catch((e) => setErreur(e instanceof Error ? e.message : "Chargement impossible"))
@@ -70,11 +80,29 @@ export default function Comptes({ session }: { session: Session | null }) {
       setErreurForm(refus)
       return
     }
+    if (numeroRingover.trim() && !numeros) {
+      setErreurForm("La liste des numéros Ringover n'est pas lue : recharge la page avant de créer le compte.")
+      return
+    }
+    // Vérifié AVANT de créer le compte : un numéro incomplet ou déjà pris ne doit pas laisser un compte à moitié réglé.
+    if (numeroRingover.trim() && numeros) {
+      try { attribuerNumero(numeros, numeroRingover, "verification") } catch (err) { setErreurForm(err instanceof Error ? err.message : String(err)); return }
+    }
     setErreurForm(null)
     setCreation(true)
     try {
       const compte = await creerCompte(candidat)
       setComptes((liste) => [...liste, compte].sort((a, b) => a.email.localeCompare(b.email)))
+      if (numeroRingover.trim() && numeros) {
+        try {
+          const suite = attribuerNumero(numeros, numeroRingover, compte.id)
+          await enregistrerNumerosComplet(suite)
+          setNumeros(suite)
+        } catch (err) {
+          setErreur(`Compte créé, mais le numéro Ringover n'a pas été enregistré : ${err instanceof Error ? err.message : "erreur"}. Règle-le dans la liste ci-dessus.`)
+        }
+      }
+      setNumeroRingover("")
       setDernier({ email: compte.email, motDePasse, mode: "cree" })
       setNom("")
       setEmail("")
@@ -148,6 +176,22 @@ export default function Comptes({ session }: { session: Session | null }) {
     }
   }
 
+  async function majNumeros(compte: Compte, calcul: (l: NumeroEmission[]) => NumeroEmission[]) {
+    if (!numeros) return
+    setEnCours(compte.id)
+    setErreur(null)
+    try {
+      const suite = calcul(numeros)
+      await enregistrerNumerosComplet(suite)
+      setNumeros(suite)
+      setAjoutNumero(null)
+    } catch (err) {
+      setErreur(err instanceof Error ? err.message : "Numéro non enregistré")
+    } finally {
+      setEnCours(null)
+    }
+  }
+
   async function copier(texte: string) {
     try {
       await navigator.clipboard.writeText(texte)
@@ -200,6 +244,7 @@ export default function Comptes({ session }: { session: Session | null }) {
                 <th className="px-5 py-2 font-medium">E-mail</th>
                 <th className="px-5 py-2 font-medium">Rôle</th>
                 <th className="px-5 py-2 font-medium" title="Ce que fait la personne. Seuls les commerciaux sont au classement du démarchage.">Fonction</th>
+                <th className="px-5 py-2 font-medium" title="Ringover fait sonner le propriétaire du numéro : chacun appelle avec le sien.">Numéro Ringover</th>
                 <th className="px-5 py-2 font-medium">Dernière connexion</th>
                 <th className="px-5 py-2 font-medium">Créé le</th>
                 <th className="px-5 py-2 font-medium">Mot de passe</th>
@@ -295,6 +340,36 @@ export default function Comptes({ session }: { session: Session | null }) {
                         ))}
                       </select>
                     </td>
+                    <td className="px-5 py-2.5">
+                      {numeros === null ? (
+                        <span className="text-xs text-slate-400">…</span>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {numerosDe(numeros, c.id).map((n) => (
+                            <span key={n.numero} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-800">
+                              <Phone size={11} className="text-slate-500" /> {n.numero}{n.pause ? " (en pause)" : ""}
+                              <button type="button" title="Retirer ce numéro de ce compte" aria-label={`Retirer ${n.numero} de ${c.email}`} disabled={enCours === c.id} onClick={() => void majNumeros(c, (l) => libererNumero(l, n.numero))} className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                                <X size={11} />
+                              </button>
+                            </span>
+                          ))}
+                          {numerosDe(numeros, c.id).length === 0 && (c.role === "telepro" || fonctions[c.id] === "commercial") ? (
+                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700" title="Sans numéro à lui, ce compte ne peut pas appeler depuis la session.">pas de numéro</span>
+                          ) : null}
+                          {ajoutNumero?.id === c.id ? (
+                            <form onSubmit={(e) => { e.preventDefault(); void majNumeros(c, (l) => attribuerNumero(l, ajoutNumero.numero, c.id)) }} className="flex items-center gap-1">
+                              <input autoFocus aria-label={`Numéro Ringover de ${c.email}`} value={ajoutNumero.numero} onChange={(e) => setAjoutNumero({ id: c.id, numero: e.target.value })} onKeyDown={(e) => e.key === "Escape" && setAjoutNumero(null)} placeholder="01 89 …" list="numeros-libres" className="w-36 rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-violet-400 focus:outline-none" />
+                              <button type="submit" disabled={enCours === c.id} className="rounded-lg bg-violet-600 px-2 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-60">OK</button>
+                              <button type="button" onClick={() => setAjoutNumero(null)} className="text-xs text-slate-500 hover:text-slate-800">Annuler</button>
+                            </form>
+                          ) : (
+                            <button type="button" onClick={() => setAjoutNumero({ id: c.id, numero: "" })} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">
+                              <Plus size={11} /> numéro
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-5 py-2.5 text-slate-600">{dateHeure(c.derniereConnexion)}</td>
                     <td className="px-5 py-2.5 text-slate-600">{dateCourte(c.creeLe)}</td>
                     <td className="px-5 py-2.5">
@@ -316,6 +391,10 @@ export default function Comptes({ session }: { session: Session | null }) {
           </table>
         )}
       </section>
+
+      <datalist id="numeros-libres">
+        {(numeros ?? []).filter((n) => !n.compteId).map((n) => <option key={n.numero} value={n.numero} />)}
+      </datalist>
 
       {/* Ouvrir un compte */}
       <section className="rounded-xl border border-slate-200 bg-white">
@@ -421,6 +500,21 @@ export default function Comptes({ session }: { session: Session | null }) {
               </button>
             </div>
             <span className="mt-1 block text-xs text-slate-500">Au moins 10 caractères. Proposé sans lettres ambiguës, modifiable.</span>
+          </label>
+
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Numéro Ringover</span>
+            <input
+              id="compte-numero-ringover"
+              value={numeroRingover}
+              onChange={(e) => setNumeroRingover(e.target.value)}
+              placeholder="01 89 …"
+              list="numeros-libres"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-violet-400 focus:outline-none"
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Le numéro de SON compte Ringover (créé dans Ringover avant). Ringover fait sonner le propriétaire du numéro : sans le sien, il ne pourra pas appeler depuis la session. Il devra ouvrir Ringover sur son ordinateur, connecté avec son compte.
+            </span>
           </label>
 
           {erreurForm && <p className="text-sm text-red-600 md:col-span-2">{erreurForm}</p>}
