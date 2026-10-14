@@ -8,8 +8,6 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
-import { lireParametre } from "../lib/parametresDb"
-import { debutRepos, REPOS_JOURS, REPOS_STANDARD_JOURS } from "./sessionOutils"
 import type { Proprietaire } from "./attribution"
 import type { Message } from "../lib/messagesDb"
 import {
@@ -190,15 +188,6 @@ export async function compterFiles(maintenant: Date, proprietaire: Proprietaire 
   // Un comptage en échec ne s'affiche jamais comme un vrai chiffre : l'appelant garde « — ».
   for (const r of [a, b, c, d]) erreur(r.error)
   return { a_prospecter: a.count ?? 0, rappels: b.count ?? 0, sans_nouvelle: c.count ?? 0, a_reveiller: d.count ?? 0 }
-}
-
-// Les deux repos de Réglages, lus en un endroit : après n'importe quel appel (5 j) et après un « standard » (15 j).
-export async function lireRepos(quand: Date): Promise<{ depuis: string; standardDepuis: string; jours: number; joursStandard: number }> {
-  const [a, b] = await Promise.all([lireParametre("repos_appel_jours").catch(() => null), lireParametre("repos_standard_jours").catch(() => null)])
-  const n = Number(a), s = Number(b)
-  const jours = Number.isInteger(n) && n >= 1 && n <= 60 ? n : REPOS_JOURS
-  const joursStandard = Number.isInteger(s) && s >= 1 && s <= 90 ? s : REPOS_STANDARD_JOURS
-  return { depuis: debutRepos(quand, jours), standardDepuis: debutRepos(quand, joursStandard), jours, joursStandard }
 }
 
 export async function compterParEtape(): Promise<Record<string, number>> {

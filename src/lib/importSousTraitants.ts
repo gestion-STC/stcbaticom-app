@@ -4,7 +4,7 @@
 // ExcelJS (~1 Mo) n'est chargé qu'au moment de l'import.
 import type ExcelJS from "exceljs"
 import type { SousTraitant } from "../recrutement"
-import { parseCsv } from "./importProspects"
+import { parseCsv } from "./lectureImport"
 
 export type ResultatImportST = {
   sousTraitants: Partial<SousTraitant>[]

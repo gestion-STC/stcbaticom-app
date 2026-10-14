@@ -25,6 +25,14 @@ jobs:
       - run: npm ci
       - name: Tests (vitest)
         run: npm run test
+      # Santé du code (14/10) : BLOQUANTS — typage strict, lint du logiciel sans erreur,
+      # aucune boucle d'imports. Une dégradation empêche la mise en ligne.
+      - name: Typage strict (tsc)
+        run: npx tsc -b
+      - name: Lint du logiciel (src)
+        run: npx eslint src
+      - name: Boucles d'imports (madge)
+        run: npx -y madge@8.0.0 --circular --extensions ts,tsx src
       - name: Lint (eslint)
         run: npm run lint
         # NON bloquant : 8 erreurs de style/typage preexistantes (any, espace

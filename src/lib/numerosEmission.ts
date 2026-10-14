@@ -71,12 +71,6 @@ export async function enregistrerNumerosComplet(liste: NumeroEmission[]): Promis
   await ecrireParametre(CLE, JSON.stringify(propres))
 }
 
-// Numéros ACTIFS uniquement (en rotation) — ceux qui NE sont PAS en pause.
-// C'est ce que la logique d'appel utilise : un numéro en pause n'est plus attribué.
-export async function chargerNumeros(): Promise<string[]> {
-  return (await chargerNumerosComplet()).filter((n) => !n.pause).map((n) => n.numero)
-}
-
 // Les numéros de CE compte (13/10) : « miens » = ceux avec lesquels il appelle ; « autres » = ceux
 // des collègues (une agence qui en porte un est réattribuée à mon numéro, jamais bloquée).
 // Tant qu'aucun numéro n'a de propriétaire, tout le monde utilise toute la réserve (comme avant).
