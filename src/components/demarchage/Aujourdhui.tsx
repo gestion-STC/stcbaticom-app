@@ -75,7 +75,12 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
 
+  const jetonCharge = useRef(0)
   const charger = useCallback(async () => {
+    // Les piles de MA base (14/10) : pas de chiffres avant que le compte soit connu, et une
+    // lecture arrivée en retard n'écrase pas une plus récente.
+    if (!moiId) return
+    const jeton = ++jetonCharge.current
     const now = new Date()
     try {
       // Les comptes du logiciel (réservé aux administrateurs : un télépro verra ceux qui ont des appels).
@@ -100,7 +105,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         compterReveils(debutDeSemaine(now), finDeSemaine(now)),
         ...PERIODES.map((p) => { const b = bornesPeriode(p.code, now); return statsAppels(b.de, b.a) }),
       ])
-      if (!enVie.current) return
+      if (!enVie.current || jeton !== jetonCharge.current) return
       const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
       setD({ files, base, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
       santeDemarchage()

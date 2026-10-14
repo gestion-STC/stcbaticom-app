@@ -308,6 +308,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const dicteeRef = useRef<Dictee | null>(null)
   const dernierLancementRef = useRef(0)
   const lancementRef = useRef<{ debut: number; promesse: Promise<string | null> } | null>(null) // l'écriture du clic, en route
+  const jetonCompteurs = useRef(0) // la lecture des compteurs la plus récente (14/10)
+  const jetonFile = useRef(0) // la lecture de la file la plus récente
   const dernierCallIdRef = useRef("")
   const dejaAffiche = useRef(false)
   const lancerRef = useRef<(numero: string, contactId: string | null, depuisAuto?: boolean) => Promise<void>>(async () => {})
@@ -368,13 +370,18 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }, [])
 
   // Les repères : secteurs, compteurs des files, appels du jour, réserve de numéros.
+  // Les chiffres de MA base, toujours (Mahdi, 14/10 : « 2 100, puis 646 quand je clique ») :
+  // rien n'est compté tant que le compte n'est pas connu (sinon on compterait toute la base),
+  // et une réponse arrivée en retard n'écrase jamais une plus récente (jeton).
   const chargerReperes = useCallback(async () => {
+    if (!moiId) return
+    const jeton = ++jetonCompteurs.current
     const m = new Date()
     const [sect, cpt, app, parNumero, res] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
       chargerSecteurs().catch(() => [] as Secteur[]), compterFiles(m, proprietaire, debutRepos(m, reposJours), debutRepos(m, reposStandardJours)).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
     ])
-    if (!enVie.current) return
+    if (!enVie.current || jeton !== jetonCompteurs.current) return
     setSecteurs(sect)
     setCompteurs(cpt)
     // Le matin (Mahdi, 10/10) : d'abord « À rappeler aujourd'hui » s'il y en a, puis « À prospecter ».
@@ -399,17 +406,20 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }, [proprietaire, reposJours, reposStandardJours])
   // Recompter les piles (après un résultat, une tâche, un apporteur) ; en échec : « — ».
   const recompterFiles = useCallback(() => {
+    const jeton = ++jetonCompteurs.current
     compterFilesRef.current(new Date())
       .then((x) => {
-        if (enVie.current) setCompteurs(x)
+        if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(x)
       })
       .catch(() => {
-        if (enVie.current) setCompteurs(null)
+        if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(null)
       })
   }, [])
 
   // La file : rechargée quand on change de file, de secteur, ou la case des déjà appelées.
   const chargerLaFile = useCallback(async () => {
+    if (!moiId) return // la base n'est connue qu'avec le compte
+    const jeton = ++jetonFile.current
     setChargementFile(true)
     try {
       const m = new Date()
@@ -429,7 +439,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         agencesAppeleesAujourdHui(m),
         reposBase,
       ])
-      if (!enVie.current) return
+      if (!enVie.current || jeton !== jetonFile.current) return // une lecture plus récente est en route
       setAppelees(app)
       const retenues = agences
         .filter((a) => sourcage === "" || (sourcage === "sourcees" ? a.nbContacts > 0 : a.nbContacts === 0))
@@ -439,9 +449,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
-      if (enVie.current) setChargementFile(false)
+      if (enVie.current && jeton === jetonFile.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, reposJours, reposStandardJours])
+  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, reposJours, reposStandardJours, moiId])
 
   useEffect(() => {
     enVie.current = true
