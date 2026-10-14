@@ -15,6 +15,8 @@ import { dansLaFenetreDeRappel, debutDuJour, finDuJour, heureCourte, libelleRela
 import { Bandeau, Bouton, Carte, Pastille } from "../ui"
 
 const RELIRE_MS = 60_000
+// Tenir dans l'écran (Mahdi, 14/10 : « ils débordent ») : trois rappels visibles, le reste replié.
+const VISIBLES = 3
 const HORLOGE_MS = 30_000
 
 function libelleType(type: string): string {
@@ -34,6 +36,7 @@ export default function RappelsRdv() {
   const [ignores, setIgnores] = useState<Set<string>>(() => new Set())
   // « Fait » refusé par la base (13/10) : on le dit, au lieu de faire réapparaître le RDV sans un mot.
   const [erreur, setErreur] = useState("")
+  const [tousVisibles, setTousVisibles] = useState(false)
   // Les RDV déjà signalés par une notification (pour ne pas la répéter), et la
   // dernière liste lue (l'horloge la relit entre deux lectures de la base).
   const notifiesRef = useRef<Set<string>>(new Set())
@@ -98,10 +101,21 @@ export default function RappelsRdv() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[80] flex w-80 flex-col gap-2">
+    // La pile ne dépasse jamais la fenêtre (largeur et hauteur bornées, défilement interne) et reste
+    // au-dessus de la bulle Ringover du coin bas-droit, qui recouvrait le bouton « Fait ».
+    <div className="fixed bottom-20 right-4 z-[80] flex max-h-[calc(100dvh-6rem)] w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto overscroll-contain">
       {erreur ? <Bandeau role="alerte" className="shadow-flottante" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
-      {actifs.map((r) => (
-        <Carte key={r.id} className="p-3 shadow-flottante">
+      {actifs.length > VISIBLES ? (
+        <button
+          type="button"
+          onClick={() => setTousVisibles((v) => !v)}
+          className="shrink-0 rounded-4 border border-trait bg-fond px-3 py-2 text-left text-legende font-medium text-encre shadow-flottante hover:bg-fond-4"
+        >
+          {tousVisibles ? "Replier les rappels" : `+ ${actifs.length - VISIBLES} autre${actifs.length - VISIBLES > 1 ? "s" : ""} rappel${actifs.length - VISIBLES > 1 ? "s" : ""} de RDV`}
+        </button>
+      ) : null}
+      {(tousVisibles ? actifs : actifs.slice(0, VISIBLES)).map((r) => (
+        <Carte key={r.id} className="shrink-0 p-3 shadow-flottante">
           <div className="flex items-start gap-3">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-4 bg-signature-doux text-signature"><Clock size={16} /></span>
             <div className="min-w-0 flex-1">

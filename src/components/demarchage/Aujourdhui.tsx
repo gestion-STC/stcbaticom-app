@@ -182,13 +182,14 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const ligneTache = (t: TacheAgenda, dansRetard = false) => {
     const retard = estEnRetard(t, maintenant)
     return (
-      <li key={t.id} className="flex items-center gap-3 border-b border-fond-4 px-5 py-2 last:border-b-0">
+      // Les boutons passent sous le texte quand la carte est étroite, au lieu d'en sortir (14/10).
+      <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-fond-4 px-5 py-2 last:border-b-0">
         <span className="w-14 shrink-0">
           <span className={"chiffres block text-legende font-semibold " + (retard ? "text-alerte" : "text-encre")}>{t.echeance ? heureCourte(t.echeance) : "—"}</span>
           {dansRetard && t.echeance ? <span className="block text-colonne text-encre-2">{libelleRelatif(t.echeance, maintenant)}</span> : null}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
+        <span className="min-w-[12rem] flex-1">
+          <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-corps font-medium text-encre">{t.titre || (t.type === "rdv" ? "RDV" : "Tâche")}</span>
             {t.type === "rdv" ? <Pastille role="info" className="shrink-0">{iconeRdv(t.rdvType)} {libelleRdv(t.rdvType)}</Pastille> : null}
           </span>
@@ -199,7 +200,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
             {t.note ? ` · ${t.note}` : ""}
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-0.5">
+        <span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-0.5">
           <Bouton variante="discret" taille="sm" icone={<Phone />} disabled={occupe} onClick={() => onOuvrirSession?.(t.agenceId)}>Appeler</Bouton>
           <Bouton variante="discret" taille="sm" icone={<Check />} disabled={occupe} onClick={() => terminer(t)}>Fait</Bouton>
           <Bouton variante="discret" taille="sm" icone={<CalendarClock />} disabled={occupe} onClick={() => ouvrirReport(t)}>Reporter</Bouton>
