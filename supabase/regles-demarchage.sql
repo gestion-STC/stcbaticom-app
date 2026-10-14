@@ -121,7 +121,68 @@ end $$;
 drop trigger if exists activites_touche_agence on public.activites;
 create trigger activites_touche_agence after insert on public.activites for each row execute function public.activites_touche_agence();
 
--- ── Le secteur fait foi ──
+-- ── Qui a quelle agence (Mahdi, 14/10) ──
+-- Le SECTEUR décide pour la prospection. Une agence TRAVAILLÉE reste à celui qui l'a travaillée,
+-- même si son secteur appartient à un collègue : « chacun ses clients ».
+-- Travaillée = gestionnaire joint, intéressée, RDV, cliente, ou un rappel / RDV encore prévu.
+-- Pas travaillée = à prospecter sans rien de prévu, endormie, pas intéressée, hors cible.
+create or replace function public.agence_travaillee(p_etape text, p_agence_id uuid) returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select case
+    when p_etape in ('pas_interesse', 'hors_cible', 'endormie') then false
+    when p_etape in ('gestionnaire_joint', 'interesse', 'rdv_planifie', 'client') then true
+    else exists (select 1 from public.activites t where t.agence_id = p_agence_id and t.type in ('tache', 'rdv') and t.fait_le is null)
+  end
+$$;
+grant execute on function public.agence_travaillee(text, uuid) to authenticated;
+
+-- Le propriétaire qu'une agence doit avoir après un changement : celui qui vient de la travailler
+-- si elle ne l'était pas ; le démarcheur de son secteur si elle cesse de l'être ; sinon, inchangé.
+create or replace function public.agence_proprietaire_apres(p_agence_id uuid, p_etape_avant text, p_etait_travaillee boolean, p_etape_apres text, p_qui uuid)
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+declare
+  a public.agences%rowtype;
+  v_apres boolean;
+begin
+  select * into a from public.agences where id = p_agence_id;
+  if not found or a.type = 'apporteur' then return a.commercial_id; end if;
+  v_apres := public.agence_travaillee(p_etape_apres, p_agence_id);
+  -- Elle vient d'être travaillée (joint, intéressée, RDV, rappel promis) : elle est à celui qui l'a fait.
+  -- Une cliente ne change pas de main en devenant cliente.
+  if v_apres and not p_etait_travaillee and p_qui is not null and p_etape_apres <> 'client' then return p_qui; end if;
+  -- Elle n'est plus travaillée : elle retourne au démarcheur de son secteur.
+  if not v_apres and p_etait_travaillee and a.secteur is not null then
+    return (select s.commercial_id from public.secteurs s where s.code = a.secteur);
+  end if;
+  return a.commercial_id;
+end $$;
+
+-- Une étape changée à la main (fiche, liste) : même règle. L'appel noté s'en charge lui-même.
+create or replace function public.agence_suit_qui_la_travaille() returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  if coalesce(current_setting('app.proprietaire_gere', true), '') = '1' then return new; end if;
+  if new.type = 'apporteur' or new.etape is not distinct from old.etape then return new; end if;
+  if new.commercial_id is distinct from old.commercial_id then return new; end if; -- attribuée à la main en même temps
+  new.commercial_id := public.agence_proprietaire_apres(new.id, old.etape, public.agence_travaillee(old.etape, new.id), new.etape, auth.uid());
+  return new;
+end $$;
+drop trigger if exists agences_suit_qui_la_travaille on public.agences;
+create trigger agences_suit_qui_la_travaille before update of etape on public.agences for each row execute function public.agence_suit_qui_la_travaille();
+
+-- ── Le secteur fait foi pour la prospection ──
 create or replace function public.agence_suit_son_secteur() returns trigger
 language plpgsql
 security definer
@@ -130,6 +191,8 @@ as $$
 begin
   if new.secteur is not null and new.type <> 'apporteur'
      and (tg_op = 'INSERT' or new.secteur is distinct from old.secteur) then
+    -- Une agence travaillée garde celui qui l'a travaillée, même si son secteur change.
+    if tg_op = 'UPDATE' and public.agence_travaillee(new.etape, new.id) and new.commercial_id is not null then return new; end if;
     new.commercial_id := (select s.commercial_id from public.secteurs s where s.code = new.secteur);
   end if;
   return new;
@@ -148,13 +211,16 @@ begin
   if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') <> 'admin' then
     raise exception 'Réservé aux admins.';
   end if;
+  -- Les agences travaillées (avec un propriétaire) ne changent pas de main avec le secteur.
   if coalesce(p_secteur, '') <> '' then
     update public.secteurs set commercial_id = p_compte_id where code = p_secteur;
     update public.agences set commercial_id = p_compte_id
-     where secteur = p_secteur and type <> 'apporteur' and commercial_id is distinct from p_compte_id;
+     where secteur = p_secteur and type <> 'apporteur' and commercial_id is distinct from p_compte_id
+       and not (commercial_id is not null and public.agence_travaillee(etape, id));
   else
     update public.agences set commercial_id = p_compte_id
-     where coalesce(secteur, '') = '' and type <> 'apporteur' and commercial_id is distinct from p_compte_id;
+     where coalesce(secteur, '') = '' and type <> 'apporteur' and commercial_id is distinct from p_compte_id
+       and not (commercial_id is not null and public.agence_travaillee(etape, id));
   end if;
   get diagnostics v_n = row_count;
   return v_n;
@@ -197,6 +263,8 @@ declare
   v_tache uuid;
   v_contact text := '';
   v_interessee boolean;
+  v_etait_travaillee boolean;
+  v_proprietaire uuid;
   v_fin_jour timestamptz := (date_trunc('day', now() at time zone 'Europe/Paris') + interval '1 day') at time zone 'Europe/Paris';
   v_sommeil_apres integer := public.reglage_demarchage('sommeil_apres_tentatives');
   v_sommeil_jours integer := public.reglage_demarchage('sommeil_jours');
@@ -210,6 +278,7 @@ begin
     select trim(prenom || ' ' || nom) into v_contact from public.contacts where id = p_contact_id and agence_id = p_agence_id;
   end if;
   v_interessee := a.etape in ('interesse', 'rdv_planifie');
+  v_etait_travaillee := public.agence_travaillee(a.etape, p_agence_id);
   perform set_config('app.appel_en_cours', '1', true);
 
   -- Déjà noté (double clic, ou réponse perdue puis nouvel essai) : on ne réécrit rien, on renvoie l'état.
@@ -300,11 +369,15 @@ begin
   end if;
   perform set_config('app.appel_en_cours', '', true);
 
+  -- 4. Qui a l'agence (14/10) : celui qui vient de la travailler, ou le démarcheur de son secteur.
+  v_proprietaire := public.agence_proprietaire_apres(p_agence_id, a.etape, v_etait_travaillee, v_etape, v_compte);
+  perform set_config('app.proprietaire_gere', '1', true);
   update public.agences set
     tentatives = a.tentatives, joint_fois = a.joint_fois, reveil_le = a.reveil_le,
     motif = case when v_etape = 'pas_interesse' then a.motif else motif end,
-    etape = v_etape, derniere_activite_le = now()
+    etape = v_etape, derniere_activite_le = now(), commercial_id = v_proprietaire
   where id = p_agence_id;
+  perform set_config('app.proprietaire_gere', '', true);
 
   return jsonb_build_object('appel_id', v_appel, 'tache_id', v_tache, 'etape', v_etape, 'tentatives', a.tentatives, 'joint_fois', a.joint_fois);
 end $$;
@@ -662,9 +735,13 @@ as $$
                               and x.resultat in ('pas_de_reponse', 'standard')
                               and x.date > coalesce((select max(y.date) from public.activites y where y.agence_id = a.id and y.type = 'appel' and y.sens <> 'entrant' and y.resultat = 'joint'), '-infinity'::timestamptz))
     union all
-    select 'proprietaire_hors_secteur', 'Agence attribuée à quelqu''un d''autre que le démarcheur de son secteur', a.nom
+    select 'proprietaire_hors_secteur', 'Agence à prospecter attribuée à quelqu''un d''autre que le démarcheur de son secteur', a.nom
       from public.agences a join public.secteurs s on s.code = a.secteur
-     where a.type <> 'apporteur' and a.commercial_id is distinct from s.commercial_id
+     where a.type <> 'apporteur' and a.commercial_id is distinct from s.commercial_id and not public.agence_travaillee(a.etape, a.id)
+    union all
+    select 'travaillee_sans_proprietaire', 'Agence travaillée (joint, intéressée, RDV, rappel prévu) qui n''est à personne : personne ne la voit en session', a.nom
+      from public.agences a
+     where a.type <> 'apporteur' and a.commercial_id is null and a.etape <> 'client' and public.agence_travaillee(a.etape, a.id)
     union all
     select 'mail_sans_agence', 'E-mail de démarchage envoyé sans agence (invisible sur les fiches)', m.a
       from public.messages m where m.espace = 'demarchage' and m.sens = 'sortant' and m.agence_id is null and m.created_at >= '2026-10-09'
@@ -683,13 +760,16 @@ as $$
       ('activites_relance_continue', '277f6b48012f23a8b1b17e557dd191cf'),
       ('activites_touche_agence', '9d1cd0ea5bd09eac1ad897a706b74b1c'),
       ('agence_premier_os', 'ec639a4844d765424b15d87f25eb2bb8'),
-      ('agence_suit_son_secteur', '6e7ba90b69d6e285a6ced23b0152f01a'),
+      ('agence_proprietaire_apres', '0d9c85db7743982e041d83cf23087e62'),
+      ('agence_suit_qui_la_travaille', 'b74c9ee0363298df0d79486225b23128'),
+      ('agence_suit_son_secteur', '0286513920c2afbd2d44fbfe9fa5211f'),
+      ('agence_travaillee', '9558429fb3bbcb0320ed6bd43fb8caa2'),
       ('agences_etape_journal', 'fc6f7ba67ce22c7dc068d2559317e3db'),
       ('agences_etape_relances', '8d48310d52142575ba5bf13577d055e5'),
-      ('appel_enregistrer', '4643e64638e09b991293bdf459f60179'),
+      ('appel_enregistrer', '1491e247edeb2dcc62d1a7b3e666db02'),
       ('appel_lancer', '1a7719fcc50f051173c9dc47b44fabe4'),
       ('appel_verifier', '4a43fb962df39012cb0b46f3c659c2d2'),
-      ('attribuer_secteur', '36fed4398857d71bcd61cf41c66c8b23'),
+      ('attribuer_secteur', '2d906b0c4410314a11af47bd381f12b3'),
       ('compter_piles', '39d8a4494285f07bac32bcee6230b5c8'),
       ('demarchage_echeance', 'a2efbf4b3e0b715a9fb230baadb6729f'),
       ('demarchage_repos', '3b158381ab900dc40ff7c5c4c1a42e8d'),
@@ -704,7 +784,7 @@ as $$
                         where n.nspname = 'public' and p.proname = e.nom and md5(replace(p.prosrc, chr(13), '')) = e.empreinte)
     union all
     select 'declencheur_absent', 'Déclencheur des règles absent ou désactivé', d.nom
-      from (values ('agences_etape_journal'), ('agences_etape_relances'), ('agences_suit_son_secteur'), ('activites_touche_agence'),
+      from (values ('agences_etape_journal'), ('agences_etape_relances'), ('agences_suit_son_secteur'), ('agences_suit_qui_la_travaille'), ('activites_touche_agence'),
                    ('activites_relance_continue'), ('messages_rattacher_agence')) as d(nom)
      where not exists (select 1 from pg_trigger t where t.tgname = d.nom and t.tgenabled <> 'D')
   )

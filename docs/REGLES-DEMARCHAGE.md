@@ -37,7 +37,8 @@ Test : « les réglages : une seule source, lue par toutes les règles ».
 
 | Règle | Où | Test |
 |---|---|---|
-| Le **secteur** fait foi : une agence appartient au démarcheur de son secteur | `agence_suit_son_secteur`, `attribuer_secteur` | « le secteur fait foi » |
+| Le **secteur** décide pour la **prospection** : une agence jamais travaillée appartient au démarcheur de son secteur | `agence_suit_son_secteur`, `attribuer_secteur` | « le secteur fait foi » |
+| Une agence **travaillée** (joint, intéressée, RDV, rappel prévu, cliente) reste à **celui qui l’a travaillée**, même si le secteur change de main ; elle retourne au secteur si elle n’est plus travaillée (pas intéressée, hors cible, endormie) — Mahdi, 14/10 : « chacun ses clients » | `agence_travaillee`, `agence_proprietaire_apres`, `appel_enregistrer`, `agence_suit_qui_la_travaille` | « qui a quelle agence » |
 | Chacun ne voit que **sa base** | `pile_demarchage(p_proprietaire)` | « chacun sa base » |
 
 ## Les piles (un seul calcul : `pile_demarchage`, compteurs : `compter_piles`)
