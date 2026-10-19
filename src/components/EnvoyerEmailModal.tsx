@@ -4,7 +4,7 @@ import type { Destinataire } from "../lib/destinataire"
 import { variables, type Email, type PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
 import { useSession } from "../lib/auth"
-import { nomAffiche } from "../lib/comptes"
+import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
@@ -23,9 +23,11 @@ import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Selecteur, Zone 
 // Un seul e-mail part, avec tout le monde dedans.
 export default function EnvoyerEmailModal({ destinataire, onClose }: { destinataire: Destinataire; onClose: () => void }) {
   const [emails, setEmails] = useState<Email[]>([])
-  // Signature STC Bâtiment au nom du compte connecté : chacun signe de son nom.
+  // Signature STC Bâtiment : le compte signe de son nom, ou d'un autre nom qu'il
+  // a réglé dans Paramétrage › Emails › Mes signatures (Mahdi, 19/10/2026 :
+  // « laisse-moi choisir la signature que je vais utiliser »).
   const session = useSession()
-  const nomSignataire = nomAffiche(session)
+  const { noms: signataires, nom: nomSignataire, choisir: choisirSignataire } = useSignataires(session)
   const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
   const prenomCommercial = prenomDe(nomSignataire)
   const [modeleId, setModeleId] = useState("")
@@ -220,6 +222,15 @@ export default function EnvoyerEmailModal({ destinataire, onClose }: { destinata
             ))}
           </Selecteur>
         </Etiquette>
+        {signataires.length > 1 ? (
+          <Etiquette texte="Signé par" aide="Les autres noms se règlent dans Paramétrage › Emails › Mes signatures.">
+            <Selecteur value={nomSignataire} onChange={(e) => choisirSignataire(e.target.value)}>
+              {signataires.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Selecteur>
+          </Etiquette>
+        ) : null}
         <Etiquette texte="Objet">
           <Champ value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex. Suite à notre échange" />
         </Etiquette>

@@ -10,6 +10,7 @@ import { apercu, type Email } from "../emails"
 import { supabaseConfigure } from "../lib/supabase"
 import { chargerEmails, creerEmail, majEmail, supprimerEmail } from "../lib/emailsDb"
 import { lireParametre, ecrireParametre } from "../lib/parametresDb"
+import { ajouterSignature, ecrireSignatures, lireSignatures, motifRefusSignature, retirerSignature } from "../lib/signatures"
 import { useSession } from "../lib/auth"
 import { nomAffiche } from "../lib/comptes"
 import { signatureStc } from "../lib/signatureStc"
@@ -73,6 +74,57 @@ export default function EmailsManager() {
     }
   }
 
+  // Les AUTRES noms qui peuvent signer pour ce compte (Mahdi, 19/10/2026 :
+  // « ajoute-moi une deuxième signature, Alexandre Parade »). Même format,
+  // seul le nom change ; à l'envoi, un sélecteur « Signé par » les propose.
+  const compteId = session?.user?.id ?? ""
+  const [autresSignatures, setAutresSignatures] = useState<string[]>([])
+  const [signaturesChargees, setSignaturesChargees] = useState(false)
+  const [nouvelleSignature, setNouvelleSignature] = useState("")
+  const [erreurSignature, setErreurSignature] = useState<string | null>(null)
+  useEffect(() => {
+    if (!compteId) return
+    let annule = false
+    lireSignatures(compteId)
+      .catch(() => [] as string[])
+      .then((liste) => {
+        if (annule) return
+        setAutresSignatures(liste)
+        setSignaturesChargees(true)
+      })
+    return () => {
+      annule = true
+    }
+  }, [compteId])
+
+  async function ajouterUneSignature() {
+    const motif = motifRefusSignature(autresSignatures, nouvelleSignature, nomAffiche(session))
+    if (motif) {
+      setErreurSignature(motif)
+      return
+    }
+    const liste = ajouterSignature(autresSignatures, nouvelleSignature)
+    try {
+      await ecrireSignatures(compteId, liste)
+      setAutresSignatures(liste)
+      setNouvelleSignature("")
+      setErreurSignature(null)
+    } catch (e) {
+      setErreurSignature("Signature non enregistrée. Détail : " + message(e))
+    }
+  }
+
+  async function retirerUneSignature(nom: string) {
+    const liste = retirerSignature(autresSignatures, nom)
+    try {
+      await ecrireSignatures(compteId, liste)
+      setAutresSignatures(liste)
+      setErreurSignature(null)
+    } catch (e) {
+      setErreurSignature("Signature non retirée. Détail : " + message(e))
+    }
+  }
+
   async function enregistrer(em: Email) {
     if (modal?.mode === "edit" && modal.email.id) {
       setEmails((arr) => arr.map((x) => (x.id === modal.email.id ? { ...em, id: x.id } : x)))
@@ -113,17 +165,48 @@ export default function EmailsManager() {
         </Bandeau>
       ) : null}
 
-      {/* Une seule signature dans tout le logiciel : celle de STC Bâtiment
-          (Mahdi, 07/10/2026). Pour le compte connecté, elle porte son nom ;
-          pour les envois automatiques des règles, le nom réglé plus bas. */}
+      {/* Un seul format de signature dans tout le logiciel : celui de STC Bâtiment
+          (Mahdi, 07/10/2026). Pour le compte connecté, elle porte son nom — ou
+          l'un des autres noms qu'il a ajoutés ici (19/10/2026) ; pour les envois
+          automatiques des règles, le nom réglé à droite. */}
       <div className="grid gap-5 xl:grid-cols-2">
         <Carte>
-          <TitreCarte>Ma signature</TitreCarte>
+          <TitreCarte>Mes signatures</TitreCarte>
           <div className="px-5 pb-5">
             <p className="mb-3 text-legende text-encre-2">
-              La signature STC Bâtiment, à ton nom. Elle part avec chaque e-mail envoyé depuis le logiciel. Pour changer le nom : onglet Comptes.
+              La signature STC Bâtiment, à ton nom (pour le changer : onglet Comptes). Tu peux y ajouter d'autres noms, même format : au moment d'envoyer, tu choisis qui signe.
             </p>
             <div className="signature-edit rounded-4 border border-trait bg-fond-2 px-4 pb-4 text-corps" dangerouslySetInnerHTML={{ __html: signatureCompte }} />
+            <p className="mb-2 mt-4 text-legende font-medium text-encre">Autres noms qui peuvent signer</p>
+            {autresSignatures.length ? (
+              <ul className="divide-y divide-fond-4 rounded-4 border border-trait">
+                {autresSignatures.map((n) => (
+                  <li key={n} className="flex items-center gap-2 px-3 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-legende text-encre">{n}</span>
+                    <span className="shrink-0 text-colonne text-encre-2">Gestion · même signature</span>
+                    <Bouton variante="discret" taille="icone" aria-label={`Retirer ${n}`} title="Retirer" icone={<Trash2 />} onClick={() => retirerUneSignature(n)} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-colonne text-encre-2">{signaturesChargees ? "Aucun autre nom : seul le nom du compte signe." : "Lecture…"}</p>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Champ
+                id="nouvelle-signature"
+                value={nouvelleSignature}
+                onChange={(e) => setNouvelleSignature(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void ajouterUneSignature() }}
+                placeholder="Ex. Alexandre Parade"
+                aria-label="Nouveau nom qui peut signer"
+                disabled={!signaturesChargees}
+                className="w-72"
+              />
+              <Bouton icone={<Plus />} disabled={!signaturesChargees} onClick={ajouterUneSignature}>
+                Ajouter
+              </Bouton>
+            </div>
+            {erreurSignature ? <p className="mt-1 text-colonne text-alerte">{erreurSignature}</p> : null}
           </div>
         </Carte>
 
