@@ -46,7 +46,7 @@ import {
   type Message,
 } from "../lib/messagesDb"
 import { useSession } from "../lib/auth"
-import { nomAffiche } from "../lib/comptes"
+import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { apercuTexte, dateCourte, nomCorrespondant, objetReponse, objetTransfert } from "../lib/messagesUtils"
 import {
@@ -60,7 +60,7 @@ import {
 } from "../lib/conversations"
 import { formatTaille } from "../lib/stockage"
 import { supabase } from "../lib/supabase"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Vide, Zone } from "../ui"
+import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Selecteur, Vide, Zone } from "../ui"
 import FicheArtisan from "./recrutement/FicheArtisan"
 
 type Conv = Conversation<Message>
@@ -240,10 +240,27 @@ function ChampCompo({ libelle, children }: { libelle: string; children: ReactNod
   )
 }
 
+// Qui signe (19/10/2026) : visible seulement quand le compte a plusieurs noms
+// (Paramétrage › Emails › Mes signatures). Le choix vaut pour les réponses,
+// les transferts et les nouveaux messages.
+function SigneParCompo({ noms, nom, onChange }: { noms: string[]; nom: string; onChange: (n: string) => void }) {
+  return (
+    <label className="ml-auto flex min-w-0 items-center gap-2 text-legende text-encre-2">
+      <span className="shrink-0">Signé par</span>
+      <Selecteur value={nom} onChange={(e) => onChange(e.target.value)} aria-label="Signé par" className="w-48">
+        {noms.map((n) => (
+          <option key={n} value={n}>{n}</option>
+        ))}
+      </Selecteur>
+    </label>
+  )
+}
+
 export default function Messages({ espace }: { espace: Espace }) {
-  // Signature STC Bâtiment au nom du compte connecté, pour tout ce qui part d'ici.
+  // Signature STC Bâtiment pour tout ce qui part d'ici : le nom du compte, ou un
+  // autre nom réglé dans Paramétrage › Emails › Mes signatures (19/10/2026).
   const session = useSession()
-  const nomSignataire = nomAffiche(session)
+  const { noms: signataires, nom: nomSignataire, choisir: choisirSignataire } = useSignataires(session)
   const signatureHtml = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
   const prenomCommercial = prenomDe(nomSignataire)
 
@@ -599,6 +616,7 @@ export default function Messages({ espace }: { espace: Espace }) {
                           <Trash2 />
                         </Bouton>
                         {envoiErreur && <span className="text-legende text-alerte">{envoiErreur}</span>}
+                        {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
                       </div>
                     </div>
                   </div>
@@ -694,6 +712,7 @@ export default function Messages({ espace }: { espace: Espace }) {
               <Trash2 />
             </Bouton>
             {envoiErreur && <span className="min-w-0 truncate text-legende text-alerte">{envoiErreur}</span>}
+            {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
           </div>
         </div>
       )}
