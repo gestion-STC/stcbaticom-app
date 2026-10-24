@@ -63,11 +63,11 @@ Deno.serve(async (req: Request) => {
     }
     // L'appel est fini : on réveille son analyse par l'IA (mail + argumentaire, 24/10/2026), sans
     // attendre le passage de secours. Sans réponse attendue ici : l'analyse peut prendre une minute.
-    const jetonAnalyse = Deno.env.get("RINGOVER_WEBHOOK_JETON") ?? ""
-    if (callId && jetonAnalyse) {
-      const reveil = fetch(supaUrl + "/functions/v1/analyser-appel?cle=" + encodeURIComponent(jetonAnalyse), {
+    // La clé de service (fournie par Supabase aux deux fonctions) suffit : rien à poser.
+    if (callId && srk) {
+      const reveil = fetch(supaUrl + "/functions/v1/analyser-appel", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + srk },
         body: JSON.stringify({ call_id: callId }), // le call_id voyage en TEXTE (> 2^53)
       }).catch(() => {})
       const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime

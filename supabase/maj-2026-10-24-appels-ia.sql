@@ -14,8 +14,7 @@
 --      secours (toutes les 2 minutes) réessaie.
 -- Le mail n'est JAMAIS envoyé tout seul : le commercial le relit et l'envoie.
 --
--- À coller dans l'éditeur SQL de Supabase (projet Baticom). Rejouable.
--- ⚠ Remplacer <CLE_PASSAGE> par la valeur du secret ANALYSE_PASSAGE_CLE de la fonction.
+-- À coller dans l'éditeur SQL de Supabase (projet Baticom). Rejouable, rien à remplacer.
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- ── 1. La table ──
@@ -78,6 +77,9 @@ create trigger activites_appels_ia
   for each row execute function public.appels_ia_inscrire();
 
 -- ── 3. Le passage de secours, toutes les 2 minutes (enregistrement pas encore prêt, erreur passagère) ──
+-- Sa clé est tirée au hasard ici et rangée en base : la fonction la relit, aucun secret à saisir.
+insert into public.parametres (cle, valeur) values ('analyse_passage_cle', replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
+on conflict (cle) do nothing;
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.unschedule('analyser-appels') where exists (select 1 from cron.job where jobname = 'analyser-appels');
@@ -87,7 +89,7 @@ select cron.schedule(
   $cron$
   select net.http_post(
     url     := 'https://ifvrmsiwlwppinfdmeao.supabase.co/functions/v1/analyser-appel',
-    headers := jsonb_build_object('Content-Type', 'application/json', 'x-passage-cle', '<CLE_PASSAGE>'),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-passage-cle', (select valeur from public.parametres where cle = 'analyse_passage_cle')),
     body    := '{}'::jsonb,
     timeout_milliseconds := 5000
   )

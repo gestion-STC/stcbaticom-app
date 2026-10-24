@@ -6,9 +6,11 @@
 // Trois portes d'entrée, une seule mécanique :
 //   · l'écran, juste après « Valider le résultat » : { activite_id } avec la session
 //     du commercial (Authorization: Bearer <jeton>) — c'est le chemin « tout de suite » ;
-//   · le webhook Ringover (?cle=…, via ringover-webhook) : { call_id } ;
+//   · le webhook Ringover (ringover-webhook, publié sous « clever-responder ») : { call_id },
+//     avec la clé de service (les deux fonctions la reçoivent de Supabase, rien à poser) ;
 //   · le passage de secours toutes les 2 minutes (en-tête x-passage-cle) : {} →
-//     reprend ce que l'enregistrement pas encore prêt a fait attendre.
+//     reprend ce que l'enregistrement pas encore prêt a fait attendre. Sa clé est rangée
+//     en base (parametres.analyse_passage_cle, posée par le SQL) : aucun secret à saisir.
 //
 // Chaque appel est RÉSERVÉ avant d'être traité (statut en_cours, une seule écriture
 // conditionnelle) : l'écran et le passage de secours ne paient jamais deux fois la
@@ -16,8 +18,7 @@
 //
 // Le mail n'est JAMAIS envoyé ici : il est rangé en brouillon, le commercial le relit.
 //
-// Secrets : RINGOVER_API_KEY (déjà là), ELEVENLABS_API_KEY, ANTHROPIC_API_KEY,
-// ANALYSE_PASSAGE_CLE (le passage de secours), RINGOVER_WEBHOOK_JETON (facultatif).
+// Secrets : RINGOVER_API_KEY (déjà là), ELEVENLABS_API_KEY, ANTHROPIC_API_KEY (à saisir, les mêmes que STC Bâtiment).
 // ⚠ call_id > 2^53 : toujours en TEXTE (pièges §8.1 de CLAUDE.md).
 // Déployer avec « Verify JWT » DÉSACTIVÉ (le passage de secours et le webhook n'ont
 // pas de session) : la fonction vérifie elle-même qui l'appelle.
@@ -281,17 +282,21 @@ async function compteConnecte(req: Request): Promise<boolean> {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405)
-  const passage = Deno.env.get("ANALYSE_PASSAGE_CLE") || ""
-  const jetonWebhook = Deno.env.get("RINGOVER_WEBHOOK_JETON") || ""
-  const url = new URL(req.url)
-  const parPassage = passage.length > 0 && req.headers.get("x-passage-cle") === passage
-  const parWebhook = jetonWebhook.length > 0 && url.searchParams.get("cle") === jetonWebhook
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
+  const clePassage = req.headers.get("x-passage-cle") || ""
+  let parPassage = false
+  if (clePassage) {
+    const { data } = await sb.from("parametres").select("valeur").eq("cle", "analyse_passage_cle").maybeSingle()
+    const attendue = String((data as { valeur?: unknown } | null)?.valeur ?? "").replace(/^"|"$/g, "")
+    parPassage = attendue.length >= 20 && clePassage === attendue
+  }
+  const jeton = (req.headers.get("Authorization") || "").replace(/^Bearers+/i, "")
+  const parWebhook = !parPassage && jeton.length > 0 && jeton === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "")
   const parEcran = !parPassage && !parWebhook && await compteConnecte(req)
   if (!parPassage && !parWebhook && !parEcran) return json({ error: "non autorisé" }, 401)
   for (const s of ["RINGOVER_API_KEY", "ELEVENLABS_API_KEY", "ANTHROPIC_API_KEY"]) {
     if (!Deno.env.get(s)) return json({ error: `Secret ${s} manquant sur la fonction analyser-appel` }, 500)
   }
-  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   const texte = await req.text()
   let corps: { activite_id?: string } = {}
   try { corps = texte ? JSON.parse(texte) : {} } catch { /* corps libre (webhook) */ }
