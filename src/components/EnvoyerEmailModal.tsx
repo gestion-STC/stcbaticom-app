@@ -21,7 +21,9 @@ import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Selecteur, Zone 
 // Destinataires (Mahdi, 08-09/10) : « À » accepte plusieurs adresses séparées
 // par une virgule ; « Cc » et « Cci » s'ouvrent d'un clic, comme dans Gmail.
 // Un seul e-mail part, avec tout le monde dedans.
-export default function EnvoyerEmailModal({ destinataire, onClose }: { destinataire: Destinataire; onClose: () => void }) {
+// `brouillon` (24/10/2026) : le mail préparé par l'IA après un appel. Il remplace le 1er modèle,
+// reste modifiable, et `onEnvoye` prévient quand il est réellement parti.
+export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, onEnvoye }: { destinataire: Destinataire; onClose: () => void; brouillon?: { objet: string; corps: string }; onEnvoye?: () => void }) {
   const [emails, setEmails] = useState<Email[]>([])
   // Signature STC Bâtiment : le compte signe de son nom, ou d'un autre nom qu'il
   // a réglé dans Paramétrage › Emails › Mes signatures (Mahdi, 19/10/2026 :
@@ -35,8 +37,8 @@ export default function EnvoyerEmailModal({ destinataire, onClose }: { destinata
   const [ccTexte, setCcTexte] = useState("")
   const [cciTexte, setCciTexte] = useState("")
   const [copiesOuvertes, setCopiesOuvertes] = useState(false)
-  const [objet, setObjet] = useState("")
-  const [corps, setCorps] = useState("")
+  const [objet, setObjet] = useState(brouillon?.objet ?? "")
+  const [corps, setCorps] = useState(brouillon?.corps ?? "")
   const [envoi, setEnvoi] = useState(false)
   const [fait, setFait] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
@@ -80,8 +82,8 @@ export default function EnvoyerEmailModal({ destinataire, onClose }: { destinata
       .then((e) => {
         if (annule) return
         setEmails(e)
-        // On pré-remplit avec le 1er modèle, tout en le laissant modifiable.
-        if (e.length) {
+        // On pré-remplit avec le 1er modèle, tout en le laissant modifiable — sauf un brouillon de l'IA, gardé tel quel.
+        if (e.length && !brouillon) {
           setModeleId(e[0].id ?? "")
           setObjet(e[0].objet)
           setCorps(e[0].corps)
@@ -92,7 +94,7 @@ export default function EnvoyerEmailModal({ destinataire, onClose }: { destinata
     return () => {
       annule = true
     }
-  }, [])
+  }, [brouillon])
 
   // Ce qui part réellement : le contenu affiché à l'écran, pas le modèle d'origine.
   const aEnvoyer = useMemo<Email>(() => ({ nom: nomPourJournal(emails, modeleId), objet, corps, ordre: 0, pieces }), [emails, modeleId, objet, corps, pieces])
@@ -149,12 +151,14 @@ export default function EnvoyerEmailModal({ destinataire, onClose }: { destinata
     setEnvoi(true)
     try {
       await envoyerEmail(destinataire, aEnvoyer, signature, prenomCommercial, a, { cc, cci })
+      onEnvoye?.()
       setFait(true)
       setTimeout(onClose, 900)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       // « E-mail parti… » : le mail est PARTI, seul le rangement a échoué ; on ne laisse pas renvoyer (un doublon chez l'agence).
       if (msg.startsWith("E-mail parti")) {
+        onEnvoye?.()
         setAvertissement(msg)
         setFait(true)
         setEnvoi(false)

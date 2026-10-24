@@ -61,6 +61,19 @@ Deno.serve(async (req: Request) => {
         headers: { "Content-Type": "application/json" },
       })
     }
+    // L'appel est fini : on réveille son analyse par l'IA (mail + argumentaire, 24/10/2026), sans
+    // attendre le passage de secours. Sans réponse attendue ici : l'analyse peut prendre une minute.
+    // La clé de service (fournie par Supabase aux deux fonctions) suffit : rien à poser.
+    if (callId && srk) {
+      const reveil = fetch(supaUrl + "/functions/v1/analyser-appel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + srk },
+        body: JSON.stringify({ call_id: callId }), // le call_id voyage en TEXTE (> 2^53)
+      }).catch(() => {})
+      const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime
+      if (runtime) runtime.waitUntil(reveil)
+    }
+
     // Ménage : on efface les événements de plus de 7 jours (la table reste petite).
     const limite = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
     await fetch(supaUrl + "/rest/v1/appels_entrants?cree_le=lt." + encodeURIComponent(limite), {

@@ -8,6 +8,7 @@ import Aujourdhui from "./components/demarchage/Aujourdhui"
 import SessionCall from "./components/demarchage/SessionCall"
 import Agences from "./components/demarchage/Agences"
 import Agenda from "./components/demarchage/Agenda"
+import AnalyseAppels from "./components/demarchage/AnalyseAppels"
 import Apporteurs from "./components/demarchage/Apporteurs"
 import FicheAgence from "./components/demarchage/FicheAgence"
 import Messages from "./components/Messages"
@@ -111,6 +112,7 @@ function App() {
           {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
           {page === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
           {page === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
+          {page === "analyse" && <AnalyseAppels />}
           {page === "apporteurs" && <Apporteurs />}
           {page === "messages" && <Messages espace="demarchage" />}
           {page === "parametrage" && <Parametrage />}

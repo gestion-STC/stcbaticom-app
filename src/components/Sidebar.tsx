@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import {
+  Sparkles,
   LayoutDashboard,
   Users,
   Building2,
@@ -31,6 +32,7 @@ export type PageId =
   | "sessions"
   | "agences"
   | "agenda"
+  | "analyse"
   | "messages"
   | "apporteurs"
   | "st_machine"
@@ -52,6 +54,7 @@ const menuDemarchage: NavItem[] = [
   { id: "sessions", label: "Sessions de call", icon: PhoneCall },
   { id: "agences", label: "Agences", icon: Building2 },
   { id: "agenda", label: "Agenda", icon: Calendar },
+  { id: "analyse", label: "Analyse IA", icon: Sparkles },
   { id: "messages", label: "Boîte de réception", icon: Inbox },
   { id: "apporteurs", label: "Apporteurs d'affaires", icon: Archive },
 ]

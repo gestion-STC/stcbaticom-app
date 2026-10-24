@@ -42,6 +42,7 @@ import { destinataireDepuis } from "../../lib/destinataire"
 import { useReglages } from "../../demarchage/reglages"
 import { bilanDepuisAgence, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
+import { AppelsIaAgence } from "./MailsIa"
 
 const ICONES: Record<TypeActivite, ReactNode> = {
   appel: <Phone size={14} />, email: <Mail size={14} />, rdv: <CalendarDays size={14} />, tache: <SquareCheck size={14} />, note: <StickyNote size={14} />, etape: <ArrowRightLeft size={14} />,
@@ -397,6 +398,9 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
             </div>
           </Carte>
 
+          {/* ── Les appels analysés par l'IA (24/10/2026) : le mail préparé, le résumé ── */}
+          {agence ? <AppelsIaFiche agenceId={agence.id} /> : null}
+
           {/* ── 5. Le fil ── */}
           <Carte>
             <TitreCarte>Le fil</TitreCarte>
@@ -633,4 +637,9 @@ function FormulaireAjout({ type, heureRelance, contacts, maintenant, occupe, onA
       </div>
     </div>
   )
+}
+
+// Le bloc n'apparaît que s'il y a des appels analysés : une carte vide n'encombre pas la fiche.
+function AppelsIaFiche({ agenceId }: { agenceId: string }) {
+  return <AppelsIaAgence agenceId={agenceId} carte />
 }
