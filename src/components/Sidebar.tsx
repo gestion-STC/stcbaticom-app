@@ -178,7 +178,7 @@ export default function Sidebar({
       </nav>
 
       {/* Réglages, communs aux deux espaces ; Comptes réservé aux administrateurs. */}
-      <div className="space-y-0.5 border-t-[0.5px] border-trait px-3 pt-3">
+      <div className="space-y-0.5 border-t border-trait px-3 pt-3">
         <LigneMenu actif={active === "parametrage"} label="Réglages" Icon={SlidersHorizontal} onClick={() => onNavigate("parametrage")} />
         {estAdmin(session) ? <LigneMenu actif={active === "comptes"} label="Comptes" Icon={KeyRound} onClick={() => onNavigate("comptes")} /> : null}
       </div>
