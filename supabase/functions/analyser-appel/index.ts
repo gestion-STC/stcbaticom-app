@@ -3,7 +3,7 @@
 // (24/10/2026, Mahdi : « à la fin de l'appel, tout de suite le mail personnalisé
 // généré par l'IA ; et analyser les meilleurs argumentaires, ce qui tape »).
 //
-// Trois portes d'entrée, une seule mécanique :
+// Trois portes d'entrée, une seule mécanique (plus le contrôle « Vérifier », { verifier: true }) :
 //   · l'écran, juste après « Valider le résultat » : { activite_id } avec la session
 //     du commercial (Authorization: Bearer <jeton>) — c'est le chemin « tout de suite » ;
 //   · le webhook Ringover (ringover-webhook, publié sous « clever-responder ») : { call_id },
@@ -181,10 +181,10 @@ async function analyser(transcription: string, contexte: string, libelles: { arg
 
 /** Les libellés déjà employés (les plus fréquents d'abord) : l'IA les réutilise, les chiffres se comparent. */
 async function libellesConnus(sb: SupabaseClient): Promise<{ arguments: string[]; objections: string[] }> {
-  const { data } = await sb.from("appels_ia").select("analyse").eq("statut", "pret").order("cree_le", { ascending: false }).limit(400)
+  const { data } = await sb.from("appels_ia").select("analyse_detail").eq("statut", "pret").order("cree_le", { ascending: false }).limit(400)
   const compter = (cle: "arguments" | "objections") => {
     const n = new Map<string, number>()
-    for (const l of (data ?? []) as { analyse: Analyse | null }[]) for (const x of l.analyse?.[cle] ?? []) if (x.libelle) n.set(x.libelle, (n.get(x.libelle) ?? 0) + 1)
+    for (const l of (data ?? []) as { analyse_detail: Analyse | null }[]) for (const x of l.analyse_detail?.[cle] ?? []) if (x.libelle) n.set(x.libelle, (n.get(x.libelle) ?? 0) + 1)
     return [...n.entries()].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([k]) => k)
   }
   return { arguments: compter("arguments"), objections: compter("objections") }
@@ -259,7 +259,7 @@ async function traiter(sb: SupabaseClient, l: Ligne, attendreEnregistrement: boo
     await maj({
       statut: "pret", verrou_le: null, erreur: null, duree_s: duree || null, enregistrement_url: url,
       resume: a.resume, interet: a.interet,
-      analyse: { decideur_joint: a.decideur_joint, prochaine_etape: a.prochaine_etape, arguments: a.arguments, objections: a.objections, points_forts: a.points_forts, a_ameliorer: a.a_ameliorer },
+      analyse_detail: { decideur_joint: a.decideur_joint, prochaine_etape: a.prochaine_etape, arguments: a.arguments, objections: a.objections, points_forts: a.points_forts, a_ameliorer: a.a_ameliorer },
       mail_pertinent: a.mail.pertinent, mail_objet: a.mail.pertinent ? a.mail.objet : null, mail_corps: a.mail.pertinent ? a.mail.corps : null,
     })
     return "pret"
@@ -268,6 +268,56 @@ async function traiter(sb: SupabaseClient, l: Ligne, attendreEnregistrement: boo
     await maj({ statut: "erreur", tentatives: essais, verrou_le: null, prochain_essai: new Date(Date.now() + 120_000).toISOString(), erreur: String((e as Error)?.message ?? e).slice(0, 500) })
     return "erreur"
   }
+}
+
+// ── Le contrôle de mise en service (bouton « Vérifier » de l'onglet Analyse IA) ──
+// Teste chaque pièce SANS rien écrire ni rien payer : secrets posés, clés acceptées,
+// enregistrements présents chez Ringover, table et clé du passage de secours en place.
+type Controle = { nom: string; ok: boolean; detail: string }
+async function verifier(sb: SupabaseClient): Promise<Controle[]> {
+  const r: Controle[] = []
+  const essai = async (nom: string, f: () => Promise<string>) => {
+    try { r.push({ nom, ok: true, detail: await f() }) } catch (e) { r.push({ nom, ok: false, detail: String((e as Error)?.message ?? e).slice(0, 300) }) }
+  }
+  await essai("Table des appels analysés", async () => {
+    const { count, error } = await sb.from("appels_ia").select("id", { count: "exact", head: true })
+    if (error) throw new Error("table appels_ia absente : coller le SQL du 24/10")
+    return `${count ?? 0} appel(s) inscrit(s)`
+  })
+  await essai("Passage de secours (toutes les 2 min)", async () => {
+    const { data } = await sb.from("parametres").select("valeur").eq("cle", "analyse_passage_cle").maybeSingle()
+    if (!(data as { valeur?: string } | null)?.valeur) throw new Error("clé du passage absente : coller le SQL du 24/10")
+    return "clé en place"
+  })
+  await essai("Ringover : clé et enregistrements", async () => {
+    const cle = Deno.env.get("RINGOVER_API_KEY")
+    if (!cle) throw new Error("secret RINGOVER_API_KEY manquant")
+    const rep = await fetch(`${RINGOVER}/calls?limit_count=50`, { headers: { Authorization: cle } })
+    if (rep.status === 401 || rep.status === 403) throw new Error(`clé refusée par Ringover (${rep.status})`)
+    if (rep.status === 204) return "clé acceptée ; aucun appel récent à examiner"
+    if (!rep.ok) throw new Error(`Ringover répond ${rep.status}`)
+    const d = lireJsonRingover(await rep.text()) as { call_list?: AppelRingover[] }
+    const decroches = (d.call_list ?? []).filter((c) => c.is_answered && Number(c.incall_duration ?? 0) >= DUREE_MIN_S)
+    const enregistres = decroches.filter((c) => c.record || c.record_url).length
+    if (decroches.length && !enregistres) throw new Error(`clé acceptée, mais AUCUN des ${decroches.length} derniers appels décrochés n'est enregistré : activer l'enregistrement des appels chez Ringover`)
+    return decroches.length ? `clé acceptée ; ${enregistres} des ${decroches.length} derniers appels décrochés sont enregistrés` : "clé acceptée ; aucun appel décroché récent à examiner"
+  })
+  await essai("ElevenLabs : transcription", async () => {
+    const cle = Deno.env.get("ELEVENLABS_API_KEY")
+    if (!cle) throw new Error("secret ELEVENLABS_API_KEY manquant")
+    const rep = await fetch("https://api.elevenlabs.io/v1/models", { headers: { "xi-api-key": cle } })
+    const texte = await rep.text()
+    // Une clé restreinte peut ne pas lire la liste des modèles : elle est reconnue quand même.
+    if (rep.ok || texte.includes("missing_permissions")) return "clé acceptée"
+    throw new Error(`clé refusée par ElevenLabs (${rep.status})`)
+  })
+  await essai("Anthropic : analyse et mail", async () => {
+    const cle = Deno.env.get("ANTHROPIC_API_KEY")
+    if (!cle) throw new Error("secret ANTHROPIC_API_KEY manquant")
+    const m = await new Anthropic({ apiKey: cle }).models.retrieve(MODELE)
+    return `clé acceptée, modèle ${m.id} disponible`
+  })
+  return r
 }
 
 async function compteConnecte(req: Request): Promise<boolean> {
@@ -294,12 +344,14 @@ Deno.serve(async (req: Request) => {
   const parWebhook = !parPassage && jeton.length > 0 && jeton === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "")
   const parEcran = !parPassage && !parWebhook && await compteConnecte(req)
   if (!parPassage && !parWebhook && !parEcran) return json({ error: "non autorisé" }, 401)
+  const texte = await req.text()
+  let corps: { activite_id?: string; verifier?: boolean } = {}
+  try { corps = texte ? JSON.parse(texte) : {} } catch { /* corps libre (webhook) */ }
+  // Le contrôle passe AVANT l'exigence des secrets : c'est lui qui dit lesquels manquent.
+  if (parEcran && corps.verifier) return json({ ok: true, controles: await verifier(sb) })
   for (const s of ["RINGOVER_API_KEY", "ELEVENLABS_API_KEY", "ANTHROPIC_API_KEY"]) {
     if (!Deno.env.get(s)) return json({ error: `Secret ${s} manquant sur la fonction analyser-appel` }, 500)
   }
-  const texte = await req.text()
-  let corps: { activite_id?: string } = {}
-  try { corps = texte ? JSON.parse(texte) : {} } catch { /* corps libre (webhook) */ }
 
   // L'écran : un appel précis, qu'on attend jusqu'à une minute.
   if (parEcran) {

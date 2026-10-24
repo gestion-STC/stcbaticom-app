@@ -9,8 +9,8 @@
 // Les calculs sont dans demarchage/analyseOutils.ts (testés).
 // ════════════════════════════════════════════════════════════════════════════
 import { Fragment, useEffect, useMemo, useState } from "react"
-import { RefreshCw, Sparkles } from "lucide-react"
-import { appelsIaPeriode, type AppelIa } from "../../demarchage/appelsIa"
+import { RefreshCw, ShieldCheck, Sparkles } from "lucide-react"
+import { appelsIaPeriode, verifierMiseEnService, type AppelIa, type ControleMiseEnService } from "../../demarchage/appelsIa"
 import {
   MIN_APPELS, abouti, bilanGlobal, dureeLisible, ecartLisible, pourcent, statsArguments, statsObjections, statsParCommercial, statsParHeure,
 } from "../../demarchage/analyseOutils"
@@ -23,6 +23,28 @@ type Vue = "arguments" | "objections" | "equipe" | "appels"
 const LIBELLE_ISSUE = new Map<string, string>(ISSUES.map((i) => [i.code, i.libelle]))
 const LIBELLE_INTERET: Record<string, string> = { nul: "Nul", faible: "Faible", moyen: "Moyen", fort: "Fort" }
 
+/** Le résultat du contrôle : une ligne par pièce, et le verdict d'ensemble. */
+function CarteControle({ controles, onFermer }: { controles: ControleMiseEnService[]; onFermer: () => void }) {
+  const manquants = controles.filter((c) => !c.ok).length
+  return (
+    <Carte className="mb-4">
+      <TitreCarte droite={<Bouton taille="sm" variante="discret" onClick={onFermer}>Fermer</Bouton>}>Mise en service</TitreCarte>
+      <Bandeau role={manquants ? "attention" : "ok"} className="mb-3">
+        {manquants ? `${manquants} pièce${manquants > 1 ? "s" : ""} à régler avant que les appels soient analysés.` : "Tout est en place : les prochains appels décrochés seront analysés et leur mail préparé."}
+      </Bandeau>
+      <ul className="flex flex-col gap-2">
+        {controles.map((c) => (
+          <li key={c.nom} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <Pastille role={c.ok ? "fait" : "probleme"}>{c.ok ? "OK" : "À régler"}</Pastille>
+            <span className="font-medium">{c.nom}</span>
+            <span className="min-w-0 text-sm text-encre-2">{c.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </Carte>
+  )
+}
+
 export default function AnalyseAppels() {
   const [periode, setPeriode] = useState<Periode>("mois")
   const [commercial, setCommercial] = useState("")
@@ -30,6 +52,11 @@ export default function AnalyseAppels() {
   const [appels, setAppels] = useState<AppelIa[] | null>(null)
   const [erreur, setErreur] = useState("")
   const [version, setVersion] = useState(0)
+  const [controle, setControle] = useState<ControleMiseEnService[] | "en_cours" | null>(null)
+  const lancerControle = async () => {
+    setControle("en_cours")
+    try { setControle(await verifierMiseEnService()) } catch (e) { setControle([{ nom: "Fonction analyser-appel", ok: false, detail: e instanceof Error ? e.message : String(e) }]) }
+  }
 
   useEffect(() => {
     let vivant = true
@@ -55,8 +82,16 @@ export default function AnalyseAppels() {
       <EnTetePage
         titre="Analyse IA"
         sousTitre="Ce qui tape dans nos appels : arguments, objections, résultats."
-        droite={<Bouton icone={<RefreshCw />} onClick={() => setVersion((v) => v + 1)}>Actualiser</Bouton>}
+        droite={
+          <div className="flex flex-wrap gap-2">
+            <Bouton icone={<ShieldCheck />} onClick={() => void lancerControle()} disabled={controle === "en_cours"}>Vérifier la mise en service</Bouton>
+            <Bouton icone={<RefreshCw />} onClick={() => setVersion((v) => v + 1)}>Actualiser</Bouton>
+          </div>
+        }
       />
+
+      {controle === "en_cours" ? <Chargement texte="Contrôle de chaque pièce…" /> : null}
+      {Array.isArray(controle) ? <CarteControle controles={controle} onFermer={() => setControle(null)} /> : null}
 
       <BarreFiltres className="mb-4">
         <Selecteur value={periode} onChange={(e) => setPeriode(e.target.value as Periode)} aria-label="Période">
