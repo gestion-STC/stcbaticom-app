@@ -37,7 +37,7 @@ create table if not exists public.appels_ia (
   transcription    text,
   resume           text,
   interet          text check (interet in ('nul', 'faible', 'moyen', 'fort')),
-  analyse          jsonb,                         -- arguments, objections, points forts…
+  analyse_detail   jsonb,                         -- arguments, objections, points forts (« analyse » est un mot réservé de PostgreSQL)
   mail_pertinent   boolean,
   mail_objet       text,
   mail_corps       text,
