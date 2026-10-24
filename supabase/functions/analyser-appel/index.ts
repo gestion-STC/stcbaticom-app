@@ -290,7 +290,7 @@ Deno.serve(async (req: Request) => {
     const attendue = String((data as { valeur?: unknown } | null)?.valeur ?? "").replace(/^"|"$/g, "")
     parPassage = attendue.length >= 20 && clePassage === attendue
   }
-  const jeton = (req.headers.get("Authorization") || "").replace(/^Bearers+/i, "")
+  const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
   const parWebhook = !parPassage && jeton.length > 0 && jeton === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "")
   const parEcran = !parPassage && !parWebhook && await compteConnecte(req)
   if (!parPassage && !parWebhook && !parEcran) return json({ error: "non autorisé" }, 401)
