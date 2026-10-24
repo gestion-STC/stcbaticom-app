@@ -104,8 +104,8 @@ select cron.schedule(
 -- appels notés (une information réelle) garde son étape.
 update public.activites
 set type = 'note',
-    resultat = null,
-    issue = null,
+    resultat = '',   -- colonnes NOT NULL (défaut '')
+    issue = '',
     note = trim(both from coalesce(nullif(note, ''), '') || ' Appel du ' || to_char(date at time zone 'Europe/Paris', 'DD/MM/YYYY à HH24:MI')
            || ' lancé par ' || coalesce(compte_nom, '?') || ', résultat jamais noté : remis à prospecter le 24/10/2026.')
 where type = 'appel' and resultat = 'lance';
