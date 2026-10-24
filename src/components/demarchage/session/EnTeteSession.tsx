@@ -1,15 +1,14 @@
-// Les commandes de la session, à droite de l'en-tête : appels à noter, piles, base, secteur,
+// Les commandes de la session, à droite de l'en-tête : mails préparés par l'IA, piles, base, secteur,
 // étape, sourçage, mode automatique, cadence, Démarrer / Arrêter. Aucun état propre.
 import { Play, Square } from "lucide-react"
 import { ETAPES, FILES, SORTIES, type File, type Secteur } from "../../../demarchage/modele"
 import { Bouton, Champ, Interrupteur, Pastille, Selecteur } from "../../../ui"
-import AppelsANoter from "../AppelsANoter"
+import { BoutonMailsIa } from "../MailsIa"
 
 type Sourcage = "" | "sourcees" | "non_sourcees"
 
 export default function EnTeteSession({
-  rafraichirAppelsANoter,
-  onOuvrirAppelANoter,
+  rafraichirMails,
   file,
   setFile,
   etapeFiltre,
@@ -37,8 +36,7 @@ export default function EnTeteSession({
   reglagesLus,
   bloqueOnglet,
 }: {
-  rafraichirAppelsANoter: number
-  onOuvrirAppelANoter: (id: string) => void
+  rafraichirMails: number
   file: File
   setFile: (f: File) => void
   etapeFiltre: string
@@ -68,7 +66,8 @@ export default function EnTeteSession({
 }) {
   return (
     <>
-      <AppelsANoter rafraichir={rafraichirAppelsANoter} onOuvrir={onOuvrirAppelANoter} />
+      {/* « À compléter » retiré le 24/10/2026 : le résultat est désormais obligatoire (verrou du compte). */}
+      <BoutonMailsIa rafraichir={rafraichirMails} />
       <div className="flex flex-wrap gap-1.5">
         {FILES.map((f) => {
           const choisi = f.code === file

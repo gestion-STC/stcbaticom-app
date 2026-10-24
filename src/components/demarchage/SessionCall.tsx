@@ -50,6 +50,7 @@ import {
 import { useReglages } from "../../demarchage/reglages"
 import { Bandeau, Bouton, Carte, Chargement, EnTetePage, Vide } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
+import { lancerAnalyseAppel, monAppelSansResultat, type AppelEnAttente } from "../../demarchage/appelsIa"
 import BarreResultat from "./BarreResultat"
 import ContactFormulaire from "./ContactFormulaire"
 import BlocContacts from "./session/BlocContacts"
@@ -118,6 +119,12 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [chargementFile, setChargementFile] = useState(true)
   const [index, setIndex] = useState(0)
   const [directeId, setDirecteId] = useState<string | null>(null) // une agence appelée hors file
+  // LE VERROU DU COMPTE (Mahdi, 24/10/2026) : « à partir du moment où tu as passé ton call, tu es obligé de rentrer
+  // les états ; tu ne peux pas faire suivant ou précédent ». Mon plus ancien appel lancé sans résultat, relu en base :
+  // il survit à un onglet fermé ou rechargé (c'est par là que 10 appels avaient échappé entre le 19 et le 22/10).
+  const [appelBloquant, setAppelBloquant] = useState<AppelEnAttente | null>(null)
+  const bloquantRef = useRef<AppelEnAttente | null>(null)
+  const [nbResultats, setNbResultats] = useState(0) // relit les « Mails à envoyer » après chaque résultat
   const [appelees, setAppelees] = useState<Set<string>>(() => new Set())
   const [reserve, setReserve] = useState<string[]>([])
   const [autresNumeros, setAutresNumeros] = useState<string[]>([]) // les numéros des collègues (13/10)
@@ -182,6 +189,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const dejaAffiche = useRef(false)
   const lancerRef = useRef<(numero: string, contactId: string | null, depuisAuto?: boolean) => Promise<void>>(async () => {})
   const avancerRef = useRef<() => void>(() => {})
+  const noterAppelEnSuspensRef = useRef<(ligne: Activite) => void>(() => {})
   const enregistrementEnCours = useRef(false) // un résultat en route : le 2e clic est ignoré
   const verificationEnCours = useRef(false) // les vérifications avant de composer, en route
   const directeEnAttente = useRef<string | null>(null) // une agence demandée d'ailleurs pendant un résultat à noter
@@ -230,6 +238,36 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const fileTerminee = fileAgences.length > 0 && index >= fileAgences.length
   const contactsActifs = fiche ? fiche.contacts.filter((c) => !c.parti) : []
   const appelEnSuspens = fiche ? appelNonNote(fiche.activites, appel?.appelId) : null
+  // L'appel en cours de composition n'est pas « bloquant » : c'est lui dont on attend le résultat.
+  const bloquant = appelBloquant && appelBloquant.id !== appel?.appelId ? appelBloquant : null
+  useEffect(() => { bloquantRef.current = bloquant }, [bloquant])
+  const verifierAppelBloquant = useCallback(async () => {
+    try { setAppelBloquant(await monAppelSansResultat()) } catch { /* réseau : on garde l'état connu */ }
+  }, [])
+  useEffect(() => {
+    if (!actif) return
+    const premier = setTimeout(() => void verifierAppelBloquant(), 0)
+    const t = setInterval(() => { if (document.visibilityState === "visible") void verifierAppelBloquant() }, 60_000)
+    return () => { clearTimeout(premier); clearInterval(t) }
+  }, [actif, verifierAppelBloquant])
+  // La session retourne d'elle-même sur l'agence de l'appel à noter…
+  useEffect(() => {
+    if (!bloquant || appel || barreVisible || agenceCouranteId === bloquant.agenceId) return
+    const t = setTimeout(() => {
+      setAuto(false)
+      setDirecteId(bloquant.agenceId)
+      setErreur(`Note d'abord le résultat de ton appel du ${dateHeureCourte(bloquant.date)} à ${bloquant.agenceNom || "cette agence"} : rien d'autre n'est possible avant.`)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [bloquant, appel, barreVisible, agenceCouranteId])
+  // … et ouvre sa barre de résultat.
+  useEffect(() => {
+    if (!bloquant || appel || barreVisible || !fiche || fiche.agence.id !== bloquant.agenceId) return
+    const ligne = fiche.activites.find((x) => x.id === bloquant.id)
+    if (!ligne) return
+    const t = setTimeout(() => noterAppelEnSuspensRef.current(ligne), 0)
+    return () => clearTimeout(t)
+  }, [bloquant, appel, barreVisible, fiche])
   // Un appel lancé sans résultat noté : on ne recompose pas avant de l'avoir complété (Mahdi, 13/10).
   const titreSuspens = appelEnSuspens ? `Note d'abord le résultat de l'appel du ${dateHeureCourte(appelEnSuspens.date)}` : undefined
   const bloqueOnglet = autreOnglet ? "La session est ouverte dans un autre onglet" : undefined
@@ -484,6 +522,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }, [])
 
   const avancer = useCallback(() => {
+    if (bloquantRef.current) {
+      setErreur(`Note d'abord le résultat de ton appel du ${dateHeureCourte(bloquantRef.current.date)} à ${bloquantRef.current.agenceNom || "cette agence"}.`)
+      return
+    }
     dicteeRef.current?.stop()
     couperMinuterie()
     ;(document.activeElement as HTMLElement | null)?.blur?.()
@@ -504,6 +546,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }, [avancer])
 
   function reculer() {
+    if (bloquantRef.current) {
+      setErreur(`Note d'abord le résultat de ton appel du ${dateHeureCourte(bloquantRef.current.date)} à ${bloquantRef.current.agenceNom || "cette agence"}.`)
+      return
+    }
     dicteeRef.current?.stop()
     couperMinuterie()
     if (directeId) {
@@ -513,6 +559,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     setIndex((i) => Math.max(0, i - 1))
   }
   function allerA(i: number) {
+    if (bloquantRef.current) {
+      setErreur(`Note d'abord le résultat de ton appel du ${dateHeureCourte(bloquantRef.current.date)} à ${bloquantRef.current.agenceNom || "cette agence"}.`)
+      return
+    }
     dicteeRef.current?.stop()
     couperMinuterie()
     setDirecteId(null)
@@ -739,6 +789,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     }
   }
 
+  noterAppelEnSuspensRef.current = (ligne: Activite) => noterAppelEnSuspens(ligne)
   function noterAppelEnSuspens(ligne: Activite) {
     if (!fiche) return
     const t = Date.now()
@@ -902,6 +953,12 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               }
             : prev,
         )
+        // L'IA prépare le mail et analyse l'appel tout de suite (s'il y a eu quelqu'un au bout du fil).
+        if (choix.resultat === "joint" || choix.resultat === "standard") lancerAnalyseAppel(bilan.appelId)
+        setNbResultats((n) => n + 1)
+        // L'appel noté était peut-être celui qui bloquait le compte : la navigation se libère.
+        if (bloquantRef.current && bloquantRef.current.id === bilan.appelId) { bloquantRef.current = null; setAppelBloquant(null) }
+        void verifierAppelBloquant()
         setAppel(null)
         setBarreVisible(false)
         setNote("")
@@ -917,7 +974,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         if (enVie.current) setEnregistrement(false)
       }
     },
-    [compteNom, recompterFiles],
+    [compteNom, recompterFiles, verifierAppelBloquant],
   )
 
   // ── Le numéro d'émission : réattribution consciente (le seul chemin autorisé) ──
@@ -1005,12 +1062,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         sousTitre={enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile.` : "Choisis une pile, un secteur, et démarre."}
         droite={
           <EnTeteSession
-            rafraichirAppelsANoter={appelees.size}
-            onOuvrirAppelANoter={(id) => {
-              // Un appel en cours d'abord ; sinon l'agence s'ouvre, avec son bandeau « Noter le résultat ».
-              if (barreVisible || appel) setErreur("Note d'abord le résultat de l'appel en cours.")
-              else setDirecteId(id)
-            }}
+            rafraichirMails={nbResultats}
             file={file}
             setFile={setFile}
             etapeFiltre={etapeFiltre}
@@ -1063,10 +1115,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           setRecherche={setRecherche}
           resultats={resultats}
           onAppelerDirect={(id) => {
+            if (bloquantRef.current) { setErreur("Note d'abord le résultat de ton appel en attente."); return }
             setDirecteId(id)
             setRecherche("")
           }}
-          barreVisible={barreVisible}
+          barreVisible={barreVisible || Boolean(bloquant)}
           enCours={enCours}
           directeId={directeId}
           fileTerminee={fileTerminee}

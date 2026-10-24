@@ -9,7 +9,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, Video } from "lucide-react"
-import AppelsANoter from "./AppelsANoter"
+import { BoutonMailsIa } from "./MailsIa"
 import { useReglages } from "../../demarchage/reglages"
 import { chargerTachesDuJour, compterParEtape, compterPiles, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
 import { FILES, dureeLisible, type File } from "../../demarchage/modele"
@@ -222,7 +222,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         titre="Aujourd'hui"
         sousTitre={majusculeInitiale(dateLongue(maintenant))}
         droite={<>
-          <AppelsANoter onOuvrir={(id) => onOuvrirSession?.(id)} />
+          <BoutonMailsIa />
           <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => agir(async () => undefined)}>Actualiser</Bouton>
           <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
         </>}
