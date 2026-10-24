@@ -2,7 +2,7 @@
 // L'identité, les bandeaux (appel direct, appel en suspens), les numéros et les contacts (reçus
 // tout prêts : `BlocNumeros`, `BlocContacts`), la note de l'appel, les autres actions.
 import type { Dispatch, ReactNode, SetStateAction } from "react"
-import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, MapPin, Mic, MicOff, SquareCheck, StickyNote } from "lucide-react"
+import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, MapPin, Mic, MicOff, SquareCheck } from "lucide-react"
 import type { AgenceComplete } from "../../../demarchage/db"
 import { dateCourte } from "../../../demarchage/agencesOutils"
 import { libelleEtape, libelleType, pastilleEtape, type Activite } from "../../../demarchage/modele"
@@ -114,12 +114,11 @@ export default function FicheEnCours({
         <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />
       </Section>
 
-      {/* Autres actions */}
+      {/* Autres actions. Plus de bouton « Note » (Mahdi, 24/10) : la note de l'appel juste au-dessus fait le même travail. */}
       <div className="mt-4 flex flex-wrap gap-2 border-t border-fond-4 pt-3">
         <Bouton icone={<Mail />} onClick={ouvrirEmail}>E-mail</Bouton>
         <Bouton icone={<SquareCheck />} onClick={() => ouvrirAction("tache")}>Tâche</Bouton>
         <Bouton icone={<CalendarClock />} onClick={() => ouvrirAction("rdv")}>RDV</Bouton>
-        <Bouton icone={<StickyNote />} onClick={() => ouvrirAction("note")}>Note</Bouton>
       </div>
     </Carte>
   )
