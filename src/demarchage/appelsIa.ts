@@ -51,16 +51,16 @@ export type AppelIa = {
 type Ligne = {
   id: string; activite_id: string; agence_id: string | null; contact_id: string | null; compte_id: string | null; compte_nom: string | null
   resultat: string | null; statut: StatutIa; duree_s: number | null; transcription: string | null; resume: string | null; interet: Interet | null
-  analyse: { decideur_joint?: boolean; prochaine_etape?: string; arguments?: ArgumentAppel[]; objections?: ObjectionAppel[]; points_forts?: string[]; a_ameliorer?: string[] } | null
+  analyse_detail: { decideur_joint?: boolean; prochaine_etape?: string; arguments?: ArgumentAppel[]; objections?: ObjectionAppel[]; points_forts?: string[]; a_ameliorer?: string[] } | null
   mail_pertinent: boolean | null; mail_objet: string | null; mail_corps: string | null; mail_envoye_le: string | null; mail_ecarte_le: string | null
   erreur: string | null; cree_le: string
   agences?: { nom: string } | null
   activites?: { issue: string | null } | null
 }
-const COLONNES = "id, activite_id, agence_id, contact_id, compte_id, compte_nom, resultat, statut, duree_s, transcription, resume, interet, analyse, mail_pertinent, mail_objet, mail_corps, mail_envoye_le, mail_ecarte_le, erreur, cree_le, agences(nom), activites(issue)"
+const COLONNES = "id, activite_id, agence_id, contact_id, compte_id, compte_nom, resultat, statut, duree_s, transcription, resume, interet, analyse_detail, mail_pertinent, mail_objet, mail_corps, mail_envoye_le, mail_ecarte_le, erreur, cree_le, agences(nom), activites(issue)"
 
 export function versAppelIa(l: Ligne): AppelIa {
-  const a = l.analyse
+  const a = l.analyse_detail
   return {
     id: l.id, activiteId: l.activite_id, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", contactId: l.contact_id, compteId: l.compte_id, compteNom: l.compte_nom ?? "",
     resultat: l.resultat ?? "", issue: l.activites?.issue ?? "", statut: l.statut, dureeS: l.duree_s, transcription: l.transcription ?? "", resume: l.resume ?? "", interet: l.interet,
@@ -86,6 +86,16 @@ function tableAbsente(m: string): boolean {
 export function lancerAnalyseAppel(activiteId: string): void {
   if (!supabase || !activiteId) return
   void supabase.functions.invoke("analyser-appel", { body: { activite_id: activiteId } }).catch(() => {})
+}
+
+/** Le contrôle de mise en service : chaque pièce (clés, enregistrements Ringover, table, passage de secours). */
+export type ControleMiseEnService = { nom: string; ok: boolean; detail: string }
+export async function verifierMiseEnService(): Promise<ControleMiseEnService[]> {
+  const { data, error } = await sb().functions.invoke("analyser-appel", { body: { verifier: true } })
+  if (error) throw new Error("La fonction analyser-appel ne répond pas : est-elle déployée ?")
+  const l = (data as { controles?: ControleMiseEnService[] } | null)?.controles
+  if (!Array.isArray(l)) throw new Error("Réponse inattendue de la fonction analyser-appel : la redéployer.")
+  return l
 }
 
 /** Les mails de MES appels des dernières 24 h, ni envoyés ni écartés (le panneau de la session). */
