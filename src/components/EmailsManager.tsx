@@ -27,7 +27,11 @@ function premiereLigne(texte: string, max = 90): string {
   return l.length > max ? l.slice(0, max - 1).trimEnd() + "…" : l
 }
 
-export default function EmailsManager() {
+/** Réglages (24/10/2026) : « Mes signatures » (Mon compte) et « Modèles d'e-mail » (Démarchage)
+ *  sont deux pages. Sans `partie`, tout s'affiche comme avant. */
+export default function EmailsManager({ partie }: { partie?: "signatures" | "modeles" } = {}) {
+  const montrerSignatures = partie !== "modeles"
+  const montrerModeles = partie !== "signatures"
   const [emails, setEmails] = useState<Email[]>([])
   const [chargement, setChargement] = useState(supabaseConfigure)
   const [erreur, setErreur] = useState<string | null>(supabaseConfigure ? null : "Supabase non configuré.")
@@ -154,10 +158,10 @@ export default function EmailsManager() {
 
   return (
     <div className="space-y-5">
-      <p className="max-w-3xl text-legende text-encre-2">
+      {montrerModeles ? <p className="max-w-3xl text-legende text-encre-2">
         Les modèles d'e-mail que l'on envoie depuis une fiche ou après un appel. Chacun part avec la signature STC Bâtiment ; les variables
         ({"{{contact}}"}, {"{{entreprise}}"}…) sont remplacées par les informations de l'agence à l'envoi ; {"{{lien_creer_compte}}"} devient un lien « Créer mon compte » propre à l'agence, suivi : sa fiche sait quand elle l'ouvre.
-      </p>
+      </p> : null}
 
       {erreur ? (
         <Bandeau role="alerte" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur(null)}>Fermer</Bouton>}>
@@ -169,12 +173,12 @@ export default function EmailsManager() {
           (Mahdi, 07/10/2026). Pour le compte connecté, elle porte son nom — ou
           l'un des autres noms qu'il a ajoutés ici (19/10/2026) ; pour les envois
           automatiques des règles, le nom réglé à droite. */}
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Carte>
+      <div className={montrerSignatures && montrerModeles ? "grid gap-5 xl:grid-cols-2" : "max-w-3xl"}>
+        {montrerSignatures ? <Carte>
           <TitreCarte>Mes signatures</TitreCarte>
           <div className="px-5 pb-5">
             <p className="mb-3 text-legende text-encre-2">
-              La signature STC Bâtiment, à ton nom (pour le changer : onglet Comptes). Tu peux y ajouter d'autres noms, même format : au moment d'envoyer, tu choisis qui signe.
+              La signature STC Bâtiment, à ton nom (pour le changer : Réglages › Équipe › Comptes). Tu peux y ajouter d'autres noms, même format : au moment d'envoyer, tu choisis qui signe.
             </p>
             <div className="signature-edit rounded-4 border border-trait bg-fond-2 px-4 pb-4 text-corps" dangerouslySetInnerHTML={{ __html: signatureCompte }} />
             <p className="mb-2 mt-4 text-legende font-medium text-encre">Autres noms qui peuvent signer</p>
@@ -208,9 +212,9 @@ export default function EmailsManager() {
             </div>
             {erreurSignature ? <p className="mt-1 text-colonne text-alerte">{erreurSignature}</p> : null}
           </div>
-        </Carte>
+        </Carte> : null}
 
-        <Carte>
+        {montrerModeles ? <Carte>
           <TitreCarte>Envois automatiques</TitreCarte>
           <div className="px-5 pb-5">
             <p className="mb-3 text-legende text-encre-2">
@@ -232,10 +236,10 @@ export default function EmailsManager() {
             </div>
             <div className="signature-edit mt-3 rounded-4 border border-trait bg-fond-2 px-4 pb-4 text-corps" dangerouslySetInnerHTML={{ __html: signatureStc({ nom: nomAuto }) }} />
           </div>
-        </Carte>
+        </Carte> : null}
       </div>
 
-      <Carte>
+      {montrerModeles ? <Carte>
         <TitreCarte droite={nouveauModele}>Modèles</TitreCarte>
         {chargement ? (
           <Chargement texte="Lecture des modèles…" />
@@ -276,7 +280,7 @@ export default function EmailsManager() {
             </tbody>
           </Tableau>
         )}
-      </Carte>
+      </Carte> : null}
 
       {modal ? (
         <EmailModal

@@ -127,7 +127,7 @@ export default function BlocNumeros({
               ) : null}
             </>
           ) : (
-            <span className="text-encre-2">Aucun numéro d'émission réglé : Ringover choisira le sien. La réserve se règle dans Réglages › Numéros d'appel.</span>
+            <span className="text-encre-2">Aucun numéro d'émission réglé : Ringover choisira le sien. La réserve se règle dans Réglages › Équipe › Numéros Ringover.</span>
           )}
         </div>
       )}

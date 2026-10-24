@@ -14,14 +14,13 @@ import {
   ListOrdered,
   BarChart3,
   FolderCheck,
-  KeyRound,
   LogOut,
 } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
 import { commercial } from "../data"
 import { compterNonLus, EVENEMENT_LUS, type Espace } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
-import { estAdmin, initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
+import { initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
 
 // DEUX ESPACES (Mahdi, 08/10/2026) : le démarchage commercial (agences,
@@ -43,7 +42,6 @@ export type PageId =
   | "st_boite"
   | "st_dossiers"
   | "parametrage"
-  | "comptes"
 
 type NavItem = { id: PageId; label: string; icon: typeof Users }
 
@@ -177,10 +175,9 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* Réglages, communs aux deux espaces ; Comptes réservé aux administrateurs. */}
+      {/* Réglages, communs aux deux espaces (les comptes y sont rangés, rubrique Équipe). */}
       <div className="space-y-0.5 border-t border-trait px-3 pt-3">
         <LigneMenu actif={active === "parametrage"} label="Réglages" Icon={SlidersHorizontal} onClick={() => onNavigate("parametrage")} />
-        {estAdmin(session) ? <LigneMenu actif={active === "comptes"} label="Comptes" Icon={KeyRound} onClick={() => onNavigate("comptes")} /> : null}
       </div>
 
       <div className="mt-2 flex items-center gap-3 border-t border-trait px-5 py-4">

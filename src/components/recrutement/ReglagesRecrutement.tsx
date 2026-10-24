@@ -5,7 +5,8 @@
 // campagnes par corps de métier. Tout le reste (volumes, cadences, plages,
 // relances, alertes, adresses, liste d'exclusion) vit ici. Un seul bouton
 // « Enregistrer », grisé tant que rien n'a changé ; la validation se fait
-// dans `lib/reglagesRecrutement.ts`, sans navigateur.
+// dans `lib/reglagesRecrutement.ts`, sans navigateur. Depuis le 24/10/2026, les contrats
+// DocuSign et la liste d'exclusion ont chacun leur page dans Réglages › Recrutement.
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState, type ReactNode } from "react"
 import { Save } from "lucide-react"
@@ -15,8 +16,6 @@ import { chargerPilotage, majPilotage } from "../../lib/pilotageStDb"
 import { chargerSequences } from "../../lib/sequencesStDb"
 import { CADENCE_MAX_MS, CADENCE_MIN_MS, DOMAINE_ENVOI, JOURS_SEMAINE, extraireReglages, ligneEtatMachine, memesReglages, validerReglages } from "../../lib/reglagesRecrutement"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Etiquette, Pastille, Selecteur, TitreCarte } from "../../ui"
-import ExclusionsST from "./ExclusionsST"
-import ContratsModeles from "./ContratsModeles"
 
 /** Un champ numérique contrôlé : vidé à l'écran = NaN, que la validation refuse (jamais un 0 glissé en douce). */
 function Nombre({ texte, aide, valeur, onChange, min, max }: { texte: string; aide?: ReactNode; valeur: number; onChange: (v: number) => void; min?: number; max?: number }) {
@@ -232,8 +231,6 @@ export default function ReglagesRecrutement() {
         </>
       )}
 
-      <ContratsModeles />
-      <ExclusionsST />
     </div>
   )
 }

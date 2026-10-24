@@ -70,7 +70,7 @@ import { useSurveillanceAppel } from "./session/useSurveillanceAppel"
 export default function SessionCall({ actif = true, agenceInitiale = null, onOuvrirAgence, versionAgences = 0 }: { actif?: boolean; agenceInitiale?: string | null; onOuvrirAgence?: (id: string, options?: { etape?: boolean }) => void; versionAgences?: number }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
-  // Tous les réglages des règles viennent de la base (Réglages › Objectifs et règles) : aucun n'est écrit ici.
+  // Tous les réglages des règles viennent de la base (Réglages › Démarchage › Objectif et règles d'appel) : aucun n'est écrit ici.
   const { reglages, erreur: erreurReglages } = useReglages()
 
   // ── Les réglages et la file ──
