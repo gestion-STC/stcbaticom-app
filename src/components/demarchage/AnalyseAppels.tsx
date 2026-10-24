@@ -288,7 +288,7 @@ function ListeAppels({ appels }: { appels: AppelIa[] }) {
       </div>
       {transcription ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setTranscription(null)}>
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-fond p-5 shadow-flottante" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-[14px] bg-fond p-5 shadow-flottante" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between"><p className="font-semibold">Transcription</p><Bouton taille="sm" variante="discret" onClick={() => setTranscription(null)}>Fermer</Bouton></div>
             <p className="whitespace-pre-line text-legende text-encre-2">{transcription}</p>
           </div>

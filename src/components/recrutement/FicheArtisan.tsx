@@ -129,7 +129,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
 
           {contrats.length ? (
             <>
-              <h3 className="mb-2 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Contrats · {contrats.length}</h3>
+              <h3 className="mb-2 mt-6 text-colonne font-medium text-encre-2">Contrats · {contrats.length}</h3>
               <ul className="divide-y divide-fond-4">
                 {contrats.map((c) => (
                   <li key={c.id} className="flex items-center gap-2 py-1.5 text-legende">
@@ -147,7 +147,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
           ) : null}
           {appels.length ? (
             <>
-              <h3 className="mb-2 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Appels · {appels.length}</h3>
+              <h3 className="mb-2 mt-6 text-colonne font-medium text-encre-2">Appels · {appels.length}</h3>
               <ul className="divide-y divide-fond-4">
                 {appels.map((a) => (
                   <li key={a.id} className="py-1.5 text-legende">
@@ -159,7 +159,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
               </ul>
             </>
           ) : null}
-          <h3 className="mb-3 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Chronologie</h3>
+          <h3 className="mb-3 mt-6 text-colonne font-medium text-encre-2">Chronologie</h3>
           {evenements.length === 0 ? <p className="text-legende text-encre-2">Rien encore : la fiche n'a pas été démarrée.</p> : (
             <ol className="ml-1.5 space-y-3 border-l-2 border-trait pl-5">
               {evenements.map((e, i) => (

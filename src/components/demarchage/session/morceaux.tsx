@@ -10,7 +10,7 @@ export function Section({ titre, droite, children }: { titre: string; droite?: R
   return (
     <section className="mt-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">{titre}</h3>
+        <h3 className="text-colonne font-medium text-encre-2">{titre}</h3>
         {droite}
       </div>
       {children}

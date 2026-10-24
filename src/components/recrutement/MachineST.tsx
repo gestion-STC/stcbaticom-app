@@ -169,7 +169,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
         <div className="text-legende text-encre-2 lg:text-right">
           <b className="block font-semibold text-encre">{pil.recalerAuDemarrage ? "Reprise en douceur" : "Reprise brute"}</b>
           {pil.delaiMinTouchesH} h minimum entre deux touches · {pil.tentativesMax} tentatives par envoi
-          <button type="button" className="ml-2 text-signature underline-offset-2 hover:underline" onClick={() => onNaviguer?.("reglages")}>Réglages</button>
+          <button type="button" className="ml-2 text-encre underline underline-offset-2" onClick={() => onNaviguer?.("reglages")}>Réglages</button>
         </div>
       </Carte>
 
@@ -266,7 +266,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
               {([["Contactés", calc.tunnel.contactes, calc.tunnel.contactes], ["Ont cliqué", calc.tunnel.cliques, calc.tunnel.contactes], ["Ont déposé", calc.tunnel.deposes, calc.tunnel.cliques]] as [string, number, number][]).map(([lib, v, prec], i) => (
                 <div key={lib} className="grid grid-cols-[110px_1fr_90px] items-center gap-3 text-legende">
                   <span className="text-encre-2">{lib}</span>
-                  <div className="h-2.5 overflow-hidden rounded-3 bg-fond-3"><i className={`block h-full ${i === 2 ? "bg-ok" : "bg-signature"}`} style={{ width: `${pourcent(v, calc.tunnel.contactes)}%` }} /></div>
+                  <div className="h-2.5 overflow-hidden rounded-3 bg-fond-3"><i className={`block h-full ${i === 2 ? "bg-ok" : "bg-info"}`} style={{ width: `${pourcent(v, calc.tunnel.contactes)}%` }} /></div>
                   <span className="chiffres text-right text-encre">{v}{i > 0 ? <span className="text-encre-2"> · {pourcent(v, prec)} %</span> : null}</span>
                 </div>
               ))}
@@ -377,7 +377,7 @@ function GraphiqueActivite({ points }: { points: PointJour[] }) {
         })}
       </svg>
       <div className="mt-2 flex flex-wrap gap-4 text-colonne text-encre-2">
-        <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-3 bg-signature align-[-1px]" />E-mails</span>
+        <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-3 bg-info align-[-1px]" />E-mails</span>
         <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-3 bg-info align-[-1px]" />SMS</span>
         <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-3 bg-alerte align-[-1px]" />Erreurs</span>
         <span><i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-encre align-[-1px]" />Clics</span>

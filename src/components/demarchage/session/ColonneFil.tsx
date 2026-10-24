@@ -21,7 +21,7 @@ export default function ColonneFil({ fiche }: { fiche: AgenceComplete | null }) 
           <>
             {fiche.messages.length ? (
               <div className="mb-3 border-b border-fond-4 pb-2">
-                <div className="mb-1 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Boîte de réception</div>
+                <div className="mb-1 text-colonne font-medium text-encre-2">Boîte de réception</div>
                 {fiche.messages.slice(0, 3).map((m) => (
                   <LigneMessage key={m.id} m={m} />
                 ))}

@@ -291,7 +291,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                 })}
               </ol>
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-fond-4 pt-3">
-                <span className="text-colonne uppercase tracking-[0.07em] text-encre-2">Sorties</span>
+                <span className="text-colonne text-encre-2">Sorties</span>
                 {SORTIES.map((s) => <Pastille key={s.code} role={agence.etape === s.code ? pastilleEtape(s.code) : "inerte"} point={agence.etape === s.code}>{s.libelle}</Pastille>)}
                 {agence.etape === "pas_interesse" && agence.motif ? <span className="text-legende text-encre-2">· motif : {MOTIFS.find((m) => m.code === agence.motif)?.libelle ?? agence.motif}</span> : null}
                 {agence.etape === "endormie" && agence.reveilLe ? <span className="text-legende text-encre-2">· réveil le {dateLongue(agence.reveilLe)} ({ilYA(agence.reveilLe, maintenant)})</span> : null}
@@ -415,7 +415,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                 <div className="space-y-4">
                   {jours.map((j) => (
                     <div key={j.jour}>
-                      <div className="mb-1 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">{j.libelle}</div>
+                      <div className="mb-1 text-colonne font-medium text-encre-2">{j.libelle}</div>
                       <ol className="divide-y divide-fond-4">
                         {j.elements.map((e) => {
                           const c = e.contactId ? contactsParId.get(e.contactId) : null

@@ -35,7 +35,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 function Barre({ pct }: { pct: number }) {
   return (
     <div className="h-[10px] w-full overflow-hidden rounded-3 bg-fond-3" role="presentation">
-      <i className="block h-full rounded-3 bg-signature transition-[width]" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+      <i className="block h-full rounded-3 bg-info transition-[width]" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
     </div>
   )
 }

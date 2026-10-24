@@ -25,7 +25,7 @@ export default function Connexion() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-fond-2 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <LogoBaticom className="text-4xl" />
@@ -33,16 +33,16 @@ export default function Connexion() {
 
         <form
           onSubmit={valider}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="rounded-[14px] border-[0.5px] border-trait bg-fond p-6"
         >
-          <h1 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-            <Lock size={16} className="text-slate-400" /> Connexion
+          <h1 className="flex items-center gap-2 text-sous-titre font-semibold text-encre">
+            <Lock size={15} className="text-encre-2" /> Connexion
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-legende text-encre-2">
             Espace réservé — connecte-toi avec ton compte.
           </p>
 
-          <label className="mt-5 block text-sm font-medium text-slate-700">
+          <label className="mt-5 block text-colonne text-encre-2">
             Adresse e-mail
             <input
               type="email"
@@ -50,27 +50,27 @@ export default function Connexion() {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="username"
               autoFocus
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+              className="mt-1 h-8 w-full rounded-4 border border-transparent bg-fond-3 px-3 text-legende text-encre focus:border-trait-fort focus:bg-fond focus:outline-none"
             />
           </label>
 
-          <label className="mt-4 block text-sm font-medium text-slate-700">
+          <label className="mt-4 block text-colonne text-encre-2">
             Mot de passe
             <input
               type="password"
               value={motDePasse}
               onChange={(e) => setMotDePasse(e.target.value)}
               autoComplete="current-password"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+              className="mt-1 h-8 w-full rounded-4 border border-transparent bg-fond-3 px-3 text-legende text-encre focus:border-trait-fort focus:bg-fond focus:outline-none"
             />
           </label>
 
-          {erreur && <p className="mt-3 text-sm text-red-600">{erreur}</p>}
+          {erreur && <p className="mt-3 text-legende text-alerte">{erreur}</p>}
 
           <button
             type="submit"
             disabled={enCours || !email.trim() || !motDePasse}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-5 flex h-[34px] w-full items-center justify-center gap-2 rounded-full bg-action px-4 text-legende font-medium text-white hover:bg-action-survol disabled:cursor-not-allowed disabled:opacity-50"
           >
             {enCours && <Loader2 size={15} className="animate-spin" />}
             Se connecter

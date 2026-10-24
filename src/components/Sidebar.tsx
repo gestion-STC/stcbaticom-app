@@ -69,7 +69,8 @@ const menuRecrutement: NavItem[] = [
   { id: "st_dossiers", label: "Dossiers déposés", icon: FolderCheck },
 ]
 
-// Une ligne du menu : le violet n'est qu'un trait, à gauche de la page ouverte.
+// Une ligne du menu, au dessin « bancaire » (24/10/2026, celui du bureau STC) : 30 px,
+// texte gris, la page ouverte sur fond gris clair, plus de trait violet.
 function LigneMenu({ actif, label, Icon, badge, onClick }: { actif: boolean; label: string; Icon: typeof Users; badge?: number; onClick: () => void }) {
   return (
     <button
@@ -77,14 +78,13 @@ function LigneMenu({ actif, label, Icon, badge, onClick }: { actif: boolean; lab
       onClick={onClick}
       aria-current={actif ? "page" : undefined}
       className={
-        "relative flex w-full items-center gap-3 rounded-4 px-3 py-2 text-corps font-medium transition-colors " +
-        (actif ? "bg-fond-3 text-encre" : "text-encre-2 hover:bg-fond-3 hover:text-encre")
+        "relative flex h-[30px] w-full items-center gap-2.5 rounded-4 px-2 text-legende transition-colors " +
+        (actif ? "bg-fond-4 font-medium text-encre" : "text-[#3c3c40] hover:bg-fond-3 hover:text-encre")
       }
     >
-      {actif ? <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signature" /> : null}
-      <Icon size={16} strokeWidth={2} className={actif ? "text-signature" : "text-encre-3"} />
+      <Icon size={15} className={actif ? "text-encre" : "text-encre-2"} />
       <span className="flex-1 truncate text-left">{label}</span>
-      {badge ? <span className="chiffres rounded-3 bg-signature-doux px-1.5 py-0.5 text-colonne font-semibold text-signature">{badge}</span> : null}
+      {badge ? <span className="chiffres rounded-full bg-encre px-1.5 text-[10px] font-medium leading-4 text-white">{badge}</span> : null}
     </button>
   )
 }
@@ -134,13 +134,13 @@ export default function Sidebar({
   }, [active])
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-trait bg-fond">
-      <div className="px-5 pb-4 pt-6">
+    <aside className="flex h-screen w-60 shrink-0 flex-col border-r-[0.5px] border-trait bg-fond">
+      <div className="px-5 pb-4 pt-5">
         <LogoBaticom className="text-[22px]" />
       </div>
 
       {/* Le sélecteur d'espace : une gélule fine, à la Apple (Mahdi, 09/10 : « plus fin, plus discret »). */}
-      <div className="mx-5 mb-5 inline-grid w-fit grid-cols-2 rounded-full bg-fond-3 p-[2px] text-colonne font-medium" role="tablist" aria-label="Espace">
+      <div className="mx-4 mb-4 inline-grid w-fit grid-cols-2 rounded-full bg-fond-3 p-[2px] text-colonne font-medium" role="tablist" aria-label="Espace">
         {(
           [
             ["demarchage", "Démarchage", "aujourdhui"],
@@ -155,11 +155,11 @@ export default function Sidebar({
             onClick={() => onNavigate(premierePage)}
             className={
               "flex h-6 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 transition-colors " +
-              (espace === id ? "bg-fond text-encre shadow-posee" : "text-encre-2 hover:text-encre")
+              (espace === id ? "bg-fond text-encre shadow-[0_1px_2px_rgb(17_17_19/0.08)]" : "text-encre-2 hover:text-encre")
             }
           >
             {label}
-            {nonLus[id] > 0 && espace !== id ? <span className="h-1.5 w-1.5 rounded-full bg-signature" aria-label="non lus" /> : null}
+            {nonLus[id] > 0 && espace !== id ? <span className="h-1.5 w-1.5 rounded-full bg-encre" aria-label="non lus" /> : null}
           </button>
         ))}
       </div>
@@ -183,14 +183,14 @@ export default function Sidebar({
         {estAdmin(session) ? <LigneMenu actif={active === "comptes"} label="Comptes" Icon={KeyRound} onClick={() => onNavigate("comptes")} /> : null}
       </div>
 
-      <div className="mt-2 flex items-center gap-3 border-t border-trait px-5 py-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-signature-doux text-legende font-semibold text-signature">{initiales}</div>
+      <div className="mt-2 flex items-center gap-2.5 border-t-[0.5px] border-trait px-4 py-3">
+        <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-fond-4 text-colonne font-semibold text-encre">{initiales}</div>
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-corps font-medium text-encre">{nom}</p>
+          <p className="truncate text-legende font-medium text-encre">{nom}</p>
           <p className="text-colonne text-encre-2">{libelleRole}</p>
         </div>
-        <button type="button" onClick={seDeconnecter} title="Se déconnecter" aria-label="Se déconnecter" className="rounded-4 p-2 text-encre-3 transition-colors hover:bg-fond-3 hover:text-encre">
-          <LogOut size={16} />
+        <button type="button" onClick={seDeconnecter} title="Se déconnecter" aria-label="Se déconnecter" className="rounded-full p-2 text-encre-2 transition-colors hover:bg-fond-3 hover:text-encre">
+          <LogOut size={15} />
         </button>
       </div>
     </aside>

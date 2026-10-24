@@ -246,7 +246,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
 
       {/* ── Les quatre files ── */}
       <div className="mb-4">
-        <p className="mb-1.5 text-colonne uppercase tracking-[0.07em] text-encre-2" title="La base choisie dans la session de call (sélecteur « Base »), avec le même repos entre deux appels">Les piles · {d.base}</p>
+        <p className="mb-1.5 text-colonne text-encre-2" title="La base choisie dans la session de call (sélecteur « Base »), avec le même repos entre deux appels">Les piles · {d.base}</p>
         <Compteurs
           valeurs={FILES.map((f) => ({ id: f.code, libelle: f.libelle, valeur: d.files ? d.files[f.code] : "—", detail: d.files ? f.aide : "Comptage impossible pour l'instant (Actualiser)" }))}
           onSelect={() => onNaviguer?.("sessions")}
@@ -266,7 +266,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
             <div className="border-t border-trait">
               {groupes.rdv.length ? (
                 <section>
-                  <h3 className="bg-signature-doux px-5 py-1.5 text-colonne font-semibold uppercase tracking-[0.07em] text-signature">RDV du jour · {groupes.rdv.length}</h3>
+                  <h3 className="bg-fond-3 px-5 py-1.5 text-colonne font-medium text-encre-2">RDV du jour · {groupes.rdv.length}</h3>
                   <ul>{groupes.rdv.map((t) => ligneTache(t))}</ul>
                 </section>
               ) : null}
@@ -275,7 +275,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
                 if (!liste.length) return null
                 return (
                   <section key={m.code}>
-                    <h3 className={"px-5 py-1.5 text-colonne font-semibold uppercase tracking-[0.07em] " + (m.alerte ? "bg-alerte-fond text-alerte" : "bg-fond-2 text-encre-2")}>{m.libelle} · {liste.length}</h3>
+                    <h3 className={"px-5 py-1.5 text-colonne font-medium " + (m.alerte ? "bg-alerte-fond text-alerte" : "bg-fond-2 text-encre-2")}>{m.libelle} · {liste.length}</h3>
                     <ul>{liste.map((t) => ligneTache(t, m.code === "enRetard"))}</ul>
                   </section>
                 )
@@ -389,8 +389,8 @@ function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
   if (stats.length === 0) return <p className="px-5 pb-4 text-legende text-encre-2">{vide}</p>
   const total = totalStats(stats)
   const ligne = (x: StatsCompte, rang: number | null) => (
-    <tr key={x.compteId ?? x.compteNom} className={rang === null ? "font-semibold" : rang === 1 && x.appels > 0 ? "bg-signature-doux/40" : ""}>
-      <Td num className="w-10 text-encre-2">{rang === null ? "" : rang === 1 && x.appels > 0 ? <span className="font-semibold text-signature">1er</span> : `${rang}e`}</Td>
+    <tr key={x.compteId ?? x.compteNom} className={rang === null ? "font-semibold" : rang === 1 && x.appels > 0 ? "bg-fond-2" : ""}>
+      <Td num className="w-10 text-encre-2">{rang === null ? "" : rang === 1 && x.appels > 0 ? <span className="font-semibold text-encre">1er</span> : `${rang}e`}</Td>
       <Td className="truncate font-medium">{x.compteNom}</Td>
       <Td num>{x.appels}</Td>
       <Td num>{x.joints} <span className="text-encre-2">· {tauxJoints(x)} %</span></Td>
