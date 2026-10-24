@@ -140,7 +140,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
 
   const enTeteTri = (cle: CleTri, libelle: string) => (
     <Th>
-      <button type="button" className="inline-flex items-center gap-1 uppercase hover:text-encre" onClick={() => setTri((t) => basculerTri(t, cle))}>
+      <button type="button" className="inline-flex items-center gap-1 hover:text-encre" onClick={() => setTri((t) => basculerTri(t, cle))}>
         {libelle}
         {tri.cle === cle ? (tri.sens === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} className="opacity-50" />}
       </button>

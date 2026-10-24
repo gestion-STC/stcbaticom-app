@@ -110,7 +110,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
       : retard
         ? "border-alerte/30 bg-alerte-fond text-alerte"
         : t.type === "rdv"
-          ? "border-signature/20 bg-signature-doux text-encre"
+          ? "border-info/20 bg-info-fond text-encre"
           : "border-trait bg-fond-2 text-encre"
     return (
       <button
@@ -155,7 +155,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <Case texte="Masquer ce qui est fait" checked={masquerFaits} onChange={(e) => setMasquerFaits(e.target.checked)} />
         <span className="flex items-center gap-4 text-colonne text-encre-2">
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-3 border border-signature/20 bg-signature-doux" /> RDV</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-3 border border-info/20 bg-info-fond" /> RDV</span>
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-3 border border-trait bg-fond-2" /> Tâche</span>
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-3 border border-alerte/30 bg-alerte-fond" /> En retard</span>
         </span>
@@ -169,9 +169,9 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
             {jours.map((j) => {
               const auj = memeJour(j, maintenant)
               return (
-                <div key={j.getTime()} className={"border-l border-trait px-2 py-2 text-center first:border-l-0 " + (auj ? "bg-signature-doux" : "")}>
-                  <div className="text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">{j.toLocaleDateString("fr-FR", { weekday: "short" })}</div>
-                  <div className={"chiffres text-sous-titre font-semibold " + (auj ? "text-signature" : "text-encre")}>{j.getDate()}</div>
+                <div key={j.getTime()} className={"border-l border-trait px-2 py-2 text-center first:border-l-0 " + (auj ? "bg-fond-3" : "")}>
+                  <div className="text-colonne font-medium text-encre-2">{j.toLocaleDateString("fr-FR", { weekday: "short" })}</div>
+                  <div className={"chiffres text-sous-titre font-semibold " + (auj ? "text-encre underline decoration-2 underline-offset-4" : "text-encre-2")}>{j.getDate()}</div>
                 </div>
               )
             })}
@@ -181,7 +181,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
               const duJour = visibles.filter((t) => t.echeance && memeJour(new Date(t.echeance), j))
               const auj = memeJour(j, maintenant)
               return (
-                <div key={j.getTime()} className={"flex flex-col gap-1 border-l border-trait p-1.5 first:border-l-0 " + (auj ? "bg-signature-doux/40" : "")}>
+                <div key={j.getTime()} className={"flex flex-col gap-1 border-l border-trait p-1.5 first:border-l-0 " + (auj ? "bg-fond-2" : "")}>
                   {duJour.map((t) => vignette(t))}
                 </div>
               )
