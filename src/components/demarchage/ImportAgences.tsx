@@ -79,7 +79,7 @@ export default function ImportAgences({ onFermer, onImporte }: { onFermer: () =>
             onDragOver={(e) => { e.preventDefault(); setSurvol(true) }}
             onDragLeave={() => setSurvol(false)}
             onDrop={deposer}
-            className={`flex flex-col items-center gap-3 rounded-6 border border-dashed px-6 py-10 text-center transition-colors ${survol ? "border-signature bg-signature-doux" : "border-trait-fort bg-fond-2"}`}
+            className={`flex flex-col items-center gap-3 rounded-6 border border-dashed px-6 py-10 text-center transition-colors ${survol ? "border-encre bg-fond-2" : "border-trait-fort bg-fond-2"}`}
           >
             <FileSpreadsheet size={28} className="text-encre-3" />
             <p className="text-corps font-medium text-encre">Glisse ton fichier ici</p>

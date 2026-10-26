@@ -258,7 +258,7 @@ export default function SessionCallST() {
                 return (
                   <li key={x.id}>
                     <button type="button" onClick={() => { setDirecteId(null); setIndex(i) }} className={"flex w-full items-center gap-2 border-b border-fond-4 px-4 py-2 text-left " + (courante ? "bg-fond-3" : "hover:bg-fond-4")}>
-                      <span className={"h-2 w-2 shrink-0 rounded-full " + (courante ? "bg-signature" : "bg-transparent")} />
+                      <span className={"h-2 w-2 shrink-0 rounded-full " + (courante ? "bg-encre" : "bg-transparent")} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-legende font-medium text-encre">{x.entreprise || x.contact || "Sans nom"}</span>
                         <span className="block truncate text-colonne text-encre-2">
@@ -304,7 +304,7 @@ export default function SessionCallST() {
                   <p><span className="text-encre-2">Appels</span> · <span className="chiffres text-encre">{st.nbAppels ?? 0}</span>{st.nbJoints ? <span className="text-encre-2"> dont {st.nbJoints} joint{s(st.nbJoints)}</span> : null}{st.dernierAppelLe ? <span className="text-encre-2"> · dernier le {dateHeure(st.dernierAppelLe)}</span> : null}</p>
                 </div>
                 <div className="border-t border-trait px-5 py-3">
-                  <p className="text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Pourquoi on l'appelle</p>
+                  <p className="text-colonne font-medium text-encre-2">Pourquoi on l'appelle</p>
                   <ul className="mt-1 text-legende text-encre">
                     {signaux(st).map((x) => <li key={x}>· {x}</li>)}
                     {st.rappelLe ? <li>· rappel prévu le {dateHeure(st.rappelLe)}{st.suivi === "va_deposer" ? " (avait promis de déposer)" : ""}</li> : null}
@@ -362,7 +362,7 @@ export default function SessionCallST() {
 
         {/* ── L'historique ── */}
         <Carte className="self-start">
-          <h3 className="px-5 pb-2 pt-4 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Appels{courant?.appels.length ? ` · ${courant.appels.length}` : ""}</h3>
+          <h3 className="px-5 pb-2 pt-4 text-colonne font-medium text-encre-2">Appels{courant?.appels.length ? ` · ${courant.appels.length}` : ""}</h3>
           {!courant ? <p className="px-5 pb-4 text-legende text-encre-2">—</p> : courant.appels.length === 0 ? <p className="px-5 pb-4 text-legende text-encre-2">Jamais appelé.</p> : (
             <ul className="px-5 pb-4">
               {courant.appels.map((a) => (
@@ -374,7 +374,7 @@ export default function SessionCallST() {
               ))}
             </ul>
           )}
-          <h3 className="border-t border-trait px-5 pb-2 pt-4 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">La machine</h3>
+          <h3 className="border-t border-trait px-5 pb-2 pt-4 text-colonne font-medium text-encre-2">La machine</h3>
           {!courant ? <p className="px-5 pb-4 text-legende text-encre-2">—</p> : evenements.length === 0 ? <p className="px-5 pb-4 text-legende text-encre-2">Rien encore.</p> : (
             <ol className="ml-6 mr-5 mb-4 space-y-2 border-l-2 border-trait pl-4">
               {evenements.slice(0, 12).map((e, i) => (

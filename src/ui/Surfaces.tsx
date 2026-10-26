@@ -1,12 +1,13 @@
 // La trousse STC — les surfaces : carte, en-tête de page, onglets, pastilles,
-// compteurs, bandeaux, tableau, état vide. Trois rayons (3, 4, 6), deux ombres
-// (posée, flottante), une police. Le violet signature ne sert qu'en ligne.
+// compteurs, bandeaux, tableau, état vide. Dessin « bancaire » (24/10/2026, celui du
+// bureau STC) : filets fins, cartes sans ombre, rangées fines, en-têtes de colonne en
+// texte gris (plus de capitales), états en petit point de couleur + texte gris.
 import type { HTMLAttributes, ReactNode, TdHTMLAttributes, ThHTMLAttributes } from "react"
 import { Loader2 } from "lucide-react"
 
 export function Carte({ className = "", children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div {...props} className={`rounded-6 border border-trait bg-fond shadow-posee ${className}`}>
+    <div {...props} className={`rounded-6 border-[0.5px] border-trait bg-fond ${className}`}>
       {children}
     </div>
   )
@@ -22,7 +23,7 @@ export function TitreCarte({ children, droite, className = "" }: { children: Rea
   )
 }
 
-/** En-tête de page : H1 avec le tiret signature, sous-titre, actions à droite.
+/** En-tête de page : H1 (21 px, plus de tiret violet depuis le 24/10), sous-titre, actions à droite.
  *  Sur un petit écran (MacBook, 13/10) : le titre ne se coupe pas, mais le sous-titre passe à la
  *  ligne au lieu de déborder SUR les boutons (il recouvrait « Nouvelle agence », plus cliquable).
  *  Et les commandes de droite passent à la ligne au lieu de sortir de l'écran (la session de call,
@@ -30,8 +31,8 @@ export function TitreCarte({ children, droite, className = "" }: { children: Rea
 export function EnTetePage({ titre, sousTitre, droite }: { titre: ReactNode; sousTitre?: ReactNode; droite?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div className="relative min-w-0 pb-3 after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-8 after:bg-signature lg:min-w-min lg:flex-1">
-        <h1 className="whitespace-nowrap text-h1 font-semibold tracking-[-0.025em] text-encre">{titre}</h1>
+      <div className="relative min-w-0 lg:min-w-min lg:flex-1">
+        <h1 className="whitespace-nowrap text-h1 font-semibold tracking-[-0.02em] text-encre">{titre}</h1>
         {sousTitre ? <p className="mt-1 text-legende text-encre-2">{sousTitre}</p> : null}
       </div>
       {droite ? <div className="relative z-10 flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">{droite}</div> : null}
@@ -39,7 +40,7 @@ export function EnTetePage({ titre, sousTitre, droite }: { titre: ReactNode; sou
   )
 }
 
-/** Onglets : un trait fin dessous, l'onglet ouvert souligné de 2 px signature. */
+/** Onglets : texte gris, un filet fin dessous, l'onglet ouvert en noir souligné de noir. */
 export function Onglets<T extends string>({ valeur, onChange, options, className = "" }: {
   valeur: T
   onChange: (v: T) => void
@@ -47,7 +48,7 @@ export function Onglets<T extends string>({ valeur, onChange, options, className
   className?: string
 }) {
   return (
-    <div role="tablist" className={`flex gap-1 border-b border-trait ${className}`}>
+    <div role="tablist" className={`flex gap-[22px] border-b-[0.5px] border-trait ${className}`}>
       {options.map((o) => {
         const actif = o.id === valeur
         return (
@@ -58,14 +59,14 @@ export function Onglets<T extends string>({ valeur, onChange, options, className
             aria-selected={actif}
             onClick={() => onChange(o.id)}
             className={
-              "relative flex items-center gap-2 px-3 py-2 text-legende transition-colors " +
+              "relative flex items-center gap-2 py-2.5 text-legende transition-colors " +
               (actif
-                ? "font-semibold text-encre after:absolute after:inset-x-3 after:-bottom-px after:h-[2px] after:bg-signature"
-                : "font-medium text-encre-2 hover:text-encre")
+                ? "font-medium text-encre after:absolute after:inset-x-0 after:-bottom-px after:h-[1.5px] after:bg-encre"
+                : "text-encre-2 hover:text-encre")
             }
           >
             {o.label}
-            {o.badge ? <span className="rounded-full bg-signature px-1.5 text-[10px] font-bold leading-4 text-white">{o.badge}</span> : null}
+            {o.badge ? <span className="chiffres rounded-full bg-encre px-1.5 text-[10px] font-medium leading-4 text-white">{o.badge}</span> : null}
           </button>
         )
       })}
@@ -74,19 +75,21 @@ export function Onglets<T extends string>({ valeur, onChange, options, className
 }
 
 export type RolePastille = "actif" | "fait" | "attente" | "probleme" | "inerte" | "info"
-const ROLES: Record<RolePastille, string> = {
-  actif: "border-trait bg-transparent text-encre",
-  fait: "border-ok/20 bg-ok-fond text-ok",
-  attente: "border-attention/20 bg-attention-fond text-attention",
-  probleme: "border-alerte/20 bg-alerte-fond text-alerte",
-  inerte: "border-trait bg-fond-3 text-encre-2",
-  info: "border-signature/20 bg-signature-doux text-signature",
+// La couleur du point ; le texte reste gris (dessin « bancaire », 24/10/2026).
+const POINTS: Record<RolePastille, string> = {
+  actif: "bg-encre",
+  fait: "bg-ok",
+  attente: "bg-attention",
+  probleme: "bg-alerte",
+  inerte: "bg-encre-3",
+  info: "bg-info",
 }
-/** Pastille d'état, arrondie, teinte selon le rôle (jamais de rouge plein). */
-export function Pastille({ role = "inerte", children, point, className = "" }: { role?: RolePastille; children: ReactNode; point?: boolean; className?: string }) {
+/** État : un petit point de couleur et un texte gris (plus de pastille remplie). `point` est gardé
+ *  pour les écrans qui le passent : le point est toujours là. */
+export function Pastille({ role = "inerte", children, className = "" }: { role?: RolePastille; children: ReactNode; point?: boolean; className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-colonne font-medium ${ROLES[role]} ${className}`}>
-      {point ? <span className="h-1.5 w-1.5 rounded-full bg-current" /> : null}
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-colonne ${role === "actif" ? "text-encre" : "text-encre-2"} ${className}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${POINTS[role]}`} />
       {children}
     </span>
   )
@@ -99,7 +102,7 @@ export function Compteurs<T extends string>({ valeurs, actif, onSelect }: {
   onSelect?: (id: T) => void
 }) {
   return (
-    <div className="flex flex-wrap items-stretch overflow-hidden rounded-6 border border-trait bg-fond shadow-posee">
+    <div className="flex flex-wrap items-stretch overflow-hidden rounded-6 border-[0.5px] border-trait bg-fond">
       {valeurs.map((v, i) => {
         const Tag = onSelect ? "button" : "div"
         return (
@@ -109,13 +112,13 @@ export function Compteurs<T extends string>({ valeurs, actif, onSelect }: {
             onClick={onSelect ? () => onSelect(v.id) : undefined}
             className={
               "min-w-[120px] flex-1 px-4 py-3 text-left transition-colors " +
-              (i > 0 ? "border-l border-trait " : "") +
-              (onSelect ? "hover:bg-fond-3 " : "") +
+              (i > 0 ? "border-l-[0.5px] border-trait " : "") +
+              (onSelect ? "hover:bg-fond-2 " : "") +
               (actif === v.id ? "bg-fond-3" : "")
             }
           >
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-encre-2">{v.libelle}</div>
-            <div className={"chiffres mt-0.5 text-xl font-semibold " + (v.role === "alerte" ? "text-alerte" : v.role === "ok" ? "text-ok" : "text-encre")}>{v.valeur}</div>
+            <div className="text-colonne text-encre-2">{v.libelle}</div>
+            <div className={"chiffres mt-0.5 text-[24px] font-medium leading-8 tracking-[-0.02em] " + (v.role === "alerte" ? "text-alerte" : v.role === "ok" ? "text-ok" : "text-encre")}>{v.valeur}</div>
             {v.detail ? <div className="mt-0.5 text-colonne text-encre-2">{v.detail}</div> : null}
           </Tag>
         )
@@ -127,20 +130,20 @@ export function Compteurs<T extends string>({ valeurs, actif, onSelect }: {
 /** Bandeau d'information, d'attention ou d'alerte, avec une action à droite. */
 export function Bandeau({ role = "info", children, action, className = "" }: { role?: "info" | "attention" | "alerte" | "ok"; children: ReactNode; action?: ReactNode; className?: string }) {
   const teinte = {
-    info: "border-signature/20 bg-signature-doux text-encre",
+    info: "border-info/20 bg-info-fond text-encre",
     attention: "border-attention/20 bg-attention-fond text-attention",
     alerte: "border-alerte/20 bg-alerte-fond text-alerte",
     ok: "border-ok/20 bg-ok-fond text-ok",
   }[role]
   return (
-    <div className={`flex flex-wrap items-center gap-3 rounded-4 border px-3 py-2 text-legende ${teinte} ${className}`}>
+    <div className={`flex flex-wrap items-center gap-3 rounded-6 border-[0.5px] px-3 py-2 text-legende ${teinte} ${className}`}>
       <div className="min-w-0 flex-1">{children}</div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   )
 }
 
-/** Tableau : en-tête de 36 px sur fond doux, capitales espacées, lignes de 8 px. */
+/** Tableau : rangées fines séparées d'un filet, en-têtes de colonne en texte gris 11 px. */
 export function Tableau({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div className={`overflow-x-auto ${className}`}>
@@ -150,14 +153,14 @@ export function Tableau({ children, className = "" }: { children: ReactNode; cla
 }
 export function Th({ num, className = "", children, ...props }: ThHTMLAttributes<HTMLTableCellElement> & { num?: boolean }) {
   return (
-    <th {...props} className={`h-9 border-b border-trait bg-fond-2 px-3 text-left align-middle text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2 ${num ? "text-right" : ""} ${className}`}>
+    <th {...props} className={`h-[34px] border-b-[0.5px] border-trait px-3 text-left align-middle text-colonne font-normal text-encre-2 ${num ? "text-right" : ""} ${className}`}>
       {children}
     </th>
   )
 }
 export function Td({ num, className = "", children, ...props }: TdHTMLAttributes<HTMLTableCellElement> & { num?: boolean }) {
   return (
-    <td {...props} className={`border-b border-fond-4 px-3 py-2 align-middle ${num ? "chiffres text-right" : ""} ${className}`}>
+    <td {...props} className={`border-b-[0.5px] border-trait px-3 py-[9px] align-middle ${num ? "chiffres text-right" : ""} ${className}`}>
       {children}
     </td>
   )
@@ -191,7 +194,7 @@ export function Chargement({ texte = "Chargement…" }: { texte?: string }) {
 
 /** La zone de filtres au-dessus d'une liste. */
 export function BarreFiltres({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`flex flex-wrap items-center gap-3 rounded-6 border border-trait bg-fond-2 p-3 ${className}`}>{children}</div>
+  return <div className={`flex flex-wrap items-center gap-3 ${className}`}>{children}</div>
 }
 
 /** Une paire libellé / valeur, dans une fiche. */

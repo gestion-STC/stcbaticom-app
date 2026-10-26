@@ -122,7 +122,7 @@ export default function BlocNumeros({
               </div>
               {jauge.quota > 0 ? (
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-fond-4" role="progressbar" aria-valuemin={0} aria-valuemax={jauge.quota} aria-valuenow={jauge.utilises}>
-                  <div className={"h-full rounded-full " + (jauge.depasse ? "bg-alerte" : "bg-signature")} style={{ width: `${Math.round(jauge.part * 100)}%` }} />
+                  <div className={"h-full rounded-full " + (jauge.depasse ? "bg-alerte" : "bg-info")} style={{ width: `${Math.round(jauge.part * 100)}%` }} />
                 </div>
               ) : null}
             </>

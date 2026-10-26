@@ -83,7 +83,7 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
       ) : (
         <form id="form-envoyer-contrats" onSubmit={envoyer} className="grid gap-4">
           <div>
-            <h3 className="mb-1 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Les contrats qui partent</h3>
+            <h3 className="mb-1 text-colonne font-medium text-encre-2">Les contrats qui partent</h3>
             <div className="flex flex-wrap gap-x-5 gap-y-1">
               {pack.map((m) => <Case key={m.templateId} texte={m.nom} checked={coches.includes(m.templateId)} onChange={(e) => setCoches((c) => (e.target.checked ? [...c, m.templateId] : c.filter((x) => x !== m.templateId)))} />)}
             </div>
@@ -95,7 +95,7 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
           </div>
           {champs.length ? (
             <>
-              <h3 className="text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Les informations sur le contrat</h3>
+              <h3 className="text-colonne font-medium text-encre-2">Les informations sur le contrat</h3>
               <div className="grid gap-3 sm:grid-cols-2">
                 {champs.map((c) => (
                   <Etiquette key={c.label} texte={`${libelleChamp(c.label)}${c.requis ? " *" : ""}`}>

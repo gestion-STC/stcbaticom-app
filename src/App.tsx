@@ -84,7 +84,7 @@ function App() {
   if (!session) return <Connexion />
 
   return (
-    <div className="flex h-screen overflow-hidden bg-fond-2">
+    <div className="flex h-screen overflow-hidden bg-fond">
       <Sidebar
         active={page}
         espace={espace}
@@ -104,7 +104,7 @@ function App() {
             <button type="button" className="rounded-3 bg-white/15 px-3 py-1 font-semibold hover:bg-white/25" onClick={() => window.location.reload()}>Recharger</button>
           </div>
         ) : null}
-        <main className="min-h-0 flex-1 overflow-y-auto bg-fond-2">
+        <main className="min-h-0 flex-1 overflow-y-auto bg-fond">
           {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
           {page === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
           {page === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}

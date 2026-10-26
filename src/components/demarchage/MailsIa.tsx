@@ -136,8 +136,8 @@ export function BoutonMailsIa({ rafraichir = 0 }: { rafraichir?: number }) {
       >
         <Sparkles size={15} />
         <span>Mails à envoyer</span>
-        {prets ? <span className="chiffres ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-signature px-1.5 text-colonne font-semibold text-white">{prets}</span> : null}
-        {!prets && enRoute ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-signature" aria-label="analyse en cours" /> : null}
+        {prets ? <span className="chiffres ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-encre px-1.5 text-colonne font-medium text-white">{prets}</span> : null}
+        {!prets && enRoute ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-info" aria-label="analyse en cours" /> : null}
       </button>
       {ouvert ? (
         <Panneau titre="Mails à envoyer" sousTitre="Préparés par l'IA à partir de tes appels des dernières 24 h. Rien ne part sans toi." onFermer={() => setOuvert(false)}>

@@ -122,7 +122,7 @@ export default function RappelsRdv() {
       {(tousVisibles ? actifs : actifs.slice(0, VISIBLES)).map((r) => (
         <Carte key={r.id} className="shrink-0 p-3 shadow-flottante">
           <div className="flex items-start gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-4 bg-signature-doux text-signature"><Clock size={16} /></span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fond-3 text-encre"><Clock size={16} /></span>
             <div className="min-w-0 flex-1">
               <p className="text-legende font-semibold text-encre">
                 RDV de {r.echeance ? heureCourte(r.echeance) : "—"}

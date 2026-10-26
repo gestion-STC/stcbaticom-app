@@ -277,7 +277,7 @@ function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, 
     }
   }
 
-  const titreSection = (t: string) => <h3 className="mb-2 mt-6 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">{t}</h3>
+  const titreSection = (t: string) => <h3 className="mb-2 mt-6 text-colonne font-medium text-encre-2">{t}</h3>
 
   return (
     <Panneau

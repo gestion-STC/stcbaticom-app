@@ -156,7 +156,7 @@ export default function BarreResultat({
 
       {joint ? (
         <div className="mt-3 border-t border-fond-4 pt-3">
-          <div className="mb-2 text-colonne font-semibold uppercase tracking-[0.07em] text-encre-2">Et avec le gestionnaire ?</div>
+          <div className="mb-2 text-colonne font-medium text-encre-2">Et avec le gestionnaire ?</div>
           <div className="flex flex-wrap gap-2">
             {ISSUES.map((i) => (
               <GrosBouton key={i.code} touche={i.touche} libelle={i.libelle} aide={i.aide} choisi={issue === i.code} onClick={() => setIssue(i.code)} />
