@@ -5,6 +5,8 @@ import type { Message } from "../../../lib/messagesDb"
 import { libelleEtape, pastilleEtape, type Activite, type Agence, type TypeActivite } from "../../../demarchage/modele"
 import { dateHeureCourte, decrireActivite, texteDernierAppel } from "../../../demarchage/sessionOutils"
 import { Pastille } from "../../../ui"
+import type { AppelIa } from "../../../demarchage/appelsIa"
+import { ResumeSousAppel } from "../EchangesAppels"
 
 export function Section({ titre, droite, children }: { titre: string; droite?: ReactNode; children: ReactNode }) {
   return (
@@ -49,7 +51,7 @@ export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, o
 }
 
 const ICONES_FIL: Record<TypeActivite, LucideIcon> = { appel: PhoneOutgoing, email: Mail, rdv: CalendarClock, tache: SquareCheck, note: StickyNote, etape: ArrowRight }
-export function LigneFil({ a }: { a: Activite }) {
+export function LigneFil({ a, echange }: { a: Activite; echange?: AppelIa }) {
   const d = decrireActivite(a)
   const Icone = a.type === "appel" && a.sens === "entrant" ? PhoneIncoming : (ICONES_FIL[a.type] ?? StickyNote)
   return (
@@ -65,6 +67,7 @@ export function LigneFil({ a }: { a: Activite }) {
         {d.detail ? <div className="text-colonne text-encre-2">{d.detail}</div> : null}
         {d.etat ? <Pastille role={d.etat === "fait" ? "fait" : "attente"} className="mt-1">{d.etat === "fait" ? "faite" : "ouverte"}</Pastille> : null}
         {a.note ? <p className="mt-1 whitespace-pre-line text-legende text-encre">{a.note}</p> : null}
+        {echange ? <ResumeSousAppel appel={echange} /> : null}
       </div>
     </li>
   )
