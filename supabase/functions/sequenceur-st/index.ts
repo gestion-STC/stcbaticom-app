@@ -133,7 +133,7 @@ Deno.serve(async (req: Request) => {
   const sb: SupabaseClient = createClient(base, service)
   const now = new Date()
   const nowIso = now.toISOString()
-  const bilan = { conversions: 0, recales: 0, demarrages: 0, envois: 0, rejoues: 0, erreurs: 0, abandons: 0, termines: 0, sms_sautes_fixe: 0, etapes_sautees_sans_adresse: 0, saut: "" as string | null }
+  const bilan = { conversions: 0, recales: 0, demarrages: 0, envois: 0, rejoues: 0, erreurs: 0, abandons: 0, termines: 0, sms_sautes_fixe: 0, etapes_sautees_sans_adresse: 0, doublons_evites: 0, saut: "" as string | null }
 
   const { data: passage } = await sb.from("st_passages").insert({}).select("id").single()
   const finir = async (status = 200, erreur = "") => {
@@ -204,19 +204,33 @@ Deno.serve(async (req: Request) => {
     // « en erreur » = à rejouer (ou à abandonner si les tentatives sont épuisées).
     const traiteDe = new Map<string, Set<string>>()
     const erreurDe = new Map<string, Map<string, Envoi>>()
+    // ⚠ 26/10/2026 : la base ne rend que 1 000 lignes par demande, SANS erreur. Avant, on
+    // demandait l'historique de 500 fiches d'un coup : au-delà de 1 000 envois, la suite était
+    // perdue, la machine croyait des étapes jamais faites et RENVOYAIT le premier e-mail tous
+    // les deux jours (427 artisans l'ont reçu 5 fois ou plus en trois semaines). On lit
+    // maintenant par pages, jusqu'au bout, et une erreur de lecture arrête le passage.
+    const PAGE = 1000
     const chargerEnvois = async (ids: string[]) => {
-      for (let i = 0; i < ids.length; i += 500) {
-        const { data } = await sb.from("st_envois").select("id, sous_traitant_id, etape_id, statut, tentative, rejouer_apres, envoye_le")
-          .in("sous_traitant_id", ids.slice(i, i + 500)).order("envoye_le", { ascending: true })
-        for (const e of (data ?? []) as Envoi[]) {
-          if (e.statut === "envoye" || e.statut === "saute" || e.statut === "abandonne") {
-            if (!traiteDe.has(e.sous_traitant_id)) traiteDe.set(e.sous_traitant_id, new Set())
-            traiteDe.get(e.sous_traitant_id)!.add(e.etape_id)
-            erreurDe.get(e.sous_traitant_id)?.delete(e.etape_id)
-          } else if (e.statut === "erreur") {
-            if (!erreurDe.has(e.sous_traitant_id)) erreurDe.set(e.sous_traitant_id, new Map())
-            erreurDe.get(e.sous_traitant_id)!.set(e.etape_id, e) // la plus récente l'emporte (tri croissant)
-          }
+      for (let i = 0; i < ids.length; i += 100) {
+        const lot = ids.slice(i, i + 100)
+        for (let de = 0; ; de += PAGE) {
+          const { data: page, error } = await sb.from("st_envois").select("id, sous_traitant_id, etape_id, statut, tentative, rejouer_apres, envoye_le")
+            .in("sous_traitant_id", lot).order("envoye_le", { ascending: true }).order("id", { ascending: true }).range(de, de + PAGE - 1)
+          if (error) throw new Error(`historique des envois illisible : ${error.message}`)
+          traiterEnvois((page ?? []) as Envoi[])
+          if ((page ?? []).length < PAGE) break
+        }
+      }
+    }
+    const traiterEnvois = (data: Envoi[]) => {
+      for (const e of data) {
+        if (e.statut === "envoye" || e.statut === "saute" || e.statut === "abandonne") {
+          if (!traiteDe.has(e.sous_traitant_id)) traiteDe.set(e.sous_traitant_id, new Set())
+          traiteDe.get(e.sous_traitant_id)!.add(e.etape_id)
+          erreurDe.get(e.sous_traitant_id)?.delete(e.etape_id)
+        } else if (e.statut === "erreur") {
+          if (!erreurDe.has(e.sous_traitant_id)) erreurDe.set(e.sous_traitant_id, new Map())
+          erreurDe.get(e.sous_traitant_id)!.set(e.etape_id, e) // la plus récente l'emporte (tri croissant)
         }
       }
     }
@@ -357,6 +371,17 @@ Deno.serve(async (req: Request) => {
         continue
       }
       if (!plage[due.canal] || budget[due.canal] <= 0) continue
+
+      // Dernier filet (26/10/2026) : juste avant d'envoyer, on redemande à la base si cette
+      // étape est déjà partie, sautée ou abandonnée pour cette fiche. Jamais deux fois la même touche.
+      const { count: dejaFait, error: errDeja } = await sb.from("st_envois").select("id", { count: "exact", head: true })
+        .eq("sous_traitant_id", st.id).eq("etape_id", due.id).in("statut", ["envoye", "saute", "abandonne"])
+      if (errDeja) throw new Error(`contrôle avant envoi impossible : ${errDeja.message}`)
+      if ((dejaFait ?? 0) > 0) {
+        marquerTraite(st.id, due.id)
+        bilan.doublons_evites++
+        continue
+      }
 
       const liens: Liens = {
         candidature: `${base}/functions/v1/lien-st?t=${st.token}&d=candidature`,
