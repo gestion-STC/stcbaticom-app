@@ -4,6 +4,7 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react"
 import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, MapPin, Mic, MicOff, SquareCheck } from "lucide-react"
 import type { AgenceComplete } from "../../../demarchage/db"
+import { DernierEchange } from "../EchangesAppels"
 import { dateCourte } from "../../../demarchage/agencesOutils"
 import { libelleEtape, libelleType, pastilleEtape, type Activite } from "../../../demarchage/modele"
 import { bilanDepuisAgence, dateHeureCourte, texteBilanAppels } from "../../../demarchage/sessionOutils"
@@ -96,6 +97,9 @@ export default function FicheEnCours({
           Appel du {dateHeureCourte(appelEnSuspens.date)} : résultat non noté. Tant qu'il ne l'est pas, la fiche ne sait pas si tu as eu quelqu'un.
         </Bandeau>
       ) : null}
+
+      {/* Ce qui s'est dit la dernière fois (26/10/2026) : avant de rappeler, on sait où on en est. */}
+      <DernierEchange agenceId={fiche.agence.id} version={fiche.activites.length} className="mt-3" />
 
       {blocNumeros}
 

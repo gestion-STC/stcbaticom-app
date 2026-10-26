@@ -2,8 +2,11 @@
 import type { AgenceComplete } from "../../../demarchage/db"
 import { Carte, Vide } from "../../../ui"
 import { LigneFil, LigneMessage } from "./morceaux"
+import { useEchanges } from "../useEchanges"
 
 export default function ColonneFil({ fiche }: { fiche: AgenceComplete | null }) {
+  // Les appels transcrits de l'agence : leur résumé sous chaque appel du fil (26/10/2026).
+  const { parActivite } = useEchanges(fiche?.agence.id, fiche?.activites.length)
   return (
     <Carte className="flex flex-col lg:max-h-[calc(100vh-200px)]">
       <div className="px-4 pb-2 pt-4">
@@ -32,7 +35,7 @@ export default function ColonneFil({ fiche }: { fiche: AgenceComplete | null }) 
             ) : (
               <ol className="divide-y divide-fond-4">
                 {fiche.activites.map((a) => (
-                  <LigneFil key={a.id} a={a} />
+                  <LigneFil key={a.id} a={a} echange={parActivite.get(a.id)} />
                 ))}
               </ol>
             )}

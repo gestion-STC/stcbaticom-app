@@ -43,6 +43,8 @@ import { useReglages } from "../../demarchage/reglages"
 import { bilanDepuisAgence, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
 import { AppelsIaAgence } from "./MailsIa"
+import { DernierEchange, ResumeSousAppel } from "./EchangesAppels"
+import { useEchanges } from "./useEchanges"
 
 const ICONES: Record<TypeActivite, ReactNode> = {
   appel: <Phone size={14} />, email: <Mail size={14} />, rdv: <CalendarDays size={14} />, tache: <SquareCheck size={14} />, note: <StickyNote size={14} />, etape: <ArrowRightLeft size={14} />,
@@ -119,6 +121,8 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
   const ouvertes = useMemo(() => tachesOuvertes(activites), [activites])
   const fil = useMemo(() => filtrerFil(fusionnerFil(activites, donnees?.messages ?? []), filtreFil), [activites, donnees, filtreFil])
   const jours = useMemo(() => grouperParJour(fil, maintenant), [fil, maintenant])
+  // Les appels transcrits : leur résumé s'affiche sous l'appel, dans le fil (26/10/2026).
+  const echanges = useEchanges(agence?.id, fil.length)
   const nbParType = useMemo(() => {
     const n: Partial<Record<FiltreFil, number>> = {}
     for (const e of fusionnerFil(activites, donnees?.messages ?? [])) n[e.type] = (n[e.type] ?? 0) + 1
@@ -198,6 +202,9 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
               Peut-être la même agence que <strong>{d.nom}</strong>{d.secteurLibelle ? ` (${d.secteurLibelle})` : ""}{d.telephone ? <span className="chiffres"> · {d.telephone}</span> : null} · {libelleEtape(d.etape)}
             </Bandeau>
           ))}
+
+          {/* ── Ce qui s'est dit au dernier appel (26/10/2026) ── */}
+          {agence ? <DernierEchange agenceId={agence.id} version={fil.length} /> : null}
 
           {/* ── 1. Identité ── */}
           <Carte>
@@ -432,6 +439,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                                 {e.note ? (
                                   <div className={"whitespace-pre-wrap text-encre-2 " + (longue && !depliee ? "line-clamp-3" : "")}>{e.note}</div>
                                 ) : null}
+                                {e.type === "appel" && echanges.parActivite.get(e.id) ? <ResumeSousAppel appel={echanges.parActivite.get(e.id)!} /> : null}
                                 {longue ? (
                                   <button type="button" className="text-colonne text-encre-2 underline-offset-4 hover:underline" onClick={() => setNotesDepliees((s) => { const n = new Set(s); if (n.has(e.id)) n.delete(e.id); else n.add(e.id); return n })}>
                                     {depliee ? "Replier" : "Voir tout"}
