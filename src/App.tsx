@@ -25,6 +25,7 @@ import BaseST from "./components/recrutement/BaseST"
 import SequencesST from "./components/recrutement/SequencesST"
 import SuiviST from "./components/recrutement/SuiviST"
 import DossiersST from "./components/recrutement/DossiersST"
+import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 
 function App() {
   const [page, setPage] = useState<PageId>("aujourdhui")
@@ -46,10 +47,7 @@ function App() {
   const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
   // Une écriture sur une fiche (étape, contact, note, mail…) : la session recharge sa file et ses compteurs (13/10).
   const [versionAgences, setVersionAgences] = useState(0)
-  // Réglages ouverts depuis la machine de recrutement : sur la page de la machine.
-  const [reglagesMachine, setReglagesMachine] = useState(false)
   const naviguer = (p: PageId) => {
-    if (p !== "parametrage") setReglagesMachine(false)
     setPage(p)
     if (!horsEspace(p)) setEspace(espaceDe(p))
   }
@@ -111,11 +109,12 @@ function App() {
           {page === "analyse" && <AnalyseAppels />}
           {page === "apporteurs" && <Apporteurs />}
           {page === "messages" && <Messages espace="demarchage" />}
-          {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026. La machine de
-              recrutement ouvre directement sa page de réglages. */}
-          {page === "parametrage" && <Parametrage key={reglagesMachine ? "machine" : "regles"} session={session} sectionInitiale={reglagesMachine ? "machine" : undefined} />}
+          {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026 ; les réglages
+              du recrutement sont dans l'espace Recrutement depuis le 26/10. */}
+          {page === "parametrage" && <Parametrage session={session} />}
 
-          {page === "st_machine" && <MachineST onNaviguer={(p) => { setReglagesMachine(p === "reglages"); naviguer(p === "reglages" ? "parametrage" : p) }} />}
+          {page === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p)} />}
+          {page === "st_reglages" && <ReglagesMachineST />}
           {page === "st_session" && <SessionCallST />}
           {page === "st_base" && <BaseST />}
           {page === "st_sequences" && <SequencesST />}

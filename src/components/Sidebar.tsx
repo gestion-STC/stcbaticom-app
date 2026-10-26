@@ -14,6 +14,7 @@ import {
   ListOrdered,
   BarChart3,
   FolderCheck,
+  Settings2,
   LogOut,
 } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
@@ -41,6 +42,7 @@ export type PageId =
   | "st_suivi"
   | "st_boite"
   | "st_dossiers"
+  | "st_reglages"
   | "parametrage"
 
 type NavItem = { id: PageId; label: string; icon: typeof Users }
@@ -65,6 +67,7 @@ const menuRecrutement: NavItem[] = [
   { id: "st_suivi", label: "Suivi", icon: BarChart3 },
   { id: "st_boite", label: "Boîte de réception", icon: Inbox },
   { id: "st_dossiers", label: "Dossiers déposés", icon: FolderCheck },
+  { id: "st_reglages", label: "Réglages de la machine", icon: Settings2 },
 ]
 
 // Une ligne du menu, au dessin « bancaire » (24/10/2026, celui du bureau STC) : 30 px,

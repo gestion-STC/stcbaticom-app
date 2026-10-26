@@ -79,7 +79,7 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
     >
       {erreur ? <Bandeau role="alerte" className="mb-3" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
       {pack === null ? <Chargement texte="Lecture du pack de contrats…" /> : pack.length === 0 ? (
-        <p className="text-legende text-encre-2">Aucun contrat dans le pack. Va dans Réglages › Recrutement › Contrats à faire signer pour choisir les modèles DocuSign.</p>
+        <p className="text-legende text-encre-2">Aucun contrat dans le pack. Va dans Recrutement › Réglages de la machine › Contrats à faire signer pour choisir les modèles DocuSign.</p>
       ) : (
         <form id="form-envoyer-contrats" onSubmit={envoyer} className="grid gap-4">
           <div>
