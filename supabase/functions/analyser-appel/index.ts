@@ -305,11 +305,16 @@ async function verifier(sb: SupabaseClient): Promise<Controle[]> {
   await essai("ElevenLabs : transcription", async () => {
     const cle = Deno.env.get("ELEVENLABS_API_KEY")
     if (!cle) throw new Error("secret ELEVENLABS_API_KEY manquant")
-    const rep = await fetch("https://api.elevenlabs.io/v1/models", { headers: { "xi-api-key": cle } })
+    // On teste la VRAIE permission (26/10/2026 : une clé restreinte sans « Speech to Text »
+    // passait pour bonne). Une demande de transcription SANS fichier : refusée pour le fichier
+    // manquant (422) = la clé a le droit ; 401 = clé inconnue ou droit absent.
+    const forme = new FormData()
+    forme.append("model_id", "scribe_v1")
+    const rep = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": cle }, body: forme })
     const texte = await rep.text()
-    // Une clé restreinte peut ne pas lire la liste des modèles : elle est reconnue quand même.
-    if (rep.ok || texte.includes("missing_permissions")) return "clé acceptée"
-    throw new Error(`clé refusée par ElevenLabs (${rep.status})`)
+    if (texte.includes("speech_to_text") && texte.includes("missing_permissions")) throw new Error("clé acceptée, mais SANS le droit « Speech to Text » : dans ElevenLabs › API Keys, mettre Speech to Text sur Access")
+    if (rep.status === 401 || rep.status === 403) throw new Error(`clé refusée par ElevenLabs (${rep.status})`)
+    return "clé acceptée, transcription autorisée"
   })
   await essai("Anthropic : analyse et mail", async () => {
     const cle = Deno.env.get("ANTHROPIC_API_KEY")
