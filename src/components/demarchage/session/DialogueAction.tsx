@@ -12,7 +12,7 @@ export default function DialogueAction({
   onFermer,
   onValider,
 }: {
-  dialogue: "tache" | "rdv" | "note"
+  dialogue: "tache" | "rdv"
   nomAgence: string | undefined
   formAction: FormAction
   setFormAction: (f: FormAction) => void
@@ -21,21 +21,20 @@ export default function DialogueAction({
 }) {
   return (
     <Dialogue
-      titre={dialogue === "tache" ? "Nouvelle tâche" : dialogue === "rdv" ? "Nouveau rendez-vous" : "Nouvelle note"}
+      titre={dialogue === "tache" ? "Nouvelle tâche" : "Nouveau rendez-vous"}
       description={nomAgence}
       onFermer={onFermer}
       pied={
         <>
           <Bouton variante="discret" onClick={onFermer}>Annuler</Bouton>
-          <Bouton variante="plein" icone={<Check />} onClick={onValider} disabled={dialogue === "note" ? !formAction.note.trim() : !formAction.quand}>
+          <Bouton variante="plein" icone={<Check />} onClick={onValider} disabled={!formAction.quand}>
             Enregistrer
           </Bouton>
         </>
       }
     >
       <div className="space-y-3">
-        {dialogue !== "note" ? (
-          <>
+        <>
             <Etiquette texte="Titre"><Champ value={formAction.titre} onChange={(e) => setFormAction({ ...formAction, titre: e.target.value })} autoFocus /></Etiquette>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Etiquette texte={dialogue === "rdv" ? "Le" : "Pour le"}>
@@ -52,9 +51,8 @@ export default function DialogueAction({
               ) : null}
             </div>
           </>
-        ) : null}
-        <Etiquette texte={dialogue === "note" ? "Note" : "Précisions"}>
-          <Zone value={formAction.note} onChange={(e) => setFormAction({ ...formAction, note: e.target.value })} rows={4} autoFocus={dialogue === "note"} />
+        <Etiquette texte="Précisions">
+          <Zone value={formAction.note} onChange={(e) => setFormAction({ ...formAction, note: e.target.value })} rows={4} />
         </Etiquette>
       </div>
     </Dialogue>

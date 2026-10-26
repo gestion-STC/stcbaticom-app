@@ -33,7 +33,7 @@ import { lireParametre } from "../../lib/parametresDb"
 import { lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
 import {
-  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact, creerNote, creerRdv, creerTache,
+  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact, creerRdv, creerTache,
   appelLance, appelVerifier, enregistrerAppel, majAgence, type AgenceComplete,
 } from "../../demarchage/db"
 import {
@@ -1011,7 +1011,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     }
   }
   function ouvrirAction(type: Exclude<Action, "passer">) {
-    setFormAction({ titre: type === "tache" ? "Rappeler" : type === "rdv" ? "Rendez-vous" : "", quand: heureRelance === null ? "" : demainALHeure(new Date(), heureRelance), type: "telephone", note: "" })
+    setFormAction({ titre: type === "tache" ? "Rappeler" : "Rendez-vous", quand: heureRelance === null ? "" : demainALHeure(new Date(), heureRelance), type: "telephone", note: "" })
     setDialogue(type)
   }
   async function validerAction() {
@@ -1019,18 +1019,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const agenceId = fiche.agence.id
     const contactId = contactEnLigne ?? defaut?.contactId ?? null
     try {
-      if (dialogue === "note") {
-        if (!formAction.note.trim()) return
-        await creerNote({ agenceId, contactId, compteNom, note: formAction.note.trim() })
-      } else {
-        const echeance = versIso(formAction.quand)
-        if (!echeance) {
-          setErreur("Choisis une date et une heure.")
-          return
-        }
-        if (dialogue === "tache") await creerTache({ agenceId, contactId, compteNom, titre: formAction.titre.trim() || "Rappeler", echeance, note: formAction.note })
-        else await creerRdv({ agenceId, contactId, compteNom, titre: formAction.titre.trim() || "Rendez-vous", echeance, rdvType: formAction.type, note: formAction.note })
+      const echeance = versIso(formAction.quand)
+      if (!echeance) {
+        setErreur("Choisis une date et une heure.")
+        return
       }
+      if (dialogue === "tache") await creerTache({ agenceId, contactId, compteNom, titre: formAction.titre.trim() || "Rappeler", echeance, note: formAction.note })
+      else await creerRdv({ agenceId, contactId, compteNom, titre: formAction.titre.trim() || "Rendez-vous", echeance, rdvType: formAction.type, note: formAction.note })
       if (!enVie.current) return
       setDialogue(null)
       setErreur("")
@@ -1255,7 +1250,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       {contactAModifier && courante ? (
         <ContactFormulaire agenceId={courante.agence.id} contact={contactAModifier} onFermer={() => setContactAModifier(null)} onEnregistre={() => { setContactAModifier(null); rafraichirCourante() }} />
       ) : null}
-      {dialogue === "tache" || dialogue === "rdv" || dialogue === "note" ? (
+      {dialogue === "tache" || dialogue === "rdv" ? (
         <DialogueAction
           dialogue={dialogue}
           nomAgence={fiche?.agence.nom}

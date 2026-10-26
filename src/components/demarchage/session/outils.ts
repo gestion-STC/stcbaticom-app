@@ -45,7 +45,7 @@ export const TEXTES_APPEL: Record<EtapeAppel, string> = {
 
 export const CONTACT_VIDE = { prenom: "", nom: "", role: "gestionnaire" as RoleContact, ligneDirecte: "", mobile: "", email: "" }
 export type NouveauContact = typeof CONTACT_VIDE
-export type Action = "tache" | "rdv" | "note" | "passer"
+export type Action = "tache" | "rdv" | "passer"
 export type FormAction = { titre: string; quand: string; type: TypeRdv; note: string }
 export const messageDe = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
