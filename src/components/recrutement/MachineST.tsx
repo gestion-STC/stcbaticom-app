@@ -5,7 +5,7 @@
 // Mahdi, 08/10/2026 : « aujourd'hui il faut ouvrir quatre onglets et lire la
 // base pour deviner ce qui se passe ». Ici tout est sur une page, rafraîchie
 // toute seule toutes les 30 secondes. Les RÉGLAGES (cadence, plafonds, plages,
-// relances, alertes) ne sont pas ici : ils vivent dans Réglages › Recrutement.
+// relances, alertes) ne sont pas ici : ils vivent dans Recrutement › Réglages de la machine.
 // Ici : l'interrupteur, les campagnes par corps de métier, et la lecture.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"

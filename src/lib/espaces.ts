@@ -4,7 +4,7 @@
 import type { PageId } from "../components/Sidebar"
 import type { Espace } from "./messagesDb"
 
-export const PAGES_RECRUTEMENT: PageId[] = ["st_machine", "st_session", "st_base", "st_sequences", "st_suivi", "st_boite", "st_dossiers"]
+export const PAGES_RECRUTEMENT: PageId[] = ["st_machine", "st_session", "st_base", "st_sequences", "st_suivi", "st_boite", "st_dossiers", "st_reglages"]
 export const PAGES_HORS_ESPACE: PageId[] = ["parametrage"]
 
 export const espaceDe = (page: PageId): Espace => (PAGES_RECRUTEMENT.includes(page) ? "recrutement" : "demarchage")

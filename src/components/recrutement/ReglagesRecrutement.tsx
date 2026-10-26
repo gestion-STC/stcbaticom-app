@@ -6,7 +6,7 @@
 // relances, alertes, adresses, liste d'exclusion) vit ici. Un seul bouton
 // « Enregistrer », grisé tant que rien n'a changé ; la validation se fait
 // dans `lib/reglagesRecrutement.ts`, sans navigateur. Depuis le 24/10/2026, les contrats
-// DocuSign et la liste d'exclusion ont chacun leur page dans Réglages › Recrutement.
+// DocuSign et la liste d'exclusion ont chacun leur onglet dans Recrutement › Réglages de la machine (ReglagesMachineST).
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState, type ReactNode } from "react"
 import { Save } from "lucide-react"

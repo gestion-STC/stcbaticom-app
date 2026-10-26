@@ -4,22 +4,18 @@ import SecteursReglage from "./demarchage/SecteursReglage"
 import ObjectifsReglage from "./demarchage/ObjectifsReglage"
 import EmailsManager from "./EmailsManager"
 import NumerosManager from "./NumerosManager"
-import ReglagesRecrutement from "./recrutement/ReglagesRecrutement"
-import ContratsModeles from "./recrutement/ContratsModeles"
-import ExclusionsST from "./recrutement/ExclusionsST"
 import Comptes from "./Comptes"
 import { estAdmin } from "../lib/comptes"
 
 // LES RÉGLAGES, RANGÉS PAR RUBRIQUE (Mahdi, 24/10/2026 : « c'est le bordel, on comprend rien »).
 // Avant : cinq onglets côte à côte (dont un « Objectifs et script » et un « Modèles d'e-mail »
 // qui mélangeaient tout), et les comptes sur une page à part. Maintenant, un menu à gauche en
-// quatre rubriques, une page par sujet :
+// trois rubriques, une page par sujet (le recrutement a ses réglages dans son espace depuis le 26/10) :
 //   · Mon compte — ce qui est à MOI : mes signatures ;
 //   · Démarchage — ce qui règle les appels : objectif et règles, script, secteurs, modèles d'e-mail ;
-//   · Recrutement — la machine, les contrats DocuSign, la liste d'exclusion ;
 //   · Équipe — les comptes (administrateurs seulement) et les numéros Ringover.
 // Aucun réglage n'a changé : seulement leur place.
-type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "machine" | "contrats" | "exclusions" | "comptes" | "numeros"
+type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "comptes" | "numeros"
 
 type Rubrique = { titre: string; sections: { id: Section; label: string; admin?: boolean }[] }
 const RUBRIQUES: Rubrique[] = [
@@ -31,14 +27,6 @@ const RUBRIQUES: Rubrique[] = [
       { id: "script", label: "Script d'appel" },
       { id: "secteurs", label: "Secteurs" },
       { id: "modeles", label: "Modèles d'e-mail" },
-    ],
-  },
-  {
-    titre: "Recrutement",
-    sections: [
-      { id: "machine", label: "Machine de recrutement" },
-      { id: "contrats", label: "Contrats à faire signer" },
-      { id: "exclusions", label: "Liste d'exclusion" },
     ],
   },
   {
@@ -91,9 +79,6 @@ export default function Parametrage({ session, sectionInitiale }: { session: Ses
         {section === "script" && <ObjectifsReglage partie="script" />}
         {section === "secteurs" && <SecteursReglage />}
         {section === "modeles" && <EmailsManager partie="modeles" />}
-        {section === "machine" && <ReglagesRecrutement />}
-        {section === "contrats" && <ContratsModeles />}
-        {section === "exclusions" && <ExclusionsST />}
         {section === "comptes" && admin && <Comptes session={session} />}
         {section === "numeros" && <NumerosManager />}
       </div>
