@@ -34,7 +34,11 @@ function valider(v: Valeurs, defs: Map<CleReglage, DefinitionReglage>): string[]
   return e
 }
 
-export default function ObjectifsReglage() {
+/** Réglages (24/10/2026) : « Objectif et règles d'appel » et « Script d'appel » sont deux pages ;
+ *  le bouton « Enregistrer » de chacune écrit ce qui a changé. Sans `partie`, tout s'affiche. */
+export default function ObjectifsReglage({ partie }: { partie?: "regles" | "script" } = {}) {
+  const montrerRegles = partie !== "script"
+  const montrerScript = partie !== "regles"
   // `origine` = ce que la base sait ; `brouillon` = ce que l'écran montre.
   const [origine, setOrigine] = useState<Valeurs | null>(null)
   const [brouillon, setBrouillon] = useState<Valeurs | null>(null)
@@ -106,30 +110,34 @@ export default function ObjectifsReglage() {
   return (
     <div className="max-w-3xl space-y-5">
       <p className="text-legende text-encre-2">
-        Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, et toutes les règles des appels. Ce qui est enregistré ici s'applique aussitôt, pour tout le monde.
+        {partie === "script"
+          ? "Ce que l'on dit au téléphone, affiché pendant chaque appel. Ce qui est enregistré ici s'applique aussitôt, pour tout le monde."
+          : partie === "regles"
+            ? "Ce que vise le démarchage chaque mois, et toutes les règles des appels. Ce qui est enregistré ici s'applique aussitôt, pour tout le monde."
+            : "Ce que vise le démarchage chaque mois, ce que l'on dit au téléphone, et toutes les règles des appels. Ce qui est enregistré ici s'applique aussitôt, pour tout le monde."}
       </p>
       {erreurs.length ? <Bandeau role="alerte">{erreurs.join(" ")}</Bandeau> : null}
       {ok ? <Bandeau role="ok">Enregistré.</Bandeau> : null}
 
-      <Carte>
+      {montrerRegles ? <Carte>
         <TitreCarte>Objectif du mois</TitreCarte>
         <div className="px-5 pb-5">
           <Etiquette texte="Premiers ordres de service visés par mois" aide="Le tableau de bord et l'écran Aujourd'hui comparent ce chiffre à ce qui est fait. 0 = pas d'objectif affiché.">
             <Champ type="number" min={0} step={1} value={brouillon.objectif} onChange={(e) => set("objectif", e.target.value)} className="chiffres max-w-[160px]" />
           </Etiquette>
         </div>
-      </Carte>
+      </Carte> : null}
 
-      <Carte>
+      {montrerScript ? <Carte>
         <TitreCarte>Script d'appel</TitreCarte>
         <div className="px-5 pb-5">
           <Etiquette texte="Le texte affiché pendant un appel, dans Sessions de call" aide="L'accroche, les deux questions à poser, la réponse aux objections. Écris-le comme tu le dis à voix haute : il est fait pour être lu en parlant.">
             <Zone rows={10} value={brouillon.script} onChange={(e) => set("script", e.target.value)} placeholder="Bonjour, STC Bâtiment, je cherche le gestionnaire locatif…" />
           </Etiquette>
         </div>
-      </Carte>
+      </Carte> : null}
 
-      <Carte>
+      {montrerRegles ? <Carte>
         <TitreCarte>Les règles des appels</TitreCarte>
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 pb-5 sm:grid-cols-2">
           {TEXTES_REGLAGES.map((t) => {
@@ -141,7 +149,7 @@ export default function ObjectifsReglage() {
             )
           })}
         </div>
-      </Carte>
+      </Carte> : null}
 
       <div className="flex items-center justify-end gap-3">
         {modifie ? <span className="text-legende text-encre-2">Des changements ne sont pas enregistrés.</span> : null}

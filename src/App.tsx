@@ -16,7 +16,6 @@ import Parametrage from "./components/Parametrage"
 import RappelsRdv from "./components/RappelsRdv"
 import TelephoneRingover from "./components/TelephoneRingover"
 import Connexion from "./components/Connexion"
-import Comptes from "./components/Comptes"
 import { useSession } from "./lib/auth"
 import { suivreVersion, veillerVersion, versionPerimee } from "./lib/versionEnLigne"
 // L'espace Recrutement ST : chaque page porte son propre en-tête (trousse STC).
@@ -36,7 +35,7 @@ function App() {
     return suivreVersion(setPerimee)
   }, [])
   // L'espace affiché dans la barre : celui de la page, et il survit à un
-  // passage par Réglages ou Comptes (qui sont hors espace).
+  // passage par Réglages (hors espace).
   const [espace, setEspace] = useState<Espace>("demarchage")
   // L'agence qu'on veut appeler tout de suite (depuis Agences, Aujourd'hui, l'agenda…).
   const [agencePourSession, setAgencePourSession] = useState<string | null>(null)
@@ -47,7 +46,10 @@ function App() {
   const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
   // Une écriture sur une fiche (étape, contact, note, mail…) : la session recharge sa file et ses compteurs (13/10).
   const [versionAgences, setVersionAgences] = useState(0)
+  // Réglages ouverts depuis la machine de recrutement : sur la page de la machine.
+  const [reglagesMachine, setReglagesMachine] = useState(false)
   const naviguer = (p: PageId) => {
+    if (p !== "parametrage") setReglagesMachine(false)
     setPage(p)
     if (!horsEspace(p)) setEspace(espaceDe(p))
   }
@@ -96,12 +98,6 @@ function App() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {page === "comptes" && (
-          <header className="flex items-center justify-between border-b border-trait bg-fond px-10 py-4">
-            <h1 className="text-section font-semibold text-encre">Comptes</h1>
-          </header>
-        )}
-
         {perimee ? (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-trait bg-alerte px-6 py-2 text-legende text-white">
             <span>Une nouvelle version du logiciel est en ligne. Recharge la page pour l'utiliser : les appels sont bloqués d'ici là.</span>
@@ -115,10 +111,11 @@ function App() {
           {page === "analyse" && <AnalyseAppels />}
           {page === "apporteurs" && <Apporteurs />}
           {page === "messages" && <Messages espace="demarchage" />}
-          {page === "parametrage" && <Parametrage />}
-          {page === "comptes" && <Comptes session={session} />}
+          {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026. La machine de
+              recrutement ouvre directement sa page de réglages. */}
+          {page === "parametrage" && <Parametrage key={reglagesMachine ? "machine" : "regles"} session={session} sectionInitiale={reglagesMachine ? "machine" : undefined} />}
 
-          {page === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "parametrage" : p)} />}
+          {page === "st_machine" && <MachineST onNaviguer={(p) => { setReglagesMachine(p === "reglages"); naviguer(p === "reglages" ? "parametrage" : p) }} />}
           {page === "st_session" && <SessionCallST />}
           {page === "st_base" && <BaseST />}
           {page === "st_sequences" && <SequencesST />}
