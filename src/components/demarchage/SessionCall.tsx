@@ -777,11 +777,21 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }
       setInfo(`${c.agence.nom} : passée en apporteur d'affaires, elle ne sera plus démarchée.`)
       setAppelees((s) => new Set(s).add(id))
+      // ⚠ 27/10 (Horlann : « des fois ça ne passe pas au numéro suivant ») : la base vient de clore l'appel
+      // lancé, mais le verrou « note d'abord ton résultat » le gardait en mémoire jusqu'à une minute et
+      // ramenait aussitôt sur cette agence. On l'oublie tout de suite, puis on relit la base.
+      if (bloquantRef.current?.agenceId === id) bloquantRef.current = null
+      setAppelBloquant((prev) => (prev && prev.agenceId === id ? null : prev))
+      void verifierAppelBloquant()
+      // Elle sort de la file DANS TOUS LES CAS (avant : en appel direct, on revenait à la file où elle
+      // était encore, à la même place — même agence à l'écran). La suivante prend sa place.
+      const arr = fileRef.current
+      const pos = arr.findIndex((x) => x.id === id)
       if (directeRef.current === id) setDirecteId(null)
-      else {
-        // Elle sort de la file : la suivante prend sa place (même index).
-        setFileAgences((arr) => arr.filter((x) => x.id !== id))
-        setIndex((i) => Math.min(i, Math.max(0, fileRef.current.length - 2)))
+      if (pos >= 0) {
+        setFileAgences(arr.filter((x) => x.id !== id))
+        if (pos < indexRef.current) setIndex(indexRef.current - 1)
+        else setIndex(Math.min(indexRef.current, Math.max(0, arr.length - 2)))
       }
       recompterFiles()
     } catch (e) {
@@ -957,7 +967,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         if (choix.resultat === "joint" || choix.resultat === "standard") lancerAnalyseAppel(bilan.appelId)
         setNbResultats((n) => n + 1)
         // L'appel noté était peut-être celui qui bloquait le compte : la navigation se libère.
-        if (bloquantRef.current && bloquantRef.current.id === bilan.appelId) { bloquantRef.current = null; setAppelBloquant(null) }
+        // ⚠ 27/10 : on compare au verrou EN MÉMOIRE (relu une fois par minute), pas à `bloquant` qui exclut
+        // l'appel en cours : sinon l'appel qu'on vient de noter restait « à noter » jusqu'à la relecture,
+        // et la session ramenait dessus au lieu de passer à la suivante.
+        if (bloquantRef.current && bloquantRef.current.id === bilan.appelId) bloquantRef.current = null
+        setAppelBloquant((prev) => (prev && prev.id === bilan.appelId ? null : prev))
         void verifierAppelBloquant()
         setAppel(null)
         setBarreVisible(false)
