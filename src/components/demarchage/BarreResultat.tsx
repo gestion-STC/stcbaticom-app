@@ -9,7 +9,7 @@
 // Ce composant ne touche pas la base : il rend un `ChoixResultat` à l'écran.
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from "react"
-import { Check } from "lucide-react"
+import { Briefcase, Check } from "lucide-react"
 import { useReglages } from "../../demarchage/reglages"
 import { ISSUES, MOTIFS, RESULTATS, effetAnnonce, nomContact, type Agence, type Contact, type Issue, type Motif, type Resultat } from "../../demarchage/modele"
 import { TYPES_RDV, choixComplet, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
@@ -53,6 +53,7 @@ export default function BarreResultat({
   raccourcis = true,
   enregistrement = false,
   onValider,
+  onApporteur,
 }: {
   agence: Pick<Agence, "etape" | "tentatives">
   contacts: Contact[]
@@ -71,6 +72,9 @@ export default function BarreResultat({
   raccourcis?: boolean
   enregistrement?: boolean
   onValider: (choix: ChoixResultat) => void
+  /** « C'est un apporteur d'affaires » : on le découvre EN LIGNE (Mahdi, 28/10). L'agence sort du
+   *  démarchage, l'appel est clos par la base, on passe à la suivante. Sans résultat à cocher. */
+  onApporteur?: () => void
 }) {
   const { reglages } = useReglages()
   const [choisi, setChoisi] = useState<Resultat | null>(null)
@@ -218,9 +222,16 @@ export default function BarreResultat({
             </Selecteur>
           </Etiquette>
         </div>
-        <Bouton variante="plein" icone={<Check />} disabled={!complet} chargement={enregistrement} onClick={valider}>
-          Valider
-        </Bouton>
+        <div className="flex flex-wrap items-center gap-2">
+          {onApporteur ? (
+            <Bouton variante="discret" icone={<Briefcase />} disabled={enregistrement} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, l'appel est clos, on passe à la suivante" onClick={onApporteur}>
+              Apporteur d'affaires
+            </Bouton>
+          ) : null}
+          <Bouton variante="plein" icone={<Check />} disabled={!complet} chargement={enregistrement} onClick={valider}>
+            Valider
+          </Bouton>
+        </div>
       </div>
     </Carte>
   )
