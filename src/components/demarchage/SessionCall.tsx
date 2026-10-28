@@ -191,6 +191,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const avancerRef = useRef<() => void>(() => {})
   const noterAppelEnSuspensRef = useRef<(ligne: Activite) => void>(() => {})
   const enregistrementEnCours = useRef(false) // un résultat en route : le 2e clic est ignoré
+  const apporteurEnCours = useRef(false) // un passage en apporteur en route : le 2e clic est ignoré
   const verificationEnCours = useRef(false) // les vérifications avant de composer, en route
   const directeEnAttente = useRef<string | null>(null) // une agence demandée d'ailleurs pendant un résultat à noter
   const pileRef = useRef(file)
@@ -762,7 +763,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // d'autre à cocher) et la session passe à la fiche suivante. Plus jamais grisé en session.
   async function passerEnApporteur() {
     const c = couranteRef.current
-    if (!c) return
+    if (!c || apporteurEnCours.current) return
+    apporteurEnCours.current = true
     const id = c.agence.id
     const a = appelRef.current
     try {
@@ -796,6 +798,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       recompterFiles()
     } catch (e) {
       setErreur(messageDe(e))
+    } finally {
+      apporteurEnCours.current = false
     }
   }
 
@@ -1247,6 +1251,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                   raccourcis={!dialogue && !envoiPour}
                   enregistrement={enregistrement}
                   onValider={validerResultat}
+                  onApporteur={() => void passerEnApporteur()}
                 />
               ) : null}
 
