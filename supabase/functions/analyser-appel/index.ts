@@ -239,7 +239,11 @@ async function traiter(sb: SupabaseClient, l: Ligne, attendreEnregistrement: boo
     if (!url) {
       const essais = l.tentatives + 1
       await maj(essais >= ESSAIS_MAX
-        ? { statut: "sans_enregistrement", tentatives: essais, duree_s: duree || null, verrou_le: null, erreur: "Aucun enregistrement chez Ringover : l'enregistrement des appels est-il activé sur ce compte ?" }
+        // Deux cas bien différents (26/10/2026) : Ringover connaît l'appel mais sans enregistrement, ou Ringover
+        // ne connaît PAS l'appel du tout (il n'est pas dans le journal de l'entreprise : appel passé hors Ringover).
+        ? { statut: "sans_enregistrement", tentatives: essais, duree_s: duree || null, verrou_le: null, erreur: appel
+          ? "Ringover connaît l'appel mais n'a pas d'enregistrement : l'enregistrement est-il activé sur ce compte ?"
+          : "Ringover ne trouve pas cet appel dans le journal de l'entreprise : il n'est pas passé par le compte Ringover de STC (téléphone personnel, autre compte ?)." }
         : { statut: "en_attente", tentatives: essais, prochain_essai: new Date(Date.now() + 90_000).toISOString(), verrou_le: null })
       return "attente_enregistrement"
     }
@@ -325,6 +329,35 @@ async function verifier(sb: SupabaseClient): Promise<Controle[]> {
   return r
 }
 
+/** Un appel Ringover résumé pour le diagnostic : qui, quand, durée, enregistré ou non (numéros raccourcis). */
+function resumeAppel(c: Record<string, unknown>) {
+  const fin = (n: unknown) => String(n ?? "").replace(/\D/g, "").slice(-4)
+  const u = (c.user ?? {}) as Record<string, unknown>
+  return {
+    call_id: c.call_id, cdr_id: c.cdr_id, channel_id: c.channel_id, type: c.type, direction: c.direction,
+    debut: c.start_time, decroche: c.is_answered, duree: c.incall_duration, total: c.total_duration,
+    de: fin(c.from_number), vers: fin(c.to_number), utilisateur: [u.firstname, u.lastname].filter(Boolean).join(" ") || u.user_id || null,
+    enregistre: Boolean(c.record || c.record_url),
+  }
+}
+
+async function diagnostiquerRingover(ids: string[]) {
+  const cle = Deno.env.get("RINGOVER_API_KEY") || ""
+  const parId: Record<string, unknown> = {}
+  for (const id of ids) {
+    const r = await fetch(`${RINGOVER}/calls/${encodeURIComponent(String(id))}`, { headers: { Authorization: cle } })
+    const t = await r.text()
+    let d: unknown = null
+    try { d = t ? lireJsonRingover(t) : null } catch { d = t.slice(0, 200) }
+    const liste = (d as { list?: Record<string, unknown>[] } | null)?.list
+    parId[String(id)] = { statut: r.status, appel: Array.isArray(liste) ? liste.map(resumeAppel) : d && typeof d === "object" ? resumeAppel(d as Record<string, unknown>) : d }
+  }
+  const r = await fetch(`${RINGOVER}/calls?limit_count=40`, { headers: { Authorization: cle } })
+  const t = await r.text()
+  const derniers = r.ok && t ? ((lireJsonRingover(t) as { call_list?: Record<string, unknown>[] }).call_list ?? []).map(resumeAppel) : []
+  return { par_id: parId, derniers_appels_vus: { statut: r.status, nombre: derniers.length, appels: derniers } }
+}
+
 async function compteConnecte(req: Request): Promise<boolean> {
   const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
   if (!jeton) return false
@@ -350,10 +383,14 @@ Deno.serve(async (req: Request) => {
   const parEcran = !parPassage && !parWebhook && await compteConnecte(req)
   if (!parPassage && !parWebhook && !parEcran) return json({ error: "non autorisé" }, 401)
   const texte = await req.text()
-  let corps: { activite_id?: string; verifier?: boolean } = {}
+  let corps: { activite_id?: string; verifier?: boolean; diagnostic_ringover?: string[] } = {}
   try { corps = texte ? JSON.parse(texte) : {} } catch { /* corps libre (webhook) */ }
   // Le contrôle passe AVANT l'exigence des secrets : c'est lui qui dit lesquels manquent.
   if (parEcran && corps.verifier) return json({ ok: true, controles: await verifier(sb) })
+  // Diagnostic Ringover (26/10/2026, appels d'Horlann « sans enregistrement » alors que l'enregistrement
+  // est activé) : LECTURE SEULE, réservé à la clé du passage. Ce que Ringover répond pour chaque appel
+  // demandé, et ce que la clé voit des derniers appels. Numéros réduits à leurs 4 derniers chiffres.
+  if (parPassage && Array.isArray(corps.diagnostic_ringover)) return json({ ok: true, diagnostic: await diagnostiquerRingover(corps.diagnostic_ringover.slice(0, 10)) })
   for (const s of ["RINGOVER_API_KEY", "ELEVENLABS_API_KEY", "ANTHROPIC_API_KEY"]) {
     if (!Deno.env.get(s)) return json({ error: `Secret ${s} manquant sur la fonction analyser-appel` }, 500)
   }
