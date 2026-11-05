@@ -154,19 +154,19 @@ describe("grouperTaches", () => {
 
 describe("les taux et l'objectif", () => {
   const stats: StatsCompte[] = [
-    { compteId: "h", compteNom: "Horlann", appels: 40, joints: 10, interesses: 3, rdv: 1, pasInteresses: 4, premiersOs: 1, dureeS: 1200 },
-    { compteId: "m", compteNom: "Mahdi", appels: 10, joints: 5, interesses: 2, rdv: 2, pasInteresses: 0, premiersOs: 0, dureeS: 600 },
+    { compteId: "h", compteNom: "Horlann", appels: 40, joints: 10, interesses: 3, rdv: 1, pasInteresses: 4, apporteurs: 0, premiersOs: 1, dureeS: 1200 },
+    { compteId: "m", compteNom: "Mahdi", appels: 10, joints: 5, interesses: 2, rdv: 2, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 600 },
   ]
   it("tauxJoints : joints sur appels, 0 sans appel", () => {
     expect(tauxJoints(stats[0])).toBe(25)
     expect(tauxJoints({ appels: 0, joints: 0 })).toBe(0)
   })
   it("totalStats additionne tout", () => {
-    expect(totalStats(stats)).toEqual({ compteId: null, compteNom: "Total", appels: 50, joints: 15, interesses: 5, rdv: 3, pasInteresses: 4, premiersOs: 1, dureeS: 1800 })
+    expect(totalStats(stats)).toEqual({ compteId: null, compteNom: "Total", appels: 50, joints: 15, interesses: 5, rdv: 3, pasInteresses: 4, apporteurs: 0, premiersOs: 1, dureeS: 1800 })
   })
   it("classer : tout le monde au tableau, même à zéro, classé par appels puis joints", () => {
     const comptes = [{ id: "m", nom: "Mahdi Souissi" }, { id: "h", nom: "Horlann Maunier" }, { id: "n", nom: "Nouveau" }]
-    const anciens: StatsCompte = { compteId: null, compteNom: "(sans compte)", appels: 5, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
+    const anciens: StatsCompte = { compteId: null, compteNom: "(sans compte)", appels: 5, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 0 }
     const c = classer([...stats, anciens], comptes)
     expect(c.map((x) => `${x.compteNom}:${x.appels}`)).toEqual(["Horlann Maunier:40", "Mahdi Souissi:10", "(sans compte):5", "Nouveau:0"])
   })
@@ -193,7 +193,7 @@ describe("les taux et l'objectif", () => {
 
 describe("les conversions sur des agences distinctes (13/10)", () => {
   const avecIds = (compteId: string, jointes: string[], interessees: string[], extra: Partial<StatsCompte> = {}): StatsCompte => ({
-    compteId, compteNom: compteId, appels: 10, joints: jointes.length * 3, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0,
+    compteId, compteNom: compteId, appels: 10, joints: jointes.length * 3, interesses: 0, rdv: 0, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 0,
     agencesJointes: jointes.length, agencesInteressees: interessees.length, ids: { jointes, interessees }, ...extra,
   })
   it("divise par les agences jointes, pas par les appels joints", () => {

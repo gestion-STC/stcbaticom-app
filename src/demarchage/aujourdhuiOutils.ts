@@ -200,9 +200,9 @@ export function tauxConversionPremiersOs(s: Pick<StatsCompte, "joints" | "premie
 }
 /** La ligne « Total » d'un tableau par commercial. Les agences distinctes : l'union (une agence jointe par deux commerciaux compte une fois). */
 export function totalStats(stats: StatsCompte[]): StatsCompte {
-  const t: StatsCompte = { compteId: null, compteNom: "Total", appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0 }
+  const t: StatsCompte = { compteId: null, compteNom: "Total", appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 0 }
   for (const s of stats) {
-    t.appels += s.appels; t.joints += s.joints; t.interesses += s.interesses; t.rdv += s.rdv; t.pasInteresses += s.pasInteresses; t.premiersOs += s.premiersOs; t.dureeS += s.dureeS
+    t.appels += s.appels; t.joints += s.joints; t.interesses += s.interesses; t.rdv += s.rdv; t.pasInteresses += s.pasInteresses; t.apporteurs += s.apporteurs; t.premiersOs += s.premiersOs; t.dureeS += s.dureeS
   }
   if (stats.length && stats.every((s) => s.ids)) {
     const j = new Set(stats.flatMap((s) => s.ids!.jointes))
@@ -249,7 +249,7 @@ export function classer(stats: StatsCompte[], comptes: { id: string; nom: string
   }
   const lignes: StatsCompte[] = comptes.map((c) => {
     const s = parId.get(c.id)
-    return s ? { ...s, compteNom: c.nom || s.compteNom } : { compteId: c.id, compteNom: c.nom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0, agencesJointes: 0, agencesInteressees: 0, ids: { jointes: [], interessees: [] } }
+    return s ? { ...s, compteNom: c.nom || s.compteNom } : { compteId: c.id, compteNom: c.nom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 0, agencesJointes: 0, agencesInteressees: 0, ids: { jointes: [], interessees: [] } }
   })
   for (const [id, s] of parId) if (!comptes.some((c) => c.id === id)) lignes.push(s.compteNom ? s : { ...s, compteNom: "(compte inconnu)" })
   lignes.push(...sansId)

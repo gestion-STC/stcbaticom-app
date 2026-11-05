@@ -384,7 +384,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   )
 }
 
-/** Le classement : rang, commercial, appels, joints (et le taux), intéressés, RDV, pas intéressés, premiers OS, temps de parole. */
+/** Le classement : rang, commercial, appels, joints (et le taux), intéressés, RDV, pas intéressés, apporteurs, premiers OS, temps de parole. */
 function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
   if (stats.length === 0) return <p className="px-5 pb-4 text-legende text-encre-2">{vide}</p>
   const total = totalStats(stats)
@@ -397,6 +397,7 @@ function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
       <Td num>{x.interesses}</Td>
       <Td num>{x.rdv}</Td>
       <Td num>{x.pasInteresses}</Td>
+      <Td num>{x.apporteurs}</Td>
       <Td num className={tauxConversionInteresses(x) > 0 ? "font-semibold" : "text-encre-2"} title={`${x.agencesInteressees ?? x.interesses + x.rdv} agence(s) intéressée(s) ou en RDV sur ${baseConversion(x)} agence(s) jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionInteresses(x)} %` : "—"}</Td>
       <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : ""}>{x.premiersOs}</Td>
       <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : "text-encre-2"} title={`${x.premiersOs} premier(s) OS sur ${baseConversion(x)} agence(s) jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionPremiersOs(x)} %` : "—"}</Td>
@@ -405,7 +406,7 @@ function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
   )
   return (
     <Tableau className="pb-2">
-      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Taux de conversion sur les intéressés : agences devenues intéressées (premier intérêt) ou passées en RDV sur la période ÷ agences distinctes jointes sur la période">Conv. intéressés</Th><Th num>1ers OS</Th><Th num title="Taux de conversion sur les premiers OS : premiers ordres de service reçus sur la période ÷ agences distinctes jointes sur la période (plafonné à 100 %)">Conv. 1ers OS</Th><Th num>Parole</Th></tr></thead>
+      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Agences passées en apporteur d'affaires pendant un appel sur la période">Apporteurs</Th><Th num title="Taux de conversion sur les intéressés : agences devenues intéressées (premier intérêt) ou passées en RDV sur la période ÷ agences distinctes jointes sur la période">Conv. intéressés</Th><Th num>1ers OS</Th><Th num title="Taux de conversion sur les premiers OS : premiers ordres de service reçus sur la période ÷ agences distinctes jointes sur la période (plafonné à 100 %)">Conv. 1ers OS</Th><Th num>Parole</Th></tr></thead>
       <tbody>
         {stats.map((x, i) => ligne(x, i + 1))}
         {stats.length > 1 ? ligne(total, null) : null}

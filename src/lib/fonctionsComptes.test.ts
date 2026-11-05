@@ -5,7 +5,7 @@ import { classer, tauxConversionInteresses, tauxConversionPremiersOs } from "../
 import type { StatsCompte } from "../demarchage/db"
 
 const st = (compteId: string, compteNom: string, appels: number, joints = 0, interesses = 0, rdv = 0): StatsCompte =>
-  ({ compteId, compteNom, appels, joints, interesses, rdv, pasInteresses: 0, premiersOs: 0, dureeS: 0 })
+  ({ compteId, compteNom, appels, joints, interesses, rdv, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 0 })
 
 describe("la fonction d'un compte", () => {
   it("ne garde que les fonctions connues, et survit à une valeur abîmée", () => {

@@ -436,19 +436,21 @@ export async function chargerTachesDuJour(maintenant: Date): Promise<TacheAgenda
 // `agencesJointes` / `agencesInteressees` (13/10) : des agences DISTINCTES, base des taux de conversion
 // (une agence jointe trois fois reste une agence). `ids` garde les agences pour un total exact (sans double compte).
 export type StatsCompte = {
-  compteId: string | null; compteNom: string; appels: number; joints: number; interesses: number; rdv: number; pasInteresses: number; premiersOs: number; dureeS: number
+  compteId: string | null; compteNom: string; appels: number; joints: number; interesses: number; rdv: number; pasInteresses: number; apporteurs: number; premiersOs: number; dureeS: number
   agencesJointes?: number; agencesInteressees?: number; ids?: { jointes: string[]; interessees: string[] }
 }
-export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCompte => ({ compteId, compteNom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, premiersOs: 0, dureeS: 0, agencesJointes: 0, agencesInteressees: 0, ids: { jointes: [], interessees: [] } })
+export const STATS_VIDES = (compteId: string | null, compteNom: string): StatsCompte => ({ compteId, compteNom, appels: 0, joints: 0, interesses: 0, rdv: 0, pasInteresses: 0, apporteurs: 0, premiersOs: 0, dureeS: 0, agencesJointes: 0, agencesInteressees: 0, ids: { jointes: [], interessees: [] } })
 
 // Les appels SORTANTS d'une période, par compte, plus les premiers OS des agences
 // dont ce compte est responsable (Mahdi, 10/10 : « un classement, ça donne envie »).
 export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
   const s = sb()
   type LigneAppel = { id: string; agence_id: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; duree_s: number | null }
-  // Les apporteurs (sortis du démarchage) ne comptent ni dans les appels ni dans les premiers OS du classement.
+  // TOUS les appels passés comptent, apporteurs compris (Mahdi, 05/11 : un appel qui tombe sur un apporteur est un
+  // vrai appel ; le filtrer sur le type ACTUEL de l'agence effaçait ~20 % des appels, et rétroactivement).
+  // Les premiers OS, eux, restent hors apporteurs.
   const [appels, os, interesses] = await Promise.all([
-    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, agence_id, compte_id, compte_nom, resultat, issue, duree_s, agences!inner(type)").eq("type", "appel").eq("sens", "sortant").neq("agences.type", "apporteur").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
+    lireParLots<LigneAppel>((d, f) => s.from("activites").select("id, agence_id, compte_id, compte_nom, resultat, issue, duree_s").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f)),
     lireParLots<{ id: string; commercial_id: string | null }>((d, f) => s.from("agences").select("id, commercial_id").neq("type", "apporteur").not("premier_os_le", "is", null).gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a)).order("id").range(d, f)),
     // Les premiers « intéressé » de chaque agence (toute l'histoire) : une relance où le gestionnaire
     // redit « intéressé » n'est pas une NOUVELLE agence intéressée (13/10 : des chiffres justes).
@@ -466,6 +468,8 @@ export async function statsAppels(de: Date, a: Date): Promise<StatsCompte[]> {
     const st = par.get(k) ?? STATS_VIDES(l.compte_id, nom)
     st.appels++
     if (l.resultat === "joint") { st.joints++; ajouter(jointes, k, l.agence_id) }
+    // L'appel clos par « Apporteur » : l'agence est passée apporteur d'affaires pendant cet appel.
+    if (l.resultat === "apporteur") st.apporteurs++
     const premiere = l.issue === "interesse" && premierInteresse.get(l.agence_id) === l.id
     if (premiere) st.interesses++
     if (l.issue === "rdv") st.rdv++
