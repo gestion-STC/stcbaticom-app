@@ -131,7 +131,9 @@ export async function marquerNonLus(ids: string[]): Promise<void> {
 
 // Lien de téléchargement temporaire (5 min) d'une pièce jointe reçue.
 // Le bucket est privé : seul un utilisateur connecté peut générer ce lien.
+// Une pièce ENVOYÉE (05/11/2026) garde l'adresse publique de son fichier : on l'ouvre telle quelle.
 export async function lienPieceJointe(chemin: string): Promise<string> {
+  if (chemin.startsWith("https://")) return chemin
   if (!supabase) throw new Error("Supabase non configuré")
   const { data, error } = await supabase.storage.from("mails-recus").createSignedUrl(chemin, 300)
   if (error || !data?.signedUrl) throw new Error(error?.message || "Lien indisponible")
@@ -153,10 +155,13 @@ export async function repondreMessage(r: {
   signatureHtml?: string
   commercial?: string
   espace?: Espace
+  /** Les pièces jointes ajoutées à la main (05/11/2026) : elles partent en vraies pièces jointes. */
+  pieces?: Array<{ nom: string; url: string; taille: number }>
 }): Promise<void> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
     body: {
+      ...(r.pieces?.length ? { pieces: r.pieces } : {}),
       to: r.to,
       objet: r.objet,
       corps: r.corps,

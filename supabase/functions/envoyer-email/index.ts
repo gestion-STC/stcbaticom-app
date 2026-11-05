@@ -1,9 +1,10 @@
 // Relais Resend UNIFIÉ — accepte les DEUX contrats :
-//  A) contrat de l'interface : { to, subject, html, reply_to?, agence_id? }
-//     (composition côté client : variables + signature + PJ en liens) → journalisé dans `messages`.
+//  A) contrat de l'interface : { to, subject, html, reply_to?, agence_id?, pieces? }
+//     (composition côté client : variables + signature ; `pieces` [{nom, url, taille}] en vraies
+//     pièces jointes depuis le 05/11/2026) → journalisé dans `messages`.
 //  B) contrat de la boîte de réception : { agence_id?, email_id | modele_nom | objet+corps, to?,
-//     in_reply_to?, signature_html?, commercial? } → composition côté serveur (variables,
-//     signature, PJ en vraies pièces jointes) + journalisé dans `messages`.
+//     in_reply_to?, signature_html?, commercial?, pieces? } → composition côté serveur (variables,
+//     signature, PJ du modèle + `pieces` en vraies pièces jointes) + journalisé dans `messages`.
 //  14/10/2026 : l'ancienne table « prospects » et le journal « emails_envoyes » ne sont plus
 //  lus ni écrits. Le message est rangé sur l'AGENCE : celle envoyée (agence_id), sinon la base
 //  la retrouve par l'adresse (déclencheur messages_rattacher_agence). Un ancien « prospect_id »
@@ -26,6 +27,28 @@ const cors = {
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const adresse = (raw: unknown) => { const s = String(raw ?? "").trim(); const m = s.match(/<([^>]+)>/); return (m ? m[1] : s).toLowerCase().trim(); };
+
+// Les documents partent en VRAIES pièces jointes, jamais en liens (Mahdi, 05/11/2026 : une agence
+// a demandé deux fois le Kbis qu'elle avait « reçu » en lien sous la signature). Resend va chercher
+// chaque fichier à son adresse ; le nom du fichier porte l'extension (« Kbis » → « Kbis.pdf »),
+// sinon la messagerie ne sait pas l'ouvrir. Total plafonné sous la limite Resend (40 Mo).
+type Piece = { url?: unknown; nom?: unknown; taille?: unknown };
+const PLAFOND_PIECES = 35 * 1024 * 1024;
+function enPiecesJointes(...listes: unknown[]): Array<{ filename: string; path: string }> {
+  const vues = new Set<string>();
+  const out: Array<{ filename: string; path: string }> = [];
+  for (const l of listes) for (const p of (Array.isArray(l) ? l : []) as Piece[]) {
+    const url = typeof p?.url === "string" ? p.url : "";
+    if (!/^https:\/\//.test(url) || vues.has(url)) continue;
+    vues.add(url);
+    const nom = (typeof p?.nom === "string" && p.nom.trim()) || "document";
+    const extUrl = (url.split("?")[0].match(/\.([a-z0-9]{2,5})$/i)?.[1] ?? "").toLowerCase();
+    const filename = /\.[a-z0-9]{2,5}$/i.test(nom) ? nom : `${nom}.${extUrl && extUrl !== "bin" ? extUrl : "pdf"}`;
+    out.push({ filename, path: url });
+  }
+  return out;
+}
+const tailleTotale = (...listes: unknown[]) => listes.flatMap((l) => (Array.isArray(l) ? l : []) as Piece[]).reduce((s, p) => s + (Number(p?.taille) || 0), 0);
 
 // Signature STC Bâtiment (même format que src/lib/signatureStc.ts côté interface) :
 // sert aux envois AUTOMATIQUES, qui n'ont pas de compte connecté. Nom = paramètre
@@ -64,6 +87,7 @@ Deno.serve(async (req: Request) => {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     let payload: Record<string, unknown>;
+    let joints: Array<{ filename: string; path: string }> = [];
     // L'agence de la fiche d'où part le mail (démarchage) : le message est rangé sur elle.
     const agenceId: string | null = typeof corps?.agence_id === "string" && corps.agence_id ? corps.agence_id : null;
     let sousTraitantIdPourMessage: string | null = null;
@@ -85,7 +109,10 @@ Deno.serve(async (req: Request) => {
       const cc = (Array.isArray(corps?.cc) ? corps.cc : []).map(adresse).filter((a: string) => a.includes("@") && !tous.includes(a));
       const bcc = (Array.isArray(corps?.bcc) ? corps.bcc : []).map(adresse).filter((a: string) => a.includes("@") && !tous.includes(a) && !cc.includes(a));
       aPourMessage = tous.join(", ") + (cc.length ? " · cc : " + cc.join(", ") : "") + (bcc.length ? " · cci : " + bcc.join(", ") : "");
-      payload = { from, to: tous, subject: objetFinal, html: corpsHtmlFinal, ...(cc.length ? { cc } : {}), ...(bcc.length ? { bcc } : {}) };
+      if (tailleTotale(corps?.pieces) > PLAFOND_PIECES) return json({ error: "Pièces jointes trop lourdes (35 Mo au total au maximum)." }, 400);
+      const attachments = enPiecesJointes(corps?.pieces);
+      joints = attachments;
+      payload = { from, to: tous, subject: objetFinal, html: corpsHtmlFinal, ...(cc.length ? { cc } : {}), ...(bcc.length ? { bcc } : {}), ...(attachments.length ? { attachments } : {}) };
       if (typeof corps?.reply_to === "string" && corps.reply_to) payload.reply_to = corps.reply_to;
       // En-têtes (désinscription en un clic) et étiquettes, posés par le moteur de recrutement.
       if (corps?.headers && typeof corps.headers === "object") payload.headers = corps.headers;
@@ -135,8 +162,10 @@ Deno.serve(async (req: Request) => {
       objetFinal = subst(objetFinal);
       corpsTextFinal = subst(corpsTextFinal);
       corpsHtmlFinal = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${escHtml(corpsTextFinal).replace(/\n/g, "<br>")}</div>` + (signature ? `<br><br>${subst(signature)}` : "");
-      const pieces = (Array.isArray(modele?.pieces_jointes) ? modele.pieces_jointes : []) as Array<{ url?: string; nom?: string }>;
-      const attachments = pieces.filter((x) => x?.url).map((x) => ({ filename: x.nom || "document.pdf", path: x.url }));
+      // Les pièces du modèle, plus celles ajoutées à la main (réponse depuis la boîte de réception).
+      if (tailleTotale(modele?.pieces_jointes, corps?.pieces) > PLAFOND_PIECES) return json({ error: "Pièces jointes trop lourdes (35 Mo au total au maximum)." }, 400);
+      const attachments = enPiecesJointes(modele?.pieces_jointes, corps?.pieces);
+      joints = attachments;
       payload = { from, to: [destinataire], subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(attachments.length ? { attachments } : {}), ...(in_reply_to ? { headers: { "In-Reply-To": in_reply_to, References: in_reply_to } } : {}) };
     }
 
@@ -161,6 +190,8 @@ Deno.serve(async (req: Request) => {
       sens: "sortant", de: adresse(from), a: aPourMessage || destinataire, objet: objetFinal,
       corps_text: corpsTextFinal, corps_html: corpsHtmlFinal, message_id: id || null,
       in_reply_to: (corps?.in_reply_to as string) ?? null, lu: true,
+      // Les pièces envoyées, visibles dans le fil (le « chemin » d'un envoi est l'adresse publique du fichier).
+      ...(joints.length ? { pieces_jointes: joints.map((j) => ({ nom: j.filename, chemin: j.path, taille: 0, type: "" })) } : {}),
       espace, sous_traitant_id: sousTraitantIdPourMessage, ...(agenceId && espace === "demarchage" ? { agence_id: agenceId } : {}),
     });
     if (errJournal) console.error(`[ENVOYER-EMAIL] journal: ${errJournal.message}`);

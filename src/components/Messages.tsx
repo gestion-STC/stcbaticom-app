@@ -59,6 +59,9 @@ import {
   type Dossier,
 } from "../lib/conversations"
 import { formatTaille } from "../lib/stockage"
+import { piecesAEnvoyer, piecesTropLourdes } from "../lib/envoiEmail"
+import type { PieceJointe } from "../emails"
+import PiecesCompo from "./PiecesCompo"
 import { supabase } from "../lib/supabase"
 import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Selecteur, Vide, Zone } from "../ui"
 import FicheArtisan from "./recrutement/FicheArtisan"
@@ -282,6 +285,7 @@ export default function Messages({ espace }: { espace: Espace }) {
   const [compoTo, setCompoTo] = useState("")
   const [compoObjet, setCompoObjet] = useState("")
   const [compoCorps, setCompoCorps] = useState("")
+  const [compoPieces, setCompoPieces] = useState<PieceJointe[]>([])
   const [envoiEnCours, setEnvoiEnCours] = useState(false)
   const [envoiErreur, setEnvoiErreur] = useState("")
   const [envoiOk, setEnvoiOk] = useState("")
@@ -390,6 +394,7 @@ export default function Messages({ espace }: { espace: Espace }) {
     setEnvoiErreur("")
     setCompoTo("")
     setCompoCorps(m === "transferer" && ouverte ? corpsTransfert(ouverte.dernier) : "")
+    setCompoPieces([])
     setMode(m)
   }
 
@@ -399,6 +404,7 @@ export default function Messages({ espace }: { espace: Espace }) {
     setCompoTo("")
     setCompoObjet("")
     setCompoCorps("")
+    setCompoPieces([])
     setMode(null)
     setNouveau(true)
   }
@@ -410,20 +416,21 @@ export default function Messages({ espace }: { espace: Espace }) {
   }
 
   const ouvert = ouverte
-  const pretAEnvoyer =
+  const pretAEnvoyer = !piecesTropLourdes(compoPieces) && (
     nouveau
       ? ADRESSE_VALIDE.test(compoTo.trim()) && compoCorps.trim() !== ""
       : mode === "repondre"
         ? compoCorps.trim() !== ""
-        : ADRESSE_VALIDE.test(compoTo.trim()) && compoCorps.trim() !== ""
+        : ADRESSE_VALIDE.test(compoTo.trim()) && compoCorps.trim() !== "")
 
   async function envoyer() {
     if (!pretAEnvoyer || envoiEnCours) return
     setEnvoiEnCours(true)
     setEnvoiErreur("")
+    const pieces = piecesAEnvoyer(compoPieces)
     try {
       if (nouveau) {
-        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml, commercial: prenomCommercial, espace })
+        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml, commercial: prenomCommercial, espace, pieces })
         setEnvoiOk(`Message envoyé à ${compoTo.trim()}.`)
       } else if (ouvert && mode === "repondre") {
         const dernier = ouvert.dernier
@@ -436,6 +443,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           signatureHtml,
           commercial: prenomCommercial,
           espace,
+          pieces,
         })
         setEnvoiOk(`Réponse envoyée à ${nomDe(ouvert)}.`)
       } else if (ouvert && mode === "transferer") {
@@ -448,12 +456,14 @@ export default function Messages({ espace }: { espace: Espace }) {
           signatureHtml,
           commercial: prenomCommercial,
           espace,
+          pieces,
         })
         setEnvoiOk(`Message transféré à ${compoTo.trim()}.`)
       }
       setCompoCorps("")
       setCompoTo("")
       setCompoObjet("")
+      setCompoPieces([])
       fermerCompo()
       charger()
     } catch (e) {
@@ -608,6 +618,7 @@ export default function Messages({ espace }: { espace: Espace }) {
                         aria-label="Message"
                         className="rounded-none border-0 shadow-none focus:ring-0"
                       />
+                      <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
                       <div className="flex items-center gap-2 px-3 py-3">
                         <Bouton variante="plein" icone={<Send />} chargement={envoiEnCours} disabled={!pretAEnvoyer} onClick={envoyer}>
                           Envoyer
@@ -704,6 +715,7 @@ export default function Messages({ espace }: { espace: Espace }) {
               className="h-64 w-full resize-none bg-transparent py-3 text-corps leading-5 text-encre outline-none placeholder:text-encre-3"
             />
           </div>
+          <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
           <div className="flex items-center gap-2 border-t border-fond-4 px-4 py-3">
             <Bouton variante="plein" icone={<Send />} chargement={envoiEnCours} disabled={!pretAEnvoyer} onClick={envoyer}>
               Envoyer
