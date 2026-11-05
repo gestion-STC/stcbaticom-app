@@ -7,7 +7,7 @@ import { useSession } from "../lib/auth"
 import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
-import { composer, envoyerEmail, emailConfigure } from "../lib/envoiEmail"
+import { composer, envoyerEmail, emailConfigure, piecesTropLourdes } from "../lib/envoiEmail"
 import { apercuLiens } from "../lib/liensSuivisDb"
 import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
 import { corrigerTexte, resumeCorrection, type TexteEmail } from "../lib/correctionTexte"
@@ -121,13 +121,15 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
     }
   }
 
-  // Ajout d'un document à joindre : déposé dans le stockage, c'est son LIEN qui part.
-  async function ajouterFichier(file: File) {
+  // Ajout de documents à joindre (plusieurs d'un coup) : déposés dans le stockage, ils partent en pièces jointes.
+  async function ajouterFichiers(files: File[]) {
     setErreur(null)
     setTeleversement(true)
     try {
-      const pj = await televerser(file)
-      setPieces((l) => [...l, pj])
+      for (const file of files) {
+        const pj = await televerser(file)
+        setPieces((l) => [...l, pj])
+      }
     } catch (e) {
       setErreur("Ajout du document impossible : " + (e instanceof Error ? e.message : String(e)))
     } finally {
@@ -143,7 +145,7 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
     if (!vientDuModele) supprimerFichier(pj.chemin).catch(() => {})
   }
 
-  const pret = a.length > 0 && invalides.length === 0 && objet.trim() !== "" && corps.trim() !== ""
+  const pret = a.length > 0 && invalides.length === 0 && objet.trim() !== "" && corps.trim() !== "" && !piecesTropLourdes(pieces)
 
   async function envoyer() {
     if (!pret || envoi) return
@@ -265,7 +267,7 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
               {televersement ? "Ajout…" : "Ajouter un document"}
             </Bouton>
           </div>
-          <input ref={fichierRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) ajouterFichier(f) }} />
+          <input ref={fichierRef} type="file" multiple className="hidden" onChange={(e) => { const f = [...(e.target.files ?? [])]; if (f.length) ajouterFichiers(f) }} />
           {bibliotheque.length ? (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="text-colonne text-encre-2">Documents du logiciel :</span>
@@ -293,7 +295,7 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
           ) : (
             <p className="mt-1 text-colonne text-encre-2">Aucun document joint.</p>
           )}
-          {pieces.length ? <p className="mt-1 text-colonne text-encre-2">Les documents partent sous forme de liens cliquables en bas du message.</p> : null}
+          {pieces.length ? <p className={`mt-1 text-colonne ${piecesTropLourdes(pieces) ? "text-alerte" : "text-encre-2"}`}>{piecesTropLourdes(pieces) ? "Trop lourd : 35 Mo au total au maximum." : "Les documents partent en pièces jointes (PDF)."}</p> : null}
         </div>
 
         {/* ── Aperçu ── */}

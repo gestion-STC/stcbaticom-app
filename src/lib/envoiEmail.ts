@@ -1,8 +1,8 @@
 import { commercial } from "../data"
-import type { Email } from "../emails"
+import type { Email, PieceJointe } from "../emails"
 import { decouperAdresses } from "./adressesEmail"
 import type { Destinataire } from "./destinataire"
-import { lienSuivi, remplirLiens } from "./liensSuivisDb"
+import { remplirLiens } from "./liensSuivisDb"
 import { supabase, supabaseConfigure } from "./supabase"
 
 // L'envoi passe par la fonction serveur « envoyer-email » (relais Resend), qui détient
@@ -37,7 +37,8 @@ function nettoyerTexte(t: string): string {
     .join("\n")
 }
 
-// Construit l'objet + le corps HTML (corps + signature + liens des pièces jointes).
+// Construit l'objet + le corps HTML (corps + signature). Les documents ne sont plus des liens
+// dans le corps : ils partent en vraies pièces jointes PDF (Mahdi, 05/11/2026), voir envoyerEmail.
 export function composer(
   modele: Email,
   d: Destinataire,
@@ -49,13 +50,6 @@ export function composer(
   const objet = nettoyerTexte(remplir(modele.objet, d, prenomCommercial))
   let corpsHtml = nettoyerTexte(remplir(modele.corps, d, prenomCommercial)).replace(/\n/g, "<br>")
   if (signature) corpsHtml += "<br><br>" + remplir(signature, d, prenomCommercial)
-  if (modele.pieces && modele.pieces.length) {
-    corpsHtml +=
-      "<br><br>Pièces jointes :<br>" +
-      modele.pieces
-        .map((pj) => `• <a href="${pj.url}">${pj.nom}</a>`)
-        .join("<br>")
-  }
   // Police Montserrat pour le rendu du mail (avec repli Arial : la plupart des
   // messageries ne chargent pas les polices web, on garde donc une police sûre).
   return { objet, corpsHtml: enveloppeMontserrat(corpsHtml) }
@@ -87,15 +81,11 @@ export async function envoyerEmail(
   // Les liens suivis (11/10/2026) : {{lien_creer_compte}}, {{lien_site}} deviennent des liens propres à
   // l'agence ; quand elle clique, sa fiche le sait (fonction evenements-site).
   const objet = await remplirLiens(compose.objet, d.agenceId, "texte")
-  let corpsHtml = await remplirLiens(compose.corpsHtml, d.agenceId, "html")
-  // Les pièces jointes (plaquette…) aussi : le clic devient « Plaquette ouverte » sur la fiche.
-  if (d.agenceId) for (const pj of modele.pieces ?? []) {
-    if (!pj.url) continue
-    try { corpsHtml = corpsHtml.split('href="' + pj.url + '"').join('href="' + (await lienSuivi(d.agenceId, "plaquette", pj.url)) + '"') } catch { /* lien brut */ }
-  }
+  const corpsHtml = await remplirLiens(compose.corpsHtml, d.agenceId, "html")
+  const pieces = piecesAEnvoyer(modele.pieces)
 
   const { data, error } = await supabase.functions.invoke("envoyer-email", {
-    body: { to, subject: objet, html: corpsHtml, agence_id: d.agenceId, ...(copie.cc?.length ? { cc: copie.cc } : {}), ...(copie.cci?.length ? { bcc: copie.cci } : {}) },
+    body: { to, subject: objet, html: corpsHtml, agence_id: d.agenceId, ...(pieces.length ? { pieces } : {}), ...(copie.cc?.length ? { cc: copie.cc } : {}), ...(copie.cci?.length ? { bcc: copie.cci } : {}) },
   })
   if (error) {
     // Récupère le VRAI message renvoyé par la fonction (souvent dans error.context).
@@ -131,10 +121,20 @@ export async function envoyerEmail(
     const { error: e } = await supabase.from("messages").insert({
       sens: "sortant", espace: "demarchage", de: "contact@crm.stcbatiment.fr", a: libelleDestinataires(to, copie), objet, corps_html: corpsHtml,
       message_id: resendId || null, lu: true, agence_id: d.agenceId,
+      ...(pieces.length ? { pieces_jointes: pieces.map((p) => ({ nom: p.nom, chemin: p.url, taille: p.taille, type: "" })) } : {}),
     })
     if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)
   }
 }
+
+// Les pièces jointes telles que le serveur les attend : { nom, url, taille }, sans doublon de fichier.
+export function piecesAEnvoyer(pieces: PieceJointe[] = []): Array<{ nom: string; url: string; taille: number }> {
+  const vues = new Set<string>()
+  return pieces.filter((p) => p?.url && !vues.has(p.url) && vues.add(p.url)).map((p) => ({ nom: p.nom, url: p.url, taille: p.taille ?? 0 }))
+}
+/** 35 Mo au total : au-delà, le serveur refuse l'envoi (la limite Resend est 40 Mo). */
+export const PLAFOND_PIECES = 35 * 1024 * 1024
+export const piecesTropLourdes = (pieces: PieceJointe[]) => pieces.reduce((s, p) => s + (p.taille ?? 0), 0) > PLAFOND_PIECES
 
 // Le champ « a » du journal, écrit comme le serveur : « x, y · cc : z · cci : w » (sans doublon d'une liste à l'autre).
 export function libelleDestinataires(to: string[], copie: { cc?: string[]; cci?: string[] } = {}): string {
