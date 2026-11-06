@@ -33,7 +33,7 @@ export const RUBRIQUES: RubriqueMenu[] = [
     espace: "demarchage",
     titre: "Développement",
     groupes: [
-      { titre: "", entrees: [{ id: "aujourdhui", titre: "Aujourd'hui" }] },
+      { titre: "", entrees: [{ id: "aujourdhui", titre: "Dashboard" }] },
       {
         titre: "Travailler",
         entrees: [

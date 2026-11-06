@@ -1,18 +1,17 @@
 // ════════════════════════════════════════════════════════════════════════════
 // AUJOURD'HUI — l'écran d'accueil des commerciaux, au STYLE COURTIER (maquette validée le 06/11/2026).
 //
-// Une seule longue page, trois chapitres, une barre fixe qui mène à chacun :
+// Une seule longue page (titre « Dashboard », sans barre d'actions), trois chapitres :
 //   · Ma journée : le bandeau de cotes, les leads, ce qui est à rappeler (retards en tête),
 //     ma performance sur 14 jours ouvrés, mon portefeuille d'agences, ma file d'appel, mes leads ;
 //   · L'équipe : la semaine de l'équipe, l'objectif du mois, le classement (5 périodes), les victoires ;
 //   · Analyse : les mails, le parcours, quand appeler, les agences qui bougent, le conseil de l'IA.
 // Rien de l'ancienne page n'est perdu (santé de la base, clients à confirmer, Fait / Reporter,
-// objectif modifiable, mails à envoyer). Rafraîchi toutes les 60 s quand l'onglet est visible.
+// objectif modifiable ; les mails à envoyer restent dans la session de call). Rafraîchi toutes les 60 s quand l'onglet est visible.
 // Calculs : src/demarchage/aujourdhuiOutils.ts et tableauOutils.ts ; lectures : db.ts.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { ArrowUpRight, CalendarClock, Check, Pencil, Phone, RefreshCw, Sparkles, Trophy } from "lucide-react"
-import { BoutonMailsIa } from "./MailsIa"
+import { ArrowUpRight, CalendarClock, Check, Pencil, Phone, Sparkles, Trophy } from "lucide-react"
 import { useReglages } from "../../demarchage/reglages"
 import {
   appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, premiersOsListe,
@@ -38,14 +37,12 @@ import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
 import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement, Dialogue, Etiquette as EtiquetteChamp, Onglets, Selecteur } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
 import { Bandeau, Bloc, Chapitre, Courbe, Etiquette, Table, Variation } from "./aujourdhui/courtier"
-import { fr, pct, pctTxt, useChapitreVisible } from "./aujourdhui/outils"
+import { fr, pct, pctTxt } from "./aujourdhui/outils"
 
 const RAFRAICHIR_MS = 60_000
 const CLE_OBJECTIF = "objectif_os_mensuel"
 const JOURS_TENDANCE = 14
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
-const CHAPITRES = ["journee", "equipe", "analyse"] as const
-const LIBELLES_CHAPITRES: Record<(typeof CHAPITRES)[number], string> = { journee: "Ma journée", equipe: "L'équipe", analyse: "Analyse" }
 
 // Les cinq périodes du classement (Mahdi, 06/11 : « il faut pouvoir continuer à regarder la semaine, le mois… »).
 type PeriodeC = "jour" | "semaine" | "mois" | "moisDernier" | "tout"
@@ -111,7 +108,6 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const session = useSession()
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
-  const { actif, aller, zone } = useChapitreVisible(CHAPITRES, d !== null)
 
   const jetonCharge = useRef(0)
   const charger = useCallback(async () => {
@@ -239,7 +235,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   if (!d || !calc) {
     return (
       <div className="page">
-        <h1 className="text-h1 font-semibold text-encre">Aujourd'hui</h1>
+        <h1 className="text-h1 font-semibold text-encre">Dashboard</h1>
         <p className="mb-4 text-legende text-encre-2">{majusculeInitiale(dateLongue(maintenant))}</p>
         {erreur ? <BandeauAlerte role="alerte" action={<Bouton taille="sm" onClick={() => charger()}>Réessayer</Bouton>}>{erreur}</BandeauAlerte> : <Chargement texte="Lecture de la journée…" />}
       </div>
@@ -265,24 +261,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const meilleure = extra?.heures.length ? extra.heures.reduce((a, b) => (b.taux > a.taux ? b : a)) : null
 
   return (
-    <div ref={zone} className="@container w-full">
-      {/* ── La barre du haut, fixe : les chapitres de la page et les actions ── */}
-      <div className="sticky top-0 z-20 border-b-[0.5px] border-trait bg-fond/95 backdrop-blur">
-        <div className="flex h-14 items-center justify-between gap-4 px-10">
-          <div className="flex min-w-0 items-center gap-6">
-            <span className="text-sous-titre font-semibold text-encre">Aujourd'hui</span>
-            <nav className="flex gap-1" aria-label="Chapitres">
-              {CHAPITRES.map((id) => <button key={id} type="button" onClick={() => aller(id)} aria-current={actif === id ? "true" : undefined} className={`h-7 rounded-full px-3 text-legende transition-colors ${actif === id ? "bg-fond-4 font-medium text-encre" : "text-encre-2 hover:text-encre"}`}>{LIBELLES_CHAPITRES[id]}</button>)}
-            </nav>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Etiquette className="hidden @min-[1240px]:inline">{majusculeInitiale(dateLongue(maintenant))}</Etiquette>
-            <BoutonMailsIa />
-            <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => { extraLu.current = 0; agir(async () => undefined) }}>Actualiser</Bouton>
-            <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
-          </div>
-        </div>
-      </div>
+    <div className="@container w-full">
+      {/* ── Le titre de la page, seul (Mahdi, 06/11 : « dégage toute la barre, mets juste Dashboard ») ── */}
+      <div className="flex h-14 items-center border-b-[0.5px] border-trait px-10"><h1 className="text-sous-titre font-semibold text-encre">Dashboard</h1></div>
 
       <div className="px-10 pb-16">
         <div className="space-y-4 pt-6 empty:hidden">
