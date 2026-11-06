@@ -232,6 +232,15 @@ export async function leadsBilanLignes(): Promise<LeadBilan[]> {
   }
 }
 
+// Les derniers leads traités (gestionnaire joint) : ce que chacun est devenu, l étape d aujourd hui comprise.
+export type LeadTraite = { id: string; agenceId: string; agenceNom: string; etapeAgence: string; commercialId: string | null; signal: string; creeLe: string; traiteLe: string | null; traitePar: string | null; resultat: string; tentatives: number }
+export async function leadsTraites(limite = 40): Promise<LeadTraite[]> {
+  type L = { id: string; agence_id: string; signal: string; cree_le: string; traite_le: string | null; traite_par: string | null; resultat: string; tentatives: number; agences: { nom: string; etape: string; commercial_id: string | null } | null }
+  const { data, error } = await sb().from("leads_demarchage").select("id, agence_id, signal, cree_le, traite_le, traite_par, resultat, tentatives, agences(nom, etape, commercial_id)").eq("statut", "traite").order("traite_le", { ascending: false }).order("id").limit(limite)
+  if (error) { if (/leads_demarchage/.test(error.message)) return []; erreur(error) }
+  return ((data ?? []) as unknown as L[]).map((l) => ({ id: l.id, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", etapeAgence: l.agences?.etape ?? "", commercialId: l.agences?.commercial_id ?? null, signal: l.signal, creeLe: l.cree_le, traiteLe: l.traite_le, traitePar: l.traite_par, resultat: l.resultat ?? "", tentatives: l.tentatives ?? 0 }))
+}
+
 export async function compterParEtape(): Promise<Record<string, number>> {
   const lignes = await lireParLots<{ id: string; etape: string }>((de, a) => sb().from("agences").select("id, etape").neq("type", "apporteur").order("id").range(de, a))
   const out: Record<string, number> = {}
