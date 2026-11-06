@@ -143,3 +143,65 @@ export function delaiLisible(min: number | null): string {
   if (min < 24 * 60) return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`
   return `${Math.round(min / (24 * 60))} j`
 }
+
+// ── Le style courtier (06/11/2026) : la série jour par jour, les signaux regroupés, les retards ──
+/** Les n derniers jours ouvrés (lundi → vendredi), aujourd'hui compris s'il est ouvré, du plus ancien au plus récent, à 0 h. */
+export function joursOuvresRecents(maintenant: Date, n: number): Date[] {
+  const jours: Date[] = []
+  for (let d = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()); jours.length < n; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) jours.unshift(d)
+  }
+  return jours
+}
+export type Jour6 = { appels: number; decroches: number; joints: number; interesses: number; rdv: number; apporteurs: number }
+export const JOUR_VIDE: Jour6 = { appels: 0, decroches: 0, joints: 0, interesses: 0, rdv: 0, apporteurs: 0 }
+/** Pour chaque jour, les appels qui passent le filtre, comptés par étape (heure de Paris = heure locale du poste). */
+export function serieParJour(appels: AppelLu[], jours: Date[], garder: (a: AppelLu) => boolean = () => true): Jour6[] {
+  const cle = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+  const index = new Map(jours.map((d, i) => [cle(d), i]))
+  const serie = jours.map(() => ({ ...JOUR_VIDE }))
+  for (const a of appels) {
+    if (!garder(a)) continue
+    const i = index.get(cle(new Date(a.date)))
+    if (i === undefined) continue
+    const j = serie[i]
+    j.appels++
+    if (a.resultat === "joint" || a.resultat === "standard") j.decroches++
+    if (a.resultat === "joint") j.joints++
+    if (a.issue === "interesse") j.interesses++
+    if (a.issue === "rdv") j.rdv++
+    if (a.resultat === "apporteur") j.apporteurs++
+  }
+  return serie
+}
+/** La somme d'une série sur des jours choisis (par leur rang). */
+export function sommeJours(serie: Jour6[], rangs: number[]): Jour6 {
+  return rangs.reduce((t, i) => { const j = serie[i] ?? JOUR_VIDE; return { appels: t.appels + j.appels, decroches: t.decroches + j.decroches, joints: t.joints + j.joints, interesses: t.interesses + j.interesses, rdv: t.rdv + j.rdv, apporteurs: t.apporteurs + j.apporteurs } }, { ...JOUR_VIDE })
+}
+/** Les rangs des jours d'une série qui tombent dans [de ; a[. */
+export const rangsEntre = (jours: Date[], de: Date, a: Date): number[] => jours.flatMap((d, i) => (d >= de && d < a ? [i] : []))
+
+/** Les signaux du site regroupés par agence : combien, de quels types, le plus récent. */
+export type GroupeSignal = { agenceId: string; agenceNom: string; commercialId: string | null; n: number; detail: string; dernier: string }
+export function regrouperSignaux(signaux: { date: string; titre: string; agenceId: string; agenceNom: string; commercialId: string | null }[]): GroupeSignal[] {
+  const court = (t: string) => (/plaquette/i.test(t) ? "plaquette" : /e-mail ouvert/i.test(t) ? "mail ouvert" : /créer un compte/i.test(t) ? "« Créer un compte »" : /compte ouvert/i.test(t) ? "compte ouvert" : t.toLowerCase())
+  const par = new Map<string, { g: GroupeSignal; types: Map<string, number> }>()
+  for (const s of signaux) {
+    const e = par.get(s.agenceId) ?? { g: { agenceId: s.agenceId, agenceNom: s.agenceNom, commercialId: s.commercialId, n: 0, detail: "", dernier: s.date }, types: new Map() }
+    e.g.n++
+    if (s.date > e.g.dernier) e.g.dernier = s.date
+    const k = court(s.titre)
+    e.types.set(k, (e.types.get(k) ?? 0) + 1)
+    par.set(s.agenceId, e)
+  }
+  return [...par.values()].map(({ g, types }) => ({ ...g, detail: [...types.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(" · ") }))
+    .sort((a, b) => b.n - a.n || b.dernier.localeCompare(a.dernier))
+}
+
+/** Le retard d'une échéance, en jours entiers (0 = aujourd'hui). */
+export function joursDeRetard(echeance: string | null, maintenant: Date): number {
+  if (!echeance) return 0
+  const e = new Date(echeance)
+  const de = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime(), a = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).getTime()
+  return Math.max(0, Math.round((a - de) / 86_400_000))
+}

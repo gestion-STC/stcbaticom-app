@@ -1,86 +1,92 @@
 // ════════════════════════════════════════════════════════════════════════════
-// AUJOURD'HUI — l'écran d'accueil des commerciaux (refonte du 06/11/2026, maquette validée).
+// AUJOURD'HUI — l'écran d'accueil des commerciaux, au STYLE COURTIER (maquette validée le 06/11/2026).
 //
-// Deux vues, au choix (mémorisé sur le poste) :
-//   · « L'équipe en direct » : l'objectif du mois et son rythme, le podium et le classement,
-//     les victoires du jour, les leads et l'à-faire, ma base de prospection et de leads,
-//     le parcours de la semaine, les piles ;
-//   · « Tableau de bord » : quatre chiffres, le parcours, les meilleures heures, les mêmes
-//     leads / à-faire / bases, ce qui bouge chez les agences, les mails, le conseil IA,
-//     l'objectif, et le classement complet.
-// Une seule grille (./aujourdhui/grille.tsx). Rafraîchi toutes les 60 s quand l'onglet est
-// visible. Calculs : src/demarchage/aujourdhuiOutils.ts et tableauOutils.ts ; lectures : db.ts.
+// Une seule longue page, trois chapitres, une barre fixe qui mène à chacun :
+//   · Ma journée : le bandeau de cotes, les leads, ce qui est à rappeler (retards en tête),
+//     ma performance sur 14 jours ouvrés, mon portefeuille d'agences, ma file d'appel, mes leads ;
+//   · L'équipe : la semaine de l'équipe, l'objectif du mois, le classement (5 périodes), les victoires ;
+//   · Analyse : les mails, le parcours, quand appeler, les agences qui bougent, le conseil de l'IA.
+// Rien de l'ancienne page n'est perdu (santé de la base, clients à confirmer, Fait / Reporter,
+// objectif modifiable, mails à envoyer). Rafraîchi toutes les 60 s quand l'onglet est visible.
+// Calculs : src/demarchage/aujourdhuiOutils.ts et tableauOutils.ts ; lectures : db.ts.
 // ════════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
-import { ArrowUpRight, CalendarClock, Check, MapPin, Phone, RefreshCw, Sparkles, Video } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { ArrowUpRight, CalendarClock, Check, Pencil, Phone, RefreshCw, Sparkles, Trophy } from "lucide-react"
 import { BoutonMailsIa } from "./MailsIa"
 import { useReglages } from "../../demarchage/reglages"
 import {
-  appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, compterPremiersOs, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, premiersOsListe,
+  appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, premiersOsListe,
   resultatsAppelsDepuis, santeDemarchage, statsAppels, terminerTache, type EcartSante, type Lead, type StatsCompte, type TacheAgenda,
 } from "../../demarchage/db"
-import { FILES, dureeLisible, jourLocal, type Agence, type File } from "../../demarchage/modele"
+import { dureeLisible, libelleEtape, type Agence, type File } from "../../demarchage/modele"
 import { appelsIaPeriode } from "../../demarchage/appelsIa"
 import { statsArguments, statsObjections } from "../../demarchage/analyseOutils"
-import { attenteCourte, couleurAttente, minutesDepuis } from "../../demarchage/leadsOutils"
+import { attenteCourte, minutesDepuis } from "../../demarchage/leadsOutils"
 import {
-  bilanLeads, bilanProspection, ecart, evolution, parcoursDepuis, rythmeObjectif, tauxJointParHeure, victoiresDepuis,
-  type AppelLu, type LeadBilan, type LigneHeure,
+  bilanLeads, bilanProspection, joursDeRetard, joursOuvresRecents, rangsEntre, regrouperSignaux, rythmeObjectif, serieParJour, sommeJours, tauxJointParHeure, victoiresDepuis,
+  type AppelLu, type GroupeSignal, type Jour6, type LeadBilan, type LigneHeure,
 } from "../../demarchage/tableauOutils"
-import { Bloc, Chiffre, EnTete, H_GRAPHE, Mention, MentionEnTete, Rangee } from "./aujourdhui/grille"
-import { BaseLeads, BaseProspection, BlocHeures, BlocMails, BlocObjectif, BlocParcours, CeQuiBouge, ClassementCompact, Conseil, ListeLeads, Podium, Quatre, Victoires } from "./aujourdhui/blocs"
 import {
-  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuJour, debutDuMois, decomposerDate, estEnRetard, finDeSemaine, finDuMois,
-  grouperTaches, heureCourte, libelleRelatif, lireObjectif, tauxConversionInteresses, tauxConversionPremiersOs, tauxJoints, totalStats, type MomentTache,
-  PERIODES, bornesPeriode, classer, type Periode,
-  majusculeInitiale, dansLaBase, libelleBase, baseConversion,
+  compterAgencesJamaisJointes, compterReveils, composerDate, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, finDeSemaine, finDuMois,
+  heureCourte, libelleRelatif, lireObjectif, bornesPeriode, classer, majusculeInitiale, dansLaBase, libelleBase, tauxConversionInteresses, baseConversion,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { estAdmin, listerComptes } from "../../lib/comptes"
 import { useSession } from "../../lib/auth"
-import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, proprietaireDepuisChoix } from "../../demarchage/attribution"
+import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix, type Proprietaire } from "../../demarchage/attribution"
 import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
-import { Bandeau, Bouton, Champ, Chargement, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, Vide } from "../../ui"
+import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement, Dialogue, Etiquette as EtiquetteChamp, Onglets, Selecteur } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
+import { Bandeau, Bloc, Chapitre, Courbe, Etiquette, Table, Variation } from "./aujourdhui/courtier"
+import { fr, pct, pctTxt, useChapitreVisible } from "./aujourdhui/outils"
 
 const RAFRAICHIR_MS = 60_000
 const CLE_OBJECTIF = "objectif_os_mensuel"
-const CLE_VUE = "aujourdhui_vue"
-type Vue = "equipe" | "tableau"
-type Extra = {
-  heures: LigneHeure[]
-  signaux: { id: string; date: string; titre: string; agenceId: string; agenceNom: string }[]
-  mails: { envoyes: number; ouverts: number; recus: number; rebonds: number } | null
-  objection: { libelle: string; appels: number; joints: number } | null
-  reponse: string
-  argument: { libelle: string; aboutis: number; appels: number } | null
-}
+const JOURS_TENDANCE = 14
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const CHAPITRES = ["journee", "equipe", "analyse"] as const
+const LIBELLES_CHAPITRES: Record<(typeof CHAPITRES)[number], string> = { journee: "Ma journée", equipe: "L'équipe", analyse: "Analyse" }
+
+// Les cinq périodes du classement (Mahdi, 06/11 : « il faut pouvoir continuer à regarder la semaine, le mois… »).
+type PeriodeC = "jour" | "semaine" | "mois" | "moisDernier" | "tout"
+const PERIODES_C: { id: PeriodeC; label: string }[] = [{ id: "jour", label: "Aujourd'hui" }, { id: "semaine", label: "Cette semaine" }, { id: "mois", label: "Ce mois-ci" }, { id: "moisDernier", label: "Mois dernier" }, { id: "tout", label: "Depuis le début" }]
+function bornesC(p: PeriodeC, m: Date): { de: Date; a: Date } {
+  if (p === "moisDernier") return { de: new Date(m.getFullYear(), m.getMonth() - 1, 1), a: new Date(m.getFullYear(), m.getMonth(), 1) }
+  return bornesPeriode(p, m)
+}
+const METRIQUES: { libelle: string; cle: keyof Jour6 }[] = [{ libelle: "Appels", cle: "appels" }, { libelle: "Décrochés", cle: "decroches" }, { libelle: "Gestionnaires joints", cle: "joints" }, { libelle: "Intéressés", cle: "interesses" }, { libelle: "RDV", cle: "rdv" }, { libelle: "Apporteurs trouvés", cle: "apporteurs" }]
+const ETAPES_PARCOURS: { libelle: string; cle: keyof Jour6 }[] = [{ libelle: "Appels", cle: "appels" }, { libelle: "Décrochés", cle: "decroches" }, { libelle: "Gestionnaires joints", cle: "joints" }, { libelle: "Intéressés", cle: "interesses" }, { libelle: "RDV", cle: "rdv" }]
+const ETAPES_PORTEFEUILLE = ["a_prospecter", "gestionnaire_joint", "interesse", "rdv_planifie", "client", "pas_interesse", "endormie", "hors_cible"]
+const sortie = (e: string) => e === "pas_interesse" || e === "endormie" || e === "hors_cible"
 
 type Donnees = {
-  files: Record<File, number> | null // null = comptage en échec : on affiche « — », jamais un faux chiffre
-  base: string // la base comptée, comme dans la session : « Ma base », « Base de X », « Toute la base »
+  files: Record<File, number> | null
+  base: string
+  choix: string
+  options: { value: string; label: string }[]
+  proprietaire: Proprietaire
   taches: TacheAgenda[]
-  classements: Record<Periode, StatsCompte[]> // tout le monde, classé, pour chaque période
+  classements: Record<PeriodeC, StatsCompte[]>
   objectif: number
   jamaisJointes: number
   reveils: number
   comptes: { id: string; nom: string }[]
-  appelsSemaine: AppelLu[] // cette semaine (le jour, les victoires, le parcours)
-  appelsAvant: AppelLu[] // la semaine dernière (les comparaisons)
+  jours: Date[] // les jours ouvrés de la tendance, du plus ancien à aujourd'hui
+  appels: AppelLu[] // les appels de ces jours-là (toute l'équipe)
   osMois: { agenceId: string; nom: string; date: string; commercialId: string | null }[]
-  osSemaine: number
-  osAvant: number
   leads: { agence: Agence; lead: Lead }[]
-  etapes: { etape: string }[] // la base choisie
-  leadsBilan: LeadBilan[] // la base choisie
+  etapes: { etape: string }[]
+  leadsBilan: LeadBilan[]
 }
-
-const MOMENTS: { code: Exclude<MomentTache, "rdv" | "plusTard">; libelle: string; alerte?: boolean }[] = [
-  { code: "enRetard", libelle: "En retard", alerte: true },
-  { code: "ceMatin", libelle: "Ce matin" },
-  { code: "cetApresMidi", libelle: "Cet après-midi" },
-]
+type Extra = {
+  heures: LigneHeure[]
+  signaux: GroupeSignal[]
+  mails: { envoyes: number; ouverts: number; recus: number; rebonds: number } | null
+  objection: { libelle: string; appels: number; levees: number; sansReponse: number; reponse: string } | null
+  argument: { libelle: string; aboutis: number; appels: number } | null
+  piege: { libelle: string; taux: number } | null
+  analyses: number
+}
 
 export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer, onOuvrirEtape }: {
   onOuvrirSession?: (agenceId: string) => void
@@ -89,63 +95,56 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   onOuvrirEtape?: (etape: string) => void // ouvre Agences filtrée sur cette étape
 }) {
   const [d, setD] = useState<Donnees | null>(null)
-  const heureRelance = useReglages().reglages?.heure_relance ?? null // Réglages : l'heure des relances
-  // L'heure de la dernière lecture : tout (bornes, retards, « dans 2 h ») s'y rapporte,
-  // et le rendu reste pur (pas de new Date() pendant qu'on dessine).
+  const heureRelance = useReglages().reglages?.heure_relance ?? null
   const [maintenant, setMaintenant] = useState(() => new Date())
   const [erreur, setErreur] = useState("")
-  // Les contrôles de santé (13/10) : null = pas encore lus ou pas installés ; [] = tout est à 0.
   const [sante, setSante] = useState<EcartSante[] | null>(null)
   const [santeErreur, setSanteErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
   const [report, setReport] = useState<{ tache: TacheAgenda; jour: string; heure: string } | null>(null)
   const [editionObjectif, setEditionObjectif] = useState(false)
-  const [periode, setPeriode] = useState<Periode>("mois")
   const [saisieObjectif, setSaisieObjectif] = useState("")
+  const [periode, setPeriode] = useState<PeriodeC>("semaine")
+  const [extra, setExtra] = useState<Extra | null>(null)
+  const [choixLocal, setChoixLocal] = useState<string | null>(() => { try { return localStorage.getItem(CLE_CHOIX_LOCAL) } catch { return null } })
   const enVie = useRef(true)
-  // La même base que la session (Mahdi, 13/10 : des chiffres IDENTIQUES partout) : le choix mémorisé sur le poste.
   const session = useSession()
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
+  const { actif, aller, zone } = useChapitreVisible(CHAPITRES, d !== null)
 
   const jetonCharge = useRef(0)
   const charger = useCallback(async () => {
-    // Les piles de MA base (14/10) : pas de chiffres avant que le compte soit connu, et une
-    // lecture arrivée en retard n'écrase pas une plus récente.
     if (!moiId) return
     const jeton = ++jetonCharge.current
     const now = new Date()
     try {
-      // Les comptes du logiciel (réservé aux administrateurs : un télépro verra ceux qui ont des appels).
       const comptes = await listerComptes().then((l) => l.map((c) => ({ id: c.id, nom: c.nom || c.email }))).catch(() => [] as { id: string; nom: string }[])
-      // La fonction de chaque compte (Comptes) : seuls les commerciaux sont classés.
       const fonctions = await chargerFonctions().catch(() => ({}) as Record<string, never>)
       const horsClassement = new Set(Object.entries(fonctions).filter(([, f]) => !estAuClassement(f)).map(([id]) => id))
       const libre = nonAttribueesPourTous(await lireParametre(CLE_NON_ATTRIBUEES).catch(() => null))
-      let choixBrut: string | null = null
-      try { choixBrut = localStorage.getItem(CLE_CHOIX_LOCAL) } catch { /* poste sans stockage : « Ma base » */ }
-      const proprietaire = proprietaireDepuisChoix(choixBrut, moiId, admin, libre)
-      const base = libelleBase(moiId ? normaliserChoix(choixBrut, admin, libre) : "tous", comptes)
-      const lundi = debutDeSemaine(now), lundiAvant = new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() - 7)
-      const [files, taches, objectifBrut, jamaisJointes, reveils, appelsSemaine, appelsAvant, osMois, osSemaine, osAvant, leads, etapes, leadsBilan, ...parPeriode] = await Promise.all([
-        compterPiles(proprietaire).catch(() => null), // LE calcul de la base, le même que la session
+      const choix = normaliserChoix(choixLocal, admin, libre)
+      const proprietaire = proprietaireDepuisChoix(choixLocal, moiId, admin, libre)
+      const jours = joursOuvresRecents(now, JOURS_TENDANCE)
+      const [files, taches, objectifBrut, jamaisJointes, reveils, appels, osMois, leads, etapes, leadsBilan, ...parPeriode] = await Promise.all([
+        compterPiles(proprietaire).catch(() => null),
         chargerTachesDuJour(now).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
         lireParametre(CLE_OBJECTIF),
         compterAgencesJamaisJointes(),
-        compterReveils(lundi, finDeSemaine(now)),
-        appelsSortants(lundi, finDeSemaine(now)),
-        appelsSortants(lundiAvant, lundi),
+        compterReveils(debutDeSemaine(now), finDeSemaine(now)),
+        appelsSortants(jours[0], new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)),
         premiersOsListe(debutDuMois(now), finDuMois(now)),
-        compterPremiersOs(lundi, finDeSemaine(now)),
-        compterPremiersOs(lundiAvant, lundi),
-        chargerLeads(proprietaire).catch(() => [] as { agence: Agence; lead: Lead }[]), // SQL des leads absent : aucun lead
+        chargerLeads(proprietaire).catch(() => [] as { agence: Agence; lead: Lead }[]),
         etapesDeLaBase().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))),
         leadsBilanLignes().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))),
-        ...PERIODES.map((p) => { const b = bornesPeriode(p.code, now); return statsAppels(b.de, b.a) }),
+        ...PERIODES_C.map((p) => { const b = bornesC(p.id, now); return statsAppels(b.de, b.a) }),
       ])
       if (!enVie.current || jeton !== jetonCharge.current) return
-      const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
-      setD({ files, base, taches, classements, objectif: lireObjectif(objectifBrut), jamaisJointes, reveils, comptes, appelsSemaine, appelsAvant, osMois, osSemaine, osAvant, leads, etapes, leadsBilan })
+      const classements = Object.fromEntries(PERIODES_C.map((p, i) => [p.id, classer(parPeriode[i], comptes, horsClassement)])) as Record<PeriodeC, StatsCompte[]>
+      setD({
+        files, base: libelleBase(choix, comptes), choix, options: optionsBase(admin, libre, comptes, moiId), proprietaire, taches, classements,
+        objectif: lireObjectif(objectifBrut), jamaisJointes, reveils, comptes: comptes.filter((c) => !horsClassement.has(c.id)), jours, appels, osMois, leads, etapes, leadsBilan,
+      })
       santeDemarchage()
         .then((s) => { if (enVie.current) { setSante(s ? s.filter((e) => e.code !== "appel_non_note") : s); setSanteErreur("") } })
         .catch((e) => { if (enVie.current) setSanteErreur(message(e)) })
@@ -154,40 +153,53 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     } catch (e) {
       if (enVie.current) setErreur(message(e))
     }
-  }, [moiId, admin])
+  }, [moiId, admin, choixLocal])
 
   useEffect(() => {
     enVie.current = true
     const premier = setTimeout(charger, 0)
-    // Toutes les 60 s, seulement si l'onglet est visible ; et dès qu'il le redevient.
     const t = setInterval(() => { if (document.visibilityState === "visible") charger() }, RAFRAICHIR_MS)
     const surVisible = () => { if (document.visibilityState === "visible") charger() }
     document.addEventListener("visibilitychange", surVisible)
     return () => { enVie.current = false; clearTimeout(premier); clearInterval(t); document.removeEventListener("visibilitychange", surVisible) }
   }, [charger])
 
+  // L'analyse (heures, signaux, mails, IA) : lue une fois, puis toutes les 10 min ; elle ne bouge pas à la minute.
+  const extraLu = useRef(0)
+  useEffect(() => {
+    if (!d || Date.now() - extraLu.current < 10 * 60_000) return
+    extraLu.current = Date.now()
+    const now = new Date()
+    Promise.all([
+      resultatsAppelsDepuis(new Date(now.getTime() - 90 * 86_400_000)).catch(() => []),
+      derniersSignaux(new Date(now.getTime() - 7 * 86_400_000), 500).catch(() => []),
+      bilanMails(new Date(now.getTime() - 7 * 86_400_000)).catch(() => null),
+      appelsIaPeriode(new Date(now.getTime() - 30 * 86_400_000), now).catch(() => []),
+    ]).then(([res, signaux, mails, ia]) => {
+      if (!enVie.current) return
+      const objections = statsObjections(ia)
+      const args = statsArguments(ia).filter((a) => a.fiable)
+      const meilleur = args[0] ?? null
+      const plusUtilise = [...args].sort((x, y) => y.appels - x.appels)[0] ?? null
+      const o = objections[0]
+      setExtra({
+        heures: tauxJointParHeure(res), signaux: regrouperSignaux(signaux), mails,
+        objection: o ? { libelle: o.libelle, appels: o.appels, levees: o.levees, sansReponse: Math.max(0, o.appels - o.levees), reponse: o.meilleureReponse } : null,
+        argument: meilleur ? { libelle: meilleur.libelle, aboutis: meilleur.aboutis, appels: meilleur.appels } : null,
+        piege: plusUtilise && meilleur && plusUtilise.libelle !== meilleur.libelle && plusUtilise.taux !== null ? { libelle: plusUtilise.libelle, taux: Math.round(plusUtilise.taux * 100) } : null,
+        analyses: ia.filter((a) => a.statut === "pret").length,
+      })
+    })
+  }, [d])
+
   const agir = async (f: () => Promise<void>) => {
     setOccupe(true); setErreur("")
     try { await f(); await charger() }
-    catch (e) {
-      // Refus de la base (tache_terminer…) : on le montre, et on recharge pour remettre la ligne retirée d'avance.
-      setErreur(message(e))
-      await charger()
-      setErreur(message(e))
-    }
+    catch (e) { setErreur(message(e)); await charger(); setErreur(message(e)) }
     finally { setOccupe(false) }
   }
-
-  const terminer = (t: TacheAgenda) => agir(async () => {
-    // On retire la ligne tout de suite : le rechargement confirme derrière.
-    setD((x) => (x ? { ...x, taches: x.taches.filter((y) => y.id !== t.id) } : x))
-    await terminerTache(t.id)
-  })
-  const reporterA = (t: TacheAgenda, date: Date) => agir(async () => {
-    setD((x) => (x ? { ...x, taches: x.taches.filter((y) => y.id !== t.id) } : x))
-    setReport(null)
-    await deplacerTache(t.id, date.toISOString())
-  })
+  const terminer = (t: TacheAgenda) => agir(async () => { setD((x) => (x ? { ...x, taches: x.taches.filter((y) => y.id !== t.id) } : x)); await terminerTache(t.id) })
+  const reporterA = (t: TacheAgenda, date: Date) => agir(async () => { setD((x) => (x ? { ...x, taches: x.taches.filter((y) => y.id !== t.id) } : x)); setReport(null); await deplacerTache(t.id, date.toISOString()) })
   const ouvrirReport = (t: TacheAgenda) => {
     if (heureRelance === null) return
     const { jour, heure } = decomposerDate(dansNJoursA(new Date(), 1, heureRelance).toISOString())
@@ -200,7 +212,6 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     if (!date) { setErreur("Choisis une date et une heure."); return }
     reporterA(report.tache, date)
   }
-
   const ouvrirEditionObjectif = () => { setSaisieObjectif(d?.objectif ? String(d.objectif) : ""); setEditionObjectif(true) }
   const enregistrerObjectif = (e: FormEvent) => {
     e.preventDefault()
@@ -208,232 +219,277 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     if (n <= 0) { setErreur("L'objectif doit être un nombre entier supérieur à 0."); return }
     agir(async () => { await ecrireParametre(CLE_OBJECTIF, String(n)); setEditionObjectif(false) })
   }
+  // La base affichée (« Ma base », « Base de X »…) : la même que la session de call, mémorisée sur le poste.
+  const choisirBase = (v: string) => { try { localStorage.setItem(CLE_CHOIX_LOCAL, v) } catch { /* poste sans stockage */ } setChoixLocal(v) }
 
-  // ── La vue choisie (06/11/2026) : « L'équipe en direct » ou « Tableau de bord », mémorisée sur le poste ──
-  const [vue, setVueBrute] = useState<Vue>(() => { try { return localStorage.getItem(CLE_VUE) === "tableau" ? "tableau" : "equipe" } catch { return "equipe" } })
-  const setVue = (v: Vue) => { setVueBrute(v); try { localStorage.setItem(CLE_VUE, v) } catch { /* poste sans stockage */ } }
-  const [periodeEquipe, setPeriodeEquipe] = useState<Periode>("semaine")
+  // ── Les séries jour par jour : la mienne (la base choisie), celle de l'équipe, celle de chaque commercial ──
+  const calc = useMemo(() => {
+    if (!d) return null
+    const n = d.jours.length
+    const lundi = debutDeSemaine(maintenant), lundiAvant = new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() - 7)
+    const rSemaine = rangsEntre(d.jours, lundi, finDeSemaine(maintenant)), rAvant = rangsEntre(d.jours, lundiAvant, lundi)
+    const filtre = (a: AppelLu) => (typeof d.proprietaire === "object" ? a.compteId === d.proprietaire.compteId : true)
+    const moi = serieParJour(d.appels, d.jours, filtre)
+    const equipe = serieParJour(d.appels, d.jours)
+    const parCompte = new Map(d.comptes.map((c) => [c.id, serieParJour(d.appels, d.jours, (a) => a.compteId === c.id)]))
+    const auj = sommeJours(moi, [n - 1]), memeJour = sommeJours(moi, n > 5 ? [n - 6] : [])
+    return { n, moi, equipe, parCompte, auj, memeJour, sMoi: sommeJours(moi, rSemaine), sMoiAvant: sommeJours(moi, rAvant), sEq: sommeJours(equipe, rSemaine), sEqAvant: sommeJours(equipe, rAvant) }
+  }, [d, maintenant])
 
-  // Les à-côtés du tableau de bord (heures, signaux, mails, analyse IA) : lus à l'ouverture de la vue,
-  // puis toutes les 10 min ; ils ne bougent pas à la minute.
-  const [extra, setExtra] = useState<Extra | null>(null)
-  const extraLu = useRef(0)
-  useEffect(() => {
-    if (vue !== "tableau" || Date.now() - extraLu.current < 10 * 60_000) return
-    extraLu.current = Date.now()
-    const now = new Date()
-    Promise.all([
-      resultatsAppelsDepuis(new Date(now.getTime() - 90 * 86_400_000)).catch(() => []),
-      derniersSignaux(new Date(now.getTime() - 7 * 86_400_000)).catch(() => []),
-      bilanMails(new Date(now.getTime() - 7 * 86_400_000)).catch(() => null),
-      appelsIaPeriode(new Date(now.getTime() - 30 * 86_400_000), now).catch(() => []),
-    ]).then(([res, signaux, mails, ia]) => {
-      if (!enVie.current) return
-      const objections = statsObjections(ia)
-      const argument = statsArguments(ia).find((a) => a.fiable) ?? null
-      const analyses = ia.filter((a) => a.statut === "pret" && a.analyse).length
-      setExtra({
-        heures: tauxJointParHeure(res), signaux, mails,
-        objection: objections[0] ? { libelle: objections[0].libelle, appels: objections[0].appels, joints: analyses } : null,
-        reponse: objections[0]?.meilleureReponse ?? "",
-        argument: argument ? { libelle: argument.libelle, aboutis: argument.aboutis, appels: argument.appels } : null,
-      })
-    })
-  }, [vue, d])
-
-  if (!d) {
+  if (!d || !calc) {
     return (
       <div className="page">
-        <EnTetePage titre="Aujourd'hui" sousTitre={dateLongue(maintenant)} />
-        {erreur ? <Bandeau role="alerte" action={<Bouton taille="sm" onClick={() => charger()}>Réessayer</Bouton>}>{erreur}</Bandeau> : <Chargement texte="Lecture de la journée…" />}
+        <h1 className="text-h1 font-semibold text-encre">Aujourd'hui</h1>
+        <p className="mb-4 text-legende text-encre-2">{majusculeInitiale(dateLongue(maintenant))}</p>
+        {erreur ? <BandeauAlerte role="alerte" action={<Bouton taille="sm" onClick={() => charger()}>Réessayer</Bouton>}>{erreur}</BandeauAlerte> : <Chargement texte="Lecture de la journée…" />}
       </div>
     )
   }
 
-  const groupes = grouperTaches(d.taches, maintenant)
-  const rienAFaire = d.taches.length === 0
+  const rappels = [...d.taches].sort((a, b) => (a.echeance ?? "").localeCompare(b.echeance ?? ""))
+  const enRetard = rappels.filter((t) => t.echeance && new Date(t.echeance) < maintenant).length
+  const plusVieux = rappels.length ? joursDeRetard(rappels[0].echeance, maintenant) : 0
+  const bb = bilanProspection(d.etapes)
+  const bl = bilanLeads(d.leadsBilan)
   const rythme = rythmeObjectif(d.osMois.length, d.objectif, debutDuMois(maintenant), finDuMois(maintenant), maintenant)
-  const aujourdHui = debutDuJour(maintenant)
-  const appelsDuJour = d.appelsSemaine.filter((a) => new Date(a.date) >= aujourdHui)
-  const memeJourAvant = d.appelsAvant.filter((a) => { const t = new Date(a.date); return t >= new Date(aujourdHui.getTime() - 7 * 86_400_000) && t < new Date(aujourdHui.getTime() - 6 * 86_400_000) }).length
-  const parcours = parcoursDepuis(d.appelsSemaine, d.osSemaine)
-  const parcoursAvant = parcoursDepuis(d.appelsAvant, d.osAvant)
+  const jourAujourdhui = d.jours[calc.n - 1]
+  const appelsDuJour = d.appels.filter((a) => new Date(a.date) >= jourAujourdhui)
   const nomDuCompte = (id: string | null) => d.comptes.find((c) => c.id === id)?.nom ?? ""
-  const victoires = victoiresDepuis(appelsDuJour, d.osMois.filter((o) => o.date === jourLocal(maintenant)).map((o) => ({ ...o, commercialNom: nomDuCompte(o.commercialId) })))
-  const plusAncien = d.leads.length ? Math.max(...d.leads.map((l) => minutesDepuis(l.lead.creeLe, maintenant))) : 0
-  const bilanBase = bilanProspection(d.etapes)
-  const bilanDesLeads = bilanLeads(d.leadsBilan)
-  const ouvrirSession = (id: string) => onOuvrirSession?.(id)
-
-  const ligneTache = (t: TacheAgenda, dansRetard = false) => {
-    const retard = estEnRetard(t, maintenant)
-    return (
-      // Les boutons passent sous le texte quand le bloc est étroit, au lieu d'en sortir (14/10).
-      <li key={t.id} className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-1 border-b-[0.5px] border-trait py-2 last:border-b-0">
-        <span className="w-14 shrink-0">
-          <span className={"chiffres block text-legende font-semibold " + (retard ? "text-alerte" : "text-encre")}>{t.echeance ? heureCourte(t.echeance) : "—"}</span>
-          {dansRetard && t.echeance ? <span className="block text-colonne text-encre-2">{libelleRelatif(t.echeance, maintenant)}</span> : null}
-        </span>
-        <span className="min-w-[12rem] flex-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-legende font-medium text-encre">{t.titre || (t.type === "rdv" ? "RDV" : "Tâche")}</span>
-            {t.type === "rdv" ? <Pastille role="info" className="shrink-0">{iconeRdv(t.rdvType)} {libelleRdv(t.rdvType)}</Pastille> : null}
-          </span>
-          <span className="block truncate text-colonne text-encre-2">
-            <button type="button" className="font-medium text-encre underline-offset-2 hover:underline" onClick={() => onOuvrirAgence?.(t.agenceId)}>{t.agenceNom || "Agence inconnue"}</button>
-            {t.contactNom ? ` · ${t.contactNom}` : ""}
-            {t.agenceTelephone ? <span className="chiffres"> · {t.agenceTelephone}</span> : ""}
-            {t.note ? ` · ${t.note}` : ""}
-          </span>
-        </span>
-        <span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-0.5">
-          <Bouton variante="discret" taille="sm" icone={<Phone />} disabled={occupe} onClick={() => onOuvrirSession?.(t.agenceId)}>Appeler</Bouton>
-          <Bouton variante="discret" taille="sm" icone={<Check />} disabled={occupe} onClick={() => terminer(t)}>Fait</Bouton>
-          <Bouton variante="discret" taille="sm" icone={<CalendarClock />} disabled={occupe} onClick={() => ouvrirReport(t)}>Reporter</Bouton>
-          <Bouton variante="discret" taille="sm" icone={<ArrowUpRight />} onClick={() => onOuvrirAgence?.(t.agenceId)}>Ouvrir</Bouton>
-        </span>
-      </li>
-    )
-  }
-
-  // ── Les blocs communs aux deux vues ──
-  const blocObjectif = (
-    <BlocObjectif recus={d.osMois.length} objectif={d.objectif} attendu={rythme.attendu} projection={rythme.projection} restants={rythme.restants} part={rythme.part} noms={d.osMois.map((o) => o.nom)}
-      edition={editionObjectif} saisie={saisieObjectif} setSaisie={setSaisieObjectif} ouvrirEdition={ouvrirEditionObjectif} fermerEdition={() => setEditionObjectif(false)} enregistrer={enregistrerObjectif} occupe={occupe} />
-  )
-  const ceQuiAttend = (
-    <Rangee colonnes="@min-[1100px]:grid-cols-12">
-      <Bloc className="@min-[1100px]:col-span-5">
-        <EnTete titre="Les leads" droite={<MentionEnTete>{d.leads.length ? `${d.leads.length} à appeler dans l'heure · le plus ancien d'abord` : "à appeler dans l'heure"}</MentionEnTete>} />
-        <ListeLeads leads={d.leads} maintenant={maintenant} onAppeler={ouvrirSession} />
-      </Bloc>
-      <Bloc className="@min-[1100px]:col-span-7">
-        <EnTete titre="À faire aujourd'hui" droite={<MentionEnTete>{d.base} · {d.taches.length} à faire</MentionEnTete>} />
-        {rienAFaire ? (
-          <Vide titre="Rien à faire aujourd'hui" texte="Aucune tâche ni RDV en attente. Une session de call remplira la journée." action={<Bouton onClick={() => onNaviguer?.("agenda")}>Voir l'agenda</Bouton>} />
-        ) : (
-          <div>
-            {groupes.rdv.length ? <section><h3 className="h-7 bg-fond-3 px-3 text-colonne font-medium leading-7 text-encre-2">RDV du jour · {groupes.rdv.length}</h3><ul>{groupes.rdv.map((t) => ligneTache(t))}</ul></section> : null}
-            {MOMENTS.map((m) => {
-              const liste = groupes[m.code]
-              if (!liste.length) return null
-              return (
-                <section key={m.code}>
-                  <h3 className={"h-7 px-3 text-colonne font-medium leading-7 " + (m.alerte ? "bg-alerte-fond text-alerte" : "bg-fond-2 text-encre-2")}>{m.libelle} · {liste.length}</h3>
-                  <ul>{liste.map((t) => ligneTache(t, m.code === "enRetard"))}</ul>
-                </section>
-              )
-            })}
-          </div>
-        )}
-      </Bloc>
-    </Rangee>
-  )
-  const mesBases = (
-    <Rangee colonnes="@min-[1100px]:grid-cols-2">
-      <Bloc>
-        <EnTete titre="Ma base de prospection" droite={<MentionEnTete>{d.base}</MentionEnTete>} />
-        <BaseProspection b={bilanBase} rappels={d.files ? d.files.rappels : null} jamaisJointes={d.jamaisJointes} reveils={d.reveils} onOuvrirEtape={onOuvrirEtape} onSession={() => onNaviguer?.("sessions")} />
-      </Bloc>
-      <Bloc>
-        <EnTete titre="Ma base de leads" droite={<MentionEnTete>{d.base} · depuis le début</MentionEnTete>} />
-        <BaseLeads b={bilanDesLeads} />
-      </Bloc>
-    </Rangee>
-  )
-  const leParcours = <Bloc><EnTete titre="Le parcours de la semaine" droite={<MentionEnTete>taux de passage · écart avec la semaine dernière</MentionEnTete>} /><BlocParcours p={parcours} avant={parcoursAvant} /></Bloc>
+  const aujIso = `${maintenant.getFullYear()}-${String(maintenant.getMonth() + 1).padStart(2, "0")}-${String(maintenant.getDate()).padStart(2, "0")}`
+  const victoires = victoiresDepuis(appelsDuJour, d.osMois.filter((o) => o.date === aujIso).map((o) => ({ ...o, commercialNom: nomDuCompte(o.commercialId) })))
+  const tauxSem = pct(calc.sMoi.joints, calc.sMoi.appels), tauxSemAvant = pct(calc.sMoiAvant.joints, calc.sMoiAvant.appels)
+  const classement = d.classements[periode]
+  const total = classement.reduce((t, x) => ({ appels: t.appels + x.appels, joints: t.joints + x.joints, interesses: t.interesses + x.interesses, pasInteresses: t.pasInteresses + x.pasInteresses, rdv: t.rdv + x.rdv, apporteurs: t.apporteurs + x.apporteurs, premiersOs: t.premiersOs + x.premiersOs, dureeS: t.dureeS + x.dureeS }), { appels: 0, joints: 0, interesses: 0, pasInteresses: 0, rdv: 0, apporteurs: 0, premiersOs: 0, dureeS: 0 })
+  const bornesChoisies = bornesC(periode, maintenant)
+  const detailPeriode = periode === "tout" ? "tout l'historique" : periode === "jour" ? majusculeInitiale(dateLongue(maintenant)) : `du ${bornesChoisies.de.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} au ${new Date(bornesChoisies.a.getTime() - 1).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`
+  const meilleure = extra?.heures.length ? extra.heures.reduce((a, b) => (b.taux > a.taux ? b : a)) : null
 
   return (
-    // La largeur mesurée est celle de la page entière (le conteneur n'a pas de marge) : à 1 100 px de
-    // zone et plus, les blocs se rangent côte à côte (Mac 13 pouces compris, fenêtre non maximisée aussi).
-    <div className="@container w-full"><div className="px-10 pb-12 pt-8">
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pb-5">
-        <div className="min-w-0">
-          <Mention>{majusculeInitiale(dateLongue(maintenant))}</Mention>
-          <h1 className="mt-0.5 text-h1 font-semibold text-encre">Aujourd'hui</h1>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <BoutonMailsIa />
-          <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => { extraLu.current = 0; agir(async () => undefined) }}>Actualiser</Bouton>
-          <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
+    <div ref={zone} className="@container w-full">
+      {/* ── La barre du haut, fixe : les chapitres de la page et les actions ── */}
+      <div className="sticky top-0 z-20 border-b-[0.5px] border-trait bg-fond/95 backdrop-blur">
+        <div className="flex h-14 items-center justify-between gap-4 px-10">
+          <div className="flex min-w-0 items-center gap-6">
+            <span className="text-sous-titre font-semibold text-encre">Aujourd'hui</span>
+            <nav className="flex gap-1" aria-label="Chapitres">
+              {CHAPITRES.map((id) => <button key={id} type="button" onClick={() => aller(id)} aria-current={actif === id ? "true" : undefined} className={`h-7 rounded-full px-3 text-legende transition-colors ${actif === id ? "bg-fond-4 font-medium text-encre" : "text-encre-2 hover:text-encre"}`}>{LIBELLES_CHAPITRES[id]}</button>)}
+            </nav>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Etiquette className="hidden @min-[1240px]:inline">{majusculeInitiale(dateLongue(maintenant))}</Etiquette>
+            <BoutonMailsIa />
+            <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => { extraLu.current = 0; agir(async () => undefined) }}>Actualiser</Bouton>
+            <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
+          </div>
         </div>
       </div>
-      <Onglets valeur={vue} onChange={setVue} options={[{ id: "equipe", label: "L'équipe en direct" }, { id: "tableau", label: "Tableau de bord" }]} />
 
-      <div className="mt-6">
-        {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
-        {/* La santé du démarchage : un écart se voit le matin même (contrôle du 13/10). */}
-        {santeErreur ? <Bandeau role="attention" className="mb-4">Contrôle de la base indisponible : {santeErreur}</Bandeau> : null}
-        {sante && sante.length ? (
-          <Bandeau role="alerte" className="mb-4">
-            <div className="space-y-1">
-              <p className="font-semibold">Contrôle de la base : {sante.length} écart{sante.length > 1 ? "s" : ""} à corriger</p>
-              <ul className="space-y-0.5">
-                {sante.map((e) => (
-                  <li key={e.code}><b className="chiffres">{e.nombre}</b> · {e.libelle}{e.exemples ? <span className="text-encre-2"> — {e.exemples.length > 160 ? e.exemples.slice(0, 160) + "…" : e.exemples}</span> : null}</li>
-                ))}
-              </ul>
-            </div>
-          </Bandeau>
-        ) : null}
-        {/* Les ordres de service reçus dans STC Bâtiment : à confirmer par un humain */}
-        <ClientsAConfirmer onOuvrirAgence={onOuvrirAgence} onDecision={() => charger()} />
-      </div>
+      <div className="px-10 pb-16">
+        <div className="space-y-4 pt-6 empty:hidden">
+          {erreur ? <BandeauAlerte role="alerte" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</BandeauAlerte> : null}
+          {santeErreur ? <BandeauAlerte role="attention">Contrôle de la base indisponible : {santeErreur}</BandeauAlerte> : null}
+          {sante && sante.length ? (
+            <BandeauAlerte role="alerte">
+              <div className="space-y-1">
+                <p className="font-semibold">Contrôle de la base : {sante.length} écart{sante.length > 1 ? "s" : ""} à corriger</p>
+                <ul className="space-y-0.5">{sante.map((e) => <li key={e.code}><b className="chiffres">{e.nombre}</b> · {e.libelle}{e.exemples ? <span className="text-encre-2"> — {e.exemples.length > 160 ? e.exemples.slice(0, 160) + "…" : e.exemples}</span> : null}</li>)}</ul>
+              </div>
+            </BandeauAlerte>
+          ) : null}
+          <ClientsAConfirmer onOuvrirAgence={onOuvrirAgence} onDecision={() => charger()} />
+        </div>
 
-      {vue === "equipe" ? (
-        <div className="space-y-12">
-          {blocObjectif}
-          <Rangee colonnes="@min-[1100px]:grid-cols-12">
-            <Bloc className="@min-[1100px]:col-span-7">
-              <EnTete titre="Le classement" droite={<Onglets className="!border-b-0" valeur={periodeEquipe} onChange={setPeriodeEquipe} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />} />
-              <Podium stats={d.classements[periodeEquipe]} />
-              <div className="mt-6"><ClassementCompact stats={d.classements[periodeEquipe]} /></div>
+        {/* ═══ MA JOURNÉE ═══ */}
+        <Chapitre id="journee" titre="Ma journée" sous="Ce que j'ai à faire, où j'en suis, où en est ma base."
+          droite={d.options.length > 1 ? <Selecteur value={d.choix} onChange={(e) => choisirBase(e.target.value)} aria-label="La base affichée" className="w-52">{d.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Selecteur> : <Etiquette>{d.base}</Etiquette>}>
+          <Bandeau cases={[
+            { libelle: "Appels aujourd'hui", valeur: fr(calc.auj.appels), variation: <Variation n={calc.auj.appels} avant={calc.memeJour.appels} />, title: "Comparé au même jour la semaine dernière" },
+            { libelle: "Joints aujourd'hui", valeur: fr(calc.auj.joints), variation: <Variation n={calc.auj.joints} avant={calc.memeJour.joints} />, title: "Comparé au même jour la semaine dernière" },
+            { libelle: "Taux de joint (semaine)", valeur: pctTxt(tauxSem, 1), variation: <Variation unite="pts" n={tauxSem ?? 0} avant={tauxSemAvant ?? 0} /> },
+            { libelle: "Leads à traiter", valeur: d.leads.length, ton: d.leads.length ? "text-signature" : "text-encre", onClick: () => onNaviguer?.("sessions") },
+            { libelle: "À rappeler aujourd'hui", valeur: rappels.length, ton: enRetard ? "text-alerte" : "text-encre", variation: enRetard ? <span className="text-colonne text-alerte">{enRetard} en retard</span> : undefined },
+            { libelle: "Clients signés", valeur: bb.clients, ton: "text-ok", variation: <span className="chiffres text-colonne text-encre-2">{pctTxt(bb.tauxSignature, 1)}</span>, title: "Taux de signature : clients ÷ agences travaillées" },
+          ]} />
+
+          <div className="grid gap-x-10 gap-y-10 @min-[1100px]:grid-cols-2">
+            <Bloc titre="Leads à traiter" compte={d.leads.length} droite="le plus ancien d'abord · objectif : 1 h">
+              <Table vide="Aucun lead à traiter. Le prochain apparaîtra dès qu'une agence se manifeste."
+                colonnes={[{ titre: "Agence" }, { titre: "Signal", largeur: "38%" }, { titre: "Attente", largeur: "76px", droite: true }, { titre: "", largeur: "108px", droite: true }]}
+                lignes={d.leads.map(({ agence, lead }) => ({ cle: lead.id, cellules: [
+                  <button type="button" className="flex min-w-0 items-center gap-2 hover:underline" onClick={() => onOuvrirAgence?.(agence.id)}><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-signature" /><span className="truncate">{agence.nom}</span></button>,
+                  <span className="text-encre-2">{lead.signal}</span>,
+                  <span className={minutesDepuis(lead.creeLe, maintenant) > 60 ? "text-alerte" : "text-ok"}>{attenteCourte(minutesDepuis(lead.creeLe, maintenant))}</span>,
+                  <Bouton taille="sm" icone={<Phone />} onClick={() => onOuvrirSession?.(agence.id)}>Appeler</Bouton>,
+                ] }))} />
             </Bloc>
-            <Bloc className="@min-[1100px]:col-span-5">
-              <EnTete titre="Les victoires du jour" droite={<span className="flex items-center gap-1.5 pb-2.5 text-colonne text-ok"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />en direct</span>} />
-              <Victoires victoires={victoires} maintenant={maintenant} onOuvrirAgence={onOuvrirAgence} />
-            </Bloc>
-          </Rangee>
-          {ceQuiAttend}
-          {mesBases}
-          <Rangee colonnes="@min-[1100px]:grid-cols-12">
-            <div className="@min-[1100px]:col-span-7">{leParcours}</div>
-            <Bloc className="@min-[1100px]:col-span-5">
-              <EnTete titre="Les piles" droite={<MentionEnTete>{d.base} · la session de call</MentionEnTete>} />
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-                {FILES.map((f) => <Chiffre key={f.code} libelle={f.libelle} valeur={d.files ? d.files[f.code] : "—"} ton={f.code === "rappels" && d.files?.rappels ? "text-alerte" : "text-encre"} detail="ouvrir la session" title={d.files ? f.aide : "Comptage impossible pour l'instant (Actualiser)"} onClick={() => onNaviguer?.("sessions")} />)}
+            <Bloc titre="À rappeler aujourd'hui" compte={rappels.length} droite={enRetard ? <span className="text-alerte">{enRetard} en retard · le plus ancien : {plusVieux} j</span> : rappels.length ? "à jour" : ""}>
+              <div className="max-h-[396px] overflow-y-auto">
+                <Table vide="Rien à rappeler aujourd'hui."
+                  colonnes={[{ titre: "Dû le", largeur: "64px" }, { titre: "Retard", largeur: "60px", droite: true }, { titre: "Agence" }, { titre: "Tâche", largeur: "24%" }, { titre: "", largeur: "176px", droite: true }]}
+                  lignes={rappels.map((t) => {
+                    const r = joursDeRetard(t.echeance, maintenant)
+                    return { cle: t.id, cellules: [
+                      <span className="chiffres text-encre-2">{t.echeance ? new Date(t.echeance).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "—"}</span>,
+                      r ? <span className="font-medium text-alerte">{r} j</span> : <span className="text-encre-2">{t.echeance ? heureCourte(t.echeance) : "auj."}</span>,
+                      <button type="button" className="truncate hover:underline" title={t.agenceNom} onClick={() => onOuvrirAgence?.(t.agenceId)}>{t.agenceNom || "Agence inconnue"}</button>,
+                      <span className="text-encre-2" title={t.note || undefined}>{t.titre || (t.type === "rdv" ? "RDV" : "Tâche")}</span>,
+                      <span className="flex justify-end gap-0.5">
+                        <Bouton taille="icone" variante="discret" icone={<Check />} aria-label="Fait" title="Fait" disabled={occupe} onClick={() => terminer(t)} />
+                        <Bouton taille="icone" variante="discret" icone={<CalendarClock />} aria-label="Reporter" title="Reporter" disabled={occupe} onClick={() => ouvrirReport(t)} />
+                        <Bouton taille="icone" variante="discret" icone={<ArrowUpRight />} aria-label="Ouvrir la fiche" title="Ouvrir la fiche" onClick={() => onOuvrirAgence?.(t.agenceId)} />
+                        <Bouton taille="sm" icone={<Phone />} disabled={occupe} onClick={() => onOuvrirSession?.(t.agenceId)}>Appeler</Bouton>
+                      </span>,
+                    ] }
+                  })} />
               </div>
             </Bloc>
-          </Rangee>
-        </div>
-      ) : (
-        <div className="space-y-12">
-          <Quatre cases={[
-            { libelle: "Leads à traiter", valeur: d.leads.length, detail: d.leads.length ? `le plus ancien : ${attenteCourte(plusAncien)}` : "aucun en attente", ton: d.leads.length ? couleurAttente(plusAncien) : "text-ok", onClick: () => onNaviguer?.("sessions") },
-            { libelle: "Appels aujourd'hui", valeur: appelsDuJour.length, detail: evolution(appelsDuJour.length, memeJourAvant) ? `${evolution(appelsDuJour.length, memeJourAvant)} vs le même jour la semaine dernière` : "premier jour de comparaison", ton: appelsDuJour.length >= memeJourAvant ? "text-ok" : "text-attention" },
-            { libelle: "RDV cette semaine", valeur: parcours.rdv, detail: `${ecart(parcours.rdv, parcoursAvant.rdv)} vs la semaine dernière`, ton: parcours.rdv >= parcoursAvant.rdv ? "text-ok" : "text-attention" },
-            { libelle: "Premiers OS du mois", valeur: d.osMois.length, detail: `projection fin de mois : ${rythme.projection}${d.objectif ? ` · objectif ${d.objectif}` : ""}`, ton: !d.objectif || rythme.projection >= d.objectif ? "text-ok" : "text-attention" },
-          ]} />
-          <Rangee colonnes="@min-[1100px]:grid-cols-12">
-            <div className="@min-[1100px]:col-span-7">
-              <Bloc><EnTete titre="Le parcours de la semaine" droite={<MentionEnTete>taux de passage · écart avec la semaine dernière</MentionEnTete>} /><div style={{ height: H_GRAPHE + 44 }} className="flex flex-col justify-center"><BlocParcours p={parcours} avant={parcoursAvant} /></div></Bloc>
-            </div>
-            <Bloc className="@min-[1100px]:col-span-5"><EnTete titre="Quand joindre un gestionnaire" droite={<MentionEnTete>sur 3 mois</MentionEnTete>} /><BlocHeures heures={extra?.heures ?? []} /></Bloc>
-          </Rangee>
-          {ceQuiAttend}
-          {mesBases}
-          <Rangee colonnes="@min-[1000px]:grid-cols-3">
-            <Bloc><EnTete titre="Ce qui bouge" droite={<MentionEnTete>les agences chaudes · 7 jours</MentionEnTete>} /><CeQuiBouge signaux={extra?.signaux ?? []} maintenant={maintenant} onAppeler={ouvrirSession} /></Bloc>
-            <Bloc><EnTete titre="Les mails" droite={<MentionEnTete>7 derniers jours</MentionEnTete>} /><BlocMails m={extra ? extra.mails : null} /></Bloc>
-            <Bloc><EnTete titre="Le conseil du mois" droite={<span className="pb-2.5"><Sparkles size={14} className="text-signature" /></span>} /><Conseil objection={extra?.objection ?? null} reponse={extra?.reponse ?? ""} argument={extra?.argument ?? null} /></Bloc>
-          </Rangee>
-          {blocObjectif}
-          <Bloc>
-            <EnTete titre="Le classement des commerciaux" droite={<Onglets className="!border-b-0" valeur={periode} onChange={setPeriode} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />} />
-            <TableauStats stats={d.classements[periode]} vide="Aucun appel sur cette période." />
+          </div>
+
+          <Bloc titre="Ma performance" droite={`aujourd'hui · cette semaine · évolution vs la semaine dernière · ${calc.n} derniers jours ouvrés`}>
+            <Table colonnes={[{ titre: "Indicateur" }, { titre: "Aujourd'hui", largeur: "96px", droite: true }, { titre: "Semaine", largeur: "88px", droite: true }, { titre: "Sem. dernière", largeur: "104px", droite: true }, { titre: "Évolution", largeur: "96px", droite: true }, { titre: "Tendance", largeur: "120px", droite: true }]}
+              lignes={METRIQUES.map(({ libelle, cle }) => ({ cle, cellules: [libelle, fr(calc.auj[cle]), <b className="font-semibold">{fr(calc.sMoi[cle])}</b>, <span className="text-encre-2">{fr(calc.sMoiAvant[cle])}</span>, <Variation unite={cle === "rdv" ? "nb" : "%"} n={calc.sMoi[cle]} avant={calc.sMoiAvant[cle]} />, <span className="flex justify-end"><Courbe valeurs={calc.moi.map((j) => j[cle])} /></span>] }))} />
           </Bloc>
-        </div>
-      )}
+
+          <div className="grid gap-x-10 gap-y-10 @min-[1100px]:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+            <Bloc titre="Mon portefeuille d'agences" compte={fr(bb.total)} droite={<>taux de signature <b className="chiffres font-medium text-encre">{pctTxt(bb.tauxSignature, 1)}</b> sur {fr(bb.travaillees)} travaillées · {fr(d.jamaisJointes)} jamais jointes</>}>
+              <Table colonnes={[{ titre: "Étape" }, { titre: "Agences", largeur: "80px", droite: true }, { titre: "Part", largeur: "64px", droite: true }, { titre: "", largeur: "40%" }]}
+                lignes={ETAPES_PORTEFEUILLE.map((e) => {
+                  const n = bb.parEtape[e] ?? 0
+                  const ton = e === "client" ? "text-ok" : sortie(e) ? "text-encre-2" : "text-encre"
+                  return { cle: e, cellules: [
+                    <button type="button" className="hover:underline" onClick={() => onOuvrirEtape?.(e)}>{libelleEtape(e)}{e === "endormie" && d.reveils ? <span className="text-encre-2"> · {d.reveils} se réveille{d.reveils > 1 ? "nt" : ""} cette semaine</span> : null}</button>,
+                    <span className={ton}>{fr(n)}</span>, <span className="text-encre-2">{pctTxt(pct(n, bb.total), 1)}</span>,
+                    <div className="h-[6px] rounded-full bg-fond-3"><div className={`h-full rounded-full ${e === "client" ? "bg-ok" : sortie(e) ? "bg-encre-3" : "bg-info"}`} style={{ width: `${bb.total ? Math.max(n ? 1 : 0, (n / bb.total) * 100) : 0}%` }} /></div>,
+                  ] }
+                })} />
+            </Bloc>
+            <div className="space-y-10">
+              <Bloc titre="Ma file d'appel" droite="la session de call">
+                <Table colonnes={[{ titre: "Pile" }, { titre: "Agences", largeur: "90px", droite: true }]}
+                  lignes={[
+                    { cle: "p", cellules: ["À prospecter", d.files ? fr(d.files.a_prospecter) : "—"] },
+                    { cle: "r", cellules: [<span className={d.files?.rappels ? "text-alerte" : ""}>À rappeler aujourd'hui</span>, <span className={d.files?.rappels ? "font-semibold text-alerte" : ""}>{d.files ? d.files.rappels : "—"}</span>] },
+                    { cle: "i", cellules: ["Intéressés à relancer", d.files ? fr(d.files.sans_nouvelle) : "—"] },
+                    { cle: "a", cellules: ["À réveiller", d.files ? fr(d.files.a_reveiller) : "—"] },
+                  ]} />
+              </Bloc>
+              <Bloc titre="Mes leads" droite={bl.delaiMoyenMin !== null ? `délai moyen de traitement : ${attenteCourte(bl.delaiMoyenMin)}` : "depuis le début"}>
+                <Table colonnes={[{ titre: "Reçus", droite: true }, { titre: "À traiter", droite: true }, { titre: "Traités", droite: true }, { titre: "Retombés", droite: true }, { titre: "RDV", droite: true }, { titre: "Clients", droite: true }]}
+                  lignes={[{ cle: "l", cellules: [bl.recus, <span className={bl.aTraiter ? "text-signature" : ""}>{bl.aTraiter}</span>, bl.traites, bl.retombes, <>{bl.rdv} <span className="text-encre-2">{pctTxt(bl.tauxRdv)}</span></>, <span className={bl.clients ? "text-ok" : ""}>{bl.clients} <span className="text-encre-2">{pctTxt(bl.tauxClient, 1)}</span></span>] }]} />
+              </Bloc>
+            </div>
+          </div>
+        </Chapitre>
+
+        {/* ═══ L'ÉQUIPE ═══ */}
+        <Chapitre id="equipe" titre="L'équipe" sous="L'objectif du mois, le classement des commerciaux, les victoires du jour.">
+          <Bandeau cases={[
+            { libelle: "Appels de l'équipe (semaine)", valeur: fr(calc.sEq.appels), variation: <Variation n={calc.sEq.appels} avant={calc.sEqAvant.appels} /> },
+            { libelle: "Joints (semaine)", valeur: fr(calc.sEq.joints), variation: <Variation n={calc.sEq.joints} avant={calc.sEqAvant.joints} /> },
+            { libelle: "Intéressés (semaine)", valeur: fr(calc.sEq.interesses), variation: <Variation n={calc.sEq.interesses} avant={calc.sEqAvant.interesses} /> },
+            { libelle: "RDV (semaine)", valeur: fr(calc.sEq.rdv), variation: <Variation unite="nb" n={calc.sEq.rdv} avant={calc.sEqAvant.rdv} /> },
+            { libelle: "Premiers OS (mois)", valeur: <>{d.osMois.length}{d.objectif ? <span className="text-sous-titre text-encre-2"> / {d.objectif}</span> : null}</>, ton: d.objectif && d.osMois.length < rythme.attendu ? "text-alerte" : "text-ok" },
+          ]} />
+
+          <Bloc titre="Objectif du mois · premiers OS" droite={editionObjectif ? (
+            <form onSubmit={enregistrerObjectif} className="flex items-center gap-1.5">
+              <Champ type="number" min={1} step={1} value={saisieObjectif} onChange={(e) => setSaisieObjectif(e.target.value)} aria-label="Objectif de premiers OS par mois" className="h-7! w-20" autoFocus />
+              <Bouton type="submit" taille="sm" chargement={occupe}>OK</Bouton>
+              <Bouton taille="sm" variante="discret" onClick={() => setEditionObjectif(false)}>Annuler</Bouton>
+            </form>
+          ) : (
+            <span className="flex items-center gap-3">
+              {d.objectif ? <span className={d.osMois.length >= rythme.attendu ? "text-ok" : "text-alerte"}>{d.osMois.length >= rythme.attendu ? "en avance" : "en retard"} sur le rythme : {rythme.attendu} attendu{rythme.attendu > 1 ? "s" : ""} à cette date · projection {rythme.projection} · {rythme.restants} jours ouvrés restants</span> : null}
+              <button type="button" onClick={ouvrirEditionObjectif} className="flex items-center gap-1 hover:text-encre"><Pencil size={11} />{d.objectif ? "modifier" : "fixer l'objectif"}</button>
+            </span>
+          )}>
+            <div className="relative mt-4 h-[10px] rounded-full bg-fond-3" role="img" aria-label={`${d.osMois.length} premiers OS sur ${d.objectif || "?"}`}>
+              <div className="h-full rounded-full bg-ok transition-[width] duration-700" style={{ width: `${d.objectif ? Math.min(100, (d.osMois.length / d.objectif) * 100) : 0}%` }} />
+              {d.objectif ? <span className="absolute top-1/2 h-[16px] w-[2px] -translate-y-1/2 bg-encre/50" style={{ left: `${rythme.part * 100}%` }} title="Rythme attendu à cette date" /> : null}
+            </div>
+            <p className="mt-2 text-colonne text-encre-2">{d.osMois.length ? `Reçus : ${d.osMois.map((o) => o.nom).join(", ")}.` : "Aucun premier ordre de service reçu depuis le 1er du mois."}</p>
+          </Bloc>
+
+          <Bloc titre="Le classement des commerciaux" droite={detailPeriode}>
+            <Onglets className="mt-2" valeur={periode} onChange={setPeriode} options={PERIODES_C} />
+            <Table vide="Aucun appel sur cette période."
+              colonnes={[{ titre: "Rang", largeur: "56px" }, { titre: "Commercial" }, { titre: "Appels", largeur: "76px", droite: true }, { titre: "Joints", largeur: "64px", droite: true }, { titre: "Taux", largeur: "64px", droite: true }, { titre: "Intér.", largeur: "56px", droite: true }, { titre: "Pas intér.", largeur: "84px", droite: true }, { titre: "RDV", largeur: "48px", droite: true }, { titre: "Apport.", largeur: "76px", droite: true }, { titre: "1ers OS", largeur: "64px", droite: true }, { titre: "Conv. intér.", largeur: "96px", droite: true }, { titre: "Parole", largeur: "72px", droite: true }, { titre: "Tendance", largeur: "112px", droite: true }]}
+              lignes={[
+                ...classement.map((x, i) => ({ cle: x.compteId ?? x.compteNom, cellules: [
+                  i === 0 && x.appels ? <span className="flex items-center gap-1 font-semibold"><Trophy size={13} className="text-attention" />1er</span> : <span className="chiffres text-encre-2">{i + 1}e</span>,
+                  <span className={i === 0 && x.appels ? "font-semibold" : ""}>{x.compteNom}</span>,
+                  <b className="font-semibold">{fr(x.appels)}</b>, fr(x.joints), <span className="text-encre-2">{pctTxt(pct(x.joints, x.appels), 1)}</span>, x.interesses, <span className="text-encre-2">{x.pasInteresses}</span>, x.rdv, x.apporteurs,
+                  <span className={x.premiersOs ? "font-semibold text-ok" : ""}>{x.premiersOs}</span>,
+                  <span className="text-encre-2" title={`${x.agencesInteressees ?? x.interesses + x.rdv} agence(s) intéressée(s) ou en RDV sur ${baseConversion(x)} jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionInteresses(x)} %` : "—"}</span>,
+                  <span className="text-encre-2">{dureeLisible(x.dureeS) || "—"}</span>,
+                  <span className="flex justify-end">{x.compteId && calc.parCompte.get(x.compteId) ? <Courbe valeurs={calc.parCompte.get(x.compteId)!.map((j) => j.appels)} /> : null}</span>,
+                ] })),
+                ...(classement.length > 1 ? [{ cle: "equipe", cellules: [<span />, <b className="font-semibold">Équipe</b>, <b className="font-semibold">{fr(total.appels)}</b>, <b>{fr(total.joints)}</b>, <span className="text-encre-2">{pctTxt(pct(total.joints, total.appels), 1)}</span>, <b>{total.interesses}</b>, <span className="text-encre-2">{total.pasInteresses}</span>, <b>{total.rdv}</b>, <b>{total.apporteurs}</b>, <b className={total.premiersOs ? "text-ok" : ""}>{total.premiersOs}</b>, <span />, <span className="text-encre-2">{dureeLisible(total.dureeS) || "—"}</span>, <span className="flex justify-end"><Courbe valeurs={calc.equipe.map((j) => j.appels)} /></span>] }] : []),
+              ]} />
+          </Bloc>
+
+          <Bloc titre="Les victoires du jour" droite={<span className="flex items-center gap-1.5 text-ok"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />en direct</span>}>
+            <Table vide="Pas encore de RDV, d'agence intéressée ni d'apporteur aujourd'hui : le premier, c'est pour bientôt."
+              colonnes={[{ titre: "Qui", largeur: "140px" }, { titre: "Quoi" }, { titre: "Quand", largeur: "120px", droite: true }]}
+              lignes={victoires.slice(0, 12).map((v) => ({ cle: v.id, cellules: [<b className="font-medium">{v.qui}</b>, <button type="button" className="truncate hover:underline" onClick={() => onOuvrirAgence?.(v.agenceId)}>{v.quoi}</button>, <span className="text-encre-2">{v.quandTexte ?? heureCourte(v.date)}</span>] }))} />
+          </Bloc>
+        </Chapitre>
+
+        {/* ═══ ANALYSE ═══ */}
+        <Chapitre id="analyse" titre="Analyse" sous="Ce qui marche, quand appeler, les agences qui bougent, les mails, le conseil de l'IA.">
+          <Bandeau cases={[
+            { libelle: "Mails envoyés (7 j)", valeur: extra?.mails ? fr(extra.mails.envoyes) : "—" },
+            { libelle: "Ouvertures", valeur: extra?.mails ? fr(extra.mails.ouverts) : "—", variation: extra?.mails && extra.mails.ouverts <= extra.mails.envoyes ? <span className="chiffres text-colonne text-encre-2">{pctTxt(pct(extra.mails.ouverts, extra.mails.envoyes))}</span> : undefined, title: "Chaque ouverture compte, une agence peut ouvrir plusieurs fois" },
+            { libelle: "Réponses reçues", valeur: extra?.mails ? fr(extra.mails.recus) : "—", ton: "text-ok" },
+            { libelle: "Revenus en erreur", valeur: extra?.mails ? fr(extra.mails.rebonds) : "—", ton: extra?.mails?.rebonds ? "text-alerte" : "text-encre", variation: extra?.mails?.rebonds && extra.mails.rebonds <= extra.mails.envoyes ? <span className="chiffres text-colonne text-alerte">{pctTxt(pct(extra.mails.rebonds, extra.mails.envoyes))}</span> : undefined },
+            { libelle: "Meilleure heure", valeur: meilleure ? `${meilleure.heure} h` : "—", variation: meilleure ? <span className="chiffres text-colonne text-encre-2">{meilleure.taux} % joints</span> : undefined },
+          ]} />
+
+          <div className="grid gap-x-10 gap-y-10 @min-[1100px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+            <Bloc titre="Le parcours · équipe" droite="cette semaine vs la semaine dernière">
+              <Table colonnes={[{ titre: "Étape" }, { titre: "Semaine", largeur: "84px", droite: true }, { titre: "Passage", largeur: "76px", droite: true }, { titre: "Sem. dernière", largeur: "104px", droite: true }, { titre: "Évolution", largeur: "92px", droite: true }]}
+                lignes={ETAPES_PARCOURS.map((e, i) => ({ cle: e.cle, cellules: [e.libelle, <b className="font-semibold">{fr(calc.sEq[e.cle])}</b>, <span className="text-encre-2">{i ? pctTxt(pct(calc.sEq[e.cle], calc.sEq[ETAPES_PARCOURS[i - 1].cle])) : ""}</span>, <span className="text-encre-2">{fr(calc.sEqAvant[e.cle])}</span>, <Variation unite={e.cle === "rdv" ? "nb" : "%"} n={calc.sEq[e.cle]} avant={calc.sEqAvant[e.cle]} />] }))} />
+            </Bloc>
+            <Bloc titre="Quand appeler" droite="taux de gestionnaires joints par heure · 90 jours">
+              {extra?.heures.length ? (
+                <>
+                  <div className="mt-4 flex h-[136px] items-end gap-2">
+                    {extra.heures.map((x) => (
+                      <div key={x.heure} className="flex h-full flex-1 flex-col justify-end" title={`${x.heure} h : ${x.taux} % sur ${x.appels} appels`}>
+                        <span className={`chiffres mb-1 text-center text-[10px] ${x.heure === meilleure?.heure ? "font-semibold text-encre" : "text-encre-2"}`}>{x.taux} %</span>
+                        <div className={`rounded-t-[3px] ${x.heure === meilleure?.heure ? "bg-info" : "bg-info/25"}`} style={{ height: `${meilleure ? Math.max(2, (x.taux / Math.max(1, meilleure.taux)) * 100) : 0}%` }} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex h-6 items-center gap-2 border-t-[0.5px] border-trait">{extra.heures.map((x) => <span key={x.heure} className={`chiffres flex-1 text-center text-colonne ${x.heure === meilleure?.heure ? "font-medium text-encre" : "text-encre-2"}`}>{x.heure} h</span>)}</div>
+                </>
+              ) : <p className="py-6 text-legende text-encre-2">{extra ? "Pas encore assez d'appels pour le dire." : "Lecture…"}</p>}
+            </Bloc>
+          </div>
+
+          <Bloc titre="Les agences qui bougent" compte={extra?.signaux.length} droite="7 derniers jours · regroupées par agence">
+            <Table vide={extra ? "Rien de nouveau ces 7 derniers jours." : "Lecture…"}
+              colonnes={[{ titre: "Agence" }, { titre: "Signaux", largeur: "34%" }, { titre: "Nombre", largeur: "72px", droite: true }, { titre: "Dernier", largeur: "104px", droite: true }, { titre: "Commercial", largeur: "120px" }, { titre: "", largeur: "108px", droite: true }]}
+              lignes={(extra?.signaux ?? []).slice(0, 12).map((x) => ({ cle: x.agenceId, cellules: [
+                <button type="button" className="truncate font-medium hover:underline" onClick={() => onOuvrirAgence?.(x.agenceId)}>{x.agenceNom}</button>,
+                <span className="text-encre-2">{x.detail}</span>, <b className={x.n >= 4 ? "font-semibold text-ok" : "font-normal"}>{x.n}</b>,
+                <span className="text-encre-2">{new Date(x.dernier).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>,
+                <span className="text-encre-2">{nomDuCompte(x.commercialId).split(" ")[0] || "—"}</span>,
+                <Bouton taille="sm" icone={<Phone />} onClick={() => onOuvrirSession?.(x.agenceId)}>Appeler</Bouton>,
+              ] }))} />
+          </Bloc>
+
+          <Bloc titre="Le conseil" droite={extra ? `analyse IA de ${extra.analyses} appels · 30 derniers jours` : ""}>
+            {extra && (extra.objection || extra.argument) ? (
+              <div className="mt-4 grid gap-x-10 gap-y-4 @min-[1100px]:grid-cols-3">
+                {extra.objection ? <div><Etiquette>Objection n° 1</Etiquette><p className="mt-1 text-legende text-encre">« {extra.objection.libelle} » : <b className="chiffres font-semibold">{extra.objection.appels}</b> fois, levée {extra.objection.levees} fois{extra.objection.sansReponse ? <span className="text-alerte">, non levée {extra.objection.sansReponse} fois</span> : null}.{extra.objection.reponse ? <span className="block text-encre-2">Ce qui a marché : « {extra.objection.reponse} »</span> : null}</p></div> : null}
+                {extra.argument ? <div><Etiquette>Argument qui marche</Etiquette><p className="mt-1 text-legende text-encre">« {extra.argument.libelle} » : <b className="chiffres font-semibold text-ok">{extra.argument.aboutis} abouti{extra.argument.aboutis > 1 ? "s" : ""} sur {extra.argument.appels}</b> ({pctTxt(pct(extra.argument.aboutis, extra.argument.appels))}).</p></div> : null}
+                {extra.piege ? <div><Etiquette>Argument à éviter</Etiquette><p className="mt-1 text-legende text-encre">« {extra.piege.libelle} » : le plus utilisé, mais <span className="text-alerte">{extra.piege.taux} %</span> seulement aboutissent. <Sparkles size={12} className="inline text-signature" /></p></div> : null}
+              </div>
+            ) : <p className="py-6 text-legende text-encre-2">{extra ? "Pas encore assez d'appels analysés." : "Lecture…"}</p>}
+          </Bloc>
+        </Chapitre>
+      </div>
 
       {/* ── Reporter une tâche ── */}
       {report ? (
@@ -452,53 +508,11 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
             ) : null}
           </div>
           <form id="form-report" onSubmit={validerReportLibre} className="grid gap-3 sm:grid-cols-2">
-            <Etiquette texte="Date"><Champ type="date" value={report.jour} onChange={(e) => setReport({ ...report, jour: e.target.value })} required /></Etiquette>
-            <Etiquette texte="Heure"><Champ type="time" value={report.heure} onChange={(e) => setReport({ ...report, heure: e.target.value })} required /></Etiquette>
+            <EtiquetteChamp texte="Date"><Champ type="date" value={report.jour} onChange={(e) => setReport({ ...report, jour: e.target.value })} required /></EtiquetteChamp>
+            <EtiquetteChamp texte="Heure"><Champ type="time" value={report.heure} onChange={(e) => setReport({ ...report, heure: e.target.value })} required /></EtiquetteChamp>
           </form>
         </Dialogue>
       ) : null}
-    </div></div>
+    </div>
   )
-}
-
-/** Le classement : rang, commercial, appels, joints (et le taux), intéressés, RDV, pas intéressés, apporteurs, premiers OS, temps de parole. */
-function TableauStats({ stats, vide }: { stats: StatsCompte[]; vide: string }) {
-  if (stats.length === 0) return <p className="px-5 pb-4 text-legende text-encre-2">{vide}</p>
-  const total = totalStats(stats)
-  const ligne = (x: StatsCompte, rang: number | null) => (
-    <tr key={x.compteId ?? x.compteNom} className={rang === null ? "font-semibold" : rang === 1 && x.appels > 0 ? "bg-fond-2" : ""}>
-      <Td num className="w-10 text-encre-2">{rang === null ? "" : rang === 1 && x.appels > 0 ? <span className="font-semibold text-encre">1er</span> : `${rang}e`}</Td>
-      <Td className="truncate font-medium">{x.compteNom}</Td>
-      <Td num>{x.appels}</Td>
-      <Td num>{x.joints} <span className="text-encre-2">· {tauxJoints(x)} %</span></Td>
-      <Td num>{x.interesses}</Td>
-      <Td num>{x.rdv}</Td>
-      <Td num>{x.pasInteresses}</Td>
-      <Td num>{x.apporteurs}</Td>
-      <Td num className={tauxConversionInteresses(x) > 0 ? "font-semibold" : "text-encre-2"} title={`${x.agencesInteressees ?? x.interesses + x.rdv} agence(s) intéressée(s) ou en RDV sur ${baseConversion(x)} agence(s) jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionInteresses(x)} %` : "—"}</Td>
-      <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : ""}>{x.premiersOs}</Td>
-      <Td num className={x.premiersOs > 0 ? "font-semibold text-ok" : "text-encre-2"} title={`${x.premiersOs} premier(s) OS sur ${baseConversion(x)} agence(s) jointe(s)`}>{baseConversion(x) > 0 ? `${tauxConversionPremiersOs(x)} %` : "—"}</Td>
-      <Td num>{dureeLisible(x.dureeS) || "—"}</Td>
-    </tr>
-  )
-  return (
-    <Tableau className="pb-2">
-      <thead><tr><Th num>#</Th><Th>Commercial</Th><Th num>Appels</Th><Th num>Joints</Th><Th num>Intér.</Th><Th num>RDV</Th><Th num>Pas intér.</Th><Th num title="Agences passées en apporteur d'affaires pendant un appel sur la période">Apporteurs</Th><Th num title="Taux de conversion sur les intéressés : agences devenues intéressées (premier intérêt) ou passées en RDV sur la période ÷ agences distinctes jointes sur la période">Conv. intéressés</Th><Th num>1ers OS</Th><Th num title="Taux de conversion sur les premiers OS : premiers ordres de service reçus sur la période ÷ agences distinctes jointes sur la période (plafonné à 100 %)">Conv. 1ers OS</Th><Th num>Parole</Th></tr></thead>
-      <tbody>
-        {stats.map((x, i) => ligne(x, i + 1))}
-        {stats.length > 1 ? ligne(total, null) : null}
-      </tbody>
-    </Tableau>
-  )
-}
-
-function iconeRdv(type: string) {
-  if (type === "visio") return <Video size={12} />
-  if (type === "sur_place") return <MapPin size={12} />
-  return <Phone size={12} />
-}
-function libelleRdv(type: string): string {
-  if (type === "visio") return "visio"
-  if (type === "sur_place") return "sur place"
-  return "téléphone"
 }
