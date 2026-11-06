@@ -6,6 +6,8 @@ import { libelleEtape, pastilleEtape, type Activite, type Agence, type TypeActiv
 import { dateHeureCourte, decrireActivite, texteDernierAppel } from "../../../demarchage/sessionOutils"
 import { Pastille } from "../../../ui"
 import type { AppelIa } from "../../../demarchage/appelsIa"
+import type { Lead } from "../../../demarchage/db"
+import { attenteCourte, couleurAttente, minutesDepuis } from "../../../demarchage/leadsOutils"
 import { ResumeSousAppel } from "../EchangesAppels"
 
 export function Section({ titre, droite, children }: { titre: string; droite?: ReactNode; children: ReactNode }) {
@@ -20,32 +22,40 @@ export function Section({ titre, droite, children }: { titre: string; droite?: R
   )
 }
 
-export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick }: { agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void }) {
+// Une ligne de la marge (dessin du 06/11/2026, thème A2) : le nom, puis une ligne grise ; pour un
+// LEAD, son signal et depuis quand il attend (vert, orange, rouge), avec un point violet.
+export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick, lead }: { agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void; lead?: Lead }) {
+  const attente = lead ? minutesDepuis(lead.creeLe, maintenant) : 0
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={bloquee}
-      title={bloquee ? "Note d'abord le résultat de l'appel en cours" : undefined}
+      title={bloquee ? "Note d'abord le résultat de l'appel en cours" : a.adresse || undefined}
       aria-current={courante ? "true" : undefined}
-      className={"block w-full border-b border-l-2 border-b-fond-4 px-4 py-2 text-left transition-colors hover:bg-fond-2 disabled:cursor-not-allowed disabled:hover:bg-transparent " + (courante ? "border-l-signature bg-fond-3" : "border-l-transparent")}
+      className={"block w-full rounded-4 px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed " + (courante ? "bg-fond-4" : "hover:bg-fond-2 disabled:hover:bg-transparent")}
     >
-      <div className="flex items-center gap-2">
-        <span className={"min-w-0 flex-1 truncate text-legende " + (courante ? "font-semibold" : "font-medium") + " text-encre"}>{a.nom}</span>
+      <div className="flex items-baseline gap-2">
+        {lead ? <span className="h-1.5 w-1.5 shrink-0 -translate-y-px rounded-full bg-signature" /> : null}
+        <span className={"min-w-0 flex-1 truncate text-legende " + (courante ? "font-medium text-encre" : "text-encre")}>{a.nom}</span>
+        {lead ? <span className={"chiffres shrink-0 text-colonne " + couleurAttente(attente)}>{attenteCourte(attente)}</span> : null}
         {appelee ? <Check size={14} className="shrink-0 text-ok" aria-label="Appelée aujourd'hui" /> : null}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-colonne text-encre-2">
+      {lead ? <div className="mt-0.5 truncate text-colonne text-encre-2">{lead.signal}{lead.tentatives ? ` · ${lead.tentatives} essai${lead.tentatives > 1 ? "s" : ""}` : ""}</div> : null}
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-colonne text-encre-2">
         <Pastille role={pastilleEtape(a.etape)}>{libelleEtape(a.etape)}</Pastille>
         {a.nbContacts > 0 ? <Pastille role="info" point>sourcée</Pastille> : null}
         {a.secteurLibelle ? <span>{a.secteurLibelle}</span> : null}
         {a.enseigne ? <span>· {a.enseigne}</span> : null}
       </div>
       {/* L'adresse dans la file : deux agences du même réseau dans le même secteur se distinguent d'un coup d'œil. */}
-      <div className="mt-0.5 truncate text-colonne text-encre-2" title={a.adresse || undefined}>{a.adresse || "adresse inconnue"}</div>
-      <div className="mt-0.5 text-colonne text-encre-2">
-        {texteDernierAppel(a, maintenant)}
-        {a.prochaineEcheance ? ` · ${a.prochaineTache || "tâche"} le ${dateHeureCourte(a.prochaineEcheance)}` : ""}
-      </div>
+      <div className="truncate text-colonne text-encre-2">{a.adresse || "adresse inconnue"}</div>
+      {lead ? null : (
+        <div className="text-colonne text-encre-2">
+          {texteDernierAppel(a, maintenant)}
+          {a.prochaineEcheance ? ` · ${a.prochaineTache || "tâche"} le ${dateHeureCourte(a.prochaineEcheance)}` : ""}
+        </div>
+      )}
     </button>
   )
 }

@@ -1,20 +1,20 @@
 // Script d'appel, repliable. L'état vient de `useScriptAppel` (lu et enregistré là).
 import { ChevronDown, ChevronUp } from "lucide-react"
-import { Bouton, Carte, Zone } from "../../../ui"
+import { Bouton, Zone } from "../../../ui"
 import type { ScriptAppelEtat } from "./useScriptAppel"
 
 export default function ScriptAppel({ script, scriptOuvert, setScriptOuvert, scriptEdit, setScriptEdit, scriptBrouillon, setScriptBrouillon, basculerScriptEdit }: ScriptAppelEtat) {
   return (
-    <Carte>
-      <button type="button" onClick={() => setScriptOuvert((v) => !v)} aria-expanded={scriptOuvert} className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left">
-        <span className="text-sous-titre font-semibold text-encre">Script d'appel</span>
+    <section className="min-w-0">
+      <button type="button" onClick={() => setScriptOuvert((v) => !v)} aria-expanded={scriptOuvert} className="flex w-full items-center justify-between gap-3 py-1 text-left">
+        <span className="text-colonne text-encre-2">Script d'appel</span>
         <span className="flex items-center gap-2 text-legende text-encre-2">
           {!scriptOuvert && script.trim() ? <span className="max-w-[40ch] truncate">{script.trim().split("\n")[0]}</span> : null}
           {scriptOuvert ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </span>
       </button>
       {scriptOuvert ? (
-        <div className="border-t border-fond-4 px-5 py-4">
+        <div className="pt-2">
           {scriptEdit ? (
             <Zone value={scriptBrouillon} onChange={(e) => setScriptBrouillon(e.target.value)} rows={8} placeholder="Ton accroche, tes arguments, les objections types…" />
           ) : script.trim() ? (
@@ -28,6 +28,6 @@ export default function ScriptAppel({ script, scriptOuvert, setScriptOuvert, scr
           </div>
         </div>
       ) : null}
-    </Carte>
+    </section>
   )
 }

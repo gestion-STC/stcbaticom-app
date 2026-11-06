@@ -22,7 +22,7 @@
 // garde l'état, les lectures, la logique de l'appel, et assemble les morceaux.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { versionPerimee } from "../../lib/versionEnLigne"
-import { ChevronLeft, ChevronRight, Phone } from "lucide-react"
+import { ChevronLeft, ChevronRight, ListFilter, Phone, X } from "lucide-react"
 import { destinataireDepuis, type Destinataire } from "../../lib/destinataire"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
@@ -34,7 +34,7 @@ import { lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact, creerRdv, creerTache,
-  appelLance, appelVerifier, enregistrerAppel, majAgence, type AgenceComplete,
+  appelLance, appelVerifier, enregistrerAppel, majAgence, chargerLeads, compterLeads, type AgenceComplete, type Lead,
 } from "../../demarchage/db"
 import {
   libelleEtape, numeroParDefaut,
@@ -48,7 +48,7 @@ import {
   type ChoixResultat, type TypeRdv,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
-import { Bandeau, Bouton, Carte, Chargement, EnTetePage, Vide } from "../../ui"
+import { Bandeau, Bouton, Chargement, Onglets, Vide } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
 import { lancerAnalyseAppel, monAppelSansResultat, type AppelEnAttente } from "../../demarchage/appelsIa"
 import BarreResultat from "./BarreResultat"
@@ -58,7 +58,7 @@ import BlocNumeros from "./session/BlocNumeros"
 import ColonneFil from "./session/ColonneFil"
 import ColonneFile from "./session/ColonneFile"
 import DialogueAction from "./session/DialogueAction"
-import EnTeteSession from "./session/EnTeteSession"
+import EnTeteSession, { PilesSession } from "./session/EnTeteSession"
 import FicheEnCours from "./session/FicheEnCours"
 import ScriptAppel from "./session/ScriptAppel"
 import { CONTACT_VIDE, appelNonNote, horsDeLaPile, messageDe, type Action, type AppelEnCours, type Dictee } from "./session/outils"
@@ -72,6 +72,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const compteNom = nomAffiche(session)
   // Tous les réglages des règles viennent de la base (Réglages › Démarchage › Objectif et règles d'appel) : aucun n'est écrit ici.
   const { reglages, erreur: erreurReglages } = useReglages()
+
+  // ── Les deux bases (Mahdi, 06/11/2026) : les LEADS (ils se sont manifestés, à appeler dans l'heure)
+  // et la PROSPECTION (c'est nous qui allons vers eux, par piles). Une seule session, deux files.
+  const [mode, setMode] = useState<"leads" | "prospection">("prospection")
+  const [leadsParAgence, setLeadsParAgence] = useState<Map<string, Lead>>(() => new Map())
+  const [nbLeads, setNbLeads] = useState<number | null>(null)
+  const modeRef = useRef(mode)
+  useEffect(() => { modeRef.current = mode }, [mode])
 
   // ── Les réglages et la file ──
   const [file, setFile] = useState<File>("a_prospecter")
@@ -160,6 +168,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [dialogue, setDialogue] = useState<Action | null>(null)
   const [formAction, setFormAction] = useState({ titre: "", quand: "", type: "telephone" as TypeRdv, note: "" })
   const [envoiPour, setEnvoiPour] = useState<Destinataire | null>(null)
+  const [tiroir, setTiroir] = useState(false) // la file en tiroir, sur une petite zone
 
   const agenceCouranteId = directeId ?? fileAgences[index]?.id ?? null
   // La fiche affichée : seulement si c'est bien celle de l'agence en cours (pas la précédente pendant le chargement).
@@ -282,16 +291,19 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     if (!moiId) return
     const jeton = ++jetonCompteurs.current
     const m = new Date()
-    const [sect, cpt, app, parNumero, res] = await Promise.all([
+    const [sect, cpt, app, parNumero, res, nl] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
       chargerSecteurs().catch(() => [] as Secteur[]), compterPiles(proprietaire).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
+      compterLeads(proprietaire).catch(() => null),
     ])
     if (!enVie.current || jeton !== jetonCompteurs.current) return
     setSecteurs(sect)
     setCompteurs(cpt)
-    // Le matin (Mahdi, 10/10) : d'abord « À rappeler aujourd'hui » s'il y en a, puis « À prospecter ».
+    setNbLeads(nl)
+    // Le matin (Mahdi, 10/10) : d'abord les leads s'il y en a (06/11), puis « À rappeler aujourd'hui », puis « À prospecter ».
     if (premierReperes.current) {
       premierReperes.current = false
+      if (nl && nl > 0) setMode("leads")
       if (cpt && cpt.rappels > 0) setFile("rappels")
     }
     setAppelees(app)
@@ -320,6 +332,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       .catch(() => {
         if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(null)
       })
+    compterLeads(proprietaireRef.current).then((n) => { if (enVie.current) setNbLeads(n) }).catch(() => { if (enVie.current) setNbLeads(null) })
   }, [])
 
   // La file : rechargée quand on change de pile, de secteur, d'étape, de sourçage, ou la case des
@@ -331,20 +344,25 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const jeton = ++jetonFile.current
     setChargementFile(true)
     try {
-      const [agences, app] = await Promise.all([
-        chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees }),
+      // Mode Leads : la file des leads ouverts de la base choisie, le plus ancien d'abord (la base les ordonne).
+      const [lus, app] = await Promise.all([
+        mode === "leads"
+          ? chargerLeads(proprietaire)
+          : chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees }).then((l) => l.map((agence) => ({ agence, lead: null as Lead | null }))),
         agencesAppeleesAujourdHui(new Date()),
       ])
       if (!enVie.current || jeton !== jetonFile.current) return // une lecture plus récente est en route
       setAppelees(app)
-      setFileAgences(agences)
+      setFileAgences(lus.map((x) => x.agence))
+      setLeadsParAgence(new Map(lus.flatMap((x) => (x.lead ? [[x.agence.id, x.lead] as const] : []))))
+      if (mode === "leads") setNbLeads(lus.length)
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
       if (enVie.current && jeton === jetonFile.current) setChargementFile(false)
     }
-  }, [file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, moiId])
+  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, moiId])
 
   useEffect(() => {
     enVie.current = true
@@ -478,7 +496,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const arr = fileRef.current
       const i = arr.findIndex((x) => x.id === c.agence.id)
       if (i < 0) return
-      if (!horsDeLaPile(c.agence, pileRef.current, etapeFiltreRef.current)) {
+      // En mode Leads, la base ferme le lead elle-même : la file des leads se relit après le résultat.
+      if (modeRef.current === "leads" || !horsDeLaPile(c.agence, pileRef.current, etapeFiltreRef.current)) {
         setFileAgences(arr.map((x) => (x.id === c.agence.id ? { ...x, ...c.agence, numeroEmission: c.agence.numeroEmission || x.numeroEmission } : x)))
         return
       }
@@ -1068,48 +1087,19 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       .catch(() => {})
   }
 
-  return (
-    <div className="page">
-      <EnTetePage
-        titre="Sessions de call"
-        sousTitre={enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile.` : "Choisis une pile, un secteur, et démarre."}
-        droite={
-          <EnTeteSession
-            rafraichirMails={nbResultats}
-            file={file}
-            setFile={setFile}
-            etapeFiltre={etapeFiltre}
-            setEtapeFiltre={setEtapeFiltre}
-            chargementFile={chargementFile}
-            nbFile={fileAgences.length}
-            compteurs={compteurs}
-            enCours={enCours}
-            barreVisible={barreVisible}
-            optionsDeBase={optionsDeBase}
-            valeurBase={normaliserChoix(choixBase, admin, nonAttribueesLibres)}
-            choisirBase={choisirBase}
-            secteurDuJour={secteurDuJour}
-            setSecteurDuJour={setSecteurDuJour}
-            secteurs={secteurs}
-            sourcage={sourcage}
-            setSourcage={setSourcage}
-            auto={auto}
-            setAuto={setAuto}
-            autreOnglet={autreOnglet}
-            cadence={cadence}
-            setCadence={setCadence}
-            arreter={arreter}
-            demarrer={demarrer}
-            reglagesLus={Boolean(reglages)}
-            bloqueOnglet={bloqueOnglet}
-          />
-        }
-      />
-
+  // Changer de base (Leads ↔ Prospection) : jamais pendant une session ou un résultat à noter.
+  const changerMode = (m: "leads" | "prospection") => {
+    if (m === mode) return
+    if (enCours || barreVisible || bloquantRef.current) { setErreur("Arrête la session et note le résultat en cours avant de changer de file."); return }
+    setDirecteId(null)
+    setMode(m)
+  }
+  const suivante = directeId ? fileAgences[index] : fileAgences[index + 1]
+  const bandeaux = (
+    <>
       {autreOnglet ? (
         <Bandeau role="alerte" className="mb-4">La session de call est déjà ouverte dans un autre onglet : ferme l'un des deux pour ne pas appeler deux fois le même numéro.</Bandeau>
       ) : null}
-
       {erreurReglages ? <Bandeau role="alerte" className="mb-4">{erreurReglages} On n'appelle pas sans les réglages : recharge la page.</Bandeau> : null}
       {erreur ? (
         <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>OK</Bouton>}>{erreur}</Bandeau>
@@ -1117,13 +1107,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       {info ? (
         <Bandeau role="ok" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setInfo("")}>OK</Bouton>}>{info}</Bandeau>
       ) : null}
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_380px]">
-        {/* ── 1. La file ── */}
+    </>
+  )
+  const laFile = (
         <ColonneFile
           index={index}
           fileAgences={fileAgences}
           file={file}
+          leads={mode === "leads" ? leadsParAgence : null}
           recherche={recherche}
           setRecherche={setRecherche}
           resultats={resultats}
@@ -1146,9 +1137,76 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           dateMaintenant={dateMaintenant}
           allerA={allerA}
         />
+  )
 
-        {/* ── 2. L'agence en cours ── */}
-        <div className="min-w-0 space-y-4">
+  // ── LA PAGE (dessin du 06/11/2026, thème A2 validé par Mahdi) ──
+  // Pleine largeur, au trait : les deux bases en onglets ; la file en marge à gauche ; l'agence en
+  // deux colonnes (l'appel à gauche ; le script et l'historique à droite). Sous 960 px de zone, la
+  // marge passe dans un tiroir ; sous 1 240 px, l'historique passe sous l'appel.
+  return (
+    <div className="@container w-full px-8 pb-10 pt-6">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b-[0.5px] border-trait">
+        <Onglets
+          className="!border-b-0"
+          valeur={mode}
+          onChange={changerMode}
+          options={[
+            { id: "leads", label: "Leads", badge: nbLeads ?? undefined },
+            { id: "prospection", label: "Prospection", badge: compteurs?.a_prospecter },
+          ]}
+        />
+        <span className="chiffres pb-2.5 text-colonne text-encre-2">
+          {enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : mode === "leads" ? "Ils se sont manifestés : à appeler dans l'heure" : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile` : "C'est nous qui allons vers eux"}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        {mode === "prospection" ? (
+          <PilesSession file={file} setFile={setFile} etapeFiltre={etapeFiltre} chargementFile={chargementFile} nbFile={fileAgences.length} compteurs={compteurs} bloque={enCours || barreVisible} />
+        ) : (
+          <span className="text-legende text-encre-2">Le plus ancien d'abord · objectif : moins d'une heure</span>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <EnTeteSession
+            modeLeads={mode === "leads"}
+            rafraichirMails={nbResultats}
+            etapeFiltre={etapeFiltre}
+            setEtapeFiltre={setEtapeFiltre}
+            chargementFile={chargementFile}
+            nbFile={fileAgences.length}
+            enCours={enCours}
+            barreVisible={barreVisible}
+            optionsDeBase={optionsDeBase}
+            valeurBase={normaliserChoix(choixBase, admin, nonAttribueesLibres)}
+            choisirBase={choisirBase}
+            secteurDuJour={secteurDuJour}
+            setSecteurDuJour={setSecteurDuJour}
+            secteurs={secteurs}
+            sourcage={sourcage}
+            setSourcage={setSourcage}
+            auto={auto}
+            setAuto={setAuto}
+            autreOnglet={autreOnglet}
+            cadence={cadence}
+            setCadence={setCadence}
+            arreter={arreter}
+            demarrer={demarrer}
+            reglagesLus={Boolean(reglages)}
+            bloqueOnglet={bloqueOnglet}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5">{bandeaux}</div>
+
+      <div className="flex gap-8">
+        <aside className="hidden w-[240px] shrink-0 @min-[960px]:block">
+          <div className="sticky top-4 h-[calc(100vh-230px)] min-h-[320px]">{laFile}</div>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-3 flex items-center gap-2 @min-[960px]:hidden">
+            <Bouton taille="sm" icone={<ListFilter />} onClick={() => setTiroir(true)}>File · {fileAgences.length}</Bouton>
+          </div>
           {auto && enCours && libre && compte !== null ? (
             <Bandeau
               role="info"
@@ -1165,30 +1223,37 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           ) : null}
 
           {!agenceCouranteId ? (
-            <Carte>
+            <div className="py-16">
               {fileTerminee ? (
-                <Vide
-                  titre="Pile terminée"
-                  texte={file === "a_prospecter" ? "Toutes les agences de cette pile ont été vues. Change de secteur, ou reviens en arrière." : "Toutes les agences de cette pile ont été vues. Enchaîne sur « À prospecter », ou reviens en arrière."}
-                  action={
-                    <>
-                      {file !== "a_prospecter" ? <Bouton variante="plein" icone={<ChevronRight />} onClick={() => { setFile("a_prospecter"); setEtapeFiltre("") }}>Enchaîner sur « À prospecter »</Bouton> : null}
-                      <Bouton icone={<ChevronLeft />} onClick={reculer}>Revenir à la dernière</Bouton>
-                    </>
-                  }
-                />
+                mode === "leads" ? (
+                  <Vide titre="Plus aucun lead à traiter" texte="Le prochain apparaîtra ici dès qu'une agence se manifeste." action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
+                ) : (
+                  <Vide
+                    titre="Pile terminée"
+                    texte={file === "a_prospecter" ? "Toutes les agences de cette pile ont été vues. Change de secteur, ou reviens en arrière." : "Toutes les agences de cette pile ont été vues. Enchaîne sur « À prospecter », ou reviens en arrière."}
+                    action={
+                      <>
+                        {file !== "a_prospecter" ? <Bouton variante="plein" icone={<ChevronRight />} onClick={() => { setFile("a_prospecter"); setEtapeFiltre("") }}>Enchaîner sur « À prospecter »</Bouton> : null}
+                        <Bouton icone={<ChevronLeft />} onClick={reculer}>Revenir à la dernière</Bouton>
+                      </>
+                    }
+                  />
+                )
+              ) : mode === "leads" && !chargementFile && fileAgences.length === 0 ? (
+                <Vide titre={nbLeads === null ? "Les leads ne sont pas encore installés" : "Aucun lead à traiter"} texte={nbLeads === null ? "La base des leads n'est pas encore en place : la prospection marche comme avant." : "Le prochain apparaîtra ici dès qu'une agence se manifeste (compte, page « Créer un compte », réponse à un mail, plaquette ouverte 2 fois)."} action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
               ) : (
-                <Vide titre="Aucune agence en cours" texte={chargementFile ? "La file se charge…" : "Choisis une file à gauche, ou cherche une agence pour l'appeler directement."} />
+                <Vide titre="Aucune agence en cours" texte={chargementFile ? "La file se charge…" : "Choisis une file, ou cherche une agence pour l'appeler directement."} />
               )}
-            </Carte>
+            </div>
           ) : !fiche ? (
-            <Carte>
-              <Chargement texte="Lecture de l'agence…" />
-            </Carte>
+            <Chargement texte="Lecture de l'agence…" />
           ) : (
-            <>
+            <div className="grid gap-x-12 gap-y-8 @min-[1240px]:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+              <div className="min-w-0 space-y-4">
               <FicheEnCours
                 fiche={fiche}
+                lead={mode === "leads" ? leadsParAgence.get(fiche.agence.id) : undefined}
+                maintenant={dateMaintenant}
                 ouvrirAgence={ouvrirAgence}
                 passerEnApporteur={passerEnApporteur}
                 directeId={directeId}
@@ -1254,16 +1319,43 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                   onApporteur={() => void passerEnApporteur()}
                 />
               ) : null}
-
-              {/* Script d'appel, repliable */}
-              <ScriptAppel {...scriptAppel} />
-            </>
+              </div>
+              <div className="min-w-0 space-y-6 @min-[1240px]:border-l-[0.5px] @min-[1240px]:border-trait @min-[1240px]:pl-12">
+                {/* Script d'appel, repliable */}
+                <ScriptAppel {...scriptAppel} />
+                <ColonneFil fiche={fiche} />
+              </div>
+            </div>
           )}
-        </div>
 
-        {/* ── 3. Le fil ── */}
-        <ColonneFil fiche={fiche} />
+          {/* Le pied : qui vient ensuite (sur un petit écran, la marge est repliée) */}
+          {fileAgences.length ? (
+            <div className="mt-8 flex items-center justify-between gap-4 border-t-[0.5px] border-trait pt-3">
+              <Bouton taille="sm" variante="discret" icone={<ChevronLeft />} onClick={reculer} disabled={barreVisible || Boolean(bloquant) || (index === 0 && !directeId)}>Précédente</Bouton>
+              {suivante ? (
+                <button type="button" onClick={avancer} disabled={barreVisible || Boolean(bloquant)} className="flex min-w-0 items-center gap-1.5 text-legende text-encre-2 hover:text-encre disabled:opacity-40">
+                  <span className="shrink-0">Ensuite :</span>
+                  <span className="truncate text-encre">{suivante.nom}</span>
+                  <ChevronRight size={14} className="shrink-0" />
+                </button>
+              ) : <span className="text-colonne text-encre-2">Dernière de la file</span>}
+            </div>
+          ) : null}
+        </div>
       </div>
+
+      {/* La file en tiroir (petite zone) */}
+      {tiroir ? (
+        <div className="fixed inset-0 z-40 flex bg-encre/20" onClick={() => setTiroir(false)}>
+          <div className="h-full w-[300px] max-w-[85vw] bg-fond p-4 shadow-flottante" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <b className="text-legende font-medium text-encre">{mode === "leads" ? "Leads à traiter" : "La file"}</b>
+              <Bouton taille="icone" variante="discret" icone={<X />} aria-label="Fermer" onClick={() => setTiroir(false)} />
+            </div>
+            <div className="h-[calc(100%-44px)]">{laFile}</div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── Dialogues ── */}
       {contactAModifier && courante ? (

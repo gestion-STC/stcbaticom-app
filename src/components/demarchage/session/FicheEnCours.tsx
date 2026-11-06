@@ -1,14 +1,15 @@
-// ── 2. L'agence en cours : sa carte ──
+// ── 2. L'agence en cours (dessin du 06/11/2026, thème A2 : au trait, sans carte) ──
 // L'identité, les bandeaux (appel direct, appel en suspens), les numéros et les contacts (reçus
 // tout prêts : `BlocNumeros`, `BlocContacts`), la note de l'appel, les autres actions.
 import type { Dispatch, ReactNode, SetStateAction } from "react"
 import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, MapPin, Mic, MicOff, SquareCheck } from "lucide-react"
-import type { AgenceComplete } from "../../../demarchage/db"
+import type { AgenceComplete, Lead } from "../../../demarchage/db"
+import { attenteLisible, couleurAttente, minutesDepuis } from "../../../demarchage/leadsOutils"
 import { DernierEchange } from "../EchangesAppels"
 import { dateCourte } from "../../../demarchage/agencesOutils"
 import { libelleEtape, libelleType, pastilleEtape, type Activite } from "../../../demarchage/modele"
 import { bilanDepuisAgence, dateHeureCourte, texteBilanAppels } from "../../../demarchage/sessionOutils"
-import { Bandeau, Bouton, Carte, Pastille, Zone } from "../../../ui"
+import { Bandeau, Bouton, Pastille, Zone } from "../../../ui"
 import { Section } from "./morceaux"
 import { FABRIQUE_DICTEE, type Action } from "./outils"
 
@@ -29,8 +30,13 @@ export default function FicheEnCours({
   setNote,
   ouvrirEmail,
   ouvrirAction,
+  lead,
+  maintenant,
 }: {
   fiche: AgenceComplete
+  /** Le lead de l'agence (mode Leads) : son signal s'affiche sous le nom. */
+  lead?: Lead
+  maintenant: Date
   ouvrirAgence: ((id: string, options?: { etape?: boolean }) => void) | undefined
   passerEnApporteur: () => Promise<void>
   directeId: string | null
@@ -48,10 +54,18 @@ export default function FicheEnCours({
   ouvrirAction: (type: Exclude<Action, "passer">) => void
 }) {
   return (
-    <Carte className="px-5 py-4">
+    <div className="min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-section font-semibold tracking-[-0.015em] text-encre">{fiche.agence.nom}</h2>
+          <h2 className="text-h1 font-semibold tracking-[-0.015em] text-encre">{fiche.agence.nom}</h2>
+          {lead ? (
+            <p className="mt-1.5 text-legende text-encre">
+              <span className="mr-2 inline-block h-1.5 w-1.5 -translate-y-px rounded-full bg-signature" />
+              <b className="font-medium">Lead</b> · {lead.signal} · <span className={"chiffres " + couleurAttente(minutesDepuis(lead.creeLe, maintenant))}>{attenteLisible(minutesDepuis(lead.creeLe, maintenant))}</span>
+              {lead.tentatives ? <span className="text-encre-2"> · {lead.tentatives} essai{lead.tentatives > 1 ? "s" : ""} sans réponse sur 3</span> : null}
+              {lead.detail ? <span className="block pl-[14px] text-colonne text-encre-2">{lead.detail}</span> : null}
+            </p>
+          ) : null}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {fiche.agence.enseigne ? <Pastille>{fiche.agence.enseigne}</Pastille> : null}
             {fiche.agence.secteurLibelle ? <Pastille>{fiche.agence.secteurLibelle}</Pastille> : null}
@@ -119,11 +133,11 @@ export default function FicheEnCours({
       </Section>
 
       {/* Autres actions. Plus de bouton « Note » (Mahdi, 24/10) : la note de l'appel juste au-dessus fait le même travail. */}
-      <div className="mt-4 flex flex-wrap gap-2 border-t border-fond-4 pt-3">
+      <div className="mt-4 flex flex-wrap gap-2 border-t-[0.5px] border-trait pt-3">
         <Bouton icone={<Mail />} onClick={ouvrirEmail}>E-mail</Bouton>
         <Bouton icone={<SquareCheck />} onClick={() => ouvrirAction("tache")}>Tâche</Bouton>
         <Bouton icone={<CalendarClock />} onClick={() => ouvrirAction("rdv")}>RDV</Bouton>
       </div>
-    </Carte>
+    </div>
   )
 }
