@@ -6,28 +6,12 @@ import { compterNonLus, EVENEMENT_LUS, type Espace } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
 import { initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
-import { RUBRIQUES, premierePage, rubriqueDe, type RubriqueMenu } from "../lib/carteMenu"
+import { RUBRIQUES, premierePage, rubriqueDe, type PageId, type RubriqueMenu } from "../lib/carteMenu"
 
 // DEUX ESPACES (Mahdi, 08/10/2026) : le développement (prospection des agences) et le recrutement des
 // sous-traitants. Chacun a son menu, sa boîte de réception, son adresse d'envoi.
 // Les réglages sont communs, en bas.
-export type PageId =
-  | "aujourdhui"
-  | "sessions"
-  | "agences"
-  | "agenda"
-  | "analyse"
-  | "messages"
-  | "apporteurs"
-  | "st_machine"
-  | "st_session"
-  | "st_base"
-  | "st_sequences"
-  | "st_suivi"
-  | "st_boite"
-  | "st_dossiers"
-  | "st_reglages"
-  | "parametrage"
+export type { PageId }
 
 // LE MENU, COMME SUR STC BÂTIMENT (Mahdi, 06/11/2026 : « il y a un curseur moche ») : un rail
 // d'icônes (60 px) avec les rubriques, et à côté le menu de la rubrique ouverte (196 px).

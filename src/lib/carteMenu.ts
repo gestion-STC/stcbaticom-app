@@ -2,8 +2,27 @@
 // à gauche (Développement, Recrutement ; Réglages en bas) et, à côté, le menu de la rubrique
 // ouverte, rangé en groupes. Remplace la gélule « Démarchage | Recrutement ST ».
 // Fichier PUR (aucun React) : carteMenu.test.ts le lit.
-import type { PageId } from "../components/Sidebar"
 import type { Espace } from "./messagesDb"
+
+// Les pages du logiciel. Rangées ICI (et pas dans Sidebar.tsx) pour que le menu et sa carte
+// ne s'importent pas l'un l'autre (boucle refusée par la CI, 06/11/2026).
+export type PageId =
+  | "aujourdhui"
+  | "sessions"
+  | "agences"
+  | "agenda"
+  | "analyse"
+  | "messages"
+  | "apporteurs"
+  | "st_machine"
+  | "st_session"
+  | "st_base"
+  | "st_sequences"
+  | "st_suivi"
+  | "st_boite"
+  | "st_dossiers"
+  | "st_reglages"
+  | "parametrage"
 
 export type EntreeMenu = { id: PageId; titre: string }
 export type GroupeMenu = { titre: string; entrees: EntreeMenu[] }
