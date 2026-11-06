@@ -1,5 +1,5 @@
 // LA CARTE DU MENU (Mahdi, 06/11/2026 : « comme sur STC Bâtiment ») : un rail de rubriques
-// à gauche (Prospection, Sous-traitance ; Réglages en bas) et, à côté, le menu de la rubrique
+// à gauche (Développement, Recrutement ; Réglages en bas) et, à côté, le menu de la rubrique
 // ouverte, rangé en groupes. Remplace la gélule « Démarchage | Recrutement ST ».
 // Fichier PUR (aucun React) : carteMenu.test.ts le lit.
 import type { PageId } from "../components/Sidebar"
@@ -12,7 +12,7 @@ export type RubriqueMenu = { espace: Espace; titre: string; groupes: GroupeMenu[
 export const RUBRIQUES: RubriqueMenu[] = [
   {
     espace: "demarchage",
-    titre: "Prospection",
+    titre: "Développement",
     groupes: [
       { titre: "", entrees: [{ id: "aujourdhui", titre: "Aujourd'hui" }] },
       {
@@ -30,7 +30,7 @@ export const RUBRIQUES: RubriqueMenu[] = [
   },
   {
     espace: "recrutement",
-    titre: "Sous-traitance",
+    titre: "Recrutement",
     groupes: [
       {
         titre: "",
