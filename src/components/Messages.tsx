@@ -63,7 +63,7 @@ import { piecesAEnvoyer, piecesTropLourdes } from "../lib/envoiEmail"
 import type { PieceJointe } from "../emails"
 import PiecesCompo from "./PiecesCompo"
 import { supabase } from "../lib/supabase"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Pastille, Selecteur, Vide, Zone } from "../ui"
+import { Bandeau, Bouton, Champ, Chargement, Pastille, Selecteur, Vide, Zone } from "../ui"
 import FicheArtisan from "./recrutement/FicheArtisan"
 
 type Conv = Conversation<Message>
@@ -125,7 +125,7 @@ function MessageCard({ m, ouvert, onToggle }: { m: Message; ouvert: boolean; onT
 
   return (
     <article className="border-b border-fond-4 last:border-b-0">
-      <button type="button" onClick={onToggle} className="flex w-full items-start gap-3 px-6 py-4 text-left hover:bg-fond-2">
+      <button type="button" onClick={onToggle} className="flex w-full items-start gap-3 px-10 py-4 text-left hover:bg-fond-2">
         <Avatar nom={nom} sortant={!entrant} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">
@@ -149,7 +149,7 @@ function MessageCard({ m, ouvert, onToggle }: { m: Message; ouvert: boolean; onT
       </button>
 
       {ouvert && (
-        <div className="pb-5 pl-[4.5rem] pr-6">
+        <div className="pb-5 pl-[5.5rem] pr-10">
           {m.corpsText ? (
             <pre className="whitespace-pre-wrap font-sans text-corps leading-relaxed text-encre">{m.corpsText}</pre>
           ) : m.corpsHtml ? (
@@ -204,7 +204,7 @@ function LigneConversation({ c, nom, onOuvrir, onBasculerLu }: { c: Conv; nom: s
   const apercu = apercuTexte(c.dernier.corpsText || "", 110)
   return (
     <div className={`group relative flex items-center border-b border-fond-4 last:border-b-0 ${nonLu ? "bg-fond" : "bg-fond-2"} hover:z-10 hover:shadow-[0_1px_3px_rgba(0,0,0,0.18)]`}>
-      <button type="button" onClick={onOuvrir} className="flex h-11 min-w-0 flex-1 items-center gap-3 px-4 text-left">
+      <button type="button" onClick={onOuvrir} className="flex h-11 min-w-0 flex-1 items-center gap-3 px-10 text-left">
         <span className={`w-[230px] shrink-0 truncate text-corps ${nonLu ? "font-semibold text-encre" : "text-encre"}`}>
           {c.aRecu ? nom : `À : ${nom}`}
           {c.messages.length > 1 && <span className="chiffres font-normal text-encre-3"> {c.messages.length}</span>}
@@ -224,7 +224,7 @@ function LigneConversation({ c, nom, onOuvrir, onBasculerLu }: { c: Conv; nom: s
           title={nonLu ? "Marquer comme lu" : "Marquer comme non lu"}
           aria-label={nonLu ? "Marquer comme lu" : "Marquer comme non lu"}
           onClick={onBasculerLu}
-          className="absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-4 p-1.5 text-encre-2 hover:bg-fond-4 hover:text-encre group-hover:block"
+          className="absolute right-9 top-1/2 hidden -translate-y-1/2 rounded-4 p-1.5 text-encre-2 hover:bg-fond-4 hover:text-encre group-hover:block"
         >
           {nonLu ? <MailOpen size={16} /> : <Mail size={16} />}
         </button>
@@ -535,11 +535,13 @@ export default function Messages({ espace }: { espace: Espace }) {
           </Bandeau>
         )}
 
-        <Carte className="overflow-hidden">
+        {/* Pleine page (Mahdi, 06/11/2026 : « la ligne du mail prend toute la page ») : plus de cadre,
+            les lignes vont d'un bord à l'autre ; leur texte reste aligné sur la barre du haut (40 px). */}
+        <div className="-mx-10 border-t-[0.5px] border-trait">
           {ouvert ? (
             /* ── Une conversation ── */
             <>
-              <div className="flex h-12 items-center gap-1 border-b border-trait px-3">
+              <div className="flex h-12 items-center gap-1 border-b border-trait px-8">
                 <Bouton variante="discret" taille="icone" onClick={retourListe} aria-label="Retour à la liste" title="Retour (Échap)">
                   <ArrowLeft />
                 </Bouton>
@@ -558,7 +560,7 @@ export default function Messages({ espace }: { espace: Espace }) {
                 </Bouton>
               </div>
 
-              <div className="px-6 pb-2 pt-5">
+              <div className="px-10 pb-2 pt-5">
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-balance text-section font-semibold text-encre">{ouvert.objet || "(sans objet)"}</h2>
                   <Pastille role="inerte">{etiquetteDe(ouvert)}</Pastille>
@@ -578,7 +580,7 @@ export default function Messages({ espace }: { espace: Espace }) {
               </div>
 
               {/* Répondre / Transférer, sous le dernier message, comme Gmail */}
-              <div className="border-t border-fond-4 px-6 py-5">
+              <div className="border-t border-fond-4 px-10 py-5">
                 {mode === null ? (
                   <div className="flex gap-2">
                     <Bouton icone={<Reply />} onClick={() => ouvrirCompo("repondre")}>
@@ -639,7 +641,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           ) : (
             /* ── La liste ── */
             <>
-              <div className="flex h-12 items-center justify-between border-b border-trait px-3">
+              <div className="flex h-12 items-center justify-between border-b border-trait px-8">
                 <div className="flex items-center gap-2">
                   <Bouton variante="discret" taille="icone" onClick={charger} aria-label="Actualiser" title="Actualiser">
                     <RefreshCw className={chargement ? "animate-spin" : ""} />
@@ -660,7 +662,7 @@ export default function Messages({ espace }: { espace: Espace }) {
               </div>
 
               {erreur && (
-                <div className="p-4">
+                <div className="px-10 py-4">
                   <Bandeau role="alerte">{erreur}</Bandeau>
                 </div>
               )}
@@ -677,7 +679,7 @@ export default function Messages({ espace }: { espace: Espace }) {
                   ))}
             </>
           )}
-        </Carte>
+        </div>
       </section>
 
       {/* ── La fenêtre « Nouveau message », en bas à droite, comme Gmail ── */}
