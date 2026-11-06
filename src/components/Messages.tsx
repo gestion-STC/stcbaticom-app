@@ -483,13 +483,15 @@ export default function Messages({ espace }: { espace: Espace }) {
   const pages = pagination
 
   return (
-    <div className="page flex min-h-full gap-6">
-      {/* ── Le rail de gauche ── */}
-      <aside className="w-[220px] shrink-0">
-        <Bouton variante="plein" icone={<Pencil />} className="h-10 w-full justify-start px-4" onClick={ouvrirNouveau}>
+    <div className="page">
+      {/* ── La barre du haut, comme Gmail (Mahdi, 06/11/2026) : « Nouveau message », les dossiers
+          (réception, non lus, envoyés, tous) et la recherche. La liste et le message prennent
+          toute la largeur de la page : plus de colonne à gauche. ── */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Bouton variante="plein" icone={<Pencil />} onClick={ouvrirNouveau}>
           Nouveau message
         </Bouton>
-        <nav className="mt-4 flex flex-col gap-0.5" aria-label="Dossiers">
+        <nav className="flex flex-wrap items-center gap-1" aria-label="Dossiers">
           {dossiers.map((d) => {
             const Icone = d.icone
             const actif = vue === d.id
@@ -499,22 +501,18 @@ export default function Messages({ espace }: { espace: Espace }) {
                 type="button"
                 onClick={() => changerVue(d.id)}
                 aria-current={actif ? "page" : undefined}
-                className={`flex h-8 items-center gap-3 rounded-4 px-3 text-corps transition-colors ${actif ? "bg-fond-3 font-semibold text-encre" : "text-encre-2 hover:bg-fond-3 hover:text-encre"}`}
+                className={`flex h-[30px] items-center gap-2 rounded-full px-3 text-legende transition-colors ${actif ? "bg-fond-4 font-medium text-encre" : "text-encre-2 hover:bg-fond-3 hover:text-encre"}`}
               >
-                <Icone size={16} className="shrink-0" />
-                <span className="flex-1 truncate text-left">{d.label}</span>
-                {d.badge ? <span className="chiffres text-legende font-semibold text-encre">{d.badge}</span> : null}
+                <Icone size={14} className="shrink-0" />
+                <span className="whitespace-nowrap">{d.label}</span>
+                {d.badge ? <span className="chiffres rounded-full bg-encre px-1.5 text-[10px] font-medium leading-4 text-white">{d.badge}</span> : null}
               </button>
             )
           })}
         </nav>
-      </aside>
-
-      {/* ── La liste ou la conversation ── */}
-      <section className="min-w-0 flex-1">
         {!enLecture && (
-          <div className="relative mb-4">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-encre-3" />
+          <div className="relative ml-auto w-full min-w-[220px] sm:w-[360px]">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-encre-3" />
             <Champ
               value={recherche}
               onChange={(e) => {
@@ -523,10 +521,14 @@ export default function Messages({ espace }: { espace: Espace }) {
               }}
               placeholder="Rechercher dans les messages"
               aria-label="Rechercher dans les messages"
-              className="h-10 pl-10"
+              className="pl-9"
             />
           </div>
         )}
+      </div>
+
+      {/* ── La liste ou la conversation, sur toute la largeur ── */}
+      <section className="min-w-0">
         {envoiOk && !enLecture && (
           <Bandeau role="ok" className="mb-4" action={<Bouton variante="discret" taille="sm" onClick={() => setEnvoiOk("")}>Fermer</Bouton>}>
             {envoiOk}
