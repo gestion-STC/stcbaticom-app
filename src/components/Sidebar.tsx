@@ -1,32 +1,16 @@
 import { useEffect, useState } from "react"
-import {
-  Sparkles,
-  LayoutDashboard,
-  Users,
-  Building2,
-  PhoneCall,
-  Calendar,
-  SlidersHorizontal,
-  Archive,
-  Inbox,
-  Gauge,
-  HardHat,
-  ListOrdered,
-  BarChart3,
-  FolderCheck,
-  Settings2,
-  LogOut,
-} from "lucide-react"
+import { Building2, HardHat, LogOut, SlidersHorizontal, type LucideIcon } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
 import { commercial } from "../data"
 import { compterNonLus, EVENEMENT_LUS, type Espace } from "../lib/messagesDb"
 import { seDeconnecter } from "../lib/auth"
 import { initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes"
 import LogoBaticom from "./LogoBaticom"
+import { RUBRIQUES, premierePage, rubriqueDe, type RubriqueMenu } from "../lib/carteMenu"
 
-// DEUX ESPACES (Mahdi, 08/10/2026) : le démarchage commercial (agences,
-// appels) et le recrutement des sous-traitants. Chacun a son menu, sa boîte
-// de réception, son adresse d'envoi. Les réglages sont communs, en bas.
+// DEUX ESPACES (Mahdi, 08/10/2026) : la prospection des agences et le recrutement des
+// sous-traitants. Chacun a son menu, sa boîte de réception, son adresse d'envoi.
+// Les réglages sont communs, en bas.
 export type PageId =
   | "aujourdhui"
   | "sessions"
@@ -45,54 +29,28 @@ export type PageId =
   | "st_reglages"
   | "parametrage"
 
-type NavItem = { id: PageId; label: string; icon: typeof Users }
+// LE MENU, COMME SUR STC BÂTIMENT (Mahdi, 06/11/2026 : « il y a un curseur moche ») : un rail
+// d'icônes (60 px) avec les rubriques, et à côté le menu de la rubrique ouverte (196 px).
+// Au survol d'une autre icône, son menu passe par-dessus. La carte : src/lib/carteMenu.ts.
+const ICONES: Record<Espace, LucideIcon> = { demarchage: Building2, recrutement: HardHat }
 
-// REFONTE du 09/10/2026 (Mahdi) : la fiche, c'est l'agence. Six pages : le jour,
-// les appels, les agences, l'agenda, la boîte, et l'archive des apporteurs.
-const menuDemarchage: NavItem[] = [
-  { id: "aujourdhui", label: "Aujourd'hui", icon: LayoutDashboard },
-  { id: "sessions", label: "Sessions de call", icon: PhoneCall },
-  { id: "agences", label: "Agences", icon: Building2 },
-  { id: "agenda", label: "Agenda", icon: Calendar },
-  { id: "analyse", label: "Analyse IA", icon: Sparkles },
-  { id: "messages", label: "Boîte de réception", icon: Inbox },
-  { id: "apporteurs", label: "Apporteurs d'affaires", icon: Archive },
-]
-
-const menuRecrutement: NavItem[] = [
-  { id: "st_machine", label: "Machine", icon: Gauge },
-  { id: "st_session", label: "Session de call", icon: PhoneCall },
-  { id: "st_base", label: "Base d'artisans", icon: HardHat },
-  { id: "st_sequences", label: "Séquences", icon: ListOrdered },
-  { id: "st_suivi", label: "Suivi", icon: BarChart3 },
-  { id: "st_boite", label: "Boîte de réception", icon: Inbox },
-  { id: "st_dossiers", label: "Dossiers déposés", icon: FolderCheck },
-  { id: "st_reglages", label: "Réglages de la machine", icon: Settings2 },
-]
-
-// Une ligne du menu, au dessin « bancaire » (24/10/2026, celui du bureau STC) : 30 px,
-// texte gris, la page ouverte sur fond gris clair, plus de trait violet.
-function LigneMenu({ actif, label, Icon, badge, onClick }: { actif: boolean; label: string; Icon: typeof Users; badge?: number; onClick: () => void }) {
+function Lien({ actif, titre, badge, onClick }: { actif: boolean; titre: string; badge?: number; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-current={actif ? "page" : undefined}
       className={
-        "relative flex h-[30px] w-full items-center gap-2.5 rounded-4 px-2 text-legende transition-colors " +
+        "flex h-[30px] w-full items-center rounded-4 px-2 text-left text-legende transition-colors " +
         (actif ? "bg-fond-4 font-medium text-encre" : "text-[#3c3c40] hover:bg-fond-3 hover:text-encre")
       }
     >
-      <Icon size={15} className={actif ? "text-encre" : "text-encre-2"} />
-      <span className="flex-1 truncate text-left">{label}</span>
+      <span className="flex-1 truncate">{titre}</span>
       {badge ? <span className="chiffres rounded-full bg-encre px-1.5 text-[10px] font-medium leading-4 text-white">{badge}</span> : null}
     </button>
   )
 }
 
-// Barre latérale claire et minimaliste (Mahdi, 09/10/2026 : « le violet tape
-// trop ; une touche de violet, mais discrète ») : fond blanc, un trait,
-// le violet seulement sur la page ouverte, les non-lus et l'initiale du compte.
 export default function Sidebar({
   active,
   espace,
@@ -104,7 +62,7 @@ export default function Sidebar({
   onNavigate: (id: PageId) => void
   session?: Session | null
 }) {
-  const items = espace === "recrutement" ? menuRecrutement : menuDemarchage
+  const courante = rubriqueDe(espace)
 
   // Qui est connecté : nom et rôle du compte, sinon le profil par défaut (mode démo).
   const role = roleDeSession(session)
@@ -134,65 +92,78 @@ export default function Sidebar({
     }
   }, [active])
 
-  return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col border-r-[0.5px] border-trait bg-fond">
-      <div className="px-5 pb-4 pt-5">
-        <LogoBaticom className="text-[22px]" />
-      </div>
+  const badge = (id: PageId) => (id === "messages" ? nonLus.demarchage : id === "st_boite" ? nonLus.recrutement : 0)
 
-      {/* Le sélecteur d'espace : une gélule fine, à la Apple (Mahdi, 09/10 : « plus fin, plus discret »). */}
-      <div className="mx-4 mb-4 inline-grid w-fit grid-cols-2 rounded-full bg-fond-3 p-[2px] text-colonne font-medium" role="tablist" aria-label="Espace">
-        {(
-          [
-            ["demarchage", "Démarchage", "aujourdhui"],
-            ["recrutement", "Recrutement ST", "st_machine"],
-          ] as [Espace, string, PageId][]
-        ).map(([id, label, premierePage]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={espace === id}
-            onClick={() => onNavigate(premierePage)}
-            className={
-              "flex h-6 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 transition-colors " +
-              (espace === id ? "bg-fond text-encre shadow-[0_1px_2px_rgb(17_17_19/0.08)]" : "text-encre-2 hover:text-encre")
-            }
-          >
-            {label}
-            {nonLus[id] > 0 && espace !== id ? <span className="h-1.5 w-1.5 rounded-full bg-encre" aria-label="non lus" /> : null}
-          </button>
-        ))}
-      </div>
-
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Pages">
-        {items.map(({ id, label, icon }) => (
-          <LigneMenu
-            key={id}
-            actif={id === active}
-            label={label}
-            Icon={icon}
-            badge={id === "messages" ? nonLus.demarchage : id === "st_boite" ? nonLus.recrutement : 0}
-            onClick={() => onNavigate(id)}
-          />
-        ))}
-      </nav>
-
-      {/* Réglages, communs aux deux espaces (les comptes y sont rangés, rubrique Équipe). */}
-      <div className="space-y-0.5 border-t border-trait px-3 pt-3">
-        <LigneMenu actif={active === "parametrage"} label="Réglages" Icon={SlidersHorizontal} onClick={() => onNavigate("parametrage")} />
-      </div>
-
-      <div className="mt-2 flex items-center gap-2.5 border-t-[0.5px] border-trait px-4 py-3">
-        <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-fond-4 text-colonne font-semibold text-encre">{initiales}</div>
-        <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-legende font-medium text-encre">{nom}</p>
-          <p className="text-colonne text-encre-2">{libelleRole}</p>
+  // Le menu d'une rubrique : son titre, puis ses groupes (intertitre gris) et leurs pages.
+  const menu = (r: RubriqueMenu) => (
+    <>
+      <p className="mb-3 mt-1 px-2 text-legende font-semibold text-encre">{r.titre}</p>
+      {r.groupes.map((g, i) => (
+        <div key={g.titre || i}>
+          {g.titre ? <p className="px-2 pb-1 pt-3 text-colonne text-encre-2">{g.titre}</p> : null}
+          {g.entrees.map((e) => (
+            <Lien key={e.id} actif={e.id === active} titre={e.titre} badge={badge(e.id)} onClick={() => onNavigate(e.id)} />
+          ))}
         </div>
-        <button type="button" onClick={seDeconnecter} title="Se déconnecter" aria-label="Se déconnecter" className="rounded-full p-2 text-encre-2 transition-colors hover:bg-fond-3 hover:text-encre">
-          <LogOut size={15} />
-        </button>
+      ))}
+    </>
+  )
+
+  const boutonRail = (titre: string, Icone: LucideIcon, allume: boolean, onClick: () => void, point?: boolean) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={titre}
+      title={titre}
+      aria-current={allume ? "page" : undefined}
+      className={"relative flex h-[38px] w-[38px] items-center justify-center rounded-[9px] transition-colors " + (allume ? "bg-fond shadow-[0_1px_2px_rgb(17_17_19/0.08)]" : "hover:bg-[#e9e9ec]")}
+    >
+      <Icone size={18} strokeWidth={1.6} className={allume ? "text-encre" : "text-encre-2"} />
+      {point ? <span className="absolute right-[7px] top-[7px] h-[7px] w-[7px] rounded-full bg-encre shadow-[0_0_0_2px_#f4f4f6]" aria-label="non lus" /> : null}
+    </button>
+  )
+
+  return (
+    <nav className="relative flex h-screen w-64 shrink-0" aria-label="Menu">
+      {/* Le rail des rubriques */}
+      <div className="relative z-30 flex w-[60px] shrink-0 flex-col items-center gap-1 border-r-[0.5px] border-trait bg-[#f4f4f6] py-3.5">
+        {RUBRIQUES.map((r) => {
+          const Icone = ICONES[r.espace]
+          const ouverte = r.espace === espace && active !== "parametrage"
+          return (
+            <div key={r.espace} className="group">
+              {boutonRail(r.titre, Icone, ouverte, () => onNavigate(premierePage(r)), !ouverte && nonLus[r.espace] > 0)}
+              {/* Au survol d'une AUTRE rubrique, son menu passe par-dessus le panneau. */}
+              {r.espace !== espace ? (
+                <div className="absolute bottom-0 left-[60px] top-0 z-40 hidden w-[196px] overflow-y-auto border-r-[0.5px] border-trait bg-fond px-2.5 pb-3.5 pt-4 shadow-[8px_0_24px_rgb(17_17_19/0.06)] group-focus-within:block group-hover:block">
+                  {menu(r)}
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+        <span className="flex-1" />
+        {boutonRail("Réglages", SlidersHorizontal, active === "parametrage", () => onNavigate("parametrage"))}
       </div>
-    </aside>
+
+      {/* Le panneau : le menu de la rubrique ouverte */}
+      <div className="flex min-w-0 flex-1 flex-col border-r-[0.5px] border-trait bg-fond px-2.5 pb-3.5 pt-4">
+        <div className="px-2 pb-4">
+          <LogoBaticom className="text-[19px]" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{menu(courante)}</div>
+
+        <div className="mt-2 flex items-center gap-2 border-t-[0.5px] border-trait pt-2.5">
+          <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-fond-4 text-colonne font-semibold text-encre">{initiales}</div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-legende font-medium text-encre">{nom}</p>
+            <p className="text-colonne text-encre-2">{libelleRole}</p>
+          </div>
+          <button type="button" onClick={seDeconnecter} title="Se déconnecter" aria-label="Se déconnecter" className="rounded-full p-2 text-encre-2 transition-colors hover:bg-fond-3 hover:text-encre">
+            <LogOut size={15} />
+          </button>
+        </div>
+      </div>
+    </nav>
   )
 }
