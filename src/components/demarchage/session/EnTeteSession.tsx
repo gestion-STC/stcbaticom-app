@@ -1,21 +1,49 @@
-// Les commandes de la session, à droite de l'en-tête : mails préparés par l'IA, piles, base, secteur,
-// étape, sourçage, mode automatique, cadence, Démarrer / Arrêter. Aucun état propre.
+// Les commandes de la session (dessin du 06/11/2026, thème A2) : sous les onglets Leads / Prospection,
+// les piles en texte à gauche (PilesSession), les réglages à droite (base, secteur, étape, sourçage,
+// mails préparés par l'IA, mode automatique, cadence, Démarrer / Arrêter). Aucun état propre.
+// En mode Leads, la file est celle des leads : ni pile, ni secteur, ni étape, ni sourçage.
 import { Play, Square } from "lucide-react"
 import { ETAPES, FILES, SORTIES, type File, type Secteur } from "../../../demarchage/modele"
-import { Bouton, Champ, Interrupteur, Pastille, Selecteur } from "../../../ui"
+import { Bouton, Champ, Interrupteur, Selecteur } from "../../../ui"
 import { BoutonMailsIa } from "../MailsIa"
 
 type Sourcage = "" | "sourcees" | "non_sourcees"
 
+/** Les quatre piles de la prospection, en texte : la pile ouverte en noir, son compte à côté. */
+export function PilesSession({ file, setFile, etapeFiltre, chargementFile, nbFile, compteurs, bloque }: {
+  file: File
+  setFile: (f: File) => void
+  etapeFiltre: string
+  chargementFile: boolean
+  nbFile: number
+  compteurs: Record<File, number> | null
+  bloque: boolean
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-legende">
+      {FILES.map((f) => {
+        const choisi = f.code === file && !etapeFiltre
+        // La pile affichée compte SA liste (Mahdi, 13/10 : la pastille = ce qu'on voit) ; les
+        // autres, la base. Un comptage en échec affiche « — », jamais un faux chiffre.
+        const n = f.code === file && !etapeFiltre && !chargementFile ? nbFile : compteurs ? compteurs[f.code] : "—"
+        return (
+          <button key={f.code} type="button" disabled={bloque} title={f.aide} aria-pressed={choisi} onClick={() => setFile(f.code)}
+            className={"rounded-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature disabled:opacity-60 " + (choisi ? "font-medium text-encre" : "text-encre-2 hover:text-encre")}>
+            {f.libelle} <span className="chiffres">{n}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function EnTeteSession({
+  modeLeads,
   rafraichirMails,
-  file,
-  setFile,
   etapeFiltre,
   setEtapeFiltre,
   chargementFile,
   nbFile,
-  compteurs,
   enCours,
   barreVisible,
   optionsDeBase,
@@ -36,14 +64,12 @@ export default function EnTeteSession({
   reglagesLus,
   bloqueOnglet,
 }: {
+  modeLeads: boolean
   rafraichirMails: number
-  file: File
-  setFile: (f: File) => void
   etapeFiltre: string
   setEtapeFiltre: (e: string) => void
   chargementFile: boolean
   nbFile: number
-  compteurs: Record<File, number> | null
   enCours: boolean
   barreVisible: boolean
   optionsDeBase: { value: string; label: string }[]
@@ -68,34 +94,19 @@ export default function EnTeteSession({
     <>
       {/* « À compléter » retiré le 24/10/2026 : le résultat est désormais obligatoire (verrou du compte). */}
       <BoutonMailsIa rafraichir={rafraichirMails} />
-      <div className="flex flex-wrap gap-1.5">
-        {FILES.map((f) => {
-          const choisi = f.code === file
-          // La pile affichée compte SA liste (Mahdi, 13/10 : la pastille = ce qu'on voit) ; les
-          // autres, la base. Un comptage en échec affiche « — », jamais un faux chiffre.
-          const n = choisi && !etapeFiltre && !chargementFile ? nbFile : compteurs ? compteurs[f.code] : "—"
-          return (
-            <button key={f.code} type="button" disabled={enCours || barreVisible} title={f.aide} onClick={() => setFile(f.code)} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2 disabled:opacity-60">
-              <Pastille role={choisi ? "info" : "inerte"} point={choisi}>
-                {f.libelle}
-                <span className="chiffres font-semibold">{n}</span>
-              </Pastille>
-            </button>
-          )
-        })}
-      </div>
       {optionsDeBase.length > 1 ? (
-        <Selecteur value={valeurBase} onChange={(e) => choisirBase(e.target.value)} disabled={enCours || barreVisible} className="w-44" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
+        <Selecteur value={valeurBase} onChange={(e) => choisirBase(e.target.value)} disabled={enCours || barreVisible} className="w-40" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
           {optionsDeBase.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Selecteur>
       ) : null}
-      <Selecteur value={secteurDuJour} onChange={(e) => setSecteurDuJour(e.target.value)} disabled={enCours || barreVisible} className="w-44" aria-label="Secteur du jour">
+      {modeLeads ? null : (<>
+      <Selecteur value={secteurDuJour} onChange={(e) => setSecteurDuJour(e.target.value)} disabled={enCours || barreVisible} className="w-40" aria-label="Secteur du jour">
         <option value="">Tous les secteurs</option>
         {secteurs.map((s) => (
           <option key={s.code} value={s.code}>{s.libelle}</option>
         ))}
       </Selecteur>
-      <Selecteur value={etapeFiltre} onChange={(e) => setEtapeFiltre(e.target.value)} disabled={enCours || barreVisible} className="w-48" aria-label="Étape" title="N'appeler que les agences de cette étape (dans la file choisie)">
+      <Selecteur value={etapeFiltre} onChange={(e) => setEtapeFiltre(e.target.value)} disabled={enCours || barreVisible} className="w-40" aria-label="Étape" title="N'appeler que les agences de cette étape (dans la file choisie)">
         <option value="">Toutes les étapes</option>
         {ETAPES.map((e) => (
           <option key={e.code} value={e.code}>{e.libelle}</option>
@@ -104,11 +115,12 @@ export default function EnTeteSession({
           <option key={s.code} value={s.code}>{s.libelle}</option>
         ))}
       </Selecteur>
-      <Selecteur value={sourcage} onChange={(e) => setSourcage(e.target.value as Sourcage)} disabled={enCours || barreVisible} className="w-52" aria-label="Sourçage" title="Sourcée = on connaît au moins un gestionnaire (nom, ligne directe ou e-mail)">
+      <Selecteur value={sourcage} onChange={(e) => setSourcage(e.target.value as Sourcage)} disabled={enCours || barreVisible} className="w-44" aria-label="Sourçage" title="Sourcée = on connaît au moins un gestionnaire (nom, ligne directe ou e-mail)">
         <option value="">Sourcées et non sourcées</option>
         <option value="sourcees">Sourcées · gestionnaire connu</option>
         <option value="non_sourcees">Non sourcées · standard seul</option>
       </Selecteur>
+      </>)}
       <label className="flex items-center gap-2 text-legende text-encre">
         <Interrupteur allume={auto} onChange={setAuto} libelle="Mode automatique" disabled={autreOnglet || cadence === null} /> Mode automatique
       </label>

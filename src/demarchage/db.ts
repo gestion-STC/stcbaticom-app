@@ -159,6 +159,23 @@ export async function compterPiles(proprietaire: Proprietaire): Promise<Record<F
   return c as Record<File, number>
 }
 
+// ── Les leads (06/11/2026) : les agences qui se sont manifestées (supabase/maj-2026-11-06-leads.sql).
+// La base les crée et les ferme ; l'écran ne fait que les lire, le plus ancien d'abord.
+export type SourceLead = "compte" | "page_compte" | "mail" | "plaquette" | "manuel"
+export type Lead = { id: string; source: SourceLead; signal: string; detail: string; creeLe: string; dernierSignalLe: string; tentatives: number; contactId: string | null }
+type LigneLead = { id: string; source: SourceLead; signal: string; detail: string; cree_le: string; dernier_signal_le: string; tentatives: number; contact_id: string | null }
+const versLead = (l: LigneLead): Lead => ({ id: l.id, source: l.source, signal: l.signal, detail: l.detail ?? "", creeLe: l.cree_le, dernierSignalLe: l.dernier_signal_le, tentatives: l.tentatives ?? 0, contactId: l.contact_id ?? null })
+export async function chargerLeads(proprietaire: Proprietaire): Promise<{ agence: Agence; lead: Lead }[]> {
+  type L = { rang: number; lead: LigneLead; agence: LigneAgence }
+  const lignes = await lireParLots<L>((de, a) => sb().rpc("leads_a_traiter", { p_proprietaire: versProprietaireSql(proprietaire) }).select("rang, lead, agence").order("rang").range(de, a) as unknown as PromiseLike<LotDe<L>>)
+  return lignes.map((l) => ({ agence: versAgence(l.agence), lead: versLead(l.lead) }))
+}
+export async function compterLeads(proprietaire: Proprietaire): Promise<number> {
+  const { count, error } = await sb().rpc("leads_a_traiter", { p_proprietaire: versProprietaireSql(proprietaire) }, { count: "exact", head: true })
+  erreur(error)
+  return count ?? 0
+}
+
 export async function compterParEtape(): Promise<Record<string, number>> {
   const lignes = await lireParLots<{ id: string; etape: string }>((de, a) => sb().from("agences").select("id, etape").neq("type", "apporteur").order("id").range(de, a))
   const out: Record<string, number> = {}

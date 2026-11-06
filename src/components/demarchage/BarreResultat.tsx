@@ -13,7 +13,7 @@ import { Briefcase, Check } from "lucide-react"
 import { useReglages } from "../../demarchage/reglages"
 import { ISSUES, MOTIFS, RESULTATS, effetAnnonce, nomContact, type Agence, type Contact, type Issue, type Motif, type Resultat } from "../../demarchage/modele"
 import { TYPES_RDV, choixComplet, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
-import { Bouton, Carte, Etiquette, Champ, Selecteur } from "../../ui"
+import { Bouton, Etiquette, Champ, Selecteur } from "../../ui"
 
 const NOUVEAU_CONTACT = "__nouveau__"
 
@@ -145,7 +145,7 @@ export default function BarreResultat({
   const actifs = contacts.filter((c) => !c.parti)
 
   return (
-    <Carte className="px-5 py-4">
+    <section className="border-y-[0.5px] border-trait py-4" aria-label="Résultat de l'appel">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sous-titre font-semibold text-encre">Qu'est-ce qui s'est passé ?</h2>
         <span className="text-colonne text-encre-2">Touches 1 à 4 · Entrée valide · Échap efface</span>
@@ -233,6 +233,6 @@ export default function BarreResultat({
           </Bouton>
         </div>
       </div>
-    </Carte>
+    </section>
   )
 }
