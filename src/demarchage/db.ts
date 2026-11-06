@@ -196,11 +196,11 @@ export async function premiersOsListe(de: Date, a: Date): Promise<{ agenceId: st
   return ((data ?? []) as { id: string; nom: string; premier_os_le: string; commercial_id: string | null }[]).map((l) => ({ agenceId: l.id, nom: l.nom, date: l.premier_os_le, commercialId: l.commercial_id }))
 }
 /** Les derniers signaux du site (plaquette, mail ouvert, page « Créer un compte »…), rebonds exclus. */
-export async function derniersSignaux(de: Date, limite = 8): Promise<{ id: string; date: string; titre: string; agenceId: string; agenceNom: string }[]> {
-  const { data, error } = await sb().from("activites").select("id, date, titre, agence_id, agences(nom)").eq("type", "note").eq("source", "site").neq("titre", "E-mail rebondi (adresse injoignable)")
+export async function derniersSignaux(de: Date, limite = 8): Promise<{ id: string; date: string; titre: string; agenceId: string; agenceNom: string; commercialId: string | null }[]> {
+  const { data, error } = await sb().from("activites").select("id, date, titre, agence_id, agences(nom, commercial_id)").eq("type", "note").eq("source", "site").neq("titre", "E-mail rebondi (adresse injoignable)")
     .gte("date", de.toISOString()).order("date", { ascending: false }).limit(limite)
   erreur(error)
-  return ((data ?? []) as unknown as { id: string; date: string; titre: string; agence_id: string; agences: { nom: string } | null }[]).map((l) => ({ id: l.id, date: l.date, titre: l.titre, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "" }))
+  return ((data ?? []) as unknown as { id: string; date: string; titre: string; agence_id: string; agences: { nom: string; commercial_id: string | null } | null }[]).map((l) => ({ id: l.id, date: l.date, titre: l.titre, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", commercialId: l.agences?.commercial_id ?? null }))
 }
 /** Les mails du démarchage depuis une date : envoyés, ouverts, reçus, revenus en erreur. */
 export async function bilanMails(de: Date): Promise<{ envoyes: number; ouverts: number; recus: number; rebonds: number }> {
