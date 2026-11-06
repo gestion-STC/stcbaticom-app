@@ -8,7 +8,7 @@ import { initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/com
 import LogoBaticom from "./LogoBaticom"
 import { RUBRIQUES, premierePage, rubriqueDe, type RubriqueMenu } from "../lib/carteMenu"
 
-// DEUX ESPACES (Mahdi, 08/10/2026) : la prospection des agences et le recrutement des
+// DEUX ESPACES (Mahdi, 08/10/2026) : le développement (prospection des agences) et le recrutement des
 // sous-traitants. Chacun a son menu, sa boîte de réception, son adresse d'envoi.
 // Les réglages sont communs, en bas.
 export type PageId =
