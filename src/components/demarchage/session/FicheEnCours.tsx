@@ -62,7 +62,7 @@ export default function FicheEnCours({
             <p className="mt-1.5 text-legende text-encre">
               <span className="mr-2 inline-block h-1.5 w-1.5 -translate-y-px rounded-full bg-signature" />
               <b className="font-medium">Lead</b> · {lead.signal} · <span className={"chiffres " + couleurAttente(minutesDepuis(lead.creeLe, maintenant))}>{attenteLisible(minutesDepuis(lead.creeLe, maintenant))}</span>
-              {lead.tentatives ? <span className="text-encre-2"> · {lead.tentatives} essai{lead.tentatives > 1 ? "s" : ""} sans réponse sur 3</span> : null}
+              {lead.tentatives ? <span className="text-encre-2"> · {lead.tentatives} essai{lead.tentatives > 1 ? "s" : ""} sans le gestionnaire</span> : null}
               {lead.detail ? <span className="block pl-[14px] text-colonne text-encre-2">{lead.detail}</span> : null}
             </p>
           ) : null}

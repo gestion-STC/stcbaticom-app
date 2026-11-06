@@ -14,8 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { ArrowUpRight, CalendarClock, Check, Pencil, Phone, Sparkles, Trophy } from "lucide-react"
 import { useReglages } from "../../demarchage/reglages"
 import {
-  appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, premiersOsListe,
-  resultatsAppelsDepuis, santeDemarchage, statsAppels, terminerTache, type EcartSante, type Lead, type StatsCompte, type TacheAgenda,
+  appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, leadsTraites, premiersOsListe,
+  resultatsAppelsDepuis, santeDemarchage, statsAppels, terminerTache, type EcartSante, type Lead, type LeadTraite, type StatsCompte, type TacheAgenda,
 } from "../../demarchage/db"
 import { dureeLisible, libelleEtape, type Agence, type File } from "../../demarchage/modele"
 import { appelsIaPeriode } from "../../demarchage/appelsIa"
@@ -54,6 +54,7 @@ function bornesC(p: PeriodeC, m: Date): { de: Date; a: Date } {
 const METRIQUES: { libelle: string; cle: keyof Jour6 }[] = [{ libelle: "Appels", cle: "appels" }, { libelle: "Décrochés", cle: "decroches" }, { libelle: "Gestionnaires joints", cle: "joints" }, { libelle: "Intéressés", cle: "interesses" }, { libelle: "RDV", cle: "rdv" }, { libelle: "Apporteurs trouvés", cle: "apporteurs" }]
 const ETAPES_PARCOURS: { libelle: string; cle: keyof Jour6 }[] = [{ libelle: "Appels", cle: "appels" }, { libelle: "Décrochés", cle: "decroches" }, { libelle: "Gestionnaires joints", cle: "joints" }, { libelle: "Intéressés", cle: "interesses" }, { libelle: "RDV", cle: "rdv" }]
 const ETAPES_PORTEFEUILLE = ["a_prospecter", "gestionnaire_joint", "interesse", "rdv_planifie", "client", "pas_interesse", "endormie", "hors_cible"]
+const RESULTATS_LEAD: Record<string, string> = { interesse: "Intéressé", rdv: "RDV pris", a_rappeler: "À rappeler", pas_interesse: "Pas intéressé", apporteur: "Apporteur", joint: "Gestionnaire eu", injoignable: "Injoignable" }
 const sortie = (e: string) => e === "pas_interesse" || e === "endormie" || e === "hors_cible"
 
 type Donnees = {
@@ -74,6 +75,7 @@ type Donnees = {
   leads: { agence: Agence; lead: Lead }[]
   etapes: { etape: string }[]
   leadsBilan: LeadBilan[]
+  traites: LeadTraite[]
 }
 type Extra = {
   heures: LigneHeure[]
@@ -122,7 +124,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       const choix = normaliserChoix(choixLocal, admin, libre)
       const proprietaire = proprietaireDepuisChoix(choixLocal, moiId, admin, libre)
       const jours = joursOuvresRecents(now, JOURS_TENDANCE)
-      const [files, taches, objectifBrut, jamaisJointes, reveils, appels, osMois, leads, etapes, leadsBilan, ...parPeriode] = await Promise.all([
+      const [files, taches, objectifBrut, jamaisJointes, reveils, appels, osMois, leads, etapes, leadsBilan, traites, ...parPeriode] = await Promise.all([
         compterPiles(proprietaire).catch(() => null),
         chargerTachesDuJour(now).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
         lireParametre(CLE_OBJECTIF),
@@ -133,13 +135,14 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
         chargerLeads(proprietaire).catch(() => [] as { agence: Agence; lead: Lead }[]),
         etapesDeLaBase().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))),
         leadsBilanLignes().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))),
+        leadsTraites().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))).catch(() => [] as LeadTraite[]),
         ...PERIODES_C.map((p) => { const b = bornesC(p.id, now); return statsAppels(b.de, b.a) }),
       ])
       if (!enVie.current || jeton !== jetonCharge.current) return
       const classements = Object.fromEntries(PERIODES_C.map((p, i) => [p.id, classer(parPeriode[i], comptes, horsClassement)])) as Record<PeriodeC, StatsCompte[]>
       setD({
         files, base: libelleBase(choix, comptes), choix, options: optionsBase(admin, libre, comptes, moiId), proprietaire, taches, classements,
-        objectif: lireObjectif(objectifBrut), jamaisJointes, reveils, comptes: comptes.filter((c) => !horsClassement.has(c.id)), jours, appels, osMois, leads, etapes, leadsBilan,
+        objectif: lireObjectif(objectifBrut), jamaisJointes, reveils, comptes: comptes.filter((c) => !horsClassement.has(c.id)), jours, appels, osMois, leads, etapes, leadsBilan, traites,
       })
       santeDemarchage()
         .then((s) => { if (enVie.current) { setSante(s ? s.filter((e) => e.code !== "appel_non_note") : s); setSanteErreur("") } })
@@ -355,11 +358,27 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
                   ]} />
               </Bloc>
               <Bloc titre="Mes leads" droite={bl.delaiMoyenMin !== null ? `délai moyen de traitement : ${attenteCourte(bl.delaiMoyenMin)}` : "depuis le début"}>
-                <Table colonnes={[{ titre: "Reçus", droite: true }, { titre: "À traiter", droite: true }, { titre: "Traités", droite: true }, { titre: "Retombés", droite: true }, { titre: "RDV", droite: true }, { titre: "Clients", droite: true }]}
-                  lignes={[{ cle: "l", cellules: [bl.recus, <span className={bl.aTraiter ? "text-signature" : ""}>{bl.aTraiter}</span>, bl.traites, bl.retombes, <>{bl.rdv} <span className="text-encre-2">{pctTxt(bl.tauxRdv)}</span></>, <span className={bl.clients ? "text-ok" : ""}>{bl.clients} <span className="text-encre-2">{pctTxt(bl.tauxClient, 1)}</span></span>] }]} />
+                <Table colonnes={[{ titre: "Reçus", droite: true }, { titre: "À traiter", droite: true }, { titre: "Traités", droite: true }, { titre: "RDV", droite: true }, { titre: "Clients", droite: true }]}
+                  lignes={[{ cle: "l", cellules: [bl.recus, <span className={bl.aTraiter ? "text-signature" : ""}>{bl.aTraiter}</span>, bl.traites, <>{bl.rdv} <span className="text-encre-2">{pctTxt(bl.tauxRdv)}</span></>, <span className={bl.clients ? "text-ok" : ""}>{bl.clients} <span className="text-encre-2">{pctTxt(bl.tauxClient, 1)}</span></span>] }]} />
               </Bloc>
             </div>
           </div>
+
+          {/* Les leads traités (Mahdi, 06/11) : un lead reste dans Leads jusqu'au gestionnaire, puis il entre dans la base. */}
+          <Bloc titre="Mes leads traités" compte={d.traites.length} droite="gestionnaire eu · ensuite dans la machine à relance, comme toutes les agences">
+            <Table vide="Aucun lead traité pour l'instant : un lead reste dans Leads tant qu'on n'a pas eu le gestionnaire."
+              colonnes={[{ titre: "Agence" }, { titre: "Signal", largeur: "24%" }, { titre: "Reçu le", largeur: "84px", droite: true }, { titre: "Joint le", largeur: "112px", droite: true }, { titre: "Essais", largeur: "64px", droite: true }, { titre: "Par", largeur: "96px" }, { titre: "Résultat", largeur: "112px" }, { titre: "Aujourd'hui", largeur: "128px" }]}
+              lignes={d.traites.slice(0, 20).map((l) => ({ cle: l.id, cellules: [
+                <button type="button" className="truncate hover:underline" onClick={() => onOuvrirAgence?.(l.agenceId)}>{l.agenceNom || "Agence inconnue"}</button>,
+                <span className="text-encre-2">{l.signal}</span>,
+                <span className="text-encre-2">{new Date(l.creeLe).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}</span>,
+                <span>{l.traiteLe ? new Date(l.traiteLe).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>,
+                <span className="text-encre-2">{l.tentatives + 1}</span>,
+                <span className="text-encre-2">{nomDuCompte(l.traitePar).split(" ")[0] || "—"}</span>,
+                <span>{RESULTATS_LEAD[l.resultat] ?? libelleEtape(l.resultat)}</span>,
+                <span className={l.etapeAgence === "client" ? "text-ok" : sortie(l.etapeAgence) ? "text-encre-2" : ""}>{libelleEtape(l.etapeAgence)}</span>,
+              ] }))} />
+          </Bloc>
         </Chapitre>
 
         {/* ═══ L'ÉQUIPE ═══ */}

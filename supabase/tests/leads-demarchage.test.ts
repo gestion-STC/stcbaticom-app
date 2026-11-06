@@ -1,9 +1,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 // LE BANC D'ESSAI DES LEADS (06/11/2026)
 //
-// Les vraies règles (socle + regles-demarchage.sql + maj-2026-11-06-leads.sql) dans une
-// base Postgres locale (PGlite). Un lead naît d'un signal fort ou de deux ouvertures de
-// plaquette en 7 jours, se ferme au premier appel abouti, retombe après 3 sans réponse.
+// Les vraies règles (socle + regles-demarchage.sql + maj-2026-11-06-leads.sql + leads-gestionnaire)
+// dans une base Postgres locale (PGlite). Un lead naît d'un signal fort ou de deux ouvertures de
+// plaquette en 7 jours ; il reste dans Leads jusqu'à ce qu'on ait eu le gestionnaire.
 // ════════════════════════════════════════════════════════════════════════════
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -26,6 +26,7 @@ beforeAll(async () => {
     select set_config('request.jwt.claims', '{"sub":"${MAHDI}","role":"authenticated","app_metadata":{"role":"admin"},"user_metadata":{"nom":"Mahdi"}}', false);
   `)
   await db.exec(sql("supabase/maj-2026-11-06-leads.sql"))
+  await db.exec(sql("supabase/maj-2026-11-06-leads-gestionnaire.sql"))
 }, 60_000)
 
 let n = 0
@@ -103,20 +104,25 @@ describe("un lead se travaille puis se ferme", () => {
     await appel(a, "joint", "rdv")
     expect((await leads(a))[0]).toMatchObject({ statut: "traite", resultat: "rdv" })
   })
-  it("le standard ferme aussi le lead", async () => {
+  it("le standard ne ferme PAS le lead : on n'a pas eu le gestionnaire", async () => {
     const a = await agence()
     await mail(a, "RE: tarifs")
     await appel(a, "standard")
-    expect((await leads(a))[0]).toMatchObject({ statut: "traite", resultat: "standard" })
+    expect((await leads(a))[0]).toMatchObject({ statut: "a_traiter", tentatives: 1 })
   })
-  it("3 appels sans réponse : il retombe en prospection", async () => {
+  it("sans réponse, même 4 fois : il reste dans Leads ; le gestionnaire eu le ferme", async () => {
     const a = await agence()
     await signal(a, "Compte ouvert sur STC Bâtiment")
-    await appel(a, "pas_de_reponse")
-    await appel(a, "pas_de_reponse")
-    expect((await leads(a))[0]).toMatchObject({ statut: "a_traiter", tentatives: 2 })
-    await appel(a, "pas_de_reponse")
-    expect((await leads(a))[0]).toMatchObject({ statut: "retombe", tentatives: 3, resultat: "injoignable" })
+    for (let i = 0; i < 4; i++) await appel(a, i % 2 ? "standard" : "pas_de_reponse")
+    expect((await leads(a))[0]).toMatchObject({ statut: "a_traiter", tentatives: 4 })
+    await appel(a, "joint", "a_rappeler")
+    expect((await leads(a))[0]).toMatchObject({ statut: "traite", tentatives: 4, resultat: "a_rappeler" })
+  })
+  it("faux numéro : l'agence sort en hors cible, le lead se ferme", async () => {
+    const a = await agence()
+    await signal(a, "Compte ouvert sur STC Bâtiment")
+    await appel(a, "faux_numero")
+    expect((await leads(a))[0]).toMatchObject({ statut: "traite", resultat: "hors_cible" })
   })
   it("passée apporteur ou pas intéressée depuis la fiche : le lead se ferme", async () => {
     const a = await agence(), b = await agence()
@@ -145,5 +151,13 @@ describe("la file des leads", () => {
     const file = await q<{ nom: string }>(`select agence->>'nom' as nom from public.leads_a_traiter($1) where agence->>'id' in ($2, $3) order by rang`, [MAHDI, a, b])
     expect(file.map((x) => x.nom)).toEqual([`Agence ${n - 1}`, `Agence ${n}`])
     expect(await q(`select 1 from public.leads_a_traiter('non_attribuees') where agence->>'id' = $1`, [a])).toEqual([])
+  })
+  it("un lead essayé il y a moins de 2 h passe après les autres", async () => {
+    const a = await agence(), b = await agence()
+    await signal(a, "Page « Créer un compte » ouverte", "30 minutes")
+    await signal(b, "Compte ouvert sur STC Bâtiment", "5 minutes")
+    await appel(a, "pas_de_reponse")
+    const file = await q<{ nom: string }>(`select agence->>'nom' as nom from public.leads_a_traiter($1) where agence->>'id' in ($2, $3) order by rang`, [MAHDI, a, b])
+    expect(file.map((x) => x.nom)).toEqual([`Agence ${n}`, `Agence ${n - 1}`])
   })
 })
