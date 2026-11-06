@@ -9,6 +9,7 @@
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
 import type { Proprietaire } from "./attribution"
+import type { AppelLu, LeadBilan } from "./tableauOutils"
 import type { Message } from "../lib/messagesDb"
 import {
   type Activite,
@@ -174,6 +175,61 @@ export async function compterLeads(proprietaire: Proprietaire): Promise<number> 
   const { count, error } = await sb().rpc("leads_a_traiter", { p_proprietaire: versProprietaireSql(proprietaire) }, { count: "exact", head: true })
   erreur(error)
   return count ?? 0
+}
+
+// ── La page Aujourd'hui, vues « L'équipe en direct » et « Tableau de bord » (06/11/2026) ──
+/** Les appels sortants d'une période, avec le nom de l'agence (parcours, victoires, chiffres du jour). */
+export async function appelsSortants(de: Date, a: Date): Promise<AppelLu[]> {
+  type L = { id: string; date: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; agence_id: string; agences: { nom: string } | null }
+  const lignes = await lireParLots<L>((d, f) => sb().from("activites").select("id, date, compte_id, compte_nom, resultat, issue, agence_id, agences(nom)").eq("type", "appel").eq("sens", "sortant")
+    .gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f) as unknown as PromiseLike<LotDe<L>>)
+  return lignes.map((l) => ({ id: l.id, date: l.date, compteId: l.compte_id, compteNom: l.compte_nom ?? "", resultat: l.resultat ?? "", issue: l.issue ?? "", agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "" }))
+}
+/** Les résultats des appels depuis une date : seulement l'heure et le résultat (les meilleures heures). */
+export async function resultatsAppelsDepuis(de: Date): Promise<{ date: string; resultat: string }[]> {
+  return lireParLots<{ id: string; date: string; resultat: string }>((d, f) => sb().from("activites").select("id, date, resultat").eq("type", "appel").eq("sens", "sortant").gte("date", de.toISOString()).order("id").range(d, f))
+}
+/** Les agences dont le premier OS est daté de la période (hors apporteurs), avec leur commercial. */
+export async function premiersOsListe(de: Date, a: Date): Promise<{ agenceId: string; nom: string; date: string; commercialId: string | null }[]> {
+  const { data, error } = await sb().from("agences").select("id, nom, premier_os_le, commercial_id").neq("type", "apporteur").gte("premier_os_le", jourLocal(de)).lt("premier_os_le", jourLocal(a)).order("premier_os_le", { ascending: false })
+  erreur(error)
+  return ((data ?? []) as { id: string; nom: string; premier_os_le: string; commercial_id: string | null }[]).map((l) => ({ agenceId: l.id, nom: l.nom, date: l.premier_os_le, commercialId: l.commercial_id }))
+}
+/** Les derniers signaux du site (plaquette, mail ouvert, page « Créer un compte »…), rebonds exclus. */
+export async function derniersSignaux(de: Date, limite = 8): Promise<{ id: string; date: string; titre: string; agenceId: string; agenceNom: string }[]> {
+  const { data, error } = await sb().from("activites").select("id, date, titre, agence_id, agences(nom)").eq("type", "note").eq("source", "site").neq("titre", "E-mail rebondi (adresse injoignable)")
+    .gte("date", de.toISOString()).order("date", { ascending: false }).limit(limite)
+  erreur(error)
+  return ((data ?? []) as unknown as { id: string; date: string; titre: string; agence_id: string; agences: { nom: string } | null }[]).map((l) => ({ id: l.id, date: l.date, titre: l.titre, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "" }))
+}
+/** Les mails du démarchage depuis une date : envoyés, ouverts, reçus, revenus en erreur. */
+export async function bilanMails(de: Date): Promise<{ envoyes: number; ouverts: number; recus: number; rebonds: number }> {
+  const s = sb(), depuis = de.toISOString()
+  const compte = async (q: PromiseLike<{ count: number | null; error: { message: string } | null }>) => { const r = await q; erreur(r.error); return r.count ?? 0 }
+  const [envoyes, recus, ouverts, rebonds] = await Promise.all([
+    compte(s.from("messages").select("id", { count: "exact", head: true }).eq("sens", "sortant").eq("espace", "demarchage").gte("created_at", depuis)),
+    compte(s.from("messages").select("id", { count: "exact", head: true }).eq("sens", "entrant").eq("espace", "demarchage").gte("created_at", depuis)),
+    compte(s.from("activites").select("id", { count: "exact", head: true }).eq("type", "note").eq("source", "site").eq("titre", "E-mail ouvert").gte("date", depuis)),
+    compte(s.from("activites").select("id", { count: "exact", head: true }).eq("type", "note").eq("source", "site").eq("titre", "E-mail rebondi (adresse injoignable)").gte("date", depuis)),
+  ])
+  return { envoyes, ouverts, recus, rebonds }
+}
+
+/** Les agences de la base (hors apporteurs) : étape et commercial, pour compter la base de chacun. */
+export async function etapesDeLaBase(): Promise<{ etape: string; commercialId: string | null }[]> {
+  const lignes = await lireParLots<{ id: string; etape: string; commercial_id: string | null }>((de, a) => sb().from("agences").select("id, etape, commercial_id").neq("type", "apporteur").order("id").range(de, a))
+  return lignes.map((l) => ({ etape: l.etape, commercialId: l.commercial_id }))
+}
+/** Tous les leads (la table reste petite), avec l'étape et le commercial de l'agence : la base de leads. */
+export async function leadsBilanLignes(): Promise<LeadBilan[]> {
+  type L = { id: string; statut: LeadBilan["statut"]; resultat: string; cree_le: string; traite_le: string | null; agences: { etape: string; commercial_id: string | null } | null }
+  try {
+    const lignes = await lireParLots<L>((de, a) => sb().from("leads_demarchage").select("id, statut, resultat, cree_le, traite_le, agences(etape, commercial_id)").order("id").range(de, a) as unknown as PromiseLike<LotDe<L>>)
+    return lignes.map((l) => ({ statut: l.statut, resultat: l.resultat ?? "", creeLe: l.cree_le, traiteLe: l.traite_le, etapeAgence: l.agences?.etape ?? "", commercialId: l.agences?.commercial_id ?? null }))
+  } catch (e) {
+    if (e instanceof Error && /leads_demarchage/.test(e.message)) return [] // SQL des leads pas encore collé
+    throw e
+  }
 }
 
 export async function compterParEtape(): Promise<Record<string, number>> {

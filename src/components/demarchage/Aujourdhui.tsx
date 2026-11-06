@@ -1,21 +1,37 @@
 // ════════════════════════════════════════════════════════════════════════════
-// AUJOURD'HUI — l'écran d'accueil du commercial (« petite copie d'Aircall »).
+// AUJOURD'HUI — l'écran d'accueil des commerciaux (refonte du 06/11/2026, maquette validée).
 //
-// En un coup d'œil : les quatre files et leurs chiffres, ce qu'il y a à faire
-// aujourd'hui (RDV, en retard, ce matin, cet après-midi), qui a fait quoi
-// (aujourd'hui et ce mois-ci, face à l'objectif d'OS), et où en est la base.
-// Rafraîchi toutes les 60 s quand l'onglet est visible. Les calculs sont dans
-// src/demarchage/aujourdhuiOutils.ts ; les lectures dans src/demarchage/db.ts.
+// Deux vues, au choix (mémorisé sur le poste) :
+//   · « L'équipe en direct » : l'objectif du mois et son rythme, le podium et le classement,
+//     les victoires du jour, les leads et l'à-faire, ma base de prospection et de leads,
+//     le parcours de la semaine, les piles ;
+//   · « Tableau de bord » : quatre chiffres, le parcours, les meilleures heures, les mêmes
+//     leads / à-faire / bases, ce qui bouge chez les agences, les mails, le conseil IA,
+//     l'objectif, et le classement complet.
+// Une seule grille (./aujourdhui/grille.tsx). Rafraîchi toutes les 60 s quand l'onglet est
+// visible. Calculs : src/demarchage/aujourdhuiOutils.ts et tableauOutils.ts ; lectures : db.ts.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
-import { ArrowUpRight, CalendarClock, Check, MapPin, Pencil, Phone, RefreshCw, Video } from "lucide-react"
+import { ArrowUpRight, CalendarClock, Check, MapPin, Phone, RefreshCw, Sparkles, Video } from "lucide-react"
 import { BoutonMailsIa } from "./MailsIa"
 import { useReglages } from "../../demarchage/reglages"
-import { chargerTachesDuJour, compterParEtape, compterPiles, compterPremiersOs, deplacerTache, santeDemarchage, statsAppels, terminerTache, type EcartSante, type StatsCompte, type TacheAgenda } from "../../demarchage/db"
-import { FILES, dureeLisible, type File } from "../../demarchage/modele"
 import {
-  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, estEnRetard, finDeSemaine, finDuMois,
-  grouperTaches, heureCourte, libelleRelatif, lireObjectif, progressionObjectif, segmentsBase, tauxConversionInteresses, tauxConversionPremiersOs, tauxJoints, totalStats, type MomentTache,
+  appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, compterPremiersOs, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, premiersOsListe,
+  resultatsAppelsDepuis, santeDemarchage, statsAppels, terminerTache, type EcartSante, type Lead, type StatsCompte, type TacheAgenda,
+} from "../../demarchage/db"
+import { FILES, dureeLisible, jourLocal, type Agence, type File } from "../../demarchage/modele"
+import { appelsIaPeriode } from "../../demarchage/appelsIa"
+import { statsArguments, statsObjections } from "../../demarchage/analyseOutils"
+import { attenteCourte, couleurAttente, minutesDepuis } from "../../demarchage/leadsOutils"
+import {
+  bilanLeads, bilanProspection, ecart, evolution, parcoursDepuis, rythmeObjectif, tauxJointParHeure, victoiresDepuis,
+  type AppelLu, type LeadBilan, type LigneHeure,
+} from "../../demarchage/tableauOutils"
+import { Bloc, Chiffre, EnTete, H_GRAPHE, Mention, MentionEnTete, Rangee } from "./aujourdhui/grille"
+import { BaseLeads, BaseProspection, BlocHeures, BlocMails, BlocObjectif, BlocParcours, CeQuiBouge, ClassementCompact, Conseil, ListeLeads, Podium, Quatre, Victoires } from "./aujourdhui/blocs"
+import {
+  composerDate, compterAgencesJamaisJointes, compterReveils, dansNJoursA, dateLongue, debutDeSemaine, debutDuJour, debutDuMois, decomposerDate, estEnRetard, finDeSemaine, finDuMois,
+  grouperTaches, heureCourte, libelleRelatif, lireObjectif, tauxConversionInteresses, tauxConversionPremiersOs, tauxJoints, totalStats, type MomentTache,
   PERIODES, bornesPeriode, classer, type Periode,
   majusculeInitiale, dansLaBase, libelleBase, baseConversion,
 } from "../../demarchage/aujourdhuiOutils"
@@ -24,12 +40,21 @@ import { estAdmin, listerComptes } from "../../lib/comptes"
 import { useSession } from "../../lib/auth"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, TitreCarte, Vide } from "../../ui"
+import { Bandeau, Bouton, Champ, Chargement, Dialogue, Etiquette, EnTetePage, Onglets, Pastille, Tableau, Td, Th, Vide } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
 
 const RAFRAICHIR_MS = 60_000
 const CLE_OBJECTIF = "objectif_os_mensuel"
-const s = (n: number) => (n > 1 ? "s" : "")
+const CLE_VUE = "aujourdhui_vue"
+type Vue = "equipe" | "tableau"
+type Extra = {
+  heures: LigneHeure[]
+  signaux: { id: string; date: string; titre: string; agenceId: string; agenceNom: string }[]
+  mails: { envoyes: number; ouverts: number; recus: number; rebonds: number } | null
+  objection: { libelle: string; appels: number; joints: number } | null
+  reponse: string
+  argument: { libelle: string; aboutis: number; appels: number } | null
+}
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 type Donnees = {
@@ -37,11 +62,18 @@ type Donnees = {
   base: string // la base comptée, comme dans la session : « Ma base », « Base de X », « Toute la base »
   taches: TacheAgenda[]
   classements: Record<Periode, StatsCompte[]> // tout le monde, classé, pour chaque période
-  osRecus: number
   objectif: number
-  parEtape: Record<string, number>
   jamaisJointes: number
   reveils: number
+  comptes: { id: string; nom: string }[]
+  appelsSemaine: AppelLu[] // cette semaine (le jour, les victoires, le parcours)
+  appelsAvant: AppelLu[] // la semaine dernière (les comparaisons)
+  osMois: { agenceId: string; nom: string; date: string; commercialId: string | null }[]
+  osSemaine: number
+  osAvant: number
+  leads: { agence: Agence; lead: Lead }[]
+  etapes: { etape: string }[] // la base choisie
+  leadsBilan: LeadBilan[] // la base choisie
 }
 
 const MOMENTS: { code: Exclude<MomentTache, "rdv" | "plusTard">; libelle: string; alerte?: boolean }[] = [
@@ -94,19 +126,26 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       try { choixBrut = localStorage.getItem(CLE_CHOIX_LOCAL) } catch { /* poste sans stockage : « Ma base » */ }
       const proprietaire = proprietaireDepuisChoix(choixBrut, moiId, admin, libre)
       const base = libelleBase(moiId ? normaliserChoix(choixBrut, admin, libre) : "tous", comptes)
-      const [files, taches, osRecus, objectifBrut, parEtape, jamaisJointes, reveils, ...parPeriode] = await Promise.all([
+      const lundi = debutDeSemaine(now), lundiAvant = new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() - 7)
+      const [files, taches, objectifBrut, jamaisJointes, reveils, appelsSemaine, appelsAvant, osMois, osSemaine, osAvant, leads, etapes, leadsBilan, ...parPeriode] = await Promise.all([
         compterPiles(proprietaire).catch(() => null), // LE calcul de la base, le même que la session
         chargerTachesDuJour(now).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
-        compterPremiersOs(debutDuMois(now), finDuMois(now)),
         lireParametre(CLE_OBJECTIF),
-        compterParEtape(),
         compterAgencesJamaisJointes(),
-        compterReveils(debutDeSemaine(now), finDeSemaine(now)),
+        compterReveils(lundi, finDeSemaine(now)),
+        appelsSortants(lundi, finDeSemaine(now)),
+        appelsSortants(lundiAvant, lundi),
+        premiersOsListe(debutDuMois(now), finDuMois(now)),
+        compterPremiersOs(lundi, finDeSemaine(now)),
+        compterPremiersOs(lundiAvant, lundi),
+        chargerLeads(proprietaire).catch(() => [] as { agence: Agence; lead: Lead }[]), // SQL des leads absent : aucun lead
+        etapesDeLaBase().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))),
+        leadsBilanLignes().then((l) => l.filter((x) => dansLaBase(x.commercialId, proprietaire))),
         ...PERIODES.map((p) => { const b = bornesPeriode(p.code, now); return statsAppels(b.de, b.a) }),
       ])
       if (!enVie.current || jeton !== jetonCharge.current) return
       const classements = Object.fromEntries(PERIODES.map((p, i) => [p.code, classer(parPeriode[i], comptes, horsClassement)])) as Record<Periode, StatsCompte[]>
-      setD({ files, base, taches, classements, osRecus, objectif: lireObjectif(objectifBrut), parEtape, jamaisJointes, reveils })
+      setD({ files, base, taches, classements, objectif: lireObjectif(objectifBrut), jamaisJointes, reveils, comptes, appelsSemaine, appelsAvant, osMois, osSemaine, osAvant, leads, etapes, leadsBilan })
       santeDemarchage()
         .then((s) => { if (enVie.current) { setSante(s ? s.filter((e) => e.code !== "appel_non_note") : s); setSanteErreur("") } })
         .catch((e) => { if (enVie.current) setSanteErreur(message(e)) })
@@ -170,6 +209,38 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     agir(async () => { await ecrireParametre(CLE_OBJECTIF, String(n)); setEditionObjectif(false) })
   }
 
+  // ── La vue choisie (06/11/2026) : « L'équipe en direct » ou « Tableau de bord », mémorisée sur le poste ──
+  const [vue, setVueBrute] = useState<Vue>(() => { try { return localStorage.getItem(CLE_VUE) === "tableau" ? "tableau" : "equipe" } catch { return "equipe" } })
+  const setVue = (v: Vue) => { setVueBrute(v); try { localStorage.setItem(CLE_VUE, v) } catch { /* poste sans stockage */ } }
+  const [periodeEquipe, setPeriodeEquipe] = useState<Periode>("semaine")
+
+  // Les à-côtés du tableau de bord (heures, signaux, mails, analyse IA) : lus à l'ouverture de la vue,
+  // puis toutes les 10 min ; ils ne bougent pas à la minute.
+  const [extra, setExtra] = useState<Extra | null>(null)
+  const extraLu = useRef(0)
+  useEffect(() => {
+    if (vue !== "tableau" || Date.now() - extraLu.current < 10 * 60_000) return
+    extraLu.current = Date.now()
+    const now = new Date()
+    Promise.all([
+      resultatsAppelsDepuis(new Date(now.getTime() - 90 * 86_400_000)).catch(() => []),
+      derniersSignaux(new Date(now.getTime() - 7 * 86_400_000)).catch(() => []),
+      bilanMails(new Date(now.getTime() - 7 * 86_400_000)).catch(() => null),
+      appelsIaPeriode(new Date(now.getTime() - 30 * 86_400_000), now).catch(() => []),
+    ]).then(([res, signaux, mails, ia]) => {
+      if (!enVie.current) return
+      const objections = statsObjections(ia)
+      const argument = statsArguments(ia).find((a) => a.fiable) ?? null
+      const analyses = ia.filter((a) => a.statut === "pret" && a.analyse).length
+      setExtra({
+        heures: tauxJointParHeure(res), signaux, mails,
+        objection: objections[0] ? { libelle: objections[0].libelle, appels: objections[0].appels, joints: analyses } : null,
+        reponse: objections[0]?.meilleureReponse ?? "",
+        argument: argument ? { libelle: argument.libelle, aboutis: argument.aboutis, appels: argument.appels } : null,
+      })
+    })
+  }, [vue, d])
+
   if (!d) {
     return (
       <div className="page">
@@ -181,25 +252,34 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
 
   const groupes = grouperTaches(d.taches, maintenant)
   const rienAFaire = d.taches.length === 0
-  const progression = progressionObjectif(d.osRecus, d.objectif)
-  const segments = segmentsBase(d.parEtape)
-  const totalBase = segments.reduce((acc, x) => acc + x.n, 0)
+  const rythme = rythmeObjectif(d.osMois.length, d.objectif, debutDuMois(maintenant), finDuMois(maintenant), maintenant)
+  const aujourdHui = debutDuJour(maintenant)
+  const appelsDuJour = d.appelsSemaine.filter((a) => new Date(a.date) >= aujourdHui)
+  const memeJourAvant = d.appelsAvant.filter((a) => { const t = new Date(a.date); return t >= new Date(aujourdHui.getTime() - 7 * 86_400_000) && t < new Date(aujourdHui.getTime() - 6 * 86_400_000) }).length
+  const parcours = parcoursDepuis(d.appelsSemaine, d.osSemaine)
+  const parcoursAvant = parcoursDepuis(d.appelsAvant, d.osAvant)
+  const nomDuCompte = (id: string | null) => d.comptes.find((c) => c.id === id)?.nom ?? ""
+  const victoires = victoiresDepuis(appelsDuJour, d.osMois.filter((o) => o.date === jourLocal(maintenant)).map((o) => ({ ...o, commercialNom: nomDuCompte(o.commercialId) })))
+  const plusAncien = d.leads.length ? Math.max(...d.leads.map((l) => minutesDepuis(l.lead.creeLe, maintenant))) : 0
+  const bilanBase = bilanProspection(d.etapes)
+  const bilanDesLeads = bilanLeads(d.leadsBilan)
+  const ouvrirSession = (id: string) => onOuvrirSession?.(id)
 
   const ligneTache = (t: TacheAgenda, dansRetard = false) => {
     const retard = estEnRetard(t, maintenant)
     return (
-      // Les boutons passent sous le texte quand la carte est étroite, au lieu d'en sortir (14/10).
-      <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-fond-4 px-5 py-2 last:border-b-0">
+      // Les boutons passent sous le texte quand le bloc est étroit, au lieu d'en sortir (14/10).
+      <li key={t.id} className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-1 border-b-[0.5px] border-trait py-2 last:border-b-0">
         <span className="w-14 shrink-0">
           <span className={"chiffres block text-legende font-semibold " + (retard ? "text-alerte" : "text-encre")}>{t.echeance ? heureCourte(t.echeance) : "—"}</span>
           {dansRetard && t.echeance ? <span className="block text-colonne text-encre-2">{libelleRelatif(t.echeance, maintenant)}</span> : null}
         </span>
         <span className="min-w-[12rem] flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-corps font-medium text-encre">{t.titre || (t.type === "rdv" ? "RDV" : "Tâche")}</span>
+            <span className="truncate text-legende font-medium text-encre">{t.titre || (t.type === "rdv" ? "RDV" : "Tâche")}</span>
             {t.type === "rdv" ? <Pastille role="info" className="shrink-0">{iconeRdv(t.rdvType)} {libelleRdv(t.rdvType)}</Pastille> : null}
           </span>
-          <span className="block truncate text-legende text-encre-2">
+          <span className="block truncate text-colonne text-encre-2">
             <button type="button" className="font-medium text-encre underline-offset-2 hover:underline" onClick={() => onOuvrirAgence?.(t.agenceId)}>{t.agenceNom || "Agence inconnue"}</button>
             {t.contactNom ? ` · ${t.contactNom}` : ""}
             {t.agenceTelephone ? <span className="chiffres"> · {t.agenceTelephone}</span> : ""}
@@ -216,147 +296,144 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     )
   }
 
-  return (
-    <div className="page">
-      <EnTetePage
-        titre="Aujourd'hui"
-        sousTitre={majusculeInitiale(dateLongue(maintenant))}
-        droite={<>
-          <BoutonMailsIa />
-          <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => agir(async () => undefined)}>Actualiser</Bouton>
-          <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
-        </>}
-      />
-
-      {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
-      {/* La santé du démarchage : un écart se voit le matin même (contrôle du 13/10). */}
-      {santeErreur ? <Bandeau role="attention" className="mb-4">Contrôle de la base indisponible : {santeErreur}</Bandeau> : null}
-      {sante && sante.length ? (
-        <Bandeau role="alerte" className="mb-4">
-          <div className="space-y-1">
-            <p className="font-semibold">Contrôle de la base : {sante.length} écart{sante.length > 1 ? "s" : ""} à corriger</p>
-            <ul className="space-y-0.5">
-              {sante.map((e) => (
-                <li key={e.code}><b className="chiffres">{e.nombre}</b> · {e.libelle}{e.exemples ? <span className="text-encre-2"> — {e.exemples.length > 160 ? e.exemples.slice(0, 160) + "…" : e.exemples}</span> : null}</li>
-              ))}
-            </ul>
-          </div>
-        </Bandeau>
-      ) : null}
-
-      {/* ── Les quatre files ── */}
-      <div className="mb-4">
-        <p className="mb-1.5 text-colonne text-encre-2" title="La base choisie dans la session de call (sélecteur « Base »), avec le même repos entre deux appels">Les piles · {d.base}</p>
-        <Compteurs
-          valeurs={FILES.map((f) => ({ id: f.code, libelle: f.libelle, valeur: d.files ? d.files[f.code] : "—", detail: d.files ? f.aide : "Comptage impossible pour l'instant (Actualiser)" }))}
-          onSelect={() => onNaviguer?.("sessions")}
-        />
-      </div>
-
-      {/* ── Les ordres de service reçus dans STC Bâtiment : à confirmer par un humain ── */}
-      <ClientsAConfirmer onOuvrirAgence={onOuvrirAgence} onDecision={() => charger()} />
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
-        {/* ── À faire aujourd'hui ── */}
-        <Carte className="self-start">
-          <TitreCarte droite={<span className="chiffres text-legende text-encre-2">{d.base} · {d.taches.length} à faire</span>}>À faire aujourd'hui</TitreCarte>
-          {rienAFaire ? (
-            <Vide titre="Rien à faire aujourd'hui" texte="Aucune tâche ni RDV en attente. Une session de call remplira la journée." action={<Bouton onClick={() => onNaviguer?.("agenda")}>Voir l'agenda</Bouton>} />
-          ) : (
-            <div className="border-t border-trait">
-              {groupes.rdv.length ? (
-                <section>
-                  <h3 className="bg-fond-3 px-5 py-1.5 text-colonne font-medium text-encre-2">RDV du jour · {groupes.rdv.length}</h3>
-                  <ul>{groupes.rdv.map((t) => ligneTache(t))}</ul>
+  // ── Les blocs communs aux deux vues ──
+  const blocObjectif = (
+    <BlocObjectif recus={d.osMois.length} objectif={d.objectif} attendu={rythme.attendu} projection={rythme.projection} restants={rythme.restants} part={rythme.part} noms={d.osMois.map((o) => o.nom)}
+      edition={editionObjectif} saisie={saisieObjectif} setSaisie={setSaisieObjectif} ouvrirEdition={ouvrirEditionObjectif} fermerEdition={() => setEditionObjectif(false)} enregistrer={enregistrerObjectif} occupe={occupe} />
+  )
+  const ceQuiAttend = (
+    <Rangee colonnes="@min-[1100px]:grid-cols-12">
+      <Bloc className="@min-[1100px]:col-span-5">
+        <EnTete titre="Les leads" droite={<MentionEnTete>{d.leads.length ? `${d.leads.length} à appeler dans l'heure · le plus ancien d'abord` : "à appeler dans l'heure"}</MentionEnTete>} />
+        <ListeLeads leads={d.leads} maintenant={maintenant} onAppeler={ouvrirSession} />
+      </Bloc>
+      <Bloc className="@min-[1100px]:col-span-7">
+        <EnTete titre="À faire aujourd'hui" droite={<MentionEnTete>{d.base} · {d.taches.length} à faire</MentionEnTete>} />
+        {rienAFaire ? (
+          <Vide titre="Rien à faire aujourd'hui" texte="Aucune tâche ni RDV en attente. Une session de call remplira la journée." action={<Bouton onClick={() => onNaviguer?.("agenda")}>Voir l'agenda</Bouton>} />
+        ) : (
+          <div>
+            {groupes.rdv.length ? <section><h3 className="h-7 bg-fond-3 px-3 text-colonne font-medium leading-7 text-encre-2">RDV du jour · {groupes.rdv.length}</h3><ul>{groupes.rdv.map((t) => ligneTache(t))}</ul></section> : null}
+            {MOMENTS.map((m) => {
+              const liste = groupes[m.code]
+              if (!liste.length) return null
+              return (
+                <section key={m.code}>
+                  <h3 className={"h-7 px-3 text-colonne font-medium leading-7 " + (m.alerte ? "bg-alerte-fond text-alerte" : "bg-fond-2 text-encre-2")}>{m.libelle} · {liste.length}</h3>
+                  <ul>{liste.map((t) => ligneTache(t, m.code === "enRetard"))}</ul>
                 </section>
-              ) : null}
-              {MOMENTS.map((m) => {
-                const liste = groupes[m.code]
-                if (!liste.length) return null
-                return (
-                  <section key={m.code}>
-                    <h3 className={"px-5 py-1.5 text-colonne font-medium " + (m.alerte ? "bg-alerte-fond text-alerte" : "bg-fond-2 text-encre-2")}>{m.libelle} · {liste.length}</h3>
-                    <ul>{liste.map((t) => ligneTache(t, m.code === "enRetard"))}</ul>
-                  </section>
-                )
-              })}
-            </div>
-          )}
-        </Carte>
+              )
+            })}
+          </div>
+        )}
+      </Bloc>
+    </Rangee>
+  )
+  const mesBases = (
+    <Rangee colonnes="@min-[1100px]:grid-cols-2">
+      <Bloc>
+        <EnTete titre="Ma base de prospection" droite={<MentionEnTete>{d.base}</MentionEnTete>} />
+        <BaseProspection b={bilanBase} rappels={d.files ? d.files.rappels : null} jamaisJointes={d.jamaisJointes} reveils={d.reveils} onOuvrirEtape={onOuvrirEtape} onSession={() => onNaviguer?.("sessions")} />
+      </Bloc>
+      <Bloc>
+        <EnTete titre="Ma base de leads" droite={<MentionEnTete>{d.base} · depuis le début</MentionEnTete>} />
+        <BaseLeads b={bilanDesLeads} />
+      </Bloc>
+    </Rangee>
+  )
+  const leParcours = <Bloc><EnTete titre="Le parcours de la semaine" droite={<MentionEnTete>taux de passage · écart avec la semaine dernière</MentionEnTete>} /><BlocParcours p={parcours} avant={parcoursAvant} /></Bloc>
 
-        <div className="grid content-start gap-4">
-          {/* ── L'objectif du mois ── */}
-          <Carte>
-            <TitreCarte droite={<span className="text-legende text-encre-2">{maintenant.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>}>Objectif du mois</TitreCarte>
-            <div className="px-5 pb-5">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-legende font-medium text-encre">Premiers OS reçus</span>
-                {editionObjectif ? (
-                  <form onSubmit={enregistrerObjectif} className="flex items-center gap-1.5">
-                    <Champ type="number" min={1} step={1} value={saisieObjectif} onChange={(e) => setSaisieObjectif(e.target.value)} aria-label="Objectif d'OS par mois" className="h-7! w-20" autoFocus />
-                    <Bouton type="submit" taille="sm" chargement={occupe}>OK</Bouton>
-                    <Bouton taille="sm" variante="discret" onClick={() => setEditionObjectif(false)}>Annuler</Bouton>
-                  </form>
-                ) : (
-                  <button type="button" onClick={ouvrirEditionObjectif} className="inline-flex items-center gap-1 text-legende text-encre-2 hover:text-encre" title="Modifier l'objectif du mois">
-                    {d.objectif > 0 ? <>objectif <b className="chiffres font-semibold text-encre">{d.objectif}</b></> : "fixer un objectif"} <Pencil size={12} />
-                  </button>
-                )}
-              </div>
-              <div className="mt-1 flex items-baseline gap-2">
-                <span className="chiffres text-section font-semibold text-encre">{d.osRecus}</span>
-                {d.objectif > 0 ? <span className="chiffres text-legende text-encre-2">/ {d.objectif}</span> : null}
-                {d.objectif > 0 ? <Pastille role={progression.atteint ? "fait" : "attente"} point className="ml-auto">{progression.atteint ? "objectif atteint" : `reste ${progression.reste}`}</Pastille> : null}
-              </div>
-              <div className="mt-2 h-[10px] w-full overflow-hidden rounded-3 bg-fond-3" role="presentation">
-                <i className="block h-full rounded-3 bg-action transition-[width]" style={{ width: `${progression.pct}%` }} />
-              </div>
-              <p className="mt-1.5 text-colonne text-encre-2">Agences dont le premier ordre de service est daté de ce mois.</p>
-            </div>
-          </Carte>
+  return (
+    // La largeur mesurée est celle de la page entière (le conteneur n'a pas de marge) : à 1 100 px de
+    // zone et plus, les blocs se rangent côte à côte (Mac 13 pouces compris, fenêtre non maximisée aussi).
+    <div className="@container w-full"><div className="px-10 pb-12 pt-8">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pb-5">
+        <div className="min-w-0">
+          <Mention>{majusculeInitiale(dateLongue(maintenant))}</Mention>
+          <h1 className="mt-0.5 text-h1 font-semibold text-encre">Aujourd'hui</h1>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <BoutonMailsIa />
+          <Bouton icone={<RefreshCw />} chargement={occupe} onClick={() => { extraLu.current = 0; agir(async () => undefined) }}>Actualiser</Bouton>
+          <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer une session</Bouton>
         </div>
       </div>
+      <Onglets valeur={vue} onChange={setVue} options={[{ id: "equipe", label: "L'équipe en direct" }, { id: "tableau", label: "Tableau de bord" }]} />
 
-      {/* ── Le classement des commerciaux : tout le monde, même à zéro, pleine largeur ── */}
-      <Carte className="mt-4">
-        <TitreCarte droite={<Onglets valeur={periode} onChange={setPeriode} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />}>Classement des commerciaux</TitreCarte>
-        <TableauStats stats={d.classements[periode]} vide="Aucun appel sur cette période." />
-      </Carte>
-
-      {/* ── Où en est la base ── */}
-      <Carte className="mt-4">
-        <TitreCarte droite={<span className="chiffres text-legende text-encre-2">{totalBase} agence{s(totalBase)}</span>}>Où en est la base</TitreCarte>
-        <div className="px-5 pb-5">
-          {totalBase === 0 ? (
-            <Vide titre="La base est vide" texte="Aucune agence pour l'instant : ajoute-en depuis la page Agences." action={<Bouton onClick={() => onNaviguer?.("agences")}>Voir les agences</Bouton>} />
-          ) : (
-            <>
-              <div className="flex h-7 w-full overflow-hidden rounded-4 border border-trait" role="img" aria-label={segments.map((x) => `${x.libelle} : ${x.n}`).join(", ")}>
-                {segments.filter((x) => x.n > 0).map((x) => (
-                  <button type="button" key={x.code} style={{ flexGrow: x.n, flexBasis: 0 }} title={`${x.libelle} : ${x.n} (${x.pct} %) · voir ces agences`} onClick={() => onOuvrirEtape?.(x.code)} className={`chiffres flex min-w-[3px] cursor-pointer items-center justify-center overflow-hidden border-r border-fond text-colonne font-semibold last:border-r-0 hover:brightness-95 ${x.fond} ${x.texte}`}>
-                    {x.pct >= 5 ? x.n : ""}
-                  </button>
-                ))}
-              </div>
-              <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-legende">
-                {segments.map((x) => (
-                  <li key={x.code}>
-                    <button type="button" onClick={() => onOuvrirEtape?.(x.code)} title={`Voir les agences « ${x.libelle} »`} className="flex items-center gap-1.5 rounded-3 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature">
-                      <span className={`h-2.5 w-2.5 rounded-3 border border-trait ${x.fond}`} />
-                      <span className="text-encre-2">{x.libelle}</span>
-                      <b className="chiffres font-semibold text-encre">{x.n}</b>
-                    </button>
-                  </li>
+      <div className="mt-6">
+        {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
+        {/* La santé du démarchage : un écart se voit le matin même (contrôle du 13/10). */}
+        {santeErreur ? <Bandeau role="attention" className="mb-4">Contrôle de la base indisponible : {santeErreur}</Bandeau> : null}
+        {sante && sante.length ? (
+          <Bandeau role="alerte" className="mb-4">
+            <div className="space-y-1">
+              <p className="font-semibold">Contrôle de la base : {sante.length} écart{sante.length > 1 ? "s" : ""} à corriger</p>
+              <ul className="space-y-0.5">
+                {sante.map((e) => (
+                  <li key={e.code}><b className="chiffres">{e.nombre}</b> · {e.libelle}{e.exemples ? <span className="text-encre-2"> — {e.exemples.length > 160 ? e.exemples.slice(0, 160) + "…" : e.exemples}</span> : null}</li>
                 ))}
               </ul>
-              <div className="mt-4 grid gap-1 text-legende text-encre-2 sm:grid-cols-2">
-                <p><b className="chiffres font-semibold text-encre">{d.jamaisJointes}</b> agence{s(d.jamaisJointes)} active{s(d.jamaisJointes)} jamais jointe{s(d.jamaisJointes)}.</p>
-                <p><b className="chiffres font-semibold text-encre">{d.reveils}</b> endormie{s(d.reveils)} qui se réveille{d.reveils > 1 ? "nt" : ""} cette semaine.</p>
+            </div>
+          </Bandeau>
+        ) : null}
+        {/* Les ordres de service reçus dans STC Bâtiment : à confirmer par un humain */}
+        <ClientsAConfirmer onOuvrirAgence={onOuvrirAgence} onDecision={() => charger()} />
+      </div>
+
+      {vue === "equipe" ? (
+        <div className="space-y-12">
+          {blocObjectif}
+          <Rangee colonnes="@min-[1100px]:grid-cols-12">
+            <Bloc className="@min-[1100px]:col-span-7">
+              <EnTete titre="Le classement" droite={<Onglets className="!border-b-0" valeur={periodeEquipe} onChange={setPeriodeEquipe} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />} />
+              <Podium stats={d.classements[periodeEquipe]} />
+              <div className="mt-6"><ClassementCompact stats={d.classements[periodeEquipe]} /></div>
+            </Bloc>
+            <Bloc className="@min-[1100px]:col-span-5">
+              <EnTete titre="Les victoires du jour" droite={<span className="flex items-center gap-1.5 pb-2.5 text-colonne text-ok"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />en direct</span>} />
+              <Victoires victoires={victoires} maintenant={maintenant} onOuvrirAgence={onOuvrirAgence} />
+            </Bloc>
+          </Rangee>
+          {ceQuiAttend}
+          {mesBases}
+          <Rangee colonnes="@min-[1100px]:grid-cols-12">
+            <div className="@min-[1100px]:col-span-7">{leParcours}</div>
+            <Bloc className="@min-[1100px]:col-span-5">
+              <EnTete titre="Les piles" droite={<MentionEnTete>{d.base} · la session de call</MentionEnTete>} />
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                {FILES.map((f) => <Chiffre key={f.code} libelle={f.libelle} valeur={d.files ? d.files[f.code] : "—"} ton={f.code === "rappels" && d.files?.rappels ? "text-alerte" : "text-encre"} detail="ouvrir la session" title={d.files ? f.aide : "Comptage impossible pour l'instant (Actualiser)"} onClick={() => onNaviguer?.("sessions")} />)}
               </div>
-            </>
-          )}
+            </Bloc>
+          </Rangee>
         </div>
-      </Carte>
+      ) : (
+        <div className="space-y-12">
+          <Quatre cases={[
+            { libelle: "Leads à traiter", valeur: d.leads.length, detail: d.leads.length ? `le plus ancien : ${attenteCourte(plusAncien)}` : "aucun en attente", ton: d.leads.length ? couleurAttente(plusAncien) : "text-ok", onClick: () => onNaviguer?.("sessions") },
+            { libelle: "Appels aujourd'hui", valeur: appelsDuJour.length, detail: evolution(appelsDuJour.length, memeJourAvant) ? `${evolution(appelsDuJour.length, memeJourAvant)} vs le même jour la semaine dernière` : "premier jour de comparaison", ton: appelsDuJour.length >= memeJourAvant ? "text-ok" : "text-attention" },
+            { libelle: "RDV cette semaine", valeur: parcours.rdv, detail: `${ecart(parcours.rdv, parcoursAvant.rdv)} vs la semaine dernière`, ton: parcours.rdv >= parcoursAvant.rdv ? "text-ok" : "text-attention" },
+            { libelle: "Premiers OS du mois", valeur: d.osMois.length, detail: `projection fin de mois : ${rythme.projection}${d.objectif ? ` · objectif ${d.objectif}` : ""}`, ton: !d.objectif || rythme.projection >= d.objectif ? "text-ok" : "text-attention" },
+          ]} />
+          <Rangee colonnes="@min-[1100px]:grid-cols-12">
+            <div className="@min-[1100px]:col-span-7">
+              <Bloc><EnTete titre="Le parcours de la semaine" droite={<MentionEnTete>taux de passage · écart avec la semaine dernière</MentionEnTete>} /><div style={{ height: H_GRAPHE + 44 }} className="flex flex-col justify-center"><BlocParcours p={parcours} avant={parcoursAvant} /></div></Bloc>
+            </div>
+            <Bloc className="@min-[1100px]:col-span-5"><EnTete titre="Quand joindre un gestionnaire" droite={<MentionEnTete>sur 3 mois</MentionEnTete>} /><BlocHeures heures={extra?.heures ?? []} /></Bloc>
+          </Rangee>
+          {ceQuiAttend}
+          {mesBases}
+          <Rangee colonnes="@min-[1000px]:grid-cols-3">
+            <Bloc><EnTete titre="Ce qui bouge" droite={<MentionEnTete>les agences chaudes · 7 jours</MentionEnTete>} /><CeQuiBouge signaux={extra?.signaux ?? []} maintenant={maintenant} onAppeler={ouvrirSession} /></Bloc>
+            <Bloc><EnTete titre="Les mails" droite={<MentionEnTete>7 derniers jours</MentionEnTete>} /><BlocMails m={extra ? extra.mails : null} /></Bloc>
+            <Bloc><EnTete titre="Le conseil du mois" droite={<span className="pb-2.5"><Sparkles size={14} className="text-signature" /></span>} /><Conseil objection={extra?.objection ?? null} reponse={extra?.reponse ?? ""} argument={extra?.argument ?? null} /></Bloc>
+          </Rangee>
+          {blocObjectif}
+          <Bloc>
+            <EnTete titre="Le classement des commerciaux" droite={<Onglets className="!border-b-0" valeur={periode} onChange={setPeriode} options={PERIODES.map((p) => ({ id: p.code, label: p.libelle }))} />} />
+            <TableauStats stats={d.classements[periode]} vide="Aucun appel sur cette période." />
+          </Bloc>
+        </div>
+      )}
 
       {/* ── Reporter une tâche ── */}
       {report ? (
@@ -380,7 +457,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
           </form>
         </Dialogue>
       ) : null}
-    </div>
+    </div></div>
   )
 }
 
