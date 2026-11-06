@@ -486,7 +486,9 @@ export default function Messages({ espace }: { espace: Espace }) {
     <div className="page">
       {/* ── La barre du haut, comme Gmail (Mahdi, 06/11/2026) : « Nouveau message », les dossiers
           (réception, non lus, envoyés, tous) et la recherche. La liste et le message prennent
-          toute la largeur de la page : plus de colonne à gauche. ── */}
+          toute la largeur de la page : plus de colonne à gauche. Mail ouvert : cette barre disparaît,
+          celle du mail prend sa place (Mahdi, 06/11/2026). ── */}
+      {!enLecture && (
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-3">
         <Bouton variante="plein" icone={<Pencil />} onClick={ouvrirNouveau}>
           Nouveau message
@@ -526,6 +528,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           </div>
         )}
       </div>
+      )}
 
       {/* ── La liste ou la conversation, sur toute la largeur ── */}
       <section className="min-w-0">
@@ -537,11 +540,12 @@ export default function Messages({ espace }: { espace: Espace }) {
 
         {/* Pleine page (Mahdi, 06/11/2026 : « la ligne du mail prend toute la page ») : plus de cadre,
             les lignes vont d'un bord à l'autre ; leur texte reste aligné sur la barre du haut (40 px). */}
-        <div className="-mx-10 border-t-[0.5px] border-trait">
+        <div className={`-mx-10 border-t-[0.5px] border-trait ${enLecture ? "-mb-10 -mt-7 border-t-0" : ""}`}>
           {ouvert ? (
             /* ── Une conversation ── */
             <>
-              <div className="flex h-12 items-center gap-1 border-b border-trait px-8">
+              {/* La barre du mail reste en haut pendant qu'on fait défiler le mail, comme dans Gmail. */}
+              <div className="sticky top-0 z-20 flex h-12 items-center gap-1 border-b border-trait bg-fond px-8">
                 <Bouton variante="discret" taille="icone" onClick={retourListe} aria-label="Retour à la liste" title="Retour (Échap)">
                   <ArrowLeft />
                 </Bouton>
@@ -579,8 +583,8 @@ export default function Messages({ espace }: { espace: Espace }) {
                 ))}
               </div>
 
-              {/* Répondre / Transférer, sous le dernier message, comme Gmail */}
-              <div className="border-t border-fond-4 px-10 py-5">
+              {/* Répondre / Transférer : toujours en bas de l'écran, le mail défile au-dessus (comme Gmail). */}
+              <div className="sticky bottom-0 z-20 max-h-[60vh] overflow-y-auto border-t border-trait bg-fond px-10 py-4">
                 {mode === null ? (
                   <div className="flex gap-2">
                     <Bouton icone={<Reply />} onClick={() => ouvrirCompo("repondre")}>
