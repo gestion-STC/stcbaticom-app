@@ -98,18 +98,6 @@ export async function verifierMiseEnService(): Promise<ControleMiseEnService[]> 
   return l
 }
 
-/** Les mails de MES appels des dernières 24 h, ni envoyés ni écartés (le panneau de la session). */
-export async function mesMailsIa(): Promise<AppelIa[]> {
-  const s = sb()
-  const { data: u } = await s.auth.getUser()
-  if (!u.user) return []
-  const depuis = new Date(Date.now() - 24 * 3600_000).toISOString()
-  const { data, error } = await s.from("appels_ia").select(COLONNES).eq("compte_id", u.user.id).gte("cree_le", depuis)
-    .is("mail_envoye_le", null).is("mail_ecarte_le", null).order("cree_le", { ascending: false }).limit(30)
-  if (error) { if (tableAbsente(error.message)) return []; throw new Error(error.message) }
-  return ((data ?? []) as unknown as Ligne[]).map(versAppelIa)
-}
-
 /** Les appels analysés d'une agence (la fiche). */
 export async function appelsIaDeLAgence(agenceId: string): Promise<AppelIa[]> {
   const { data, error } = await sb().from("appels_ia").select(COLONNES).eq("agence_id", agenceId).order("cree_le", { ascending: false }).limit(20)

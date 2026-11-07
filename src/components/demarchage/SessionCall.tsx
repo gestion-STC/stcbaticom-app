@@ -132,7 +132,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // il survit à un onglet fermé ou rechargé (c'est par là que 10 appels avaient échappé entre le 19 et le 22/10).
   const [appelBloquant, setAppelBloquant] = useState<AppelEnAttente | null>(null)
   const bloquantRef = useRef<AppelEnAttente | null>(null)
-  const [nbResultats, setNbResultats] = useState(0) // relit les « Mails à envoyer » après chaque résultat
   const [appelees, setAppelees] = useState<Set<string>>(() => new Set())
   const [reserve, setReserve] = useState<string[]>([])
   const [autresNumeros, setAutresNumeros] = useState<string[]>([]) // les numéros des collègues (13/10)
@@ -1016,7 +1015,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         )
         // L'IA prépare le mail et analyse l'appel tout de suite (s'il y a eu quelqu'un au bout du fil).
         if (choix.resultat === "joint" || choix.resultat === "standard") lancerAnalyseAppel(bilan.appelId)
-        setNbResultats((n) => n + 1)
         // L'appel noté était peut-être celui qui bloquait le compte : la navigation se libère.
         // ⚠ 27/10 : on compare au verrou EN MÉMOIRE (relu une fois par minute), pas à `bloquant` qui exclut
         // l'appel en cours : sinon l'appel qu'on vient de noter restait « à noter » jusqu'à la relecture,
@@ -1197,7 +1195,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         <div className="flex flex-wrap items-center gap-2">
           <EnTeteSession
             modeLeads={mode === "leads"}
-            rafraichirMails={nbResultats}
             etapeFiltre={etapeFiltre}
             setEtapeFiltre={setEtapeFiltre}
             chargementFile={chargementFile}

@@ -5,7 +5,6 @@
 import { Play, Square } from "lucide-react"
 import { ETAPES, FILES, SORTIES, type File, type Secteur } from "../../../demarchage/modele"
 import { Bouton, Champ, Interrupteur, Selecteur } from "../../../ui"
-import { BoutonMailsIa } from "../MailsIa"
 
 type Sourcage = "" | "sourcees" | "non_sourcees"
 
@@ -39,7 +38,6 @@ export function PilesSession({ file, setFile, etapeFiltre, chargementFile, nbFil
 
 export default function EnTeteSession({
   modeLeads,
-  rafraichirMails,
   etapeFiltre,
   setEtapeFiltre,
   chargementFile,
@@ -65,7 +63,6 @@ export default function EnTeteSession({
   bloqueOnglet,
 }: {
   modeLeads: boolean
-  rafraichirMails: number
   etapeFiltre: string
   setEtapeFiltre: (e: string) => void
   chargementFile: boolean
@@ -93,7 +90,6 @@ export default function EnTeteSession({
   return (
     <>
       {/* « À compléter » retiré le 24/10/2026 : le résultat est désormais obligatoire (verrou du compte). */}
-      <BoutonMailsIa rafraichir={rafraichirMails} />
       {optionsDeBase.length > 1 ? (
         <Selecteur value={valeurBase} onChange={(e) => choisirBase(e.target.value)} disabled={enCours || barreVisible} className="w-40" aria-label="Base d'appel" title="La base que tu appelles : la tienne, celle d'un autre compte, les agences non attribuées, ou tout">
           {optionsDeBase.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
