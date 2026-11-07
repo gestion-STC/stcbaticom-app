@@ -22,7 +22,7 @@ const IA = "__ia__"
 const LIEN = "{{lien_creer_compte}}"
 const PHRASE_LIEN = `Vous pouvez ouvrir dès maintenant votre espace de suivi STC Bâtiment, en deux minutes : ${LIEN}`
 
-export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoyer, envoiRef }: {
+export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoyer, envoiRef, attendIa = false, onChoixManuel }: {
   destinataire: Destinataire
   /** Le mail écrit par l'IA d'après l'appel ; null tant qu'elle n'a pas fini (ou rien d'utile). */
   brouillon: { objet: string; corps: string } | null
@@ -30,6 +30,10 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
   setEnvoyer: (v: boolean) => void
   /** Rempli ici : le parent l'appelle une fois le résultat enregistré. */
   envoiRef: MutableRefObject<(() => Promise<string>) | null>
+  /** L'IA écoute encore l'appel : son mail arrive, rien d'autre ne s'affiche à sa place. */
+  attendIa?: boolean
+  /** Le commercial a pris la main (un modèle, ou son propre texte) : on n'attend plus l'IA. */
+  onChoixManuel?: () => void
 }) {
   const session = useSession()
   const { nom: nomSignataire } = useSignataires(session)
@@ -53,7 +57,7 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
   const depart = source === IA ? brouillon : modeles.find((x) => x.id === source) ?? null
   const objet = texte?.objet ?? depart?.objet ?? ""
   const corps = texte?.corps ?? depart?.corps ?? ""
-  function partirDe(id: string) { setChoix(id); setTexte(null); setEdition(false) }
+  function partirDe(id: string) { setChoix(id); setTexte(null); setEdition(false); if (id !== IA) onChoixManuel?.() }
 
   // Le lien « Créer un compte » : ajouté d'office s'il n'est pas déjà dans le texte.
   const corpsFinal = corps.includes(LIEN) ? corps : `${corps.trimEnd()}\n\n${PHRASE_LIEN}`
@@ -90,9 +94,11 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
             </div>
             <div className="rounded-4 border-[0.5px] border-trait px-4 py-3">
               <p className="text-colonne text-encre-2">À : <span className="text-encre">{destinataire.contact ? `${destinataire.contact} ` : ""}&lt;{destinataire.email || "adresse inconnue"}&gt;</span></p>
-              <p className="mt-0.5 text-colonne text-encre-2">Objet : <span className="text-encre">{apercu.objet}</span></p>
-              {edition
-                ? <Zone value={corps} onChange={(e) => setTexte({ objet, corps: e.target.value })} rows={10} className="mt-3 resize-y" />
+              <p className="mt-0.5 text-colonne text-encre-2">Objet : <span className="text-encre">{attendIa && !edition ? "…" : apercu.objet}</span></p>
+              {attendIa && !edition
+                ? <p className="mt-3 flex items-center gap-2 py-6 text-legende text-encre-2"><span className="h-2 w-2 animate-pulse rounded-full bg-signature" />L'IA écrit le mail d'après l'appel… Tu peux aussi partir d'un modèle.</p>
+                : edition
+                ? <Zone value={corps} onChange={(e) => { setTexte({ objet, corps: e.target.value }); onChoixManuel?.() }} rows={10} className="mt-3 resize-y" />
                 : <div className="signature-edit mt-3 max-h-[260px] overflow-y-auto text-legende [&_div]:!text-[13px] [&_div]:!leading-[1.55]" dangerouslySetInnerHTML={{ __html: apercu.corpsHtml }} />}
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-fond-4 pt-2">
                 <button type="button" onClick={() => setEdition((v) => !v)} className="flex items-center gap-1 text-colonne text-encre-2 hover:text-encre"><Pencil size={11} />{edition ? "Voir le mail tel qu'il part" : "Modifier le texte"}</button>

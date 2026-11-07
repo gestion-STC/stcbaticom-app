@@ -109,6 +109,11 @@ export default function BarreResultat({
   const issue: Issue | "" = issueChoisie || (joint && prop?.resultat === "joint" ? prop.issue : "")
   const desaccord = Boolean(prop && resultat && (resultat !== prop.resultat || (joint && issue && prop.issue && issue !== prop.issue)))
   const avecMail = Boolean(destinataire && (resultat === "joint" || resultat === "standard"))
+  // Le mail de l'IA n'est pas encore écrit : on ne valide pas en envoyant autre chose à sa place (07/11). Le
+  // commercial peut choisir un modèle, écrire lui-même, ou décocher l'envoi. Le mode automatique attend la
+  // validation : l'IA a donc toujours son temps.
+  const [mailManuel, setMailManuel] = useState(false)
+  const mailAttend = avecMail && envoyer && ia?.etat === "attente" && !mailManuel
   const rappelLe = issue === "a_rappeler" ? versIso(rappel) : null
   const rdvLe = issue === "rdv" ? versIso(rdv) : null
   const complet = choixComplet({ resultat, issue, motif, rappelLe, rdvLe })
@@ -121,7 +126,7 @@ export default function BarreResultat({
     }
   }
   function valider() {
-    if (!resultat || !complet || enregistrement) return
+    if (!resultat || !complet || enregistrement || mailAttend) return
     onValider({ resultat, issue: joint ? issue : "", motif: joint && issue === "pas_interesse" ? motif : "", contactId, rappelLe, rdvLe, rdvType }, avecMail ? envoiRef.current : null)
   }
 
@@ -132,7 +137,7 @@ export default function BarreResultat({
       const el = document.activeElement as HTMLElement | null
       if (estChampDeSaisie(el?.tagName, Boolean(el?.isContentEditable))) return
       if (e.key === "Enter") {
-        if (resultat && complet && !enregistrement) {
+        if (resultat && complet && !enregistrement && !mailAttend) {
           e.preventDefault()
           onValider({ resultat, issue: joint ? issue : "", motif: joint && issue === "pas_interesse" ? motif : "", contactId, rappelLe, rdvLe, rdvType }, avecMail ? envoiRef.current : null)
         }
@@ -162,7 +167,7 @@ export default function BarreResultat({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [raccourcis, resultat, choisi, joint, issue, motif, complet, enregistrement, contactId, rappelLe, rdvLe, rdvType, onValider, avecMail])
+  }, [raccourcis, resultat, choisi, joint, issue, motif, complet, enregistrement, contactId, rappelLe, rdvLe, rdvType, onValider, avecMail, mailAttend])
 
   const actifs = contacts.filter((c) => !c.parti)
 
@@ -242,7 +247,7 @@ export default function BarreResultat({
 
       <p className="mt-3 text-legende text-encre-2">{resultat && reglages ? effetAnnonce(resultat, joint ? (issue || null) : null, agence, { sommeilApres: reglages.sommeil_apres_tentatives, sommeilJours: reglages.sommeil_jours, relanceJours: reglages.relance_interesse_jours }) : "Choisis ce qui s'est passé : l'étape et les tâches suivent toutes seules."}</p>
 
-      {avecMail && destinataire ? <MailDeSuivi destinataire={destinataire} brouillon={prop?.mailCorps ? { objet: prop.mailObjet, corps: prop.mailCorps } : null} envoyer={envoyer} setEnvoyer={setEnvoyer} envoiRef={envoiRef} /> : null}
+      {avecMail && destinataire ? <MailDeSuivi destinataire={destinataire} brouillon={prop?.mailCorps ? { objet: prop.mailObjet, corps: prop.mailCorps } : null} envoyer={envoyer} setEnvoyer={setEnvoyer} envoiRef={envoiRef} attendIa={mailAttend} onChoixManuel={() => setMailManuel(true)} /> : null}
 
       <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-end justify-between gap-3 border-t border-fond-4 bg-fond pb-1 pt-3">
         <div className="w-full max-w-xs">
@@ -268,8 +273,8 @@ export default function BarreResultat({
               Apporteur d'affaires
             </Bouton>
           ) : null}
-          <Bouton variante="plein" icone={<Check />} disabled={!complet} chargement={enregistrement} onClick={valider}>
-            {avecMail && envoyer ? "Valider et envoyer le mail" : "Valider"}
+          <Bouton variante="plein" icone={<Check />} disabled={!complet || mailAttend} chargement={enregistrement} onClick={valider}>
+            {mailAttend ? "L'IA écrit le mail…" : avecMail && envoyer ? "Valider et envoyer le mail" : "Valider"}
           </Bouton>
         </div>
       </div>

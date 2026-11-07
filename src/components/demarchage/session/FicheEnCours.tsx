@@ -3,7 +3,7 @@
 // tout prêts : `BlocNumeros`, `BlocContacts`), la note de l'appel. Plus de boutons E-mail, Tâche, RDV (07/11) :
 // le mail part de la barre de résultat, le rendez-vous et le rappel se notent dans le résultat.
 import type { Dispatch, ReactNode, SetStateAction } from "react"
-import { ArrowRightLeft, Briefcase, ExternalLink, MapPin, Mic, MicOff } from "lucide-react"
+import { ArrowRightLeft, ExternalLink, MapPin, Mic, MicOff } from "lucide-react"
 import type { AgenceComplete, Lead } from "../../../demarchage/db"
 import { attenteLisible, couleurAttente, minutesDepuis } from "../../../demarchage/leadsOutils"
 import { DernierEchange } from "../EchangesAppels"
@@ -18,7 +18,6 @@ import { FABRIQUE_DICTEE } from "./outils"
 export default function FicheEnCours({
   fiche,
   ouvrirAgence,
-  passerEnApporteur,
   directeId,
   onRevenirFile,
   appelEnSuspens,
@@ -38,7 +37,6 @@ export default function FicheEnCours({
   lead?: Lead
   maintenant: Date
   ouvrirAgence: ((id: string, options?: { etape?: boolean }) => void) | undefined
-  passerEnApporteur: () => Promise<void>
   directeId: string | null
   onRevenirFile: () => void
   appelEnSuspens: Activite | null
@@ -92,9 +90,6 @@ export default function FicheEnCours({
         {ouvrirAgence ? (
           <div className="flex items-center gap-1">
             <Bouton variante="discret" icone={<ArrowRightLeft />} onClick={() => ouvrirAgence(fiche.agence.id, { etape: true })}>Changer l'étape</Bouton>
-            {/* Un apporteur d'affaires découvert en ligne (Mahdi, 12/10) : un clic, elle sort du démarchage, la file avance.
-                Pas pendant un résultat à noter : recharger la file effacerait l'appel en cours. */}
-            <Bouton variante="discret" icone={<Briefcase />} title="Cette agence est un apporteur d'affaires : elle sort du démarchage, l'appel en cours est clos, on passe à la suivante" onClick={() => void passerEnApporteur()}>Apporteur d'affaires</Bouton>
             <Bouton variante="discret" icone={<ExternalLink />} onClick={() => ouvrirAgence(fiche.agence.id)}>Ouvrir la fiche</Bouton>
           </div>
         ) : null}
