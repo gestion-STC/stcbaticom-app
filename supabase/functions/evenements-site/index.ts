@@ -62,6 +62,21 @@ Deno.serve(async (req: Request) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   const url = new URL(req.url)
 
+  // ── Ne plus recevoir nos mails de campagne (07/11/2026) : le lien de désinscription d'un mail de prospection ──
+  if (req.method === "GET" && url.searchParams.get("stop")) {
+    const { data: lien } = await sb.from("liens_suivis").select("agence_id").eq("jeton", url.searchParams.get("stop") || "").maybeSingle()
+    const quand = new Date().toISOString()
+    if (lien?.agence_id) {
+      await sb.from("agences").update({ ne_plus_ecrire_le: quand }).eq("id", lien.agence_id)
+      const { data: d } = await sb.rpc("cmp_dernier_envoi", { p_contact: String(lien.agence_id), p_avant: quand })
+      const dernier = (d as { envoi_id: string; campagne_id: string }[] | null)?.[0]
+      if (dernier) await sb.from("cmp_evenements").insert({ campagne_id: dernier.campagne_id, envoi_id: dernier.envoi_id, contact_ref: String(lien.agence_id), type: "desinscription", le: quand })
+      await poserSignal(sb, lien.agence_id as string, null, "Désinscrit des mails de prospection", "Depuis le lien d'un mail de campagne.", quand)
+    }
+    const page = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Désinscription</title></head><body style="margin:0;background:#f6f6f8;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px"><div style="background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px"><h1 style="font-size:20px;margin:0 0 10px">C'est noté</h1><p style="margin:0;color:#525252;line-height:1.55">Vous ne recevrez plus nos messages de prospection.<br>STC Bâtiment</p></div></body></html>`
+    return new Response(page, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
+  }
+
   // ── Un lien suivi cliqué ──
   if (req.method === "GET") {
     const jeton = url.searchParams.get("l") || ""

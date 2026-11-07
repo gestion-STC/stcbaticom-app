@@ -168,6 +168,14 @@ Deno.serve(async (req: Request) => {
     const destinataire = String((Array.isArray(d.to) ? d.to[0] : d.to) || "").toLowerCase().trim()
     const quand = String(d.created_at || payload.created_at || new Date().toISOString())
 
+    // ── Campagnes (07/11/2026) : l'envoi d'une campagne (cmp_envois.fournisseur_id) reçoit son événement ; la suite
+    // (fiche artisan, note sur la fiche agence) continue comme avant.
+    if (resendId) {
+      const { data: ce } = await sb.from("cmp_envois").select("id, campagne_id, contact_ref").eq("fournisseur_id", resendId).maybeSingle()
+      const typeCmp = ({ "email.delivered": "delivre", "email.opened": "ouvert", "email.bounced": "rebond", "email.complained": "desinscription" } as Record<string, string>)[type]
+      if (ce && typeCmp) await sb.from("cmp_evenements").insert({ campagne_id: ce.campagne_id, envoi_id: ce.id, contact_ref: ce.contact_ref, type: typeCmp, le: quand })
+    }
+
     const { data: envoi } = resendId
       ? await sb.from("st_envois").select("id, sous_traitant_id").eq("resend_id", resendId).maybeSingle()
       : { data: null }

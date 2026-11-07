@@ -8,6 +8,8 @@ import type { Espace } from "./messagesDb"
 // ne s'importent pas l'un l'autre (boucle refusée par la CI, 06/11/2026).
 export type PageId =
   | "aujourdhui"
+  | "campagnes"
+  | "st_campagnes"
   | "sessions"
   | "agences"
   | "agenda"
@@ -37,6 +39,7 @@ export const RUBRIQUES: RubriqueMenu[] = [
       {
         titre: "Travailler",
         entrees: [
+          { id: "campagnes", titre: "Campagnes" },
           { id: "sessions", titre: "Sessions de call" },
           { id: "agences", titre: "Agences" },
           { id: "agenda", titre: "Agenda" },
@@ -54,7 +57,8 @@ export const RUBRIQUES: RubriqueMenu[] = [
       {
         titre: "",
         entrees: [
-          { id: "st_machine", titre: "Machine" },
+          // 07/11/2026 : la « Machine », ses « Séquences » et ses « Réglages » deviennent une campagne (même outil que les agences).
+          { id: "st_campagnes", titre: "Campagnes" },
           { id: "st_suivi", titre: "Suivi" },
         ],
       },
@@ -65,13 +69,6 @@ export const RUBRIQUES: RubriqueMenu[] = [
           { id: "st_base", titre: "Base d'artisans" },
           { id: "st_dossiers", titre: "Dossiers déposés" },
           { id: "st_boite", titre: "Boîte de réception" },
-        ],
-      },
-      {
-        titre: "Régler",
-        entrees: [
-          { id: "st_sequences", titre: "Séquences" },
-          { id: "st_reglages", titre: "Réglages de la machine" },
         ],
       },
     ],
