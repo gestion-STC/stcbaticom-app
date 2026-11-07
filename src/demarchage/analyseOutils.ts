@@ -132,3 +132,65 @@ export function dureeLisible(s: number | null): string {
 export const pourcent = (t: number | null): string => (t == null ? "—" : `${Math.round(t * 100)} %`)
 /** « +12 pts » / « −8 pts » ; « — » sans base. */
 export const ecartLisible = (e: number | null): string => (e == null ? "—" : `${e >= 0 ? "+" : "−"}${Math.abs(Math.round(e * 100))} pts`)
+
+// ── MON ENTRAÎNEMENT (07/11/2026, Mahdi : « chaque commercial peut aller là-bas pour analyser ses points
+// forts, ses points faibles », « un vrai feedback de où en est son démarchage et comment s'améliorer »).
+// Tout vient de SES appels analysés, comparé à toute l'équipe sur la même période. Rien d'inventé.
+export type Retour = { texte: string; agence: string; date: string }
+export type ObjectionPerso = { libelle: string; entendues: number; levees: number; tauxEquipe: number | null; reponse: string }
+export type Entrainement = {
+  appels: number
+  jointsNotes: number            // notés « gestionnaire joint » par le commercial
+  jointsConfirmes: number        // … dont l'IA confirme qu'un décideur était en ligne
+  objections: number; levees: number; tauxLevee: number | null; tauxLeveeEquipe: number | null
+  aboutis: number; taux: number | null; tauxEquipe: number | null
+  chaudes: number                // intérêt fort selon l'IA
+  chaudesStandard: number        // … notées « standard » : un gestionnaire peut-être passé à côté
+  pointsForts: Retour[]; aTravailler: Retour[]
+  objectionsPerso: ObjectionPerso[]
+  aReecouter: AppelIa | null     // l'occasion manquée la plus récente : intérêt fort, pas abouti
+}
+
+function retoursRecents(appels: AppelIa[], cle: "pointsForts" | "aAmeliorer", n: number): Retour[] {
+  const vus = new Set<string>(), out: Retour[] = []
+  for (const a of appels) for (const t of a.analyse?.[cle] ?? []) {
+    const k = cleLibelle(t).slice(0, 40)
+    if (!k || vus.has(k)) continue
+    vus.add(k)
+    out.push({ texte: t, agence: a.agenceNom, date: a.creeLe })
+    if (out.length >= n) return out
+  }
+  return out
+}
+
+export function entrainement(tous: AppelIa[], nom: string): Entrainement {
+  const prets = tous.filter((a) => a.statut === "pret" && a.analyse).sort((x, y) => (x.creeLe < y.creeLe ? 1 : -1))
+  const miens = prets.filter((a) => a.compteNom === nom)
+  const compterObjections = (l: AppelIa[]) => { let o = 0, lv = 0; for (const a of l) for (const x of a.analyse!.objections) { o += 1; if (x.levee) lv += 1 } return { o, lv } }
+  const moi = compterObjections(miens), equipe = compterObjections(prets)
+  const aboutisMiens = miens.filter(abouti).length
+  const parObjection = new Map(statsObjections(prets).map((l) => [cleLibelle(l.libelle), l]))
+  const perso = new Map<string, ObjectionPerso>()
+  for (const a of miens) for (const x of a.analyse!.objections) {
+    const k = cleLibelle(x.libelle)
+    if (!k) continue
+    const eq = parObjection.get(k)
+    const l = perso.get(k) ?? { libelle: x.libelle.trim(), entendues: 0, levees: 0, tauxEquipe: eq?.tauxLevee ?? null, reponse: eq?.meilleureReponse ?? "" }
+    l.entendues += 1
+    if (x.levee) l.levees += 1
+    perso.set(k, l)
+  }
+  return {
+    appels: miens.length,
+    jointsNotes: miens.filter((a) => a.resultat === "joint").length,
+    jointsConfirmes: miens.filter((a) => a.resultat === "joint" && a.analyse!.decideurJoint).length,
+    objections: moi.o, levees: moi.lv, tauxLevee: taux(moi.lv, moi.o), tauxLeveeEquipe: taux(equipe.lv, equipe.o),
+    aboutis: aboutisMiens, taux: taux(aboutisMiens, miens.length), tauxEquipe: taux(prets.filter(abouti).length, prets.length),
+    chaudes: miens.filter((a) => a.interet === "fort").length,
+    chaudesStandard: miens.filter((a) => a.interet === "fort" && a.resultat === "standard").length,
+    pointsForts: retoursRecents(miens, "pointsForts", 3),
+    aTravailler: retoursRecents(miens, "aAmeliorer", 3),
+    objectionsPerso: [...perso.values()].sort((x, y) => y.entendues - x.entendues || x.libelle.localeCompare(y.libelle, "fr")).slice(0, 6),
+    aReecouter: miens.find((a) => (a.interet === "fort" || a.interet === "moyen") && !abouti(a) && a.analyse!.objections.some((o) => !o.levee)) ?? null,
+  }
+}

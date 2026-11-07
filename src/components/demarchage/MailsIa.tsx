@@ -3,19 +3,19 @@
 // l'appel, avoir tout de suite la possibilité de générer le mail personnalisé »).
 //
 // Après « Valider le résultat », la session passe à l'agence suivante : le mail de
-// l'appel d'avant arrive donc dans « Mails à envoyer » (en-tête de la session), et
+// l'appel d'avant arrivait dans « Mails à envoyer » (retiré le 07/11 : le mail part désormais de la barre de résultat), et
 // sur la fiche de l'agence. Il n'est JAMAIS envoyé tout seul : « Relire et envoyer »
 // ouvre l'envoi habituel, pré-rempli, modifiable, signé comme d'habitude.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDown, ChevronUp, Mail, Sparkles } from "lucide-react"
 import {
-  appelsIaDeLAgence, destinatairePourAppel, ecarterMail, marquerMailEnvoye, mesMailsIa, relancerAnalyse, type AppelIa,
+  appelsIaDeLAgence, destinatairePourAppel, ecarterMail, marquerMailEnvoye, relancerAnalyse, type AppelIa,
 } from "../../demarchage/appelsIa"
 import { dureeLisible } from "../../demarchage/analyseOutils"
 import { dateHeureCourte } from "../../demarchage/sessionOutils"
 import type { Destinataire } from "../../lib/destinataire"
-import { Bandeau, Bouton, Carte, Panneau, Pastille, TitreCarte, type RolePastille } from "../../ui"
+import { Bandeau, Bouton, Carte, Pastille, TitreCarte, type RolePastille } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
 
 const EN_COURS = new Set(["en_attente", "en_cours"])
@@ -118,41 +118,6 @@ function useRelecture<T extends AppelIa>(charger: () => Promise<T[]>, actif: boo
     return () => { vivant.current = false; clearTimeout(premier); clearInterval(t) }
   }, [relire, actif, enRoute, rafraichir])
   return { liste, erreur, relire }
-}
-
-/** Le bouton de la session : « Mails à envoyer », avec le nombre de mails prêts. */
-export function BoutonMailsIa({ rafraichir = 0 }: { rafraichir?: number }) {
-  const [ouvert, setOuvert] = useState(false)
-  const { liste, erreur, relire } = useRelecture(mesMailsIa, true, rafraichir)
-  const prets = liste.filter((a) => a.statut === "pret" && a.mailPertinent).length
-  const enRoute = liste.filter((a) => EN_COURS.has(a.statut)).length
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => { relire(); setOuvert(true) }}
-        title={prets ? `${prets} mail${prets > 1 ? "s" : ""} prêt${prets > 1 ? "s" : ""} à relire` : enRoute ? "Analyse en cours" : "Les mails préparés par l'IA après tes appels"}
-        className="relative inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-4 border border-trait bg-fond px-3 text-legende font-medium text-encre-2 transition-colors hover:border-trait-fort hover:bg-fond-4 hover:text-encre focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2"
-      >
-        <Sparkles size={15} />
-        <span>Mails à envoyer</span>
-        {prets ? <span className="chiffres ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-encre px-1.5 text-colonne font-medium text-white">{prets}</span> : null}
-        {!prets && enRoute ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-info" aria-label="analyse en cours" /> : null}
-      </button>
-      {ouvert ? (
-        <Panneau titre="Mails à envoyer" sousTitre="Préparés par l'IA à partir de tes appels des dernières 24 h. Rien ne part sans toi." onFermer={() => setOuvert(false)}>
-          {erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : null}
-          {liste.length === 0 ? (
-            <p className="text-legende text-encre-2">Rien pour l'instant. Après un appel où quelqu'un a décroché, le mail arrive ici en général moins d'une minute après le résultat noté.</p>
-          ) : (
-            <ul className="divide-y divide-fond-4">
-              {liste.map((a) => <CarteMailIa key={a.id} appel={a} avecAgence onChange={relire} />)}
-            </ul>
-          )}
-        </Panneau>
-      ) : null}
-    </>
-  )
 }
 
 /** Sur la fiche d'une agence : ses appels analysés et leurs mails (rien s'il n'y en a pas). */

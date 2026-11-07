@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Email, PieceJointe } from "../emails"
-import { basculerDocument, bibliothequeDocuments, estJoint } from "./documentsBibliotheque"
+import { DOCUMENTS_DE_BASE, basculerDocument, bibliothequeDocuments, documentsDeBase, estJoint } from "./documentsBibliotheque"
 
 const pj = (nom: string, chemin: string): PieceJointe => ({ nom, chemin, url: "https://x/" + chemin, taille: 1000 })
 const email = (nom: string, pieces: PieceJointe[]): Email => ({ id: nom, nom, objet: "", corps: "", ordre: 0, pieces })
@@ -30,5 +30,17 @@ describe("bibliothèque des documents", () => {
     const dansModele = pj("Kbis STC Bâtiment.pdf", "x.pdf"), dansBiblio = pj("Kbis STC Bâtiment.pdf", "y.pdf")
     expect(estJoint(dansBiblio, [dansModele])).toBe(true)
     expect(basculerDocument(dansBiblio, [dansModele])).toHaveLength(0)
+  })
+})
+
+describe("documents de base du mail de suivi", () => {
+  it("les quatre fichiers choisis, dans l'ordre, même rangés dans plusieurs modèles ; rien d'autre", () => {
+    const [kbis, assurance, gestion, plateforme] = DOCUMENTS_DE_BASE
+    const docs = documentsDeBase([
+      email("A", [pj("STC - Plaquette Plateforme.pdf", plateforme), pj("Plaquette_STC_Service_Gestion (7).pdf", "ancienne.pdf")]),
+      email("B", [pj("Kbis STC Bâtiment (24-07-2026).pdf", kbis), pj("STC - Plaquette Service Gestion (1).pdf", gestion), pj("Attestation d'assurance STC Bâtiment (SMA BTP).pdf", assurance)]),
+      email("C", [pj("STC - Plaquette Plateforme.pdf", plateforme)]),
+    ])
+    expect(docs.map((d) => d.chemin)).toEqual([kbis, assurance, gestion, plateforme])
   })
 })

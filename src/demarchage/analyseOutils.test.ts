@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { AppelIa } from "./appelsIa"
 import {
   MIN_APPELS, abouti, bilanGlobal, cleLibelle, dureeLisible, ecartLisible, heureDeParis, pourcent,
-  statsArguments, statsObjections, statsParCommercial, statsParHeure,
+  entrainement, statsArguments, statsObjections, statsParCommercial, statsParHeure,
 } from "./analyseOutils"
 
 let n = 0
@@ -91,5 +91,38 @@ describe("analyse des appels", () => {
     expect(pourcent(null)).toBe("—")
     expect(ecartLisible(0.12)).toBe("+12 pts")
     expect(ecartLisible(-0.08)).toBe("−8 pts")
+  })
+})
+
+describe("mon entraînement", () => {
+  it("ne compte que MES appels, et compare à toute l'équipe", () => {
+    const a1 = appel({ compteNom: "Horlann", issue: "interesse", objs: [["Artisans déjà en place", true, "On reste ouverts ?"]], creeLe: "2026-11-05T09:00:00Z" })
+    const a2 = appel({ compteNom: "Horlann", interet: "fort", objs: [["Artisans déjà en place", false]], creeLe: "2026-11-06T09:00:00Z" })
+    const a3 = appel({ compteNom: "Mahdi", objs: [["Artisans déjà en place", false], ["Pas de besoin", false]] })
+    const e = entrainement([a1, a2, a3, appel({ compteNom: "Horlann", statut: "en_attente" })], "Horlann")
+    expect(e.appels).toBe(2)
+    expect(e.aboutis).toBe(1)
+    expect(e.taux).toBe(0.5)
+    expect(e.tauxEquipe).toBeCloseTo(1 / 3)
+    expect([e.objections, e.levees, e.tauxLevee]).toEqual([2, 1, 0.5])
+    expect(e.tauxLeveeEquipe).toBeCloseTo(1 / 4)
+    expect(e.objectionsPerso).toEqual([{ libelle: "Artisans déjà en place", entendues: 2, levees: 1, tauxEquipe: 1 / 3, reponse: "On reste ouverts ?" }])
+    // L'appel à réécouter : intérêt fort, pas abouti, une objection restée ouverte.
+    expect(e.aReecouter?.id).toBe(a2.id)
+  })
+
+  it("un « joint » n'est confirmé que si l'IA a entendu un décideur ; une agence chaude notée standard est signalée", () => {
+    const j = appel({ compteNom: "H" })
+    const pasDecideur = appel({ compteNom: "H" }); pasDecideur.analyse!.decideurJoint = false
+    const chaudeStandard = appel({ compteNom: "H", interet: "fort" }); chaudeStandard.resultat = "standard"
+    const e = entrainement([j, pasDecideur, chaudeStandard], "H")
+    expect([e.jointsNotes, e.jointsConfirmes]).toEqual([2, 1])
+    expect([e.chaudes, e.chaudesStandard]).toEqual([1, 1])
+  })
+
+  it("les retours sont les plus récents, sans doublon", () => {
+    const vieux = appel({ compteNom: "H", creeLe: "2026-11-01T09:00:00Z" }); vieux.analyse!.pointsForts = ["Récupère le mail du gestionnaire"]
+    const recent = appel({ compteNom: "H", creeLe: "2026-11-06T09:00:00Z" }); recent.analyse!.pointsForts = ["Récupère le mail du gestionnaire", "Qualification rapide"]
+    expect(entrainement([vieux, recent], "H").pointsForts.map((r) => r.texte)).toEqual(["Récupère le mail du gestionnaire", "Qualification rapide"])
   })
 })

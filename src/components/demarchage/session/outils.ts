@@ -1,6 +1,5 @@
 // Les petits outils de la session de call (sans écran) : types, constantes, règles d'une ligne.
 import { RESULTAT_LANCE, type Activite, type Agence, type File, type RoleContact } from "../../../demarchage/modele"
-import type { TypeRdv } from "../../../demarchage/sessionOutils"
 
 // ── La dictée vocale du navigateur (Chrome / Edge), typée sans `any` ──
 type ResultatDictee = { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }
@@ -45,8 +44,6 @@ export const TEXTES_APPEL: Record<EtapeAppel, string> = {
 
 export const CONTACT_VIDE = { prenom: "", nom: "", role: "gestionnaire" as RoleContact, ligneDirecte: "", mobile: "", email: "" }
 export type NouveauContact = typeof CONTACT_VIDE
-export type Action = "tache" | "rdv" | "passer"
-export type FormAction = { titre: string; quand: string; type: TypeRdv; note: string }
 export const messageDe = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // Une agence qui n'a plus sa place dans la pile affichée (modifiée depuis sa fiche) : sortie,
