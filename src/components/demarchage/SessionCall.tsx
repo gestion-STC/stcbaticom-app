@@ -50,7 +50,7 @@ import {
 import { useReglages } from "../../demarchage/reglages"
 import { Bandeau, Bouton, Chargement, Onglets, Vide } from "../../ui"
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
-import { lancerAnalyseAppel, monAppelSansResultat, type AppelEnAttente } from "../../demarchage/appelsIa"
+import { lancerAnalyseAppel, marquerMailEnvoyeDeLAppel, monAppelSansResultat, proposerResultat, type AppelEnAttente, type PropositionIa } from "../../demarchage/appelsIa"
 import BarreResultat from "./BarreResultat"
 import ContactFormulaire from "./ContactFormulaire"
 import BlocContacts from "./session/BlocContacts"
@@ -158,6 +158,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [indice, setIndice] = useState("")
   const [enregistrement, setEnregistrement] = useState(false)
   const [compteFin, setCompteFin] = useState<number | null>(null)
+  // L'IA après le raccroché (maquette 07/11) : elle écoute, puis propose ; le commercial valide ou corrige.
+  const [iaEtat, setIaEtat] = useState<{ appelId: string; etat: "prete" | "rien"; proposition: PropositionIa | null } | null>(null)
   const [maintenant, setMaintenant] = useState(() => Date.now())
 
   // ── Les à-côtés ──
@@ -854,6 +856,23 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const appelManuel = appel?.manuel ?? false
   useSurveillanceAppel({ debutAppel, appelManuel, appelRef, toursMaxRef, setMaintenant, setAppel, setSuggestion, setIndice, setErreur })
 
+  // ── Le raccroché : l'IA écoute l'appel et propose le résultat (objectif : prête en 10 s) ──
+  const appelTermineId = appel && !appel.manuel && appel.etape === "termine" && appel.appelId ? appel.appelId : ""
+  const appelTermineCall = appel?.callId ?? ""
+  useEffect(() => {
+    if (!appelTermineId) return
+    let annule = false
+    const horloge = setInterval(() => setMaintenant(Date.now()), 500)
+    proposerResultat(appelTermineId, appelTermineCall)
+      .then((p) => { if (!annule) setIaEtat({ appelId: appelTermineId, etat: p ? "prete" : "rien", proposition: p }) })
+      .catch(() => { if (!annule) setIaEtat({ appelId: appelTermineId, etat: "rien", proposition: null }) })
+      .finally(() => clearInterval(horloge))
+    return () => { annule = true; clearInterval(horloge) }
+  }, [appelTermineId, appelTermineCall])
+  const iaBarre = !appelTermineId ? null
+    : iaEtat?.appelId === appelTermineId ? { etat: iaEtat.etat, depuis: 0, proposition: iaEtat.proposition }
+    : { etat: "attente" as const, depuis: Math.max(0, Math.round((maintenant - (appel?.fin ?? maintenant)) / 1000)), proposition: null }
+
   // ── Mode automatique : compte à rebours, puis l'appel du numéro par défaut ──
   const courantePrete = Boolean(fiche)
   useEffect(() => {
@@ -945,7 +964,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Valider le résultat : LA seule écriture de l'appel ──
   const validerResultat = useCallback(
-    async (choix: ChoixResultat) => {
+    async (choix: ChoixResultat, envoyerMail?: (() => Promise<string>) | null) => {
       const c = couranteRef.current
       const a = appelRef.current
       if (!c) return
@@ -964,7 +983,16 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         })
         if (!enVie.current) return
         const m = new Date()
-        setInfo(`${c.agence.nom} : ${resumeEcriture(bilan, choix, m, relanceJoursRef.current)}`)
+        setInfo(`${c.agence.nom} : ${resumeEcriture(bilan, choix, m, relanceJoursRef.current)}${envoyerMail ? " · mail en route" : ""}`)
+        // Le mail de suivi part une fois le résultat écrit ; l'écran passe déjà à la fiche suivante.
+        if (envoyerMail) {
+          const nom = c.agence.nom
+          const idAppel = bilan.appelId
+          envoyerMail().then((a) => {
+            marquerMailEnvoyeDeLAppel(idAppel).catch(() => {})
+            if (enVie.current) setInfo((i) => i.replace("mail en route", `mail parti à ${a}`))
+          }, (e) => { if (enVie.current) setErreur(`${nom} : le mail de suivi n'est pas parti (${messageDe(e)}). Renvoie-le depuis la fiche.`) })
+        }
         setAppelees((s) => new Set(s).add(c.agence.id))
         const n = appelId ? "" : chiffresTel(a?.numeroEmission ?? "") // déjà compté au clic
         if (n) {
@@ -1000,6 +1028,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         setBarreVisible(false)
         setNote("")
         setSuggestion(null)
+        setIaEtat(null)
         setIndice("")
         setErreur("")
         recompterFiles()
@@ -1317,6 +1346,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                   enregistrement={enregistrement}
                   onValider={validerResultat}
                   onApporteur={() => void passerEnApporteur()}
+                  ia={iaBarre}
+                  destinataire={destinataireDepuis(fiche.agence, fiche.contacts.find((k) => k.id === contactEnLigne) ?? null)}
                 />
               ) : null}
               </div>

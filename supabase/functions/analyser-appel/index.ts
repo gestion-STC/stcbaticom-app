@@ -249,6 +249,12 @@ async function traiter(sb: SupabaseClient, l: Ligne, attendreEnregistrement: boo
     }
     // 2. La transcription (payante) : gardée dès qu'elle existe.
     let transcription = l.transcription ?? ""
+    // Déjà faite au raccroché par proposer-resultat (07/11/2026) : reprise telle quelle, pas repayée.
+    if (!transcription) {
+      const { data: p } = await sb.from("appels_propositions").select("transcription").eq("activite_id", l.activite_id).maybeSingle()
+      transcription = (p as { transcription?: string | null } | null)?.transcription ?? ""
+      if (transcription) await maj({ transcription, duree_s: duree || null, enregistrement_url: url })
+    }
     if (!transcription) {
       transcription = await transcrire(url)
       await maj({ transcription, duree_s: duree || null, enregistrement_url: url })
