@@ -180,3 +180,39 @@ export async function destinatairePourAppel(a: AppelIa): Promise<Destinataire | 
     arrondissement: agence.arrondissement || agence.secteur || "",
   }
 }
+
+// ── LA PROPOSITION RAPIDE (maquette 07/11/2026) ──
+// Dès le raccroché, l'IA écoute l'appel et PROPOSE le résultat ; le commercial valide ou corrige.
+// Les deux réponses sont gardées : c'est ce qui mesure la justesse de l'IA. Objectif : prête en 10 s.
+// Fonction serveur `proposer-resultat` (à écrire au lot 1) : null si rien d'utile (pas d'enregistrement…).
+export type PropositionIa = {
+  resultat: "pas_de_reponse" | "standard" | "joint" | "faux_numero"
+  issue: "" | "interesse" | "rdv" | "a_rappeler" | "pas_interesse"
+  /** Ce qui, dans l'appel, justifie la proposition (une phrase, citée ou résumée). */
+  preuve: string
+  /** Le mail de suivi écrit d'après l'appel ; vide si aucun mail n'est utile. */
+  mailObjet: string
+  mailCorps: string
+}
+export async function proposerResultat(activiteId: string, callId: string): Promise<PropositionIa | null> {
+  if (!supabase || !activiteId) return null
+  const { data, error } = await supabase.functions.invoke("proposer-resultat", { body: { activite_id: activiteId, call_id: callId } })
+  if (error || !data || !(data as { resultat?: string }).resultat) return null
+  const d = data as { resultat: PropositionIa["resultat"]; issue?: string; preuve?: string; mail_objet?: string; mail_corps?: string }
+  return { resultat: d.resultat, issue: (d.issue ?? "") as PropositionIa["issue"], preuve: d.preuve ?? "", mailObjet: d.mail_objet ?? "", mailCorps: d.mail_corps ?? "" }
+}
+
+/** Les 3 lignes avant d'appeler : d'après les appels précédents de l'agence, sinon le guide des réponses. */
+export async function conseilsAvantAppel(agenceId: string): Promise<{ lignes: string[]; source: string }> {
+  if (!supabase || !agenceId) return { lignes: [], source: "" }
+  const { data, error } = await supabase.rpc("conseils_avant_appel", { p_agence_id: agenceId })
+  if (error || !data) return { lignes: [], source: "" }
+  const d = data as { lignes?: string[]; source?: string }
+  return { lignes: (d.lignes ?? []).slice(0, 3), source: d.source ?? "" }
+}
+
+/** Le mail de suivi est parti depuis la barre de résultat : il ne revient pas dans « Mails à envoyer ». */
+export async function marquerMailEnvoyeDeLAppel(activiteId: string): Promise<void> {
+  const { error } = await sb().from("appels_ia").update({ mail_envoye_le: new Date().toISOString(), maj_le: new Date().toISOString() }).eq("activite_id", activiteId)
+  if (error && !tableAbsente(error.message)) throw new Error(error.message)
+}

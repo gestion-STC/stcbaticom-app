@@ -11,6 +11,7 @@ import { libelleEtape, libelleType, pastilleEtape, type Activite } from "../../.
 import { bilanDepuisAgence, dateHeureCourte, texteBilanAppels } from "../../../demarchage/sessionOutils"
 import { Bandeau, Bouton, Pastille, Zone } from "../../../ui"
 import { Section } from "./morceaux"
+import ConseilsAvantAppel from "./ConseilsAvantAppel"
 import { FABRIQUE_DICTEE, type Action } from "./outils"
 
 export default function FicheEnCours({
@@ -114,6 +115,7 @@ export default function FicheEnCours({
 
       {/* Ce qui s'est dit la dernière fois (26/10/2026) : avant de rappeler, on sait où on en est. */}
       <DernierEchange agenceId={fiche.agence.id} version={fiche.activites.length} className="mt-3" />
+      <ConseilsAvantAppel agenceId={fiche.agence.id} className="mt-3" />
 
       {blocNumeros}
 
