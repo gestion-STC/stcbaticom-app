@@ -259,7 +259,9 @@ function SigneParCompo({ noms, nom, onChange }: { noms: string[]; nom: string; o
   )
 }
 
-export default function Messages({ espace }: { espace: Espace }) {
+// `espace` null (07/11/2026) : les deux boîtes ensemble (un administrateur qui choisit « Tout ») ; une
+// réponse part alors de la boîte du mail auquel on répond, un nouveau message de celle du démarchage.
+export default function Messages({ espace }: { espace: Espace | null }) {
   // Signature STC Bâtiment pour tout ce qui part d'ici : le nom du compte, ou un
   // autre nom réglé dans Paramétrage › Emails › Mes signatures (19/10/2026).
   const session = useSession()
@@ -294,7 +296,7 @@ export default function Messages({ espace }: { espace: Espace }) {
     setChargement(true)
     setErreur("")
     try {
-      const liste = await chargerMessages(espace)
+      const liste = await chargerMessages(espace ?? undefined)
       setMessages(liste)
       // Le nom de l'agence de chaque conversation (par lots : la liste d'ids peut être longue).
       const ids = [...new Set(liste.map((m) => m.agenceId).filter(Boolean))] as string[]
@@ -430,7 +432,7 @@ export default function Messages({ espace }: { espace: Espace }) {
     const pieces = piecesAEnvoyer(compoPieces)
     try {
       if (nouveau) {
-        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml, commercial: prenomCommercial, espace, pieces })
+        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml, commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
         setEnvoiOk(`Message envoyé à ${compoTo.trim()}.`)
       } else if (ouvert && mode === "repondre") {
         const dernier = ouvert.dernier
@@ -442,7 +444,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           agenceId: ouvert.agenceId,
           signatureHtml,
           commercial: prenomCommercial,
-          espace,
+          espace: ouvert.dernier.espace,
           pieces,
         })
         setEnvoiOk(`Réponse envoyée à ${nomDe(ouvert)}.`)
@@ -455,7 +457,7 @@ export default function Messages({ espace }: { espace: Espace }) {
           agenceId: null,
           signatureHtml,
           commercial: prenomCommercial,
-          espace,
+          espace: ouvert.dernier.espace,
           pieces,
         })
         setEnvoiOk(`Message transféré à ${compoTo.trim()}.`)
@@ -554,7 +556,7 @@ export default function Messages({ espace }: { espace: Espace }) {
                     Marquer comme non lu
                   </Bouton>
                 )}
-                {espace === "recrutement" && ouvert.sousTraitantId && (
+                {ouvert.sousTraitantId && (
                   <Bouton variante="discret" taille="sm" icone={<UserRound />} onClick={() => setFiche(ouvert.sousTraitantId)}>
                     Ouvrir la fiche
                   </Bouton>
