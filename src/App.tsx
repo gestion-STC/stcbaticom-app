@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import Sidebar, { type PageId } from "./components/Sidebar"
-import { espaceDe, horsEspace } from "./lib/espaces"
-import type { Espace } from "./lib/messagesDb"
+import { pageAutorisee, premierePage } from "./lib/carteMenu"
+import { usePerimetre } from "./lib/usePerimetre"
+import { useChoixBase } from "./lib/useChoixBase"
+import ChoixBase from "./components/ChoixBase"
 // L'espace DÉMARCHAGE, refondu le 09/10/2026 : la fiche, c'est l'agence.
 import Aujourdhui from "./components/demarchage/Aujourdhui"
 import SessionCall from "./components/demarchage/SessionCall"
@@ -37,9 +39,6 @@ function App() {
     veillerVersion()
     return suivreVersion(setPerimee)
   }, [])
-  // L'espace affiché dans la barre : celui de la page, et il survit à un
-  // passage par Réglages (hors espace).
-  const [espace, setEspace] = useState<Espace>("demarchage")
   // L'agence qu'on veut appeler tout de suite (depuis Agences, Aujourd'hui, l'agenda…).
   const [agencePourSession, setAgencePourSession] = useState<string | null>(null)
   // La fiche agence ouverte par-dessus n'importe quelle page (depuis le téléphone, l'agenda…).
@@ -49,10 +48,7 @@ function App() {
   const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
   // Une écriture sur une fiche (étape, contact, note, mail…) : la session recharge sa file et ses compteurs (13/10).
   const [versionAgences, setVersionAgences] = useState(0)
-  const naviguer = (p: PageId) => {
-    setPage(p)
-    if (!horsEspace(p)) setEspace(espaceDe(p))
-  }
+  const naviguer = (p: PageId) => setPage(p)
   const ouvrirSession = (agenceId: string) => {
     // Deux fois la même agence de suite : on repasse par « rien » pour que la
     // session voie bien un changement et la rouvre.
@@ -71,6 +67,12 @@ function App() {
     setFicheOuverte(agenceId)
   }
   const session = useSession()
+  // UN SEUL LOGICIEL (07/11/2026) : le menu et les pages montrent les bases du compte (perimetre.ts) ;
+  // un compte qui a les deux bases choisit dans la page (Campagnes, Session de call, Boîte de réception).
+  const perimetre = usePerimetre(session)
+  const espaces = perimetre ?? []
+  const [baseSession, setBaseSession] = useChoixBase("sessions", espaces, false)
+  const [baseBoite, setBaseBoite] = useChoixBase("messages", espaces, true)
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
   if (session === undefined)
@@ -83,11 +85,21 @@ function App() {
   // Pas connecté → écran de connexion.
   if (!session) return <Connexion />
 
+  // Un téléprospecteur : sa fonction se lit avant d'afficher quoi que ce soit.
+  if (!perimetre)
+    return (
+      <div className="flex h-screen items-center justify-center bg-fond-2 text-encre-3">
+        <Loader2 size={22} className="animate-spin" />
+      </div>
+    )
+  const vue = pageAutorisee(page, espaces) ? page : premierePage(espaces)
+  const deuxBases = espaces.length > 1
+
   return (
     <div className="flex h-screen overflow-hidden bg-fond">
       <Sidebar
-        active={page}
-        espace={espace}
+        active={vue}
+        espaces={espaces}
         onNavigate={(p) => {
           // Depuis le menu, « Sessions de call » repart sur la file, pas sur une agence précise.
           if (p === "sessions") setAgencePourSession(null)
@@ -105,33 +117,41 @@ function App() {
           </div>
         ) : null}
         <main className="min-h-0 flex-1 overflow-y-auto bg-fond">
-          {page === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
-          {page === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
-          {page === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
-          {page === "analyse" && <AnalyseAppels />}
-          {page === "apporteurs" && <Apporteurs />}
-          {page === "messages" && <Messages espace="demarchage" />}
+          {vue === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
+          {vue === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
+          {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
+          {vue === "analyse" && <AnalyseAppels />}
+          {vue === "apporteurs" && <Apporteurs />}
+          {vue === "messages" && (
+            <>
+              {deuxBases ? <div className="px-10 pt-5"><ChoixBase valeur={baseBoite} onChange={setBaseBoite} espaces={espaces} avecTout /></div> : null}
+              <Messages key={baseBoite} espace={baseBoite === "tout" ? null : baseBoite} />
+            </>
+          )}
           {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026 ; les réglages
               du recrutement sont dans l'espace Recrutement depuis le 26/10. */}
-          {page === "parametrage" && <Parametrage session={session} />}
+          {vue === "parametrage" && <Parametrage session={session} />}
 
-          {page === "campagnes" && <PageCampagnes base="agences" onSession={() => naviguer("sessions")} />}
-          {page === "st_campagnes" && <PageCampagnes base="artisans" onSession={() => naviguer("st_session")} />}
-          {page === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p)} />}
-          {page === "st_reglages" && <ReglagesMachineST />}
-          {page === "st_session" && <SessionCallST />}
-          {page === "st_base" && <BaseST />}
-          {page === "st_sequences" && <SequencesST />}
-          {page === "st_suivi" && <SuiviST />}
-          {page === "st_boite" && <Messages espace="recrutement" />}
-          {page === "st_dossiers" && <DossiersST />}
+          {vue === "campagnes" && <PageCampagnes base={deuxBases ? null : espaces[0] === "recrutement" ? "artisans" : "agences"} onSession={() => naviguer("sessions")} />}
+          {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages" : p)} />}
+          {vue === "st_reglages" && <ReglagesMachineST />}
+          {vue === "st_base" && <BaseST />}
+          {vue === "st_sequences" && <SequencesST />}
+          {vue === "st_suivi" && <SuiviST />}
+          {vue === "st_dossiers" && <DossiersST />}
+
+          {/* La session de call : une page, le choix de base dedans (07/11/2026). */}
+          {vue === "sessions" && deuxBases ? <div className={(baseSession === "recrutement" ? "px-10" : "px-8") + " pt-5"}><ChoixBase valeur={baseSession} onChange={setBaseSession} espaces={espaces} avecTout={false} /></div> : null}
+          {vue === "sessions" && baseSession === "recrutement" && <SessionCallST />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant
               un appel, puis revenir). Simplement masquée hors de son onglet. */}
-          <div className={page === "sessions" ? undefined : "hidden"}>
-            <SessionCall actif={page === "sessions"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} versionAgences={versionAgences} />
+          {espaces.includes("demarchage") && (
+          <div className={vue === "sessions" && baseSession === "demarchage" ? undefined : "hidden"}>
+            <SessionCall actif={vue === "sessions" && baseSession === "demarchage"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} versionAgences={versionAgences} />
           </div>
+          )}
         </main>
       </div>
 

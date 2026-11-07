@@ -1,5 +1,6 @@
 // ── LA PAGE CAMPAGNES DU LOGICIEL (07/11/2026, lot 1) : les écrans de la prospection, branchés sur la base ──
-// Une page par rubrique : Développement → base Agences, Recrutement → base Artisans. Liste, suivi, éditeur.
+// Une seule page (07/11/2026) : `base` null = toutes les bases du compte, avec le choix de base dans la page
+// (un administrateur) ; sinon la base du compte (un commercial : les agences, un recruteur : les artisans).
 // Les données se relisent toutes les 2 minutes (le moteur passe toutes les 10).
 import { useEffect, useMemo, useState } from "react"
 import { RefreshCw } from "lucide-react"
@@ -13,7 +14,7 @@ import Editeur from "./Editeur"
 import Suivi from "./Suivi"
 import { ContexteBaseUnique, ContexteCompte } from "./outils"
 
-export default function PageCampagnes({ base, onSession }: { base: "agences" | "artisans"; onSession: () => void }) {
+export default function PageCampagnes({ base, onSession }: { base: "agences" | "artisans" | null; onSession: () => void }) {
   const session = useSession()
   const compte = useMemo(() => ({ id: session?.user?.id ?? "moi", nom: nomAffiche(session), role: roleDeSession(session) === "admin" ? "gerant" as const : "commercial" as const }), [session])
   const [erreur, setErreur] = useState("")

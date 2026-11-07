@@ -3,12 +3,12 @@
 // ouvre le suivi complet. Seules les campagnes des bases du compte apparaissent.
 import { useMemo, useState } from "react"
 import { ChevronRight, Plus } from "lucide-react"
-import { Bouton, Interrupteur, Pastille, Selecteur } from "../../ui"
+import { Bouton, Interrupteur, Pastille } from "../../ui"
 import { Bandeau, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { indicateurs } from "../../prospection/indicateurs"
 import type { Campagne } from "../../prospection/modele"
-import { NomBase, Titre } from "./morceaux"
+import { NomBase, Onglets, Titre } from "./morceaux"
 import { fr, pct, useVue } from "./outils"
 
 const ROLE = { brouillon: "inerte", active: "fait", pause: "attente", terminee: "inerte" } as const
@@ -34,7 +34,8 @@ export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => v
         { libelle: "Leads", valeur: fr(somme((x) => x.i.conversion.leads)), ton: "text-ok" },
         { libelle: "Gagnés", valeur: fr(somme((x) => x.i.conversion.gagnes)) },
       ]} />
-      {v.bases.length > 1 ? <div className="w-60"><Selecteur value={filtre} onChange={(e) => setFiltre(e.target.value)} aria-label="Base"><option value="">Toutes les bases</option>{v.bases.map((b) => <option key={b.id} value={b.id}>{b.nom}</option>)}</Selecteur></div> : null}
+      {/* Le choix de base de la page (07/11/2026 : pas de sélecteur en haut du menu, un choix dans chaque page). */}
+      {v.bases.length > 1 ? <Onglets valeur={filtre} onChange={setFiltre} options={[["", "Toutes"], ...v.bases.map((b) => [b.id, b.unite === "agences" ? "Agences" : "Artisans"] as [string, string])]} /> : null}
       <Table colonnes={[{ titre: "", largeur: "44px" }, { titre: "Campagne" }, ...(v.bases.length > 1 ? [{ titre: "Base", largeur: "170px" }] : []), { titre: "Statut", largeur: "120px" }, { titre: "En cours", largeur: "76px", droite: true }, { titre: "Touchés", largeur: "76px", droite: true }, { titre: "Ouverture", largeur: "84px", droite: true }, { titre: "Clic", largeur: "70px", droite: true }, { titre: "Leads", largeur: "64px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }, { titre: "Coût", largeur: "76px", droite: true }, { titre: "", largeur: "28px" }]}
         vide="Aucune campagne : crée la première."
         lignes={lignes.map(({ c, i }) => ({ cle: c.id, cellules: [
