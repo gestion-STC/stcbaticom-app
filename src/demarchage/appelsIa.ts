@@ -216,3 +216,15 @@ export async function marquerMailEnvoyeDeLAppel(activiteId: string): Promise<voi
   const { error } = await sb().from("appels_ia").update({ mail_envoye_le: new Date().toISOString(), maj_le: new Date().toISOString() }).eq("activite_id", activiteId)
   if (error && !tableAbsente(error.message)) throw new Error(error.message)
 }
+
+/** L'accord avec l'IA sur la période : sa proposition (à l'aveugle) contre le résultat noté. null : rien à comparer encore. */
+export async function accordIa(compteNom: string, de: Date, a: Date): Promise<{ compares: number; accords: number } | null> {
+  type L = { ia_resultat: string | null; ia_issue: string; activites: { resultat: string | null; issue: string | null; compte_nom: string | null } | null }
+  const { data, error } = await sb().from("appels_propositions").select("ia_resultat, ia_issue, activites(resultat, issue, compte_nom)")
+    .not("ia_resultat", "is", null).gte("cree_le", de.toISOString()).lt("cree_le", a.toISOString()).limit(1000)
+  if (error) return null
+  const notes = ((data ?? []) as unknown as L[]).filter((l) => l.activites && l.activites.compte_nom === compteNom && l.activites.resultat && l.activites.resultat !== "lance")
+  if (!notes.length) return null
+  const accords = notes.filter((l) => l.ia_resultat === l.activites!.resultat && (l.ia_resultat !== "joint" || (l.ia_issue || "") === (l.activites!.issue || ""))).length
+  return { compares: notes.length, accords }
+}

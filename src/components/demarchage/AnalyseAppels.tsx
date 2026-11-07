@@ -18,8 +18,11 @@ import { PERIODES, bornesPeriode, type Periode } from "../../demarchage/aujourdh
 import { ISSUES } from "../../demarchage/modele"
 import { dateHeureCourte } from "../../demarchage/sessionOutils"
 import { Bandeau, BarreFiltres, Bouton, Carte, Chargement, EnTetePage, Onglets, Pastille, Selecteur, Tableau, Td, Th, TitreCarte, Tr, Vide } from "../../ui"
+import { useSession } from "../../lib/auth"
+import { nomAffiche } from "../../lib/comptes"
+import MonEntrainement from "./MonEntrainement"
 
-type Vue = "arguments" | "objections" | "equipe" | "appels"
+type Vue = "entrainement" | "arguments" | "objections" | "equipe" | "appels"
 const LIBELLE_ISSUE = new Map<string, string>(ISSUES.map((i) => [i.code, i.libelle]))
 const LIBELLE_INTERET: Record<string, string> = { nul: "Nul", faible: "Faible", moyen: "Moyen", fort: "Fort" }
 
@@ -48,7 +51,10 @@ function CarteControle({ controles, onFermer }: { controles: ControleMiseEnServi
 export default function AnalyseAppels() {
   const [periode, setPeriode] = useState<Periode>("mois")
   const [commercial, setCommercial] = useState("")
-  const [vue, setVue] = useState<Vue>("arguments")
+  const [vue, setVue] = useState<Vue>("entrainement")
+  const session = useSession()
+  const moi = nomAffiche(session)
+  const [lecture, setLecture] = useState<string | null>(null)
   const [appels, setAppels] = useState<AppelIa[] | null>(null)
   const [erreur, setErreur] = useState("")
   const [version, setVersion] = useState(0)
@@ -58,14 +64,15 @@ export default function AnalyseAppels() {
     try { setControle(await verifierMiseEnService()) } catch (e) { setControle([{ nom: "Fonction analyser-appel", ok: false, detail: e instanceof Error ? e.message : String(e) }]) }
   }
 
+  const bornes = useMemo(() => bornesPeriode(periode, new Date()), [periode, version]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let vivant = true
-    const { de, a } = bornesPeriode(periode, new Date())
+    const { de, a } = bornes
     appelsIaPeriode(de, a)
       .then((l) => { if (vivant) { setAppels(l); setErreur("") } })
       .catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) })
     return () => { vivant = false }
-  }, [periode, version])
+  }, [bornes])
 
   const commerciaux = useMemo(() => [...new Set((appels ?? []).map((a) => a.compteNom).filter(Boolean))].sort((x, y) => x.localeCompare(y, "fr")), [appels])
   const filtres = useMemo(() => (appels ?? []).filter((a) => !commercial || a.compteNom === commercial), [appels, commercial])
@@ -98,7 +105,7 @@ export default function AnalyseAppels() {
           {PERIODES.map((p) => <option key={p.code} value={p.code}>{p.libelle}</option>)}
         </Selecteur>
         <Selecteur value={commercial} onChange={(e) => setCommercial(e.target.value)} aria-label="Commercial">
-          <option value="">Tous les commerciaux</option>
+          <option value="">{vue === "entrainement" ? `Moi (${moi})` : "Tous les commerciaux"}</option>
           {commerciaux.map((c) => <option key={c} value={c}>{c}</option>)}
         </Selecteur>
       </BarreFiltres>
@@ -120,7 +127,7 @@ export default function AnalyseAppels() {
 
       {appels !== null && bilan.appels > 0 ? (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className={vue === "entrainement" ? "hidden" : "mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4"}>
             <Chiffre libelle="Appels analysés" valeur={String(bilan.appels)} detail={enRoute ? `+ ${enRoute} en cours` : undefined} />
             <Chiffre libelle="Aboutis (Intéressé ou RDV)" valeur={pourcent(bilan.taux)} detail={`${bilan.aboutis} appel${bilan.aboutis > 1 ? "s" : ""}`} />
             <Chiffre libelle="Durée moyenne" valeur={dureeLisible(bilan.dureeMoyenneS)} />
@@ -132,12 +139,15 @@ export default function AnalyseAppels() {
             valeur={vue}
             onChange={setVue}
             options={[
+              { id: "entrainement", label: "Mon entraînement" },
               { id: "arguments", label: "Ce qui tape", badge: args.length },
               { id: "objections", label: "Objections", badge: objs.length },
               { id: "equipe", label: "Par commercial et par heure" },
               { id: "appels", label: "Les appels", badge: bilan.appels },
             ]}
           />
+
+          {vue === "entrainement" ? <MonEntrainement appels={appels} nom={commercial || moi} de={bornes.de} a={bornes.a} onLireTranscription={setLecture} /> : null}
 
           {vue === "arguments" ? (
             <Carte>
@@ -218,6 +228,14 @@ export default function AnalyseAppels() {
 
           {vue === "appels" ? <ListeAppels appels={filtres.filter((a) => a.statut === "pret")} /> : null}
         </>
+      ) : null}
+      {lecture ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setLecture(null)}>
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-[14px] bg-fond p-5 shadow-flottante" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between"><p className="font-semibold">L'appel</p><Bouton taille="sm" variante="discret" onClick={() => setLecture(null)}>Fermer</Bouton></div>
+            <p className="whitespace-pre-line text-legende text-encre-2">{lecture}</p>
+          </div>
+        </div>
       ) : null}
     </div>
   )
