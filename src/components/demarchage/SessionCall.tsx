@@ -44,7 +44,7 @@ import {
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS,
   compteARebours, dateHeureCourte, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  resumeEcriture, toursSansDemarrage,
+  CADENCE_MIN_S, resumeEcriture, toursSansDemarrage,
   type ChoixResultat,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
@@ -894,7 +894,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }, 1500)
       return () => clearTimeout(t)
     }
-    const delai = Math.max(2, cadence)
+    const delai = Math.max(CADENCE_MIN_S, cadence)
     const fin = Date.now() + delai * 1000
     const demarrage = setTimeout(() => {
       setMaintenant(Date.now())
@@ -1246,7 +1246,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 lead={mode === "leads" ? leadsParAgence.get(fiche.agence.id) : undefined}
                 maintenant={dateMaintenant}
                 ouvrirAgence={ouvrirAgence}
-                passerEnApporteur={passerEnApporteur}
                 directeId={directeId}
                 onRevenirFile={() => setDirecteId(null)}
                 appelEnSuspens={appelEnSuspens}

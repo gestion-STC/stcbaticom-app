@@ -177,6 +177,12 @@ export function choixComplet(c: { resultat: Resultat | null; issue: Issue | ""; 
 // attente passagère). Jamais vu en ligne après la sonnerie réglée (Réglages, 28 s par défaut)
 // = pas de réponse. Huit vérifications ratées d'affilée = on cesse de prétendre suivre.
 
+// La cadence minimale du mode automatique (Mahdi, 07/11/2026 : « le temps qui laisse à l'IA le temps de produire
+// le mail, et à nous de le vérifier et de l'envoyer »). Le temps de l'IA est déjà tenu AVANT : le mode automatique
+// ne rappelle jamais tant que le résultat n'est pas validé, et la validation attend le mail de l'IA (mesuré le 07/11 :
+// 6 à 12 s après le raccroché vu). La cadence court APRÈS la validation : le mail part (1 à 3 s) et on lit les
+// 3 lignes de la fiche suivante (environ 5 s). D'où 8 s au minimum.
+export const CADENCE_MIN_S = 8
 export const INTERVALLE_SURVEILLANCE_MS = 4000
 // Le nombre de tours sans décroché avant « pas de réponse » : la sonnerie réglée (Réglages, 28 s).
 export const toursSansDemarrage = (sonnerieSecondes: number): number => Math.max(2, Math.ceil((sonnerieSecondes * 1000) / INTERVALLE_SURVEILLANCE_MS))
