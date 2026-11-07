@@ -1,0 +1,245 @@
+// ════════════════════════════════════════════════════════════════════════════
+// LE MOTEUR DES CAMPAGNES, CÔTÉ SERVEUR (07/11/2026) — passe toutes les 10 min (pg_cron, clé du passage).
+//
+// La décision (qui entre, quelle étape est due, A/B, « Si… », 48 h entre touches) est le moteur PUR
+// partagé avec l'écran (_shared/campagnes/moteur.ts, copie exacte de src/prospection/moteur.ts, vérifiée
+// par un test). Ici, l'exécution, avec les garde-fous de la machine sous-traitants (sequenceur-st) :
+//   · budget par jour et par canal (mails, SMS), 25 envois au plus par passage, cadence entre deux envois ;
+//   · SMS seulement de 10 h à 17 h (heure de Paris), et seulement vers un mobile ;
+//   · juste avant d'envoyer, la base est relue : jamais deux fois la même étape au même contact ;
+//   · une erreur est rejouée après 15 min, 1 h, 4 h, puis abandonnée ; une limite de débit arrête le passage ;
+//   · MODE TEST : tout part vers l'adresse et le mobile de test de la campagne, marqué « test ».
+// Les envois passent par les relais habituels (envoyer-email, envoyer-sms) : signature, journal de la
+// boîte, fiche de l'agence. Les clics, réponses et désinscriptions arrivent par les mécanismes actuels,
+// rattachés à la campagne par les déclencheurs du SQL du 07/11.
+// Une campagne s'arrête pour un contact devenu lead (leads_demarchage, clic d'artisan), gagné,
+// exclu ou désinscrit : il est alors dans la session de call de son équipe.
+// ════════════════════════════════════════════════════════════════════════════
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
+import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
+
+const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
+const JOUR_MS = 86_400_000
+const ENVOIS_MAX_PAR_PASSAGE = 25
+const PLAFOND_JOUR = { mail: 200, sms: 40 } as const
+const CADENCE_MS = { mail: 700, sms: 3000 } as const
+const REJOUER_APRES_MIN = [15, 60, 240]
+const TENTATIVES_MAX = 3
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const jourParisIso = (d: Date) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(d)
+
+type Ligne = Record<string, unknown>
+async function tout<T>(q: (d: number, f: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = []
+  for (let d = 0; ; d += 1000) {
+    const { data, error } = await q(d, d + 999)
+    if (error) throw new Error(error.message)
+    out.push(...(data ?? []))
+    if (!data || data.length < 1000) return out
+  }
+}
+
+const versCampagne = (l: Ligne): Campagne => ({
+  id: String(l.id), nom: String(l.nom), baseId: String(l.base_id), objectif: String(l.objectif ?? ""), statut: l.statut as Campagne["statut"],
+  audience: l.audience as Campagne["audience"], rythme: l.rythme as Campagne["rythme"], etapes: l.etapes as Campagne["etapes"], signaux: (l.signaux ?? []) as Campagne["signaux"],
+  creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0),
+})
+const versContact = (l: Ligne): Contact => ({
+  id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""),
+  champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null,
+})
+const versInscription = (l: Ligne): Inscription => ({ id: String(l.id), campagneId: String(l.campagne_id), contactId: String(l.contact_ref), entreeLe: String(l.entree_le), etapeIndex: Number(l.etape_index), prochaineLe: new Date(String(l.prochaine_le)).toISOString(), statut: l.statut as Inscription["statut"], sortieLe: (l.sortie_le as string) ?? null })
+const versEnvoi = (l: Ligne): Envoi => ({ id: String(l.id), campagneId: String(l.campagne_id), inscriptionId: String(l.inscription_id), contactId: String(l.contact_ref), etapeId: String(l.etape_id), varianteId: (l.variante_id as string) ?? null, canal: l.canal as Envoi["canal"], le: new Date(String(l.le)).toISOString(), statut: l.statut as Envoi["statut"], cause: String(l.cause ?? "") })
+const versEvenement = (l: Ligne): Evenement => ({ id: String(l.id), campagneId: String(l.campagne_id), envoiId: (l.envoi_id as string) ?? null, contactId: String(l.contact_ref), type: l.type as Evenement["type"], le: new Date(String(l.le)).toISOString(), lien: (l.lien as string) ?? undefined })
+
+function echapper(s: string) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }
+function texteVersHtml(texte: string): string {
+  const html = echapper(texte).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+  return `<div style="font-family:Montserrat,Arial,sans-serif;font-size:14px;color:#1e293b">${html.replace(/\n/g, "<br>")}</div>`
+}
+function causeDe(erreur: string): string {
+  if (/RateLimit|Trop d'envois|Trop de SMS|429/i.test(erreur)) return "limite de débit (prestataire)"
+  if (/non mobile/i.test(erreur)) return "numéro non mobile"
+  if (/Resend a refusé/i.test(erreur)) return "Resend a refusé"
+  if (/Ringover a refusé/i.test(erreur)) return "Ringover a refusé"
+  return erreur.slice(0, 80)
+}
+
+async function invoquer(base: string, cle: string, fonction: string, body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  try {
+    const r = await fetch(`${base}/functions/v1/${fonction}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${cle}` }, body: JSON.stringify(body) })
+    const data = await r.json().catch(() => ({}))
+    return { ok: r.ok && data?.ok !== false, data }
+  } catch (e) { return { ok: false, data: { error: String(e) } } }
+}
+
+/** Le lien suivi d'une agence (réutilisé s'il existe) : evenements-site note le clic sur la fiche. */
+async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, cible: "creer_compte" | "site"): Promise<{ url: string; jeton: string }> {
+  const url = cible === "site" ? "https://www.stcbatiment.fr" : ""
+  const { data } = await sb.from("liens_suivis").select("jeton").eq("agence_id", agenceId).eq("cible", cible).eq("url", url).order("cree_le", { ascending: false }).limit(1).maybeSingle()
+  let jeton = (data as { jeton?: string } | null)?.jeton
+  if (!jeton) {
+    jeton = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "").slice(0, 40)
+    await sb.from("liens_suivis").insert({ jeton, agence_id: agenceId, cible, url })
+  }
+  return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
+}
+
+type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string }
+async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean): Promise<Resultat> {
+  // Les variables et les liens, selon la base.
+  let texte = corps, sujet = objet
+  const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
+  remplacer("{{contact}}", k.personne); remplacer("{{entreprise}}", k.nom)
+  let stop = ""
+  if (k.baseId === "artisans") {
+    const { data } = await sb.from("st_sous_traitants").select("token, metier").eq("id", k.id).maybeSingle()
+    const token = (data as { token?: string } | null)?.token
+    if (!token) return { ok: false, saute: "fiche sans jeton de lien" }
+    const l = (d: string) => `${base}/functions/v1/lien-st?t=${token}&d=${d}`
+    stop = l("stop")
+    remplacer("{{metier}}", String((data as { metier?: string }).metier ?? "")); remplacer("{{lien_candidature}}", l("candidature")); remplacer("{{lien_principal}}", l("candidature")); remplacer("{{lien_bareme}}", l("bareme")); remplacer("{{lien_desinscription}}", stop); remplacer("{{lien}}", l("candidature"))
+  } else {
+    const compte = await lienAgence(sb, base, k.id, "creer_compte")
+    stop = `${base}/functions/v1/evenements-site?stop=${compte.jeton}`
+    remplacer("{{lien_creer_compte}}", compte.url); remplacer("{{lien_principal}}", compte.url); remplacer("{{lien_desinscription}}", stop)
+    if (texte.includes("{{lien_site}}")) remplacer("{{lien_site}}", (await lienAgence(sb, base, k.id, "site")).url)
+    // Un mail de prospection propose toujours de ne plus en recevoir.
+    if (canal !== "sms" && !corps.includes("{{lien_desinscription}}")) texte += `\n\nPour ne plus recevoir nos messages : ${stop}`
+  }
+
+  if (canal === "sms") {
+    const to = test ? String(c.test_mobile ?? "") : k.mobile
+    if (!to) return { ok: false, saute: test ? "mode test sans mobile de test" : "pas de mobile" }
+    const r = await invoquer(base, service, "envoyer-sms", { to, message: test ? `[TEST] ${texte}` : texte })
+    return r.ok ? { ok: true } : { ok: false, erreur: String(r.data?.error ?? "envoi SMS échoué"), saute: r.data?.code === "non_mobile" ? "numéro non mobile" : undefined }
+  }
+  const to = test ? String(c.test_email ?? "") : k.email
+  if (!to) return { ok: false, saute: "pas de mail" }
+  sujet = (test ? "[TEST] " : "") + sujet
+  const r = k.baseId === "artisans"
+    ? await invoquer(base, service, "envoyer-email", { espace: "recrutement", to, subject: sujet, html: /<(html|body|table|div|p|a)\b/i.test(texte) ? texte : texteVersHtml(texte), headers: { "List-Unsubscribe": `<${stop}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
+    // Agences : le contrat « boîte de réception » ajoute la signature STC Bâtiment et range le mail sur la fiche.
+    : await invoquer(base, service, "envoyer-email", { agence_id: test ? undefined : k.id, to, objet: sujet, corps: texte })
+  return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
+}
+
+Deno.serve(async (req: Request) => {
+  const base = Deno.env.get("SUPABASE_URL")!
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  const sb = createClient(base, service)
+  const { data: p } = await sb.from("parametres").select("valeur").eq("cle", "analyse_passage_cle").maybeSingle()
+  const attendue = String((p as { valeur?: unknown } | null)?.valeur ?? "").replace(/^"|"$/g, "")
+  if (!(attendue.length >= 20 && req.headers.get("x-passage-cle") === attendue)) return json({ error: "non autorisé" }, 401)
+  const maintenant = new Date()
+  const iso = maintenant.toISOString()
+  const bilan: Record<string, number | string> = { campagnes: 0, entrees: 0, envois: 0, erreurs: 0, sautes: 0, reportes: 0, sorties: 0, taches: 0 }
+
+  try {
+    const { data: actives } = await sb.from("cmp_campagnes").select("*").eq("statut", "active")
+    let envoisPassage = 0
+    for (const ligne of (actives ?? []) as Ligne[]) {
+      bilan.campagnes = Number(bilan.campagnes) + 1
+      const c = versCampagne(ligne)
+      const contacts = (await tout<Ligne>((d, f) => sb.from("cmp_contacts").select("*").eq("base_id", c.baseId).order("id").range(d, f))).map(versContact)
+      const parContact = new Map(contacts.map((k) => [k.id, k]))
+      const inscriptions = (await tout<Ligne>((d, f) => sb.from("cmp_inscriptions").select("*").or(`campagne_id.eq.${c.id},statut.eq.en_cours`).order("id").range(d, f))).map(versInscription)
+      const depuis = new Date(maintenant.getTime() - 14 * JOUR_MS).toISOString()
+      const envois = (await tout<Ligne>((d, f) => sb.from("cmp_envois").select("*").eq("campagne_id", c.id).gte("le", depuis).order("id").range(d, f))).map(versEnvoi)
+      const evenements = (await tout<Ligne>((d, f) => sb.from("cmp_evenements").select("*").eq("campagne_id", c.id).order("id").range(d, f))).map(versEvenement)
+
+      // 1. Les sorties : un contact devenu lead, gagné, exclu ou désinscrit quitte la séquence.
+      for (const i of inscriptions.filter((x) => x.campagneId === c.id && x.statut === "en_cours")) {
+        const k = parContact.get(i.contactId)
+        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" ? "terminee" : null
+        if (!statut) continue
+        await sb.from("cmp_inscriptions").update({ statut, sortie_le: iso }).eq("id", i.id)
+        i.statut = statut as Inscription["statut"]
+        bilan.sorties = Number(bilan.sorties) + 1
+      }
+
+      // 2. La décision, par le moteur pur.
+      const ecr = passage({ campagne: c, contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
+      const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
+      const majs = new Map(ecr.majInscriptions.map((i) => [i.id, i]))
+      const avant = new Map(inscriptions.map((i) => [i.id, i]))
+      const reportees = new Set<string>()
+
+      // 3. Les envois, un par un, avec les garde-fous.
+      const debutJour = new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString()
+      const { count: mailsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "mail").eq("statut", "envoye").gte("le", debutJour)
+      const { count: smsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "sms").eq("statut", "envoye").gte("le", debutJour)
+      const budget = { mail: PLAFOND_JOUR.mail - (mailsJour ?? 0), sms: PLAFOND_JOUR.sms - (smsJour ?? 0) }
+      const hSms = heureParis(maintenant) >= 10 && heureParis(maintenant) < 17
+      let arret = false
+      for (const e of ecr.envois) {
+        const canal = e.canal === "sms" ? "sms" : "mail"
+        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || budget[canal] <= 0 || (canal === "sms" && !hSms)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
+        const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
+        const etape = c.etapes[etapeIndex]
+        const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null
+        // L'inscription doit exister avant l'envoi (la clé étrangère) : une nouvelle est écrite tout de suite, au pas d'avant.
+        const nouvelle = nouvelles.get(e.inscriptionId)
+        if (nouvelle) {
+          const { error } = await sb.from("cmp_inscriptions").insert({ id: nouvelle.id, campagne_id: c.id, contact_ref: nouvelle.contactId, entree_le: nouvelle.entreeLe, etape_index: 0, prochaine_le: iso, statut: "en_cours" })
+          if (error) { reportees.add(e.inscriptionId); continue } // déjà inscrit par un passage concurrent
+          bilan.entrees = Number(bilan.entrees) + 1
+        }
+        // Dernier filet : cette étape est-elle déjà partie (ou sautée) pour ce contact ?
+        const { count: deja } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).in("statut", ["envoye", "saute"])
+        if ((deja ?? 0) > 0) continue
+        const { count: essais } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).eq("statut", "erreur")
+        const tentative = (essais ?? 0) + 1
+        const k = parContact.get(e.contactId)!
+        const test = Boolean(ligne.mode_test)
+        await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
+        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test)
+        if (r.ok) {
+          await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null }).eq("id", e.id)
+          budget[canal]--; envoisPassage++; bilan.envois = Number(bilan.envois) + 1
+          await pause(CADENCE_MS[canal])
+        } else if (r.saute) {
+          await sb.from("cmp_envois").update({ statut: "saute", cause: r.saute }).eq("id", e.id)
+          bilan.sautes = Number(bilan.sautes) + 1
+        } else {
+          const cause = causeDe(r.erreur ?? "")
+          await sb.from("cmp_envois").update({ statut: "erreur", cause }).eq("id", e.id)
+          bilan.erreurs = Number(bilan.erreurs) + 1
+          if (tentative < TENTATIVES_MAX) {
+            // On revient sur l'étape, rejouée plus tard (la mise à jour du moteur pour ce contact n'est pas écrite).
+            reportees.add(e.inscriptionId)
+            await sb.from("cmp_inscriptions").update({ etape_index: etapeIndex, prochaine_le: new Date(maintenant.getTime() + REJOUER_APRES_MIN[tentative - 1] * 60_000).toISOString() }).eq("id", e.inscriptionId)
+          }
+          if (/débit/.test(cause)) arret = true
+        }
+      }
+
+      // 4. Les avancées du moteur (sauf pour les contacts reportés), les nouvelles entrées sans envoi, les tâches.
+      for (const [id, i] of majs) {
+        if (reportees.has(id)) continue
+        const a = avant.get(id)
+        if (a && a.etapeIndex === i.etapeIndex && a.prochaineLe === i.prochaineLe && a.statut === i.statut) continue
+        await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id)
+      }
+      for (const [id, i] of nouvelles) {
+        if (reportees.has(id)) continue
+        const { data: existe } = await sb.from("cmp_inscriptions").select("id").eq("id", id).maybeSingle()
+        if (existe) await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id)
+        else { await sb.from("cmp_inscriptions").insert({ id, campagne_id: c.id, contact_ref: i.contactId, entree_le: i.entreeLe, etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }); bilan.entrees = Number(bilan.entrees) + 1 }
+      }
+      const reporteesContacts = new Set([...reportees].map((id) => (nouvelles.get(id) ?? avant.get(id))?.contactId))
+      const taches = ecr.taches.filter((t) => !reporteesContacts.has(t.contactId))
+      if (taches.length) {
+        await sb.from("cmp_taches").insert(taches.map((t) => ({ id: t.id, campagne_id: c.id, contact_ref: t.contactId, etape_id: t.etapeId, type: t.type, consigne: t.consigne })))
+        bilan.taches = Number(bilan.taches) + taches.length
+      }
+      if (envoisPassage >= ENVOIS_MAX_PAR_PASSAGE) break
+    }
+    console.log("[CAMPAGNES-MOTEUR]", JSON.stringify(bilan))
+    return json({ ok: true, bilan })
+  } catch (e) {
+    console.error("[CAMPAGNES-MOTEUR] erreur :", e)
+    return json({ ok: false, error: String((e as Error)?.message ?? e), bilan }, 500)
+  }
+})

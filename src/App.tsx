@@ -26,6 +26,8 @@ import SequencesST from "./components/recrutement/SequencesST"
 import SuiviST from "./components/recrutement/SuiviST"
 import DossiersST from "./components/recrutement/DossiersST"
 import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
+// Les campagnes (07/11/2026) : le même outil pour les deux bases.
+import PageCampagnes from "./components/prospection/PageCampagnes"
 
 function App() {
   const [page, setPage] = useState<PageId>("aujourdhui")
@@ -113,6 +115,8 @@ function App() {
               du recrutement sont dans l'espace Recrutement depuis le 26/10. */}
           {page === "parametrage" && <Parametrage session={session} />}
 
+          {page === "campagnes" && <PageCampagnes base="agences" onSession={() => naviguer("sessions")} />}
+          {page === "st_campagnes" && <PageCampagnes base="artisans" onSession={() => naviguer("st_session")} />}
           {page === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p)} />}
           {page === "st_reglages" && <ReglagesMachineST />}
           {page === "st_session" && <SessionCallST />}
