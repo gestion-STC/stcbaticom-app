@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { versionPerimee } from "../../lib/versionEnLigne"
 import { ChevronLeft, ChevronRight, ListFilter, Phone, X } from "lucide-react"
-import { destinataireDepuis, type Destinataire } from "../../lib/destinataire"
+import { destinataireDepuis } from "../../lib/destinataire"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
@@ -33,7 +33,7 @@ import { lireParametre } from "../../lib/parametresDb"
 import { lancerAppelRingover, statutAppelsRingover } from "../../lib/ringover"
 import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephone"
 import {
-  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact, creerRdv, creerTache,
+  agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact,
   appelLance, appelVerifier, enregistrerAppel, majAgence, chargerLeads, compterLeads, type AgenceComplete, type Lead,
 } from "../../demarchage/db"
 import {
@@ -44,12 +44,11 @@ import {
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS,
   compteARebours, dateHeureCourte, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  resumeEcriture, toursSansDemarrage, versIso,
-  type ChoixResultat, type TypeRdv,
+  resumeEcriture, toursSansDemarrage,
+  type ChoixResultat,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
 import { Bandeau, Bouton, Chargement, Onglets, Vide } from "../../ui"
-import EnvoyerEmailModal from "../EnvoyerEmailModal"
 import { lancerAnalyseAppel, marquerMailEnvoyeDeLAppel, monAppelSansResultat, proposerResultat, type AppelEnAttente, type PropositionIa } from "../../demarchage/appelsIa"
 import BarreResultat from "./BarreResultat"
 import ContactFormulaire from "./ContactFormulaire"
@@ -57,11 +56,10 @@ import BlocContacts from "./session/BlocContacts"
 import BlocNumeros from "./session/BlocNumeros"
 import ColonneFil from "./session/ColonneFil"
 import ColonneFile from "./session/ColonneFile"
-import DialogueAction from "./session/DialogueAction"
 import EnTeteSession, { PilesSession } from "./session/EnTeteSession"
 import FicheEnCours from "./session/FicheEnCours"
 import ScriptAppel from "./session/ScriptAppel"
-import { CONTACT_VIDE, appelNonNote, horsDeLaPile, messageDe, type Action, type AppelEnCours, type Dictee } from "./session/outils"
+import { CONTACT_VIDE, appelNonNote, horsDeLaPile, messageDe, type AppelEnCours, type Dictee } from "./session/outils"
 import { useDictee } from "./session/useDictee"
 import { useOngletUnique } from "./session/useOngletUnique"
 import { useScriptAppel } from "./session/useScriptAppel"
@@ -166,9 +164,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [info, setInfo] = useState("")
   const [recherche, setRecherche] = useState("")
   const [resultats, setResultats] = useState<Agence[] | null>(null)
-  const [dialogue, setDialogue] = useState<Action | null>(null)
-  const [formAction, setFormAction] = useState({ titre: "", quand: "", type: "telephone" as TypeRdv, note: "" })
-  const [envoiPour, setEnvoiPour] = useState<Destinataire | null>(null)
   const [tiroir, setTiroir] = useState(false) // la file en tiroir, sur une petite zone
 
   const agenceCouranteId = directeId ?? fileAgences[index]?.id ?? null
@@ -1074,36 +1069,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setErreur(`Création du contact : ${messageDe(e)}`)
     }
   }
-  function ouvrirAction(type: Exclude<Action, "passer">) {
-    setFormAction({ titre: type === "tache" ? "Rappeler" : "Rendez-vous", quand: heureRelance === null ? "" : demainALHeure(new Date(), heureRelance), type: "telephone", note: "" })
-    setDialogue(type)
-  }
-  async function validerAction() {
-    if (!fiche || !dialogue || dialogue === "passer") return
-    const agenceId = fiche.agence.id
-    const contactId = contactEnLigne ?? defaut?.contactId ?? null
-    try {
-      const echeance = versIso(formAction.quand)
-      if (!echeance) {
-        setErreur("Choisis une date et une heure.")
-        return
-      }
-      if (dialogue === "tache") await creerTache({ agenceId, contactId, compteNom, titre: formAction.titre.trim() || "Rappeler", echeance, note: formAction.note })
-      else await creerRdv({ agenceId, contactId, compteNom, titre: formAction.titre.trim() || "Rendez-vous", echeance, rdvType: formAction.type, note: formAction.note })
-      if (!enVie.current) return
-      setDialogue(null)
-      setErreur("")
-      await rafraichirCourante()
-      recompterFiles()
-    } catch (e) {
-      setErreur(`Enregistrement : ${messageDe(e)}`)
-    }
-  }
-  function ouvrirEmail() {
-    if (!fiche) return
-    const k = fiche.contacts.find((x) => x.id === (contactEnLigne ?? defaut?.contactId)) ?? fiche.contacts.find((x) => x.principal && !x.parti) ?? null
-    setEnvoiPour(destinataireDepuis(fiche.agence, k))
-  }
   function copier(numero: string) {
     navigator.clipboard
       ?.writeText(numero)
@@ -1324,8 +1289,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 dicter={dicter}
                 note={note}
                 setNote={setNote}
-                ouvrirEmail={ouvrirEmail}
-                ouvrirAction={ouvrirAction}
               />
 
               {barreVisible ? (
@@ -1339,7 +1302,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                   indice={indice}
                   defautRappel={defautDemain}
                   defautRdv={defautDemain}
-                  raccourcis={!dialogue && !envoiPour}
                   enregistrement={enregistrement}
                   onValider={validerResultat}
                   onApporteur={() => void passerEnApporteur()}
@@ -1388,25 +1350,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       {/* ── Dialogues ── */}
       {contactAModifier && courante ? (
         <ContactFormulaire agenceId={courante.agence.id} contact={contactAModifier} onFermer={() => setContactAModifier(null)} onEnregistre={() => { setContactAModifier(null); rafraichirCourante() }} />
-      ) : null}
-      {dialogue === "tache" || dialogue === "rdv" ? (
-        <DialogueAction
-          dialogue={dialogue}
-          nomAgence={fiche?.agence.nom}
-          formAction={formAction}
-          setFormAction={setFormAction}
-          onFermer={() => setDialogue(null)}
-          onValider={() => void validerAction()}
-        />
-      ) : null}
-      {envoiPour ? (
-        <EnvoyerEmailModal
-          destinataire={envoiPour}
-          onClose={() => {
-            setEnvoiPour(null)
-            void rafraichirCourante()
-          }}
-        />
       ) : null}
     </div>
   )

@@ -1,7 +1,8 @@
 // ── Le mail de suivi, DANS la barre de résultat (maquette 07/11/2026) ──
 // Mahdi : « au bon endroit, au bon moment ». Le mail se prépare pendant qu'on note le résultat et part
 // en validant. On part du mail de l'IA (écrit d'après l'appel) ou d'un de nos modèles enregistrés.
-// Les documents de base (Kbis, assurance, les deux plaquettes, le RIB) sont joints d'office, et le
+// Les 4 documents de base (Kbis, assurance, les deux plaquettes du 14/10) sont joints d'office, les autres
+// s'ajoutent à la main ; le
 // lien suivi « Créer un compte » est toujours là : c'est lui qui trace le gestionnaire et crée le lead.
 import { useEffect, useMemo, useState, type MutableRefObject } from "react"
 import { FileText, Link2, Mail, Pencil, Sparkles, X } from "lucide-react"
@@ -10,7 +11,7 @@ import type { Destinataire } from "../../../lib/destinataire"
 import { chargerEmails } from "../../../lib/emailsDb"
 import { composer, envoyerEmail } from "../../../lib/envoiEmail"
 import { apercuLiens } from "../../../lib/liensSuivisDb"
-import { bibliothequeDocuments } from "../../../lib/documentsBibliotheque"
+import { bibliothequeDocuments, documentsDeBase, estJoint } from "../../../lib/documentsBibliotheque"
 import { decouperAdresses } from "../../../lib/adressesEmail"
 import { useSession } from "../../../lib/auth"
 import { useSignataires } from "../../../lib/useSignataires"
@@ -41,7 +42,10 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
   const [retires, setRetires] = useState<string[]>([])
 
   useEffect(() => { chargerEmails().then(setModeles).catch(() => {}) }, [])
-  const documents = useMemo(() => bibliothequeDocuments(modeles), [modeles])
+  const [ajoutes, setAjoutes] = useState<PieceJointe[]>([])
+  const base = useMemo(() => documentsDeBase(modeles), [modeles])
+  const documents = useMemo(() => [...base, ...ajoutes], [base, ajoutes])
+  const autres = useMemo(() => bibliothequeDocuments(modeles).filter((d) => !estJoint(d, documents)), [modeles, documents])
   const pieces: PieceJointe[] = documents.filter((d) => !retires.includes(d.chemin))
 
   // Le point de départ : le mail de l'IA dès qu'il arrive, sinon le 1er modèle.
@@ -109,6 +113,14 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
                 )
               })}
             </ul>
+            {autres.length ? (
+              <div className="mt-2 w-[300px] max-w-full">
+                <Selecteur value="" onChange={(e) => { const d = autres.find((x) => x.chemin === e.target.value); if (d) setAjoutes((l) => [...l, d]) }} aria-label="Ajouter un document">
+                  <option value="">Ajouter un document…</option>
+                  {autres.map((d) => <option key={d.chemin} value={d.chemin}>{d.nom}</option>)}
+                </Selecteur>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

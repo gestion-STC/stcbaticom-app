@@ -1,8 +1,9 @@
 // ── 2. L'agence en cours (dessin du 06/11/2026, thème A2 : au trait, sans carte) ──
 // L'identité, les bandeaux (appel direct, appel en suspens), les numéros et les contacts (reçus
-// tout prêts : `BlocNumeros`, `BlocContacts`), la note de l'appel, les autres actions.
+// tout prêts : `BlocNumeros`, `BlocContacts`), la note de l'appel. Plus de boutons E-mail, Tâche, RDV (07/11) :
+// le mail part de la barre de résultat, le rendez-vous et le rappel se notent dans le résultat.
 import type { Dispatch, ReactNode, SetStateAction } from "react"
-import { ArrowRightLeft, Briefcase, CalendarClock, ExternalLink, Mail, MapPin, Mic, MicOff, SquareCheck } from "lucide-react"
+import { ArrowRightLeft, Briefcase, ExternalLink, MapPin, Mic, MicOff } from "lucide-react"
 import type { AgenceComplete, Lead } from "../../../demarchage/db"
 import { attenteLisible, couleurAttente, minutesDepuis } from "../../../demarchage/leadsOutils"
 import { DernierEchange } from "../EchangesAppels"
@@ -12,7 +13,7 @@ import { bilanDepuisAgence, dateHeureCourte, texteBilanAppels } from "../../../d
 import { Bandeau, Bouton, Pastille, Zone } from "../../../ui"
 import { Section } from "./morceaux"
 import ConseilsAvantAppel from "./ConseilsAvantAppel"
-import { FABRIQUE_DICTEE, type Action } from "./outils"
+import { FABRIQUE_DICTEE } from "./outils"
 
 export default function FicheEnCours({
   fiche,
@@ -29,8 +30,6 @@ export default function FicheEnCours({
   dicter,
   note,
   setNote,
-  ouvrirEmail,
-  ouvrirAction,
   lead,
   maintenant,
 }: {
@@ -51,8 +50,6 @@ export default function FicheEnCours({
   dicter: () => void
   note: string
   setNote: Dispatch<SetStateAction<string>>
-  ouvrirEmail: () => void
-  ouvrirAction: (type: Exclude<Action, "passer">) => void
 }) {
   return (
     <div className="min-w-0">
@@ -134,12 +131,6 @@ export default function FicheEnCours({
         <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />
       </Section>
 
-      {/* Autres actions. Plus de bouton « Note » (Mahdi, 24/10) : la note de l'appel juste au-dessus fait le même travail. */}
-      <div className="mt-4 flex flex-wrap gap-2 border-t-[0.5px] border-trait pt-3">
-        <Bouton icone={<Mail />} onClick={ouvrirEmail}>E-mail</Bouton>
-        <Bouton icone={<SquareCheck />} onClick={() => ouvrirAction("tache")}>Tâche</Bouton>
-        <Bouton icone={<CalendarClock />} onClick={() => ouvrirAction("rdv")}>RDV</Bouton>
-      </div>
     </div>
   )
 }

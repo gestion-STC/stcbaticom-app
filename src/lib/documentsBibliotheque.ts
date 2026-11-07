@@ -25,3 +25,21 @@ export function estJoint(doc: PieceJointe, pieces: PieceJointe[]): boolean {
 export function basculerDocument(doc: PieceJointe, pieces: PieceJointe[]): PieceJointe[] {
   return estJoint(doc, pieces) ? pieces.filter((p) => !(p.chemin === doc.chemin || cleNom(p.nom) === cleNom(doc.nom))) : [...pieces, doc]
 }
+
+// Les DOCUMENTS DE BASE, joints d'office au mail de suivi de la session (Mahdi, 07/11/2026 : « le Kbis,
+// l'assurance décennale / responsabilité civile, et les deux dernières plaquettes, pas les anciennes ;
+// ces quatre-là et c'est tout »). Repérés par leur FICHIER : la bibliothèque contient plusieurs versions
+// sous des noms voisins. Pour en changer : remplacer le fichier ici.
+export const DOCUMENTS_DE_BASE = [
+  "aba7ff82-c739-4f18-a0b6-d65279ac5f28.pdf", // Kbis STC Bâtiment (24-07-2026)
+  "5b129b47-c76a-4dda-a96a-19516ef7608b.pdf", // Attestation d'assurance STC Bâtiment (SMA BTP) : décennale et RC
+  "801aeb9d-311d-48a8-ba02-97c96754dfa2.pdf", // STC - Plaquette Service Gestion (déposée le 14/10)
+  "43fb4102-ec01-4710-ba3b-317bf4ace8c4.pdf", // STC - Plaquette Plateforme (déposée le 14/10)
+]
+
+/** Les documents de base trouvés dans les pièces des modèles, dans l'ordre ci-dessus. */
+export function documentsDeBase(emails: Email[]): PieceJointe[] {
+  const parFichier = new Map<string, PieceJointe>()
+  for (const e of emails) for (const p of e.pieces ?? []) if (p?.chemin && p.url && !parFichier.has(p.chemin)) parFichier.set(p.chemin, p)
+  return DOCUMENTS_DE_BASE.map((c) => parFichier.get(c)).filter((p): p is PieceJointe => Boolean(p))
+}
