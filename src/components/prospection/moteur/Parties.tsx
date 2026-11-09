@@ -207,10 +207,10 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
           <Bouton taille="sm" icone={<Plus />} onClick={() => majQ({ qualites: [...q.qualites, { id: nid(), niveau: String.fromCharCode(65 + q.qualites.length), source: questions.length ? "question" : "toujours", questionId: "", operateur: "au moins", valeur: "", etapeId: "" }] })}>Ajouter un niveau</Bouton>
         </div></Bloc>
         <Bloc titre="À qui il arrive"><div className="mt-3 grid grid-cols-[minmax(0,1fr)_110px] gap-3">
-          {baseId === "agences" ? <Libelle titre="Attribution"><Selecteur value={q.attribution} onChange={(e) => majQ({ attribution: e.target.value, attributionIds: [] })}>{ATTRIBUTIONS.map((a) => <option key={a}>{a}</option>)}</Selecteur></Libelle> : <p className="self-center text-colonne text-encre-2">Les sous-traitants sont traités par l'équipe recrutement.</p>}
+          {baseId !== "artisans" ? <Libelle titre="Attribution"><Selecteur value={q.attribution} onChange={(e) => majQ({ attribution: e.target.value, attributionIds: [] })}>{ATTRIBUTIONS.map((a) => <option key={a}>{a}</option>)}</Selecteur></Libelle> : <p className="self-center text-colonne text-encre-2">Les sous-traitants sont traités par l'équipe recrutement.</p>}
           <Libelle titre="À traiter sous (h)"><Champ type="number" min={0} value={q.delaiH} onChange={(e) => majQ({ delaiH: Number(e.target.value) || 0 })} /></Libelle>
         </div>
-        {baseId === "agences" && (q.attribution === "Une personne précise" || q.attribution === "Chacun son tour") ? <div className="mt-3 flex flex-wrap gap-1.5">{comptes.map((x) => <button key={x.id} type="button" aria-pressed={choix.includes(x.id)} onClick={() => choisir(x.id)} className={`h-7 rounded-full px-3 text-colonne ${choix.includes(x.id) ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>{x.nom || x.email}</button>)}</div> : null}
+        {baseId !== "artisans" && (q.attribution === "Une personne précise" || q.attribution === "Chacun son tour") ? <div className="mt-3 flex flex-wrap gap-1.5">{comptes.map((x) => <button key={x.id} type="button" aria-pressed={choix.includes(x.id)} onClick={() => choisir(x.id)} className={`h-7 rounded-full px-3 text-colonne ${choix.includes(x.id) ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>{x.nom || x.email}</button>)}</div> : null}
         </Bloc>
       </div>
       <Bloc titre="Perdu"><div className="mt-3 space-y-3">

@@ -21,6 +21,7 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
+import { boitesDe, capaciteJour, doitArreter } from "../_shared/campagnes/instantlyOutils.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -99,7 +100,7 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
     for (const r of recus) bloques.add(r.contact_ref)
   }
   const exclusions = garde.exclusions ?? []
-  if (baseId === "agences" && exclusions.includes("Adresse en erreur")) {
+  if (baseId !== "artisans" && exclusions.includes("Adresse en erreur")) {
     const rebonds = await tout<{ agence_id: string }>((d, f) => sb.from("activites").select("agence_id").eq("type", "note").eq("source", "site").eq("titre", REBOND).order("id").range(d, f))
     for (const r of rebonds) bloques.add(r.agence_id)
   }
@@ -158,7 +159,9 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   if (canal === "sms") {
     const to = test ? String(c.test_mobile ?? "") : k.mobile
     if (!to) return { ok: false, saute: test ? "mode test sans mobile de test" : "pas de mobile" }
-    const r = await invoquer(base, service, "envoyer-sms", { to, message: test ? `[TEST] ${texte}` : texte })
+    // Comme un mail : chaque SMS de prospection permet de ne plus en recevoir.
+    const message = corps.includes("{{lien_desinscription}}") ? texte : `${texte}\nSTOP : ${stop}`
+    const r = await invoquer(base, service, "envoyer-sms", { to, message: test ? `[TEST] ${message}` : message })
     return r.ok ? { ok: true } : { ok: false, erreur: String(r.data?.error ?? "envoi SMS échoué"), saute: r.data?.code === "non_mobile" ? "numéro non mobile" : undefined }
   }
   const to = test ? String(c.test_email ?? "") : k.email
@@ -197,6 +200,17 @@ Deno.serve(async (req: Request) => {
       const envois = (await tout<Ligne>((d, f) => sb.from("cmp_envois").select("*").eq("campagne_id", c.id).gte("le", depuis).order("id").range(d, f))).map(versEnvoi)
       const evenements = (await tout<Ligne>((d, f) => sb.from("cmp_evenements").select("*").eq("campagne_id", c.id).order("id").range(d, f))).map(versEvenement)
 
+      // Trop de rebonds depuis le dernier arrêt : la campagne se met en pause, et le dit à l'écran.
+      const arretConfig = (ligne.config as { arret?: { le?: string } } | null)?.arret
+      const depuisArret = Math.max(maintenant.getTime() - 14 * JOUR_MS, arretConfig?.le ? new Date(arretConfig.le).getTime() : 0)
+      const nbEnvoyes = envois.filter((e) => e.statut === "envoye" && new Date(e.le).getTime() > depuisArret).length
+      const nbRebonds = evenements.filter((e) => e.type === "rebond" && new Date(e.le).getTime() > depuisArret).length
+      if (!ligne.mode_test && doitArreter(nbEnvoyes, nbRebonds)) {
+        await sb.from("cmp_campagnes").update({ statut: "pause", config: { ...((ligne.config as Ligne | null) ?? {}), arret: { le: iso, envois: nbEnvoyes, rebonds: nbRebonds } } }).eq("id", c.id)
+        console.warn("[CAMPAGNES-MOTEUR] mise en pause, rebonds", c.nom, nbRebonds, "/", nbEnvoyes)
+        continue
+      }
+
       // 1. Les sorties : un contact devenu lead, gagné, exclu ou désinscrit quitte la séquence.
       for (const i of inscriptions.filter((x) => x.campagneId === c.id && x.statut === "en_cours")) {
         const k = parContact.get(i.contactId)
@@ -220,7 +234,8 @@ Deno.serve(async (req: Request) => {
       const debutJour = new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString()
       const { count: mailsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "mail").eq("statut", "envoye").gte("le", debutJour)
       const { count: smsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "sms").eq("statut", "envoye").gte("le", debutJour)
-      const budget = { mail: (garde?.plafondMail ?? PLAFOND_JOUR.mail) - (mailsJour ?? 0), sms: (garde?.plafondSms ?? PLAFOND_JOUR.sms) - (smsJour ?? 0) }
+      const plafondMail = Math.min(garde?.plafondMail ?? PLAFOND_JOUR.mail, capaciteJour(boitesDe(c.baseId, ins.pretes).length))
+      const budget = { mail: plafondMail - (mailsJour ?? 0), sms: (garde?.plafondSms ?? PLAFOND_JOUR.sms) - (smsJour ?? 0) }
       const hSms = heureParis(maintenant) >= 10 && heureParis(maintenant) < 17
       let arret = false
       for (const e of ecr.envois) {

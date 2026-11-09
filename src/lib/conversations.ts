@@ -38,6 +38,12 @@ export function objetNormalise(objet: string): string {
 }
 
 // Regroupe les messages en conversations, de la plus récente à la plus ancienne.
+const DOMAINES_PROSPECTION = ["stcbatiment.org"]
+/** Le dernier message reçu sur une boîte de prospection : la réponse doit repartir de cette boîte. */
+export function messageDeProspection<M extends { sens: string; a: string }>(messages: M[]): M | null {
+  return [...messages].reverse().find((m) => m.sens === "entrant" && DOMAINES_PROSPECTION.some((d) => m.a.toLowerCase().endsWith(`@${d}`))) ?? null
+}
+
 export function grouperEnConversations<M extends MessageConv>(messages: M[]): Conversation<M>[] {
   const convs = new Map<string, Conversation<M>>()
   for (const m of messages) {

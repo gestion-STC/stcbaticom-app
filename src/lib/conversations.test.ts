@@ -6,7 +6,7 @@ import {
   grouperEnConversations,
   objetNormalise,
   paginer,
-  type MessageConv,
+  type MessageConv,messageDeProspection,
 } from "./conversations"
 
 function msg(partiel: Partial<MessageConv> & { id: string }): MessageConv {
@@ -121,4 +121,12 @@ describe("paginer", () => {
     expect(p.fin).toBe(0)
     expect(p.pages).toBe(1)
   })
+})
+
+describe("messageDeProspection", () => {
+  it("prend la dernière réponse reçue sur une boîte de prospection", () => {
+    const l = [{ id: "1", sens: "entrant", a: "partenaire@stcbatiment.org" }, { id: "2", sens: "sortant", a: "x@y.fr" }, { id: "3", sens: "entrant", a: "interventions@stcbatiment.org" }]
+    expect(messageDeProspection(l)?.id).toBe("3")
+  })
+  it("laisse les autres conversations à leur circuit habituel", () => expect(messageDeProspection([{ id: "1", sens: "entrant", a: "contact@crm.stcbatiment.fr" }])).toBeNull())
 })

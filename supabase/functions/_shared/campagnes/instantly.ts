@@ -72,7 +72,7 @@ async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, 
   const cree = await appelInstantly(ins.cle, "/campaigns", { corps: {
     name: `Baticom · ${c.nom} · ${cleVariante.slice(0, 8)}`, campaign_schedule: horaireInstantly(c.rythme),
     sequences: [{ steps: [{ type: "email", delay: 0, variants: [{ subject: "{{bt_objet}}", body: "{{bt_corps}}" }] }] }],
-    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: true, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
+    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: false, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
   } })
   const id = String(cree.data?.id ?? "")
   if (!cree.ok || !id) return { erreur: `création de campagne refusée (${cree.status}) ${String(cree.data?.message ?? "").slice(0, 120)}` }
@@ -89,7 +89,7 @@ export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInsta
   const camp = await campagneDeLaVariante(sb, ins, c, varianteId)
   if (!camp.id) return { ok: false, erreur: camp.erreur }
   const r = await appelInstantly(ins.cle, "/leads", { corps: {
-    campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: false,
+    campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: !test,
     custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
   } })
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé le contact (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
