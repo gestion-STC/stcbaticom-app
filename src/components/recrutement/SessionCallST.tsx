@@ -7,11 +7,11 @@
 // promis de déposer. Chaque appel laisse une trace : combien de fois, quel
 // retour, va-t-il déposer, pas intéressé — et la base trie d'elle-même
 // (`st_appel_enregistrer` : rappels, injoignable, arrêt de la séquence).
-// Trois colonnes, comme la session du démarchage : la file, la fiche et la
-// barre de résultat, l'historique.
+// Le même format que la session du démarchage (07/11/2026) : les files en onglets, la file en marge,
+// l'artisan au trait, le résultat en gros boutons à touches, l'historique à droite.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowRight, Check, ExternalLink, Phone, PhoneOutgoing, RefreshCw, Search } from "lucide-react"
+import { ArrowRight, Check, ChevronLeft, ChevronRight, ExternalLink, Mail, MousePointerClick, Phone, PhoneOutgoing, RefreshCw, Search, Send } from "lucide-react"
 import type { ClicST, EnvoiST, EtapeST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { chronologie, dateHeure } from "../../lib/chronologieArtisan"
@@ -27,7 +27,8 @@ import { useSession } from "../../lib/auth"
 import { nomAffiche } from "../../lib/comptes"
 import { lancerAppelRingover } from "../../lib/ringover"
 import { formaterTelephone } from "../../lib/telephone"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, EnTetePage, Etiquette, Pastille, Selecteur, Vide, Zone } from "../../ui"
+import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
+import { Section } from "../demarchage/session/morceaux"
 import FicheArtisan from "./FicheArtisan"
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -36,17 +37,20 @@ type Choix = { resultat: ResultatST | null; issue: IssueST; motif: string; rappe
 const CHOIX_VIDE: Choix = { resultat: null, issue: "", motif: "", rappelJour: "", rappelHeure: "10:00" }
 const demain = (now: Date) => { const d = new Date(now); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) }
 
-/** Un gros bouton de résultat ou d'issue, avec sa touche en petit. */
+/** Un gros bouton de résultat ou d'issue, sa touche en petit : le même que la barre des agences. */
 function GrosBouton({ touche, libelle, aide, choisi, onClick }: { touche: string; libelle: string; aide: string; choisi: boolean; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} aria-pressed={choisi} title={aide}
-      className={"flex min-h-[52px] flex-1 basis-[150px] flex-col items-start justify-center gap-0.5 rounded-4 border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature " +
+      className={"relative flex min-h-[56px] flex-1 basis-[140px] flex-col items-start justify-center gap-0.5 rounded-4 border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signature focus-visible:ring-offset-2 " +
         (choisi ? "border-action bg-fond-3 text-encre ring-1 ring-action" : "border-trait bg-fond text-encre hover:border-trait-fort hover:bg-fond-4")}>
-      <span className="text-legende font-semibold">{libelle}</span>
-      <span className="text-colonne text-encre-2">touche {touche}</span>
+      <span className="flex items-center gap-2"><kbd className="rounded-3 bg-fond-4 px-1.5 text-[10px] font-semibold leading-4 text-encre-2">{touche}</kbd><span className="text-legende font-medium">{libelle}</span></span>
+      <span className="text-colonne text-encre-2">{aide}</span>
     </button>
   )
 }
+
+/** Le nom court de chaque file dans les onglets. */
+const ONGLET_FILE: Record<FileST, string> = { leads: "Leads", rappels: "À rappeler", promis: "Ont promis de déposer" }
 
 export default function SessionCallST() {
   const session = useSession()
@@ -205,136 +209,177 @@ export default function SessionCallST() {
   const st = courant?.st ?? null
   const pret = !!choix.resultat && (choix.resultat !== "joint" || !!choix.issue)
   const fileCourante = FILES_ST.find((f) => f.code === file)!
+  const positionFile = directeId ? null : Math.min(index + 1, liste.length)
+  const ensuite = !directeId ? liste[index + 1] : liste[index]
+  const reculer = () => { setDirecteId(null); setIndex((i) => Math.max(0, i - 1)) }
 
+  // ── LE MÊME FORMAT QUE LA SESSION DES AGENCES (Mahdi, 07/11/2026 : « que ça ne perturbe pas l'œil ») :
+  // les files en onglets, la file en marge à gauche, l'artisan au centre au trait (sans carte), le résultat
+  // en gros boutons à touches, l'historique à droite, « Ensuite : » en pied.
   return (
-    <div className="page">
-      <EnTetePage
-        titre="Session de call · Recrutement"
-        sousTitre={`${fileCourante.aide}${faits.size ? ` · ${faits.size} appel${s(faits.size)} enregistré${s(faits.size)} dans cette session` : ""}`}
-        droite={<>
+    <div className="@container w-full px-8 pb-10 pt-6">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b-[0.5px] border-trait">
+        <Onglets<FileST>
+          className="!border-b-0"
+          valeur={file}
+          onChange={(f) => { setFile(f); setDirecteId(null) }}
+          options={FILES_ST.map((f) => ({ id: f.code, label: ONGLET_FILE[f.code], badge: compteurs?.[f.code] || undefined }))}
+        />
+        <span className="pb-2.5 text-colonne text-encre-2">{fileCourante.aide}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <span className="chiffres text-legende text-encre-2">Le plus ancien d'abord{faits.size ? ` · ${faits.size} appel${s(faits.size)} enregistré${s(faits.size)} dans cette session` : ""}</span>
+        <div className="flex flex-wrap items-center gap-2">
           <Selecteur className="w-[200px]" value={metier} onChange={(e) => setMetier(e.target.value)} aria-label="Métier">
             <option value="">Tous les métiers</option>
             {metiers.map((m) => <option key={m} value={m}>{m}</option>)}
           </Selecteur>
-          <Bouton icone={<RefreshCw />} onClick={() => { chargerFile(); chargerCompteurs().catch(() => undefined) }}>Actualiser</Bouton>
-        </>}
-      />
-
-      <div className="mb-4">
-        <Compteurs<FileST>
-          valeurs={FILES_ST.map((f) => ({ id: f.code, libelle: f.libelle, valeur: compteurs?.[f.code] ?? "…", detail: f.aide, role: f.code === "rappels" && (compteurs?.rappels ?? 0) > 0 ? ("alerte" as const) : undefined }))}
-          actif={file}
-          onSelect={(f) => { setFile(f); setDirecteId(null) }}
-        />
+          <Bouton variante="discret" icone={<RefreshCw />} onClick={() => { chargerFile(); chargerCompteurs().catch(() => undefined) }}>Actualiser</Bouton>
+        </div>
       </div>
 
-      {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
-      {info ? <Bandeau role="ok" className="mb-4" action={<Bouton taille="sm" variante="discret" onClick={() => setInfo("")}>Fermer</Bouton>}>{info}</Bandeau> : null}
+      <div className="mt-5 space-y-3">
+        {erreur ? <Bandeau role="alerte" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
+        {info ? <Bandeau role="ok" action={<Bouton taille="sm" variante="discret" onClick={() => setInfo("")}>Fermer</Bouton>}>{info}</Bandeau> : null}
+      </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_1fr_340px]">
-        {/* ── La file ── */}
-        <Carte className="self-start">
-          <div className="border-b border-trait px-4 py-3">
-            <Champ type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Chercher un artisan…" aria-label="Chercher un artisan" />
-          </div>
-          {resultats ? (
-            <ul className="max-h-[60vh] overflow-y-auto">
-              {resultats.length === 0 ? <li className="px-4 py-3 text-legende text-encre-2">Aucun artisan ne correspond.</li> : null}
-              {resultats.map((x) => (
-                <li key={x.id}>
-                  <button type="button" onClick={() => { setDirecteId(x.id!); setRecherche(""); setResultats(null) }} className="flex w-full items-center gap-2 border-b border-fond-4 px-4 py-2 text-left hover:bg-fond-4">
-                    <span className="min-w-0 flex-1"><span className="block truncate text-legende font-medium text-encre">{x.entreprise}</span><span className="block truncate text-colonne text-encre-2">{[x.metier, formaterTelephone(x.telephone)].filter(Boolean).join(" · ")}</span></span>
-                    <Search size={14} className="shrink-0 text-encre-3" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : chargementFile ? <Chargement texte="Lecture de la file…" /> : liste.length === 0 ? (
-            <Vide titre="File vide" texte={file === "leads" ? "Aucun lead à appeler pour l'instant : la machine en apportera." : file === "rappels" ? "Aucun rappel pour aujourd'hui." : "Personne n'a promis de déposer."} />
-          ) : (
-            <ul className="max-h-[70vh] overflow-y-auto">
-              {liste.map((x, i) => {
+      <div className="mt-5 flex gap-8">
+        {/* ── 1. La file, en marge ── */}
+        <aside className="hidden w-[240px] shrink-0 @min-[960px]:block">
+          <div className="sticky top-4 flex h-[calc(100vh-230px)] min-h-[320px] flex-col">
+            <div className="relative">
+              <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-encre-3" />
+              <Champ value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Appeler un artisan…" className="pl-8" aria-label="Appeler un artisan directement" />
+              {resultats ? (
+                <div className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-4 border-[0.5px] border-trait bg-fond shadow-flottante">
+                  {resultats.length === 0 ? <div className="px-3 py-2 text-legende text-encre-2">Aucun artisan trouvé.</div> : resultats.map((x) => (
+                    <button key={x.id} type="button" onClick={() => { setDirecteId(x.id!); setRecherche(""); setResultats(null) }} className="block w-full border-b-[0.5px] border-trait px-3 py-2 text-left last:border-0 hover:bg-fond-2">
+                      <div className="truncate text-legende text-encre">{x.entreprise || x.contact || "Sans nom"}</div>
+                      <div className="truncate text-colonne text-encre-2">{[x.metier, formaterTelephone(x.telephone)].filter(Boolean).join(" · ") || "sans numéro"}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <span className="text-colonne text-encre-2">À traiter, le plus ancien d'abord</span>
+              <span className="chiffres text-colonne text-encre-2">{positionFile ?? "—"} / {liste.length}</span>
+            </div>
+            <div className="mt-1.5 flex items-center gap-1">
+              <Bouton taille="sm" variante="discret" icone={<ChevronLeft />} onClick={reculer} disabled={index === 0 && !directeId}>Précédente</Bouton>
+              <Bouton taille="sm" variante="discret" icone={<ChevronRight />} onClick={suivant} disabled={!liste.length || index >= liste.length}>Suivante</Bouton>
+            </div>
+            <div className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto border-t-[0.5px] border-trait pt-1.5">
+              {chargementFile ? <Chargement texte="Lecture de la file…" /> : liste.length === 0 ? (
+                <Vide titre="Rien à appeler" texte={file === "leads" ? "Aucun lead pour l'instant : les campagnes en apporteront." : file === "rappels" ? "Aucun rappel pour aujourd'hui." : "Personne n'a promis de déposer."} />
+              ) : liste.map((x, i) => {
                 const courante = !directeId && i === index
                 return (
-                  <li key={x.id}>
-                    <button type="button" onClick={() => { setDirecteId(null); setIndex(i) }} className={"flex w-full items-center gap-2 border-b border-fond-4 px-4 py-2 text-left " + (courante ? "bg-fond-3" : "hover:bg-fond-4")}>
-                      <span className={"h-2 w-2 shrink-0 rounded-full " + (courante ? "bg-encre" : "bg-transparent")} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-legende font-medium text-encre">{x.entreprise || x.contact || "Sans nom"}</span>
-                        <span className="block truncate text-colonne text-encre-2">
-                          {[x.metier, file === "rappels" && x.rappelLe ? `rappel ${dateHeure(x.rappelLe)}` : signaux(x)[0]].filter(Boolean).join(" · ")}
-                        </span>
-                      </span>
-                      {x.nbAppels ? <span className="chiffres shrink-0 text-colonne text-encre-2" title={`${x.nbAppels} appel${s(x.nbAppels)}`}>{x.nbAppels}</span> : null}
-                    </button>
-                  </li>
+                  <button key={x.id} type="button" onClick={() => { setDirecteId(null); setIndex(i) }} aria-current={courante ? "true" : undefined}
+                    className={"block w-full rounded-4 px-2 py-1.5 text-left transition-colors " + (courante ? "bg-fond-4" : "hover:bg-fond-2")}>
+                    <div className="flex items-baseline gap-2">
+                      {file === "leads" ? <span className="h-1.5 w-1.5 shrink-0 -translate-y-px rounded-full bg-signature" /> : null}
+                      <span className={"min-w-0 flex-1 truncate text-legende text-encre " + (courante ? "font-medium" : "")}>{x.entreprise || x.contact || "Sans nom"}</span>
+                      {faits.has(x.id!) ? <Check size={14} className="shrink-0 text-ok" aria-label="Appelé dans cette session" /> : null}
+                    </div>
+                    <div className="mt-0.5 truncate text-colonne text-encre-2">{file === "rappels" && x.rappelLe ? `rappel ${dateHeure(x.rappelLe)}` : signaux(x)[0] ?? "—"}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-colonne text-encre-2">
+                      <Pastille role={rolePastilleStatut[x.statut]}>{libelleStatutST[x.statut]}</Pastille>
+                      {x.metier ? <span className="truncate">{x.metier}</span> : null}
+                    </div>
+                    <div className="text-colonne text-encre-2">{x.nbAppels ? `${x.nbAppels} appel${s(x.nbAppels)}${x.dernierAppelLe ? `, dernier le ${dateHeure(x.dernierAppelLe)}` : ""}` : "jamais appelé"}</div>
+                  </button>
                 )
               })}
-            </ul>
-          )}
-        </Carte>
+            </div>
+          </div>
+        </aside>
 
-        {/* ── La fiche et la barre de résultat ── */}
-        <div className="grid content-start gap-4">
+        <div className="min-w-0 flex-1">
           {!st ? (
-            <Carte><Vide titre={liste.length && index >= liste.length ? "File terminée" : "Choisis un artisan"} texte={liste.length && index >= liste.length ? "Tous les artisans de cette file sont passés. Change de file ou actualise." : "Clique un artisan dans la file, ou cherche-le."} /></Carte>
+            <div className="py-16">
+              <Vide titre={liste.length && index >= liste.length ? "File terminée" : "Aucun artisan en cours"} texte={liste.length && index >= liste.length ? "Tous les artisans de cette file sont passés. Change de file ou actualise." : chargementFile ? "La file se charge…" : "Choisis un artisan dans la file, ou cherche-le pour l'appeler directement."} />
+            </div>
           ) : (
-            <>
-              <Carte>
-                <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-sous-titre font-semibold text-encre">{st.entreprise || st.contact || "Sans nom"}</h2>
-                    <p className="mt-0.5 flex flex-wrap items-center gap-2 text-legende text-encre-2">
-                      <Pastille role={rolePastilleStatut[st.statut]} point>{libelleStatutST[st.statut]}</Pastille>
-                      {st.suivi ? <Pastille role={st.suivi === "va_deposer" || st.suivi === "a_rappeler" ? "attente" : "probleme"}>{LIBELLE_SUIVI[st.suivi]}</Pastille> : null}
-                      {st.metier ? <span>{st.metier}</span> : null}
-                      {st.zone ? <span>· {st.zone}</span> : null}
-                      {st.source ? <span>· {st.source}</span> : null}
-                    </p>
+            <div className="grid gap-x-12 gap-y-8 @min-[1240px]:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+              <div className="min-w-0 space-y-4">
+                {/* ── 2. L'artisan en cours, au trait ── */}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-h1 font-semibold tracking-[-0.015em] text-encre">{st.entreprise || st.contact || "Sans nom"}</h2>
+                      {signaux(st).length ? (
+                        <p className="mt-1.5 text-legende text-encre">
+                          <span className="mr-2 inline-block h-1.5 w-1.5 -translate-y-px rounded-full bg-signature" />
+                          <b className="font-medium">Lead</b> · {signaux(st).join(" · ")}
+                        </p>
+                      ) : null}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        {st.metier ? <Pastille>{st.metier}</Pastille> : null}
+                        {st.zone ? <Pastille>{st.zone}</Pastille> : null}
+                        <Pastille role={rolePastilleStatut[st.statut]} point>{libelleStatutST[st.statut]}</Pastille>
+                        {st.suivi ? <Pastille role={st.suivi === "va_deposer" || st.suivi === "a_rappeler" ? "attente" : "probleme"} point>{LIBELLE_SUIVI[st.suivi]}</Pastille> : null}
+                        <span className="chiffres text-legende text-encre-2">{st.nbAppels ? `${st.nbAppels} appel${s(st.nbAppels)}${st.nbJoints ? `, joint ${st.nbJoints} fois` : ""}${st.dernierAppelLe ? ` · dernier le ${dateHeure(st.dernierAppelLe)}` : ""}` : "jamais appelé"}</span>
+                      </div>
+                      <div className="mt-1 text-legende text-encre">{[st.contact, st.email].filter(Boolean).join(" · ") || <span className="text-attention">Ni contact ni e-mail connus</span>}</div>
+                    </div>
+                    <Bouton variante="discret" icone={<ExternalLink />} onClick={() => setFicheOuverte(st.id!)}>Ouvrir la fiche</Bouton>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Bouton variante="discret" icone={<ExternalLink />} onClick={() => setFicheOuverte(st.id!)}>Fiche</Bouton>
-                    <Bouton variante="plein" icone={<Phone />} onClick={appeler} disabled={!st.telephone}>Appeler</Bouton>
-                  </div>
-                </div>
-                <div className="grid gap-x-6 gap-y-1 px-5 pb-4 pt-3 text-legende sm:grid-cols-2">
-                  <p><span className="text-encre-2">Contact</span> · <span className="text-encre">{st.contact || "—"}</span></p>
-                  <p><span className="text-encre-2">Mobile</span> · <span className={"chiffres font-medium " + (st.telephoneInvalide ? "text-alerte line-through" : "text-encre")}>{formaterTelephone(st.telephone) || "—"}</span></p>
-                  <p className="truncate"><span className="text-encre-2">E-mail</span> · <span className={st.emailInvalide ? "text-alerte line-through" : "text-encre"}>{st.email || "—"}</span></p>
-                  <p><span className="text-encre-2">Appels</span> · <span className="chiffres text-encre">{st.nbAppels ?? 0}</span>{st.nbJoints ? <span className="text-encre-2"> dont {st.nbJoints} joint{s(st.nbJoints)}</span> : null}{st.dernierAppelLe ? <span className="text-encre-2"> · dernier le {dateHeure(st.dernierAppelLe)}</span> : null}</p>
-                </div>
-                <div className="border-t border-trait px-5 py-3">
-                  <p className="text-colonne font-medium text-encre-2">Pourquoi on l'appelle</p>
-                  <ul className="mt-1 text-legende text-encre">
-                    {signaux(st).map((x) => <li key={x}>· {x}</li>)}
-                    {st.rappelLe ? <li>· rappel prévu le {dateHeure(st.rappelLe)}{st.suivi === "va_deposer" ? " (avait promis de déposer)" : ""}</li> : null}
-                    {st.suiviMotif ? <li className="text-encre-2">· {st.suiviMotif}</li> : null}
-                    {signaux(st).length === 0 && !st.rappelLe ? <li className="text-encre-2">· pris hors file</li> : null}
-                  </ul>
-                </div>
-              </Carte>
+                  {directeId ? (
+                    <Bandeau role="info" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setDirecteId(null)}>Revenir à la file</Bouton>}>Appel direct, hors file.</Bandeau>
+                  ) : null}
+                  {st.rappelLe || st.suiviMotif ? (
+                    <p className="mt-3 text-legende text-encre-2">{st.rappelLe ? `Rappel prévu le ${dateHeure(st.rappelLe)}${st.suivi === "va_deposer" ? " (avait promis de déposer)" : ""}` : ""}{st.rappelLe && st.suiviMotif ? " · " : ""}{st.suiviMotif}</p>
+                  ) : null}
 
-              <Carte>
-                <div className="px-5 pt-4">
-                  <p className="text-legende font-semibold text-encre">{appelDepuis ? <span className="inline-flex items-center gap-1.5"><PhoneOutgoing size={14} className="text-signature" /> Appel lancé · <span className="chiffres">{dureeLisibleST(Math.round((maintenant.getTime() - appelDepuis) / 1000)) || "0 s"}</span></span> : "Qu'est-ce qui s'est passé ?"}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
+                  <Section titre="Numéros">
+                    {!st.telephone ? <Vide titre="Aucun numéro" texte="Complète le mobile sur la fiche." /> : (
+                      <div className="flex flex-wrap items-center gap-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className={"chiffres text-sous-titre font-semibold " + (st.telephoneInvalide ? "text-alerte line-through" : "text-encre")}>{formaterTelephone(st.telephone)}</div>
+                          <div className="text-legende text-encre-2">Mobile{st.contact ? ` · ${st.contact}` : ""}{st.telephoneInvalide ? " · numéro en erreur" : ""}</div>
+                        </div>
+                        <Bouton variante="plein" icone={<Phone />} onClick={appeler} disabled={st.telephoneInvalide}>Appeler</Bouton>
+                      </div>
+                    )}
+                    {appelDepuis ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-legende text-encre">
+                        <Pastille role="actif" point>Appel lancé</Pastille>
+                        <span className="chiffres font-medium">{dureeLisibleST(Math.round((maintenant.getTime() - appelDepuis) / 1000)) || "0 s"}</span>
+                        <span className="text-encre-2">Ringover fait sonner ton poste, puis l'artisan</span>
+                      </div>
+                    ) : null}
+                  </Section>
+
+                  <Section titre="Note de l'appel">
+                    <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />
+                  </Section>
+                </div>
+
+                {/* ── Le résultat, comme la barre des agences ── */}
+                <section className="border-y-[0.5px] border-trait py-4" aria-label="Résultat de l'appel">
+                  <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 className="text-sous-titre font-semibold text-encre">Qu'est-ce qui s'est passé ?</h2>
+                    <span className="chiffres text-colonne text-encre-2">Touches 1 à 4 · Entrée valide · Échap efface</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     {RESULTATS_ST.map((r) => <GrosBouton key={r.code} touche={r.touche} libelle={r.libelle} aide={r.aide} choisi={choix.resultat === r.code} onClick={() => setChoix({ ...CHOIX_VIDE, resultat: r.code })} />)}
                   </div>
                   {choix.resultat === "joint" ? (
-                    <>
-                      <p className="mt-4 text-legende font-semibold text-encre">Et alors ?</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="mt-3 border-t border-fond-4 pt-3">
+                      <div className="mb-2 text-colonne font-medium text-encre-2">Et avec l'artisan ?</div>
+                      <div className="flex flex-wrap gap-2">
                         {ISSUES_ST.map((i) => <GrosBouton key={i.code} touche={i.touche} libelle={i.libelle} aide={i.aide} choisi={choix.issue === i.code} onClick={() => setChoix({ ...choix, issue: i.code, rappelJour: i.code === "a_rappeler" && !choix.rappelJour ? demain(new Date()) : choix.rappelJour })} />)}
                       </div>
                       {choix.issue === "a_rappeler" ? (
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <Etiquette texte="Jour du rappel"><Champ type="date" value={choix.rappelJour} onChange={(e) => setChoix({ ...choix, rappelJour: e.target.value })} /></Etiquette>
+                        <div className="mt-3 grid max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
+                          <Etiquette texte="Rappeler le"><Champ type="date" value={choix.rappelJour} onChange={(e) => setChoix({ ...choix, rappelJour: e.target.value })} /></Etiquette>
                           <Etiquette texte="Heure"><Champ type="time" value={choix.rappelHeure} onChange={(e) => setChoix({ ...choix, rappelHeure: e.target.value })} /></Etiquette>
                         </div>
                       ) : null}
                       {choix.issue === "pas_interesse" || choix.issue === "hors_cible" ? (
-                        <div className="mt-3">
-                          <Etiquette texte="Pourquoi ?">
+                        <div className="mt-3 max-w-xs">
+                          <Etiquette texte="Motif">
                             <Selecteur value={choix.motif} onChange={(e) => setChoix({ ...choix, motif: e.target.value })}>
                               <option value="">Sans précision</option>
                               {MOTIFS_ST.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -342,50 +387,69 @@ export default function SessionCallST() {
                           </Etiquette>
                         </div>
                       ) : null}
-                    </>
+                    </div>
                   ) : null}
-                  <div className="mt-3">
-                    <Etiquette texte="Note (facultative)"><Zone value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Ce qu'il a dit, ce qu'il attend…" /></Etiquette>
+                  <p className="mt-3 text-legende text-encre-2">{choix.resultat ? "Le suivi, le rappel et l'arrêt de la séquence se règlent tout seuls en validant." : "Choisis ce qui s'est passé : le suivi et les rappels suivent tout seuls."}</p>
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-fond-4 pt-3">
+                    <Bouton variante="discret" icone={<ArrowRight />} disabled={occupe || (!!directeId && liste.length === 0)} onClick={suivant}>Suivant sans noter</Bouton>
+                    <Bouton variante="plein" icone={<Check />} chargement={occupe} disabled={!pret} onClick={enregistrer}>Valider</Bouton>
                   </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
-                  <span className="text-colonne text-encre-2">Touches 1 à 4 · Entrée pour enregistrer · Échap pour effacer</span>
-                  <span className="flex items-center gap-1">
-                    <Bouton variante="discret" icone={<ArrowRight />} disabled={occupe || !!directeId && liste.length === 0} onClick={suivant}>Suivant sans enregistrer</Bouton>
-                    <Bouton icone={<Check />} chargement={occupe} disabled={!pret} onClick={enregistrer}>Enregistrer et passer au suivant</Bouton>
-                  </span>
-                </div>
-              </Carte>
-            </>
-          )}
-        </div>
+                </section>
+              </div>
 
-        {/* ── L'historique ── */}
-        <Carte className="self-start">
-          <h3 className="px-5 pb-2 pt-4 text-colonne font-medium text-encre-2">Appels{courant?.appels.length ? ` · ${courant.appels.length}` : ""}</h3>
-          {!courant ? <p className="px-5 pb-4 text-legende text-encre-2">—</p> : courant.appels.length === 0 ? <p className="px-5 pb-4 text-legende text-encre-2">Jamais appelé.</p> : (
-            <ul className="px-5 pb-4">
-              {courant.appels.map((a) => (
-                <li key={a.id} className="border-b border-fond-4 py-2 text-legende last:border-b-0">
-                  <div className="flex items-center justify-between gap-2"><span className="font-medium text-encre">{LIBELLE_RESULTAT[a.resultat]}{a.issue ? ` · ${LIBELLE_ISSUE[a.issue]}` : ""}</span><span className="chiffres text-colonne text-encre-2">{dateHeure(a.date)}</span></div>
-                  <div className="text-colonne text-encre-2">{[a.compteNom, a.motif, a.dureeS ? dureeLisibleST(a.dureeS) : "", a.rappelLe ? `rappel ${dateHeure(a.rappelLe)}` : ""].filter(Boolean).join(" · ")}</div>
-                  {a.note ? <div className="text-colonne text-encre">{a.note}</div> : null}
-                </li>
-              ))}
-            </ul>
+              {/* ── 3. L'historique, au trait, à droite ── */}
+              <div className="min-w-0 space-y-6 @min-[1240px]:border-l-[0.5px] @min-[1240px]:border-trait @min-[1240px]:pl-12">
+                <div className="min-w-0">
+                  <p className="mb-1 flex items-baseline justify-between gap-2 text-colonne text-encre-2"><span>Historique</span><span className="chiffres">{courant?.appels.length ?? 0} appel{s(courant?.appels.length ?? 0)} · les plus récents en haut</span></p>
+                  {!courant || courant.appels.length === 0 ? <Vide titre="Rien encore" texte="Le premier appel ouvrira l'historique." /> : (
+                    <ol className="divide-y-[0.5px] divide-trait">
+                      {courant.appels.map((a) => (
+                        <li key={a.id} className="flex gap-3 py-2.5">
+                          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fond-3 text-encre-2"><PhoneOutgoing size={14} /></span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline justify-between gap-2"><span className="truncate text-legende font-medium text-encre">{LIBELLE_RESULTAT[a.resultat]}{a.issue ? ` · ${LIBELLE_ISSUE[a.issue]}` : ""}</span><span className="chiffres shrink-0 text-colonne text-encre-2">{dateHeure(a.date)}</span></div>
+                            <div className="text-colonne text-encre-2">{[a.compteNom, a.motif, a.dureeS ? dureeLisibleST(a.dureeS) : "", a.rappelLe ? `rappel ${dateHeure(a.rappelLe)}` : ""].filter(Boolean).join(" · ")}</div>
+                            {a.note ? <p className="mt-1 whitespace-pre-line text-legende text-encre">{a.note}</p> : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-colonne text-encre-2">Ce qu'il a reçu et fait</p>
+                  {evenements.length === 0 ? <Vide titre="Rien encore" /> : (
+                    <ol className="divide-y-[0.5px] divide-trait">
+                      {evenements.slice(0, 12).map((e, i) => (
+                        <li key={i} className="flex gap-3 py-2.5">
+                          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fond-3 text-encre-2">{e.role === "clic" ? <MousePointerClick size={14} /> : e.role === "message" ? <Mail size={14} /> : <Send size={14} />}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline justify-between gap-2"><span className={"truncate text-legende font-medium " + (e.role === "erreur" ? "text-alerte" : "text-encre")}>{e.texte}</span><span className="chiffres shrink-0 text-colonne text-encre-2">{dateHeure(e.quand)}</span></div>
+                            {e.detail ? <div className="text-colonne text-encre-2">{e.detail}</div> : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
-          <h3 className="border-t border-trait px-5 pb-2 pt-4 text-colonne font-medium text-encre-2">La machine</h3>
-          {!courant ? <p className="px-5 pb-4 text-legende text-encre-2">—</p> : evenements.length === 0 ? <p className="px-5 pb-4 text-legende text-encre-2">Rien encore.</p> : (
-            <ol className="ml-6 mr-5 mb-4 space-y-2 border-l-2 border-trait pl-4">
-              {evenements.slice(0, 12).map((e, i) => (
-                <li key={i} className="text-legende">
-                  <div className="text-colonne text-encre-2">{dateHeure(e.quand)}</div>
-                  <div className={e.role === "erreur" ? "text-alerte" : "text-encre"}>{e.texte}</div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Carte>
+
+          {/* Le pied : qui vient ensuite */}
+          {liste.length ? (
+            <div className="mt-8 flex items-center justify-between gap-4 border-t-[0.5px] border-trait pt-3">
+              <Bouton taille="sm" variante="discret" icone={<ChevronLeft />} onClick={reculer} disabled={index === 0 && !directeId}>Précédent</Bouton>
+              {ensuite ? (
+                <button type="button" onClick={suivant} className="flex min-w-0 items-center gap-1.5 text-legende text-encre-2 hover:text-encre">
+                  <span className="shrink-0">Ensuite :</span>
+                  <span className="truncate text-encre">{ensuite.entreprise || ensuite.contact || "Sans nom"}</span>
+                  <ChevronRight size={14} className="shrink-0" />
+                </button>
+              ) : <span className="text-colonne text-encre-2">Dernier de la file</span>}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {ficheOuverte ? <FicheArtisan id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={() => { chargerFile(); chargerCompteurs().catch(() => undefined) }} /> : null}

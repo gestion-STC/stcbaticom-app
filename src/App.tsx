@@ -141,7 +141,7 @@ function App() {
           {vue === "st_dossiers" && <DossiersST />}
 
           {/* La session de call : une page, le choix de base dedans (07/11/2026). */}
-          {vue === "sessions" && deuxBases ? <div className={(baseSession === "recrutement" ? "px-10" : "px-8") + " pt-5"}><ChoixBase valeur={baseSession} onChange={setBaseSession} espaces={espaces} avecTout={false} /></div> : null}
+          {vue === "sessions" && deuxBases ? <div className="px-8 pt-5"><ChoixBase valeur={baseSession} onChange={setBaseSession} espaces={espaces} avecTout={false} /></div> : null}
           {vue === "sessions" && baseSession === "recrutement" && <SessionCallST />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
