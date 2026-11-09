@@ -8,11 +8,15 @@ import { Bandeau, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { indicateurs } from "../../prospection/indicateurs"
 import type { Campagne } from "../../prospection/modele"
+import { ORIGINE_TRACABILITE, configDe } from "../../prospection/configCampagne"
 import { NomBase, Onglets, Titre } from "./morceaux"
 import { fr, pct, useVue } from "./outils"
 
 const ROLE = { brouillon: "inerte", active: "fait", pause: "attente", terminee: "inerte" } as const
 const LIB = { brouillon: "Brouillon", active: "Active", pause: "En pause", terminee: "Terminée" } as const
+// La traçabilité des agences tourne hors du moteur : en base elle reste « pause » pour qu'il ne la touche jamais.
+const tracabilite = (c: Campagne) => c.origine === ORIGINE_TRACABILITE
+const criteres = (c: Campagne) => { const q = configDe(c).qualification; return `Lead : ${q.etapes.find((e) => e.id === q.leadA)?.nom ?? "à choisir"} · Gagné : ${q.etapes.find((e) => e.id === q.gagneA)?.nom ?? "à choisir"}` }
 
 export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => void; creer: () => void }) {
   const v = useVue()
@@ -39,10 +43,10 @@ export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => v
       <Table colonnes={[{ titre: "", largeur: "44px" }, { titre: "Campagne" }, ...(v.bases.length > 1 ? [{ titre: "Base", largeur: "170px" }] : []), { titre: "Statut", largeur: "120px" }, { titre: "En cours", largeur: "76px", droite: true }, { titre: "Touchés", largeur: "76px", droite: true }, { titre: "Ouverture", largeur: "84px", droite: true }, { titre: "Clic", largeur: "70px", droite: true }, { titre: "Leads", largeur: "64px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }, { titre: "Coût", largeur: "76px", droite: true }, { titre: "", largeur: "28px" }]}
         vide="Aucune campagne : crée la première."
         lignes={lignes.map(({ c, i }) => ({ cle: c.id, cellules: [
-          <Interrupteur allume={c.statut === "active"} onChange={() => basculer(c)} libelle={c.statut === "active" ? "Mettre en pause" : "Lancer"} />,
-          <button type="button" onClick={() => ouvrir(c.id)} className="block w-full truncate py-1.5 text-left"><span className="font-medium text-encre hover:underline">{c.nom}</span><span className="block truncate text-colonne text-encre-2">{c.objectif} · {c.etapes.filter((e) => e.type !== "fin").length} étapes</span></button>,
+          tracabilite(c) ? <span /> : <Interrupteur allume={c.statut === "active"} onChange={() => basculer(c)} libelle={c.statut === "active" ? "Mettre en pause" : "Lancer"} />,
+          <button type="button" onClick={() => ouvrir(c.id)} className="block w-full truncate py-1.5 text-left"><span className="font-medium text-encre hover:underline">{c.nom}</span><span className="block truncate text-colonne text-encre-2">{criteres(c)}</span></button>,
           ...(v.bases.length > 1 ? [<NomBase base={v.base(c.baseId)} />] : []),
-          <Pastille role={ROLE[c.statut]}>{LIB[c.statut]}</Pastille>,
+          <Pastille role={tracabilite(c) ? "fait" : ROLE[c.statut]}>{tracabilite(c) ? "Active" : LIB[c.statut]}</Pastille>,
           fr(i.audience.enCours), fr(i.engagement.touches), pct(i.engagement.tauxOuverture), pct(i.engagement.tauxClic),
           <b className="font-medium">{fr(i.conversion.leads)}</b>, fr(i.conversion.gagnes), <span className="text-encre-2">{i.couts.coutSms ? `${i.couts.coutSms.toLocaleString("fr-FR")} €` : "—"}</span>,
           <ChevronRight size={14} className="text-encre-3" />,
