@@ -8,7 +8,7 @@ describe("carte du menu", () => {
   it("chaque page est dans le menu une seule fois", () => {
     const toutes = ids(MENU)
     expect(new Set(toutes).size).toBe(toutes.length)
-    expect([...toutes].sort()).toEqual(["agences", "agenda", "analyse", "apporteurs", "aujourdhui", "campagnes", "messages", "sessions", "st_base", "st_dossiers", "st_suivi"])
+    expect([...toutes].sort()).toEqual(["agences", "agenda", "analyse", "apporteurs", "aujourdhui", "campagnes", "messages", "sessions", "st_base", "st_dossiers"])
   })
   it("un administrateur voit tout", () => {
     expect(ids(menuPour(LES_DEUX))).toEqual(ids(MENU))
@@ -20,7 +20,7 @@ describe("carte du menu", () => {
     expect(pageAutorisee("st_machine", ["demarchage"])).toBe(false)
   })
   it("un recruteur ne voit rien des agences, et arrive sur les campagnes", () => {
-    expect(ids(menuPour(["recrutement"]))).toEqual(["campagnes", "sessions", "messages", "st_dossiers", "st_base", "st_suivi"])
+    expect(ids(menuPour(["recrutement"]))).toEqual(["campagnes", "sessions", "messages", "st_dossiers", "st_base"])
     expect(premierePage(["recrutement"])).toBe("campagnes")
     expect(pageAutorisee("agences", ["recrutement"])).toBe(false)
     expect(pageAutorisee("parametrage", ["recrutement"])).toBe(true)

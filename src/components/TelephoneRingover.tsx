@@ -11,7 +11,9 @@ import {
   diffuserEvenementAppel,
 } from "../lib/sdkRingover"
 import { useSession } from "../lib/auth"
-import { nomAffiche } from "../lib/comptes"
+import { estAdmin, nomAffiche } from "../lib/comptes"
+import type { Espace } from "../lib/messagesDb"
+import { chargerNumerosDuCompte, estDansLaReserve } from "../lib/numerosEmission"
 import { agenceParTelephone, journaliserAppelEntrant } from "../demarchage/db"
 import { nomContact, type Agence, type Contact } from "../demarchage/modele"
 import { Bouton } from "../ui"
@@ -31,10 +33,14 @@ import { Bouton } from "../ui"
 // 3) L'appelant est reconnu dans les AGENCES (09/10/2026) : le standard de l'agence, ou la
 //    ligne directe / le mobile d'un contact (`agenceParTelephone`). L'appel entrant reconnu
 //    est journalisé dans le fil de l'agence, sans toucher à son étape.
+// 4) LE CLOISONNEMENT (Mahdi, 09/11/2026) : chacun ne voit que les appels qui arrivent sur SES numéros
+//    (Réglages › Équipe › Numéros Ringover) ; un compte sans numéro réglé n'en voit aucun, sauf un
+//    administrateur. Et l'appelant n'est cherché dans les agences (fiche, journal) que par un compte
+//    qui a la base Agences : un recruteur ne voit jamais une fiche agence par ce chemin.
 type Reconnu = { agence: Agence; contact: Contact | null }
 type Entrant = { callId: string; from: string; reconnu: Reconnu | null; recherche: boolean }
 
-export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?: (agenceId: string) => void }) {
+export default function TelephoneRingover({ onOuvrirAgence, espaces }: { onOuvrirAgence?: (agenceId: string) => void; espaces: Espace[] }) {
   // Appel entrant à signaler (bannière) : le numéro, l'agence reconnue, la recherche en cours.
   const [entrant, setEntrant] = useState<Entrant | null>(null)
   const [erreurJournal, setErreurJournal] = useState("") // l'appel entrant n'a pas pu être écrit sur la fiche
@@ -44,6 +50,34 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
   useEffect(() => {
     compteNomRef.current = nomAffiche(session)
   }, [session])
+
+  // Mes numéros Ringover : seuls les appels qui arrivent dessus me concernent (null : pas encore lus).
+  const moiId = session?.user?.id ?? ""
+  const admin = estAdmin(session)
+  const agencesVisibles = espaces.includes("demarchage")
+  const mesNumerosRef = useRef<string[] | null>(null)
+  useEffect(() => {
+    if (!moiId) return
+    let vivant = true
+    chargerNumerosDuCompte(moiId)
+      .then((n) => { if (vivant) mesNumerosRef.current = n.miens })
+      .catch(() => { if (vivant) mesNumerosRef.current = [] })
+    return () => { vivant = false }
+  }, [moiId])
+  const adminRef = useRef(admin)
+  const agencesVisiblesRef = useRef(agencesVisibles)
+  useEffect(() => {
+    adminRef.current = admin
+    agencesVisiblesRef.current = agencesVisibles
+  }, [admin, agencesVisibles])
+  /** L'appel arrive-t-il sur une de MES lignes ? Numéro appelé inconnu : on ne peut pas trier, on le montre. */
+  const pourMoi = (vers: string): boolean => {
+    const miens = mesNumerosRef.current
+    if (!miens) return false
+    if (!miens.length) return adminRef.current
+    if (cleComparaison(vers).length < 6) return true
+    return estDansLaReserve(vers, miens)
+  }
 
   // call_id déjà signalés → ce qu'on savait (agence reconnue ? numéro exploitable ?).
   // Permet la « mise à niveau » : si une source plus précise arrive après coup
@@ -85,6 +119,11 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
   // et journalise l'appel entrant dans son fil (une seule fois par appel).
   async function reconnaitre(from: string, callId: string) {
     let reconnu: Reconnu | null
+    // Un compte sans la base Agences ne cherche pas l'appelant dans les agences (cloisonnement).
+    if (!agencesVisiblesRef.current) {
+      setEntrant((prev) => (prev && prev.callId === callId ? { ...prev, recherche: false } : prev))
+      return
+    }
     try {
       reconnu = await agenceParTelephone(from)
     } catch {
@@ -293,6 +332,7 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
           const evenement = String(r.evenement ?? "").toLowerCase()
           if (!callId) return
           if (direction.startsWith("out")) return // nos propres appels sortants
+          if (!pourMoi(String(r.vers ?? ""))) return // l'appel arrive sur la ligne d'un collègue
           // On ne signale que le début d'appel (sonnerie / décroché) — pas la fin.
           if (/hangup|end|termin|miss|voicemail|after/.test(evenement)) return
           marquerEntrantActif()
@@ -320,9 +360,10 @@ export default function TelephoneRingover({ onOuvrirAgence }: { onOuvrirAgence?:
       }
       if (!res.ok) return
       // Un appel entrant est en cours → le mode auto ne doit pas composer par-dessus.
-      if (res.entrants.length > 0) marquerEntrantActif()
+      const miens = res.entrants.filter((e) => pourMoi(e.to)) // les appels sur la ligne d'un collègue ne me concernent pas
+      if (miens.length > 0) marquerEntrantActif()
       // On laisse signalerRef décider : nouvelle bannière, mise à niveau, ou rien.
-      const appel = res.entrants.find((e) => e.callId)
+      const appel = miens.find((e) => e.callId)
       if (!appel) return
       signalerRef.current(appel.from, appel.callId)
     }, 5000)
