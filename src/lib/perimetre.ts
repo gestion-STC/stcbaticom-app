@@ -20,5 +20,13 @@ export function espacesVisibles(role: Role | null, fonction: Fonction | undefine
   return LES_DEUX
 }
 
+/**
+ * Une tâche ou un RDV d'agence est-il pour moi ? (09/11/2026) Un administrateur voit tout ; un
+ * téléprospecteur voit ce qu'il a posé lui-même et ce qui touche une agence qui lui est attribuée.
+ */
+export function aMoi(t: { compteId: string | null; agenceCommercialId: string | null }, moiId: string, admin: boolean): boolean {
+  return admin || (Boolean(moiId) && (t.compteId === moiId || t.agenceCommercialId === moiId))
+}
+
 /** Le nom de la base d'un espace, tel qu'il s'affiche dans les choix des pages. */
 export const NOM_BASE: Record<Espace, string> = { demarchage: "Agences", recrutement: "Artisans" }

@@ -25,7 +25,6 @@ import MachineST from "./components/recrutement/MachineST"
 import SessionCallST from "./components/recrutement/SessionCallST"
 import BaseST from "./components/recrutement/BaseST"
 import SequencesST from "./components/recrutement/SequencesST"
-import SuiviST from "./components/recrutement/SuiviST"
 import DossiersST from "./components/recrutement/DossiersST"
 import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 // Les campagnes (07/11/2026) : le même outil pour les deux bases.
@@ -137,7 +136,6 @@ function App() {
           {vue === "st_reglages" && <ReglagesMachineST />}
           {vue === "st_base" && <BaseST />}
           {vue === "st_sequences" && <SequencesST />}
-          {vue === "st_suivi" && <SuiviST />}
           {vue === "st_dossiers" && <DossiersST />}
 
           {/* La session de call : une page, le choix de base dedans (07/11/2026). */}
@@ -156,7 +154,7 @@ function App() {
       </div>
 
       {ficheOuverte && <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => setFicheOuverte(null)} onChange={() => setVersionAgences((v) => v + 1)} onOuvrirSession={ouvrirSession} />}
-      <RappelsRdv />
+      {espaces.includes("demarchage") ? <RappelsRdv /> : null}
       <TelephoneRingover onOuvrirAgence={espaces.includes("demarchage") ? ouvrirAgence : undefined} espaces={espaces} />
     </div>
   )
