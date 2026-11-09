@@ -42,7 +42,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
   const vide = messageVide(cfg)
   const valeurs = (cle: string) => [...new Set(contactsBase.flatMap((x) => (x.champs[cle] ?? "").split(" / ")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")).slice(0, 40)
   const basculerFiltre = (cle: string, val: string) => setC((x) => { const l = x.audience.filtres[cle] ?? []; return { ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, [cle]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } } } })
-  const compter = c.baseId === "agences" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
+  const compter = c.baseId !== "artisans" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
   const enregistrer = (statut: Campagne["statut"]) => { const s = { ...compilee, nom: c.nom.trim() || "Campagne sans nom", statut, lanceeLe: statut === "active" ? c.lanceeLe ?? v.etat.maintenant : c.lanceeLe }; depot.enregistrerCampagne(s); fini(s.id) }
 
   return (
@@ -82,7 +82,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                 <div className="max-w-[720px] space-y-8">
                   <Bloc titre="Ne pas fatiguer les contacts"><div className="mt-3 grid grid-cols-3 gap-4">
                     <Libelle titre="Écart entre deux campagnes (j)"><Champ type="number" min={0} value={cfg.garde.ecartCampagnes} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, ecartCampagnes: Number(e.target.value) || 0 } }))} /></Libelle>
-                    <Libelle titre="Mails par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondMail} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondMail: Number(e.target.value) || 0 } }))} /></Libelle>
+                    <Libelle titre="Mails par jour (30 par boîte au plus)"><Champ type="number" min={0} value={cfg.garde.plafondMail} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondMail: Number(e.target.value) || 0 } }))} /></Libelle>
                     <Libelle titre="SMS par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondSms} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondSms: Number(e.target.value) || 0 } }))} /></Libelle>
                   </div></Bloc>
                   <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}{m === "Désinscrit" ? null : <button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button>}</span>)}<span className="w-52"><Champ value={ex} placeholder="Ex. Endormie, puis Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>

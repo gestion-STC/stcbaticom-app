@@ -140,6 +140,14 @@ export async function lienPieceJointe(chemin: string): Promise<string> {
   return data.signedUrl
 }
 
+/** Répond à un prospect depuis la boîte Instantly qui a reçu son message (jamais par Resend). */
+export async function repondreParInstantly(r: { message: string; objet: string; corps: string; signatureHtml?: string }): Promise<void> {
+  if (!supabase) throw new Error("Supabase n'est pas configuré.")
+  const { data, error } = await supabase.functions.invoke("instantly-repondre", { body: { message: r.message, objet: r.objet, corps: r.corps, ...(r.signatureHtml ? { signature_html: r.signatureHtml } : {}) } })
+  if (error) throw new Error("La réponse n'a pas pu partir par la boîte de prospection.")
+  if (data?.error) throw new Error(String(data.error))
+}
+
 // Répond à un message via le relais serveur (contrat « moteur » de envoyer-email :
 // composition côté serveur, fil de discussion conservé grâce à in_reply_to). Le
 // relais journalise lui-même le message sortant. `signatureHtml` / `commercial`

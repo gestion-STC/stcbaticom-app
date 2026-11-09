@@ -47,7 +47,7 @@ export const questionVide = (): Question => ({ id: nid(), libelle: "", type: "Te
 
 /** Le parcours de départ d'une campagne qui n'en a pas encore : tout reste modifiable ensuite. */
 export function qualificationDeDepart(baseId: string, origine = ""): Qualification {
-  const commun = { qualites: [], attribution: ATTRIBUTIONS[baseId === "agences" ? 0 : 2], delaiH: 1, motifs: MOTIFS_DEFAUT, relanceMois: 6 }
+  const commun = { qualites: [], attribution: ATTRIBUTIONS[baseId !== "artisans" ? 0 : 2], delaiH: 1, motifs: MOTIFS_DEFAUT, relanceMois: 6 }
   if (baseId === "artisans") {
     // La campagne s'arrête au lead : la qualification (formulaire, test, contrats) vit à part, sur la fiche.
     const etapes = [etape("p-interet", "Intérêt détecté", "Intérêt détecté", "Automatique", "Toute seule", 0), etape("p-dossier", "Dossier déposé", "Dossier et pièces reçus", "Le prospect", "Toute seule", 7)]
@@ -101,7 +101,7 @@ export function versEtapes(cfg: ConfigCampagne): Etape[] {
 /** Les zones de la carte traduites en filtre : code postal pour les agences, zone pour les artisans. */
 export function filtreDesZones(baseId: string, zones: string[]): { cle: "cp" | "zone"; valeurs: string[] } | null {
   if (!zones.length || zones.includes(FRANCE)) return null
-  if (baseId === "agences") return { cle: "cp", valeurs: zones }
+  if (baseId !== "artisans") return { cle: "cp", valeurs: zones }
   const groupes = zones.map((z) => (z.startsWith("75") ? "Paris" : COURONNE[z] ?? z))
   return { cle: "zone", valeurs: [...new Set(groupes)] }
 }

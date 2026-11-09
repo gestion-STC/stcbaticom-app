@@ -4,7 +4,7 @@
 // étapes, A/B, audience (par champ de la base), dans le temps, journal des envois, contacts, appels.
 import { useMemo, useState } from "react"
 import { Copy, Pause, Pencil, Play, Sparkles } from "lucide-react"
-import { Bouton, Pastille, Selecteur } from "../../ui"
+import { Bandeau, Bouton, Pastille, Selecteur } from "../../ui"
 import { Bloc, Etiquette, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { constats, indicateurs, type Constat } from "../../prospection/indicateurs"
@@ -40,6 +40,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   const maxH = Math.max(1, ...ind.ouverturesParHeure)
   const maxJs = Math.max(1, ...ind.clicsParJourSemaine)
 
+  const arret = (c.config as { arret?: { rebonds: number; envois: number } } | null | undefined)?.arret
   return (
     <div className="space-y-6">
       <Titre titre={c.nom} sous={<><NomBase base={base} /> · {c.objectif} · <Pastille role={c.statut === "active" ? "fait" : c.statut === "pause" ? "attente" : "inerte"}>{c.statut === "active" ? "Active" : c.statut === "pause" ? "En pause" : c.statut === "brouillon" ? "Brouillon" : "Terminée"}</Pastille>{c.lanceeLe ? ` · lancée le ${dateHeure(c.lanceeLe)}` : ""} · {c.rythme.parJour} entrées max par jour{c.modeTest ? <> · <b className="font-medium text-attention">mode test : tout part vers {c.testEmail || "l'adresse de test"}</b></> : null}</>}
@@ -48,6 +49,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
           <Bouton icone={<Copy />} onClick={() => depot.dupliquerCampagne(c.id)}>Dupliquer</Bouton>
           {c.statut === "active" ? <Bouton icone={<Pause />} onClick={() => depot.changerStatut(c.id, "pause")}>Mettre en pause</Bouton> : <Bouton variante="plein" icone={<Play />} onClick={() => depot.changerStatut(c.id, "active")}>{c.statut === "brouillon" ? "Lancer" : "Reprendre"}</Bouton>}
         </>} />
+      {c.statut === "pause" && arret ? <Bandeau role="alerte">Mise en pause automatiquement : {arret.rebonds} rebonds sur {arret.envois} envois. Nettoie ou vérifie le fichier avant de relancer.</Bandeau> : null}
 
       {/* L'entonnoir, marche par marche, avec le taux de passage */}
       <div className="grid grid-cols-7 border-y-[0.5px] border-trait">

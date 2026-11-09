@@ -40,3 +40,14 @@ export function corpsAvecMentions(texte: string, desinscription?: string): strin
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${mentions}</p></body>`)
   return `${html}<br/><br/>${mentions}`
 }
+
+/** Ce qu'une série de boîtes peut envoyer par jour sans abîmer leur réputation. */
+export const MAILS_PAR_BOITE = 30
+export const capaciteJour = (boites: number) => boites * MAILS_PAR_BOITE
+
+/** Trop de rebonds : on arrête avant d'abîmer les boîtes. Pas de décision sur moins de 30 envois. */
+export const ENVOIS_MIN_ARRET = 30
+export const TAUX_REBONDS_ARRET = 0.03
+export function doitArreter(envoyes: number, rebonds: number): boolean {
+  return envoyes >= ENVOIS_MIN_ARRET && rebonds / envoyes > TAUX_REBONDS_ARRET
+}
