@@ -30,7 +30,7 @@ export const VALIDATIONS = ["Toute seule", "À la main"]
 export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix unique", "Oui / Non", "Date"]
 export const OPERATEURS = ["est", "au moins", "au plus", "contient"]
 export const ATTRIBUTIONS = ["Le commercial attribué au contact", "Le commercial du secteur", "L'équipe de la base", "Chacun son tour", "Une personne précise"]
-export const GARDE_DEFAUT: Garde = { ecartCampagnes: 14, exclusions: ["Déjà client", "Désinscrit", "Adresse en erreur"], plafondMail: 200, plafondSms: 40 }
+export const GARDE_DEFAUT: Garde = { ecartCampagnes: 14, exclusions: ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"], plafondMail: 200, plafondSms: 40 }
 export const MOTIFS_DEFAUT = ["Pas intéressé", "Hors cible", "Déjà équipé", "Injoignable"]
 
 const FRANCE = "pays:250"

@@ -153,7 +153,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   }
   if (test) stop = LIEN_NEUTRE
   // Un mail de prospection propose toujours de ne plus en recevoir, agence ou artisan.
-  if (canal !== "sms" && !corps.includes("{{lien_desinscription}}")) texte += `\n\nPour ne plus recevoir nos messages : ${stop}`
+  const desinscription = canal !== "sms" && !corps.includes("{{lien_desinscription}}") ? stop : undefined
 
   if (canal === "sms") {
     const to = test ? String(c.test_mobile ?? "") : k.mobile
@@ -165,7 +165,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   if (!to) return { ok: false, saute: "pas de mail" }
   sujet = (test ? "[TEST] " : "") + sujet
   if (!varianteId) return { ok: false, saute: "mail sans texte" }
-  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond }, k, to, sujet, texte, varianteId, test)
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond }, k, to, sujet, texte, varianteId, test, desinscription)
 }
 
 Deno.serve(async (req: Request) => {

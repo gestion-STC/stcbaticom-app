@@ -28,13 +28,15 @@ export function horaireInstantly(r: { jours: number[]; heureMin: number; heureMa
 
 const echapper = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 const estHtml = (s: string) => /<(html|body|table|div|p|a|br)\b/i.test(s)
-const texteEnHtml = (s: string) => echapper(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>').replace(/\n/g, "<br/>")
+const liens = (s: string) => echapper(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+// Une image ajoutée dans le texte reste une image ; tout le reste est du texte.
+const texteEnHtml = (s: string) => s.split(/(<img\b[^>]*>)/i).map((morceau, i) => (i % 2 ? morceau : liens(morceau))).join("").replace(/\n/g, "<br/>")
 
-/** Le corps prêt à partir : en HTML, avec la signature et l'adresse postale de STC, jamais en double. */
-export function corpsAvecMentions(texte: string): string {
-  const signature = SIGNATURE_PROSPECTION.replace(/\n/g, "<br/>")
+/** Le corps prêt à partir : en HTML, avec la signature, l'adresse postale de STC et le lien de désinscription, jamais en double. */
+export function corpsAvecMentions(texte: string, desinscription?: string): string {
   const html = estHtml(texte) ? texte : texteEnHtml(texte)
-  if (texte.includes("78280")) return html
-  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${signature}</p></body>`)
-  return `${html}<br/><br/>${signature}`
+  const mentions = [texte.includes("78280") ? "" : SIGNATURE_PROSPECTION.replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
+  if (!mentions) return html
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${mentions}</p></body>`)
+  return `${html}<br/><br/>${mentions}`
 }

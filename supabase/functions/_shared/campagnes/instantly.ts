@@ -84,13 +84,13 @@ async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, 
 }
 
 /** Confie un mail à Instantly. Il part dans la plage horaire de la campagne. */
-export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number }, k: { id: string; nom: string; personne: string }, to: string, objet: string, texte: string, varianteId: string, test: boolean): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string }> {
+export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number }, k: { id: string; nom: string; personne: string }, to: string, objet: string, texte: string, varianteId: string, test: boolean, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string }> {
   if (!ins.cle) return { ok: false, erreur: "Instantly n'est pas configuré" }
   const camp = await campagneDeLaVariante(sb, ins, c, varianteId)
   if (!camp.id) return { ok: false, erreur: camp.erreur }
   const r = await appelInstantly(ins.cle, "/leads", { corps: {
     campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: false,
-    custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
+    custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
   } })
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé le contact (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
   return { ok: true, fournisseurId: String(r.data?.id ?? "") }
