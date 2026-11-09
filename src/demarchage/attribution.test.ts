@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { filtreCommercial, nomProprietaire, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "./attribution"
+import { choixParDefautPourRegarder, filtreCommercial, nomProprietaire, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "./attribution"
 
 const MOI = "11111111-1111-1111-1111-111111111111"
 const HORLANN = "22222222-2222-2222-2222-222222222222"
@@ -41,5 +41,14 @@ describe("attribution de la base", () => {
     expect(nomProprietaire(MOI, COMPTES, MOI)).toBe("Moi")
     expect(nomProprietaire(HORLANN, COMPTES, MOI)).toBe("Horlann")
     expect(nomProprietaire("inconnu", COMPTES, MOI)).toBe("Un autre compte")
+  })
+  it("09/11 : un administrateur REGARDE toute la base sans rien choisir, un téléprospecteur la sienne", () => {
+    expect(proprietaireDepuisChoix(null, MOI, true, false, choixParDefautPourRegarder(true))).toBe("tous")
+    expect(proprietaireDepuisChoix(null, MOI, false, false, choixParDefautPourRegarder(false))).toEqual({ compteId: MOI })
+    expect(proprietaireDepuisChoix("tous", MOI, false, false, choixParDefautPourRegarder(false))).toEqual({ compteId: MOI })
+    expect(proprietaireDepuisChoix("moi", MOI, true, false, choixParDefautPourRegarder(true))).toEqual({ compteId: MOI })
+    // la file de prospection garde « Ma base » par défaut
+    expect(proprietaireDepuisChoix(null, MOI, true, false)).toEqual({ compteId: MOI })
+    expect(normaliserChoix(undefined, true, false, "tous")).toBe("tous")
   })
 })

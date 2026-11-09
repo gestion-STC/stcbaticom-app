@@ -15,14 +15,22 @@ export type ChoixBase = "moi" | "non_attribuees" | "tous" | `compte:${string}`
 
 /** Réglage (table parametres) : qui voit les agences non attribuées — « admins » (défaut) ou « tous ». */
 export const CLE_NON_ATTRIBUEES = "attribution_non_attribuees"
-/** Le dernier choix de base, mémorisé sur le poste. */
+/** Le dernier choix de base de la SESSION (la file de prospection), mémorisé sur le poste. */
 export const CLE_CHOIX_LOCAL = "session.base"
+/**
+ * Le dernier choix de base du TABLEAU DE BORD (09/11/2026), séparé de la session : un administrateur
+ * REGARDE toute la base par défaut (Mahdi : « moi, en tant qu'admin, je vois tout »), mais sa file de
+ * prospection reste « Ma base » pour ne pas appeler les agences d'un collègue.
+ */
+export const CLE_CHOIX_TABLEAU = "tableau.base"
+/** Ce qu'un compte regarde sans avoir rien choisi : tout pour un administrateur, sa base pour un téléprospecteur. */
+export const choixParDefautPourRegarder = (admin: boolean): ChoixBase => (admin ? "tous" : "moi")
 
 export const nonAttribueesPourTous = (valeur: string | null | undefined): boolean => valeur === "tous"
 
 /** Un choix lu (poste, URL…) ramené à ce que la personne a le droit de voir. */
-export function normaliserChoix(brut: string | null | undefined, admin: boolean, libre: boolean): ChoixBase {
-  const c = (brut || "moi") as ChoixBase
+export function normaliserChoix(brut: string | null | undefined, admin: boolean, libre: boolean, defaut: ChoixBase = "moi"): ChoixBase {
+  const c = (brut || defaut) as ChoixBase
   if (c === "moi") return c
   if (c === "non_attribuees") return admin || libre ? c : "moi"
   if (!admin) return "moi"
@@ -31,9 +39,9 @@ export function normaliserChoix(brut: string | null | undefined, admin: boolean,
 }
 
 /** Le filtre à appliquer. Sans compte connecté (mode démo), pas de filtre. */
-export function proprietaireDepuisChoix(choix: string | null | undefined, moiId: string, admin: boolean, libre: boolean): Proprietaire {
+export function proprietaireDepuisChoix(choix: string | null | undefined, moiId: string, admin: boolean, libre: boolean, defaut: ChoixBase = "moi"): Proprietaire {
   if (!moiId) return "tous"
-  const c = normaliserChoix(choix, admin, libre)
+  const c = normaliserChoix(choix, admin, libre, defaut)
   if (c === "moi") return { compteId: moiId }
   if (c === "non_attribuees") return "non_attribuees"
   if (c === "tous") return "tous"
