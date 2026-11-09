@@ -2,7 +2,9 @@
 // LEADS REÇUS (Mahdi, 09/11/2026 : « un endroit où les leads tombent, comme Meta ; et pour les admins,
 // un sélecteur sur quelle campagne on veut voir les leads »).
 //
-// Tout ce qui s'est manifesté, des deux bases, au même endroit, rangé par chaleur :
+// Rangés comme Meta (Mahdi, 09/11, maquette validée) : à gauche d'où ils viennent (la campagne), en haut l'étape
+// (Nouveaux, Contactés, Qualifiés, Gagnés, Perdus), une seule liste, un clic sur la ligne ouvre la fiche.
+// Dans une étape, les plus chauds d'abord :
 //   1. Fiche remplie : l'artisan a déposé son dossier (demain : l'agence a rempli le formulaire d'une campagne).
 //   2. A répondu : une réponse à un mail.
 //   3. Intérêt : un clic, une page ou une plaquette ouverte.
@@ -29,7 +31,7 @@ export type LeadRecu = {
   signal: string
   detail: string
   quand: string
-  aTraiter: boolean
+  etape: EtapeLead
   /** L'état d'un dossier déposé (nouveau, vu, contrats envoyés…). */
   etat?: EtatDossier
   /** Le compte à qui le contact est attribué (agences), null sinon. */
@@ -52,15 +54,46 @@ export function trierLeads(l: LeadRecu[]): LeadRecu[] {
   return [...l].sort((a, b) => RANG[a.niveau] - RANG[b.niveau] || (a.quand < b.quand ? 1 : a.quand > b.quand ? -1 : 0))
 }
 
-export type FiltreCampagne = "toutes" | "hors" | string
-export type FiltresLeads = { espace: Espace | "tout"; campagne: FiltreCampagne; aTraiter: boolean }
+// ── L'étape d'un lead ──
+export type EtapeLead = "nouveaux" | "contactes" | "qualifies" | "gagnes" | "perdus"
+export const ETAPES_LEAD: { id: EtapeLead; label: string; aide: string }[] = [
+  { id: "nouveaux", label: "Nouveaux", aide: "Personne ne s'en est encore occupé" },
+  { id: "contactes", label: "Contactés", aide: "Appelé sans réponse, ou dossier ouvert" },
+  { id: "qualifies", label: "Qualifiés", aide: "Intéressé, RDV, dossier traité, contrats envoyés" },
+  { id: "gagnes", label: "Gagnés", aide: "Client, ou artisan partenaire" },
+  { id: "perdus", label: "Perdus", aide: "Pas intéressé, hors cible, injoignable" },
+]
 
-export function filtrerLeads(l: LeadRecu[], f: FiltresLeads): LeadRecu[] {
-  return l.filter((x) =>
-    (f.espace === "tout" || x.espace === f.espace) &&
-    x.aTraiter === f.aTraiter &&
-    (f.campagne === "toutes" || (f.campagne === "hors" ? !x.campagne : x.campagne?.id === f.campagne)),
-  )
+/** L'étape d'un lead d'agence, d'après le lead et ce que l'agence est devenue. */
+export function etapeAgence(l: { statut: string; resultat: string | null; tentatives: number }, agence: { etape?: string | null; premierOs?: string | null }): EtapeLead {
+  if (agence.etape === "client" || agence.premierOs) return "gagnes"
+  if (l.statut === "a_traiter") return l.tentatives > 0 ? "contactes" : "nouveaux"
+  if (l.statut === "retombe" || ["pas_interesse", "injoignable", "apporteur"].includes(l.resultat ?? "")) return "perdus"
+  if (l.resultat === "interesse" || l.resultat === "rdv") return "qualifies"
+  return "contactes"
+}
+
+/** L'étape d'un dossier d'artisan, d'après son état. */
+export function etapeDossier(e: EtatDossier): EtapeLead {
+  if (e.texte === "partenaire" || e.texte === "contrats signés") return "gagnes"
+  if (e.texte === "traité" || e.texte === "contrats envoyés") return "qualifies"
+  return e.texte === "vu" ? "contactes" : "nouveaux"
+}
+
+/** D'où il vient : l'id de sa campagne, ou la ligne « hors campagne » de sa base. */
+export const sourceDe = (l: Pick<LeadRecu, "campagne" | "espace">): string => l.campagne?.id ?? "hors:" + l.espace
+
+/** La colonne de gauche : par base, ses campagnes puis son « hors campagne », s'ils ont des leads. */
+export function sourcesDe(l: LeadRecu[]): { espace: Espace; id: string; nom: string; n: number; nouveaux: number }[] {
+  const m = new Map<string, { espace: Espace; id: string; nom: string; n: number; nouveaux: number }>()
+  for (const x of l) {
+    const id = sourceDe(x)
+    const s = m.get(id) ?? { espace: x.espace, id, nom: x.campagne?.nom ?? "Hors campagne", n: 0, nouveaux: 0 }
+    s.n++
+    if (x.etape === "nouveaux") s.nouveaux++
+    m.set(id, s)
+  }
+  return [...m.values()].sort((a, b) => Number(a.id.startsWith("hors:")) - Number(b.id.startsWith("hors:")) || b.n - a.n)
 }
 
 /** Un téléprospecteur ne voit que les leads de ses bases, et parmi les agences celles qui lui sont attribuées. */
@@ -78,8 +111,3 @@ export function campagneParContact(inscriptions: { campagneId: string; contactRe
   return new Map([...out].map(([k, v]) => [k, { id: v.id, nom: v.nom }]))
 }
 
-export function compterParNiveau(l: LeadRecu[]): Record<Niveau, number> {
-  const c: Record<Niveau, number> = { fiche: 0, reponse: 0, interet: 0 }
-  for (const x of l) c[x.niveau]++
-  return c
-}

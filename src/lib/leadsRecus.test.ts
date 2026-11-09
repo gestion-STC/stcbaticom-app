@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { statutDossier } from "./dossierStatut"
-import { campagneParContact, compterParNiveau, filtrerLeads, leadsVisibles, niveauAgence, trierLeads, type LeadRecu } from "./leadsRecus"
+import { campagneParContact, etapeAgence, etapeDossier, leadsVisibles, niveauAgence, sourceDe, sourcesDe, trierLeads, type LeadRecu } from "./leadsRecus"
 
 const lead = (o: Partial<LeadRecu>): LeadRecu => ({
-  id: "x", espace: "demarchage", niveau: "interet", nom: "", signal: "", detail: "", quand: "2026-11-09T10:00:00Z", aTraiter: true,
+  id: "x", espace: "demarchage", niveau: "interet", nom: "", signal: "", detail: "", quand: "2026-11-09T10:00:00Z", etape: "nouveaux",
   proprietaireId: null, contactRef: "c", campagne: null, cible: { type: "agence", id: "c" }, ...o,
 })
 
@@ -23,17 +23,32 @@ describe("leads reçus (09/11/2026)", () => {
     ])
     expect(l.map((x) => x.id)).toEqual(["f", "r", "i-recent", "i-ancien"])
   })
-  it("le filtre par base, par campagne, et à traiter / traités", () => {
-    const l = [
-      lead({ id: "a", campagne: { id: "k1", nom: "K1" } }),
-      lead({ id: "b", espace: "recrutement" }),
-      lead({ id: "c", aTraiter: false, campagne: { id: "k1", nom: "K1" } }),
-    ]
-    expect(filtrerLeads(l, { espace: "tout", campagne: "toutes", aTraiter: true }).map((x) => x.id)).toEqual(["a", "b"])
-    expect(filtrerLeads(l, { espace: "recrutement", campagne: "toutes", aTraiter: true }).map((x) => x.id)).toEqual(["b"])
-    expect(filtrerLeads(l, { espace: "tout", campagne: "k1", aTraiter: true }).map((x) => x.id)).toEqual(["a"])
-    expect(filtrerLeads(l, { espace: "tout", campagne: "hors", aTraiter: true }).map((x) => x.id)).toEqual(["b"])
-    expect(filtrerLeads(l, { espace: "tout", campagne: "toutes", aTraiter: false }).map((x) => x.id)).toEqual(["c"])
+  it("l'étape d'un lead d'agence", () => {
+    const n = { statut: "a_traiter", resultat: null, tentatives: 0 }
+    expect(etapeAgence(n, {})).toBe("nouveaux")
+    expect(etapeAgence({ ...n, tentatives: 2 }, {})).toBe("contactes")
+    expect(etapeAgence({ statut: "traite", resultat: "interesse", tentatives: 1 }, {})).toBe("qualifies")
+    expect(etapeAgence({ statut: "traite", resultat: "rdv", tentatives: 1 }, {})).toBe("qualifies")
+    expect(etapeAgence({ statut: "traite", resultat: "a_rappeler", tentatives: 1 }, {})).toBe("contactes")
+    expect(etapeAgence({ statut: "traite", resultat: "pas_interesse", tentatives: 1 }, {})).toBe("perdus")
+    expect(etapeAgence({ statut: "retombe", resultat: "injoignable", tentatives: 3 }, {})).toBe("perdus")
+    expect(etapeAgence(n, { etape: "client" })).toBe("gagnes")
+    expect(etapeAgence({ statut: "traite", resultat: "interesse", tentatives: 1 }, { premierOs: "2026-11-01" })).toBe("gagnes")
+  })
+  it("l'étape d'un dossier suit son état", () => {
+    expect(etapeDossier({ role: "info", texte: "nouveau" })).toBe("nouveaux")
+    expect(etapeDossier({ role: "actif", texte: "vu" })).toBe("contactes")
+    expect(etapeDossier({ role: "fait", texte: "traité" })).toBe("qualifies")
+    expect(etapeDossier({ role: "actif", texte: "contrats envoyés" })).toBe("qualifies")
+    expect(etapeDossier({ role: "fait", texte: "contrats signés" })).toBe("gagnes")
+    expect(etapeDossier({ role: "fait", texte: "partenaire" })).toBe("gagnes")
+  })
+  it("la colonne de gauche : les campagnes d'abord, puis hors campagne, avec les nouveaux", () => {
+    const k = { id: "k1", nom: "K1" }
+    const s = sourcesDe([lead({ id: "a", campagne: k }), lead({ id: "b", campagne: k, etape: "perdus" }), lead({ id: "c" }), lead({ id: "d", espace: "recrutement" })])
+    expect(s[0]).toEqual({ espace: "demarchage", id: "k1", nom: "K1", n: 2, nouveaux: 1 })
+    expect(s.map((x) => x.id).slice(1).sort()).toEqual(["hors:demarchage", "hors:recrutement"])
+    expect(sourceDe(lead({}))).toBe("hors:demarchage")
   })
   it("un téléprospecteur : sa base, et parmi les agences les siennes ; un admin : tout", () => {
     const l = [lead({ id: "a-moi", proprietaireId: "moi" }), lead({ id: "a-autre", proprietaireId: "autre" }), lead({ id: "art", espace: "recrutement" })]
@@ -47,9 +62,6 @@ describe("leads reçus (09/11/2026)", () => {
       { campagneId: "k2", contactRef: "c", entreeLe: "2026-11-01" },
     ], new Map([["k1", "Un"], ["k2", "Deux"]]))
     expect(m.get("c")).toEqual({ id: "k2", nom: "Deux" })
-  })
-  it("compte par chaleur", () => {
-    expect(compterParNiveau([lead({ niveau: "fiche" }), lead({}), lead({})])).toEqual({ fiche: 1, reponse: 0, interet: 2 })
   })
 })
 
