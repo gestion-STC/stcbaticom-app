@@ -10,9 +10,9 @@
 //   · juste avant d'envoyer, la base est relue : jamais deux fois la même étape au même contact ;
 //   · une erreur est rejouée après 15 min, 1 h, 4 h, puis abandonnée ; une limite de débit arrête le passage ;
 //   · MODE TEST : tout part vers l'adresse et le mobile de test de la campagne, marqué « test ».
-// Les envois passent par les relais habituels (envoyer-email, envoyer-sms) : signature, journal de la
-// boîte, fiche de l'agence. Les clics, réponses et désinscriptions arrivent par les mécanismes actuels,
-// rattachés à la campagne par les déclencheurs du SQL du 07/11.
+// Les mails partent par Instantly (_shared/campagnes/instantly.ts), JAMAIS par Resend : son règlement interdit la
+// prospection et son compte fait tourner STC Bâtiment. Les SMS passent par envoyer-sms. Les retours arrivent par
+// instantly-evenements et par les liens suivis, rattachés à la campagne par les déclencheurs du SQL du 07/11.
 // Une campagne s'arrête pour un contact devenu lead (leads_demarchage, clic d'artisan), gagné,
 // exclu ou désinscrit : il est alors dans la session de call de son équipe.
 // ════════════════════════════════════════════════════════════════════════════
@@ -20,6 +20,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
+import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -55,11 +56,6 @@ const versInscription = (l: Ligne): Inscription => ({ id: String(l.id), campagne
 const versEnvoi = (l: Ligne): Envoi => ({ id: String(l.id), campagneId: String(l.campagne_id), inscriptionId: String(l.inscription_id), contactId: String(l.contact_ref), etapeId: String(l.etape_id), varianteId: (l.variante_id as string) ?? null, canal: l.canal as Envoi["canal"], le: new Date(String(l.le)).toISOString(), statut: l.statut as Envoi["statut"], cause: String(l.cause ?? "") })
 const versEvenement = (l: Ligne): Evenement => ({ id: String(l.id), campagneId: String(l.campagne_id), envoiId: (l.envoi_id as string) ?? null, contactId: String(l.contact_ref), type: l.type as Evenement["type"], le: new Date(String(l.le)).toISOString(), lien: (l.lien as string) ?? undefined })
 
-function echapper(s: string) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }
-function texteVersHtml(texte: string): string {
-  const html = echapper(texte).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
-  return `<div style="font-family:Montserrat,Arial,sans-serif;font-size:14px;color:#1e293b">${html.replace(/\n/g, "<br>")}</div>`
-}
 function causeDe(erreur: string): string {
   if (/RateLimit|Trop d'envois|Trop de SMS|429/i.test(erreur)) return "limite de débit (prestataire)"
   if (/non mobile/i.test(erreur)) return "numéro non mobile"
@@ -106,6 +102,10 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
     const rebonds = await tout<{ agence_id: string }>((d, f) => sb.from("activites").select("agence_id").eq("type", "note").eq("source", "site").eq("titre", REBOND).order("id").range(d, f))
     for (const r of rebonds) bloques.add(r.agence_id)
   }
+  if (exclusions.includes("Adresse en erreur")) {
+    const rebonds = await tout<{ contact_ref: string }>((d, f) => sb.from("cmp_evenements").select("contact_ref").eq("type", "rebond").order("id").range(d, f))
+    for (const r of rebonds) bloques.add(r.contact_ref)
+  }
   // Une exclusion ajoutée à la main (« Endormie », « Orpi »…) : la valeur d'un champ du contact.
   const libres = exclusions.filter((x) => !EXCLUSIONS_CONNUES.includes(x)).map((x) => x.trim().toLowerCase()).filter(Boolean)
   if (libres.length) for (const k of contacts) if (Object.values(k.champs).some((v) => v.split(" / ").some((x) => libres.includes(x.trim().toLowerCase())))) bloques.add(k.id)
@@ -120,7 +120,7 @@ function ajouterBouton(texte: string, url: string, libelle: string): string {
   return texte.replace(/<\/body>/i, `<div style="text-align:center;padding:16px 0 28px"><a href="${url}" style="display:inline-block;padding:14px 32px;background:#0f172b;color:#fff;font-family:Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none">${libelle}</a></div></body>`)
 }
 
-async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string): Promise<Resultat> {
+async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
@@ -147,9 +147,9 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     stop = `${base}/functions/v1/evenements-site?stop=${compte.jeton}`
     remplacer("{{lien_creer_compte}}", compte.url); remplacer("{{lien_principal}}", compte.url); remplacer("{{lien_desinscription}}", stop)
     if (texte.includes("{{lien_site}}")) remplacer("{{lien_site}}", (await lienAgence(sb, base, k.id, "site")).url)
-    // Un mail de prospection propose toujours de ne plus en recevoir.
-    if (canal !== "sms" && !corps.includes("{{lien_desinscription}}")) texte += `\n\nPour ne plus recevoir nos messages : ${stop}`
   }
+  // Un mail de prospection propose toujours de ne plus en recevoir, agence ou artisan.
+  if (canal !== "sms" && !corps.includes("{{lien_desinscription}}")) texte += `\n\nPour ne plus recevoir nos messages : ${stop}`
 
   if (canal === "sms") {
     const to = test ? String(c.test_mobile ?? "") : k.mobile
@@ -160,11 +160,8 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   const to = test ? String(c.test_email ?? "") : k.email
   if (!to) return { ok: false, saute: "pas de mail" }
   sujet = (test ? "[TEST] " : "") + sujet
-  const r = k.baseId === "artisans"
-    ? await invoquer(base, service, "envoyer-email", { espace: "recrutement", to, subject: sujet, html: /<(html|body|table|div|p|a)\b/i.test(texte) ? texte : texteVersHtml(texte), headers: { "List-Unsubscribe": `<${stop}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
-    // Agences : le contrat « boîte de réception » ajoute la signature STC Bâtiment et range le mail sur la fiche.
-    : await invoquer(base, service, "envoyer-email", { agence_id: test ? undefined : k.id, to, objet: sujet, corps: texte })
-  return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
+  if (!varianteId) return { ok: false, saute: "mail sans texte" }
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond }, k, to, sujet, texte, varianteId, test)
 }
 
 Deno.serve(async (req: Request) => {
@@ -180,6 +177,7 @@ Deno.serve(async (req: Request) => {
   const bilan: Record<string, number | string> = { campagnes: 0, entrees: 0, envois: 0, erreurs: 0, sautes: 0, reportes: 0, sorties: 0, taches: 0 }
 
   try {
+    const ins = await preparerInstantly(sb, base, iso)
     const { data: actives } = await sb.from("cmp_campagnes").select("*").eq("statut", "active")
     let envoisPassage = 0
     for (const ligne of (actives ?? []) as Ligne[]) {
@@ -223,7 +221,8 @@ Deno.serve(async (req: Request) => {
       let arret = false
       for (const e of ecr.envois) {
         const canal = e.canal === "sms" ? "sms" : "mail"
-        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || budget[canal] <= 0 || (canal === "sms" && !hSms)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
+        // Boîtes Instantly pas prêtes : le mail attend, il n'est ni perdu ni envoyé par un autre chemin.
+        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || budget[canal] <= 0 || (canal === "sms" && !hSms) || (canal === "mail" && !ins.pretes.length)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
         const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null
@@ -242,7 +241,7 @@ Deno.serve(async (req: Request) => {
         const k = parContact.get(e.contactId)!
         const test = Boolean(ligne.mode_test)
         await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
-        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage)
+        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail)
         if (r.ok) {
           await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null }).eq("id", e.id)
           budget[canal]--; envoisPassage++; bilan.envois = Number(bilan.envois) + 1
