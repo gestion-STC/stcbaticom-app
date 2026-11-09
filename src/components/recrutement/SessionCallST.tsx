@@ -29,9 +29,8 @@ import { lancerAppelRingover } from "../../lib/ringover"
 import { formaterTelephone } from "../../lib/telephone"
 import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { Section } from "../demarchage/session/morceaux"
-import FormulaireAppel from "../prospection/moteur/FormulaireAppel"
+import QualificationST from "./QualificationST"
 import { TachesDuContact } from "../prospection/moteur/TachesCampagne"
-import { formulaireAppelDe } from "../../lib/leadsRecusDb"
 import FicheArtisan from "./FicheArtisan"
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -65,6 +64,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
   const [liste, setListe] = useState<SousTraitant[]>([])
   const [chargementFile, setChargementFile] = useState(true)
   const [index, setIndex] = useState(0)
+  const [volet, setVolet] = useState<"qualification" | "historique">("qualification") // à droite, pendant l'appel
   const [directeId, setDirecteId] = useState<string | null>(artisanInitial ?? null) // un artisan pris hors file (recherche, tâche de campagne)
   const [faits, setFaits] = useState<Set<string>>(() => new Set()) // appelés pendant cette session
   const [courant, setCourant] = useState<{ st: SousTraitant; appels: AppelST[]; envois: EnvoiST[]; clics: ClicST[]; etapes: EtapeST[] } | null>(null)
@@ -154,9 +154,6 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
   }, [appelDepuis])
 
   // Le formulaire de qualification de la campagne de cet artisan, à remplir pendant l'appel.
-  const [appelForm, setAppelForm] = useState<(NonNullable<Awaited<ReturnType<typeof formulaireAppelDe>>> & { contact: string }) | null>(null)
-  const relireForm = useCallback((id: string) => formulaireAppelDe(id).then((r) => setAppelForm(r ? { ...r, contact: id } : null)).catch(() => setAppelForm(null)), [])
-  useEffect(() => { if (courantId) void relireForm(courantId) }, [courantId, relireForm])
   const evenements = useMemo(() => (courant ? chronologie(courant.st, courant.envois, courant.clics, [], courant.etapes) : []), [courant])
 
   const suivant = () => {
@@ -308,7 +305,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
               <Vide titre={liste.length && index >= liste.length ? "File terminée" : "Aucun artisan en cours"} texte={liste.length && index >= liste.length ? "Tous les artisans de cette file sont passés. Change de file ou actualise." : chargementFile ? "La file se charge…" : "Choisis un artisan dans la file, ou cherche-le pour l'appeler directement."} />
             </div>
           ) : (
-            <div className="grid gap-x-12 gap-y-8 @min-[1240px]:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+            <div className="grid gap-x-8 gap-y-8 @min-[820px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="min-w-0 space-y-4">
                 {/* ── 2. L'artisan en cours, au trait ── */}
                 <div className="min-w-0">
@@ -358,7 +355,6 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
                     ) : null}
                   </Section>
 
-                  {appelForm && appelForm.contact === st.id ? <Section titre={appelForm.formulaire.nom}><FormulaireAppel key={st.id} campagneId={appelForm.campagneId} contactRef={st.id!} formulaire={appelForm.formulaire} reponses={appelForm.reponses} parNom={compteNom} onEnregistre={() => void relireForm(st.id!)} /></Section> : null}
 
                   <TachesDuContact key={st.id} contactRef={st.id!} />
 
@@ -409,7 +405,9 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
               </div>
 
               {/* ── 3. L'historique, au trait, à droite ── */}
-              <div className="min-w-0 space-y-6 @min-[1240px]:border-l-[0.5px] @min-[1240px]:border-trait @min-[1240px]:pl-12">
+              <div className="min-w-0 space-y-6 @min-[820px]:border-l-[0.5px] @min-[820px]:border-trait @min-[820px]:pl-8">
+                <Onglets<"qualification" | "historique"> valeur={volet} onChange={setVolet} options={[{ id: "qualification", label: "Qualification" }, { id: "historique", label: "Historique" }]} />
+                {volet === "qualification" ? <QualificationST key={st.id} st={st} parNom={compteNom} /> : <>
                 <div className="min-w-0">
                   <p className="mb-1 flex items-baseline justify-between gap-2 text-colonne text-encre-2"><span>Historique</span><span className="chiffres">{courant?.appels.length ?? 0} appel{s(courant?.appels.length ?? 0)} · les plus récents en haut</span></p>
                   {!courant || courant.appels.length === 0 ? <Vide titre="Rien encore" texte="Le premier appel ouvrira l'historique." /> : (
@@ -443,6 +441,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
                     </ol>
                   )}
                 </div>
+                </>}
               </div>
             </div>
           )}

@@ -38,6 +38,14 @@ export function positionDans(q: Qualification, f: Faits, valides: ReadonlySet<st
   return { estLead, etape, atteintes, courante }
 }
 
+/** Pour un sous-traitant, la qualification et le compte ouvert donnent l'étape : ils ne dépendent pas de la campagne. */
+export function etapeDuSousTraitant(etape: EtapeLead, compteOuvert: boolean, decision: string | null | undefined): EtapeLead {
+  if (compteOuvert) return "gagnes"
+  if (decision === "Refusé") return "perdus"
+  if (decision === "Accepté" && etape !== "perdus") return "qualifies"
+  return etape
+}
+
 function reponseValide(reponse: string | undefined, operateur: string, valeur: string): boolean {
   if (!reponse) return false
   const a = reponse.trim().toLowerCase(), b = valeur.trim().toLowerCase()

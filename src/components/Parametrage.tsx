@@ -5,6 +5,7 @@ import ObjectifsReglage from "./demarchage/ObjectifsReglage"
 import EmailsManager from "./EmailsManager"
 import NumerosManager from "./NumerosManager"
 import Comptes from "./Comptes"
+import QuestionnaireST from "./recrutement/QuestionnaireST"
 import { estAdmin } from "../lib/comptes"
 import { usePerimetre } from "../lib/usePerimetre"
 
@@ -16,7 +17,7 @@ import { usePerimetre } from "../lib/usePerimetre"
 //   · Démarchage — ce qui règle les appels : objectif et règles, script, secteurs, modèles d'e-mail ;
 //   · Équipe — les comptes (administrateurs seulement) et les numéros Ringover.
 // Aucun réglage n'a changé : seulement leur place.
-type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "comptes" | "numeros"
+type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "comptes" | "numeros" | "qualification"
 
 type Rubrique = { titre: string; sections: { id: Section; label: string; admin?: boolean; agences?: boolean }[] }
 const RUBRIQUES: Rubrique[] = [
@@ -33,6 +34,7 @@ const RUBRIQUES: Rubrique[] = [
   {
     titre: "Équipe",
     sections: [
+      { id: "qualification", label: "Questionnaire sous-traitants", admin: true },
       { id: "comptes", label: "Comptes", admin: true },
       { id: "numeros", label: "Numéros Ringover", admin: true },
     ],
@@ -85,6 +87,7 @@ export default function Parametrage({ session, sectionInitiale }: { session: Ses
         {section === "script" && <ObjectifsReglage partie="script" />}
         {section === "secteurs" && <SecteursReglage />}
         {section === "modeles" && <EmailsManager partie="modeles" />}
+        {section === "qualification" && admin && <QuestionnaireST />}
         {section === "comptes" && admin && <Comptes session={session} />}
         {section === "numeros" && <NumerosManager />}
       </div>

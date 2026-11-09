@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest"
-import { AUCUN_FAIT, niveauDe, positionDans, type Faits } from "./parcoursLead"
+import { AUCUN_FAIT, niveauDe, positionDans, type Faits, etapeDuSousTraitant } from "./parcoursLead"
 import { qualificationDeDepart, type Qualification } from "../prospection/configCampagne"
 
 const f = (p: Partial<Faits>): Faits => ({ ...AUCUN_FAIT, ...p })
 const aucun = new Set<string>()
 const st = qualificationDeDepart("artisans")
-const auTelephone: Qualification = { ...st, leadA: "p-tel" }
+// Un parcours long : une campagne peut toujours en régler un, le calcul reste le même.
+const e = (id: string, nom: string, type: string) => ({ id, nom, type, qui: "Le commercial", validation: "À la main", delai: 2 })
+const longue: Qualification = { ...st, etapes: [e("p-interet", "Intérêt", "Intérêt détecté"), e("p-tel", "Téléphone", "Appel : joint et intéressé"), e("p-dossier", "Dossier", "Dossier et pièces reçus"), e("p-envoi", "Envoi", "Contrats envoyés"), e("p-signe", "Signé", "Contrats signés"), e("p-test", "Test", "Test de l'application"), e("p-compte", "Compte", "Compte ouvert")], leadA: "p-dossier", gagneA: "p-compte" }
+const auTelephone: Qualification = { ...longue, leadA: "p-tel" }
 const agences = qualificationDeDepart("agences", "tracabilite")
 
 describe("la campagne décide de ce qu'est un lead (09/11/2026)", () => {
@@ -20,18 +23,18 @@ describe("la campagne décide de ce qu'est un lead (09/11/2026)", () => {
     expect(positionDans(auTelephone, f({ interet: true }), aucun, false).estLead).toBe(false)
   })
   it("au-delà du lead : qualifié ; à l'étape gagnée : gagné", () => {
-    expect(positionDans(st, f({ dossier: true, contratsEnvoyes: true }), aucun, false).etape).toBe("qualifies")
-    expect(positionDans(st, f({ dossier: true, contratsSignes: true, compteOuvert: true }), aucun, false).etape).toBe("gagnes")
+    expect(positionDans(longue, f({ dossier: true, contratsEnvoyes: true }), aucun, false).etape).toBe("qualifies")
+    expect(positionDans(longue, f({ dossier: true, contratsSignes: true, compteOuvert: true }), aucun, false).etape).toBe("gagnes")
   })
   it("une étape validée à la main compte, sans fait", () => {
-    const p = positionDans(st, f({ dossier: true }), new Set(["p-test"]), false)
+    const p = positionDans(longue, f({ dossier: true }), new Set(["p-test"]), false)
     expect(p.etape).toBe("qualifies")
     expect(p.courante).toBe("p-test")
   })
   it("contacté, ou perdu ; gagné passe avant perdu", () => {
     expect(positionDans(st, f({ dossier: true }), aucun, true).etape).toBe("contactes")
     expect(positionDans(st, f({ dossier: true, perdu: true }), aucun, false).etape).toBe("perdus")
-    expect(positionDans(st, f({ dossier: true, perdu: true, compteOuvert: true }), aucun, false).etape).toBe("gagnes")
+    expect(positionDans(longue, f({ dossier: true, perdu: true, compteOuvert: true }), aucun, false).etape).toBe("gagnes")
   })
   it("les agences d'aujourd'hui : l'intérêt fait le lead, le 1er ordre de service fait le gagné", () => {
     expect(positionDans(agences, f({ interet: true }), aucun, false).estLead).toBe(true)
@@ -57,4 +60,14 @@ describe("la campagne décide de ce qu'est un lead (09/11/2026)", () => {
     expect(niveauDe(q, [])).toBe("C")
     expect(niveauDe({ ...st, qualites: [] }, [])).toBe("")
   })
+})
+
+describe("etapeDuSousTraitant", () => {
+  it("le compte ouvert gagne sur tout", () => expect(etapeDuSousTraitant("perdus", true, "Refusé")).toBe("gagnes"))
+  it("un refus passe en perdu", () => expect(etapeDuSousTraitant("nouveaux", false, "Refusé")).toBe("perdus"))
+  it("une acceptation qualifie, sauf s'il est déjà perdu", () => {
+    expect(etapeDuSousTraitant("contactes", false, "Accepté")).toBe("qualifies")
+    expect(etapeDuSousTraitant("perdus", false, "Accepté")).toBe("perdus")
+  })
+  it("en attente ne change rien", () => expect(etapeDuSousTraitant("contactes", false, "En attente")).toBe("contactes"))
 })

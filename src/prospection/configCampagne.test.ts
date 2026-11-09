@@ -36,10 +36,12 @@ describe("le réglage complet d'une campagne (09/11/2026)", () => {
     expect(q.interet.map((r) => [r.evenement, r.fois, r.jours])).toEqual([["A ouvert la plaquette", 2, 7], ["A ouvert la page « Créer un compte »", 1, 7], ["A répondu au mail", 1, 7]])
     expect(q.leadA).toBe("p-interet")
   })
-  it("sous-traitants : lead au dossier déposé, gagné au compte ouvert", () => {
+  it("sous-traitants : la campagne s'arrête au dossier déposé, sans formulaire ni contrats", () => {
     const q = configDe(camp({ baseId: "artisans" })).qualification
     expect(q.etapes.find((e) => e.id === q.leadA)?.nom).toBe("Dossier déposé")
-    expect(q.etapes.find((e) => e.id === q.gagneA)?.nom).toBe("Compte ouvert")
+    expect(q.etapes.map((e) => e.nom)).toEqual(["Intérêt détecté", "Dossier déposé"])
+    expect(q.gagneA).toBe("")
+    expect(configDe(camp({ baseId: "artisans" })).creatifs.some((k) => k.id === "f-qualif")).toBe(false)
   })
   it("les zones deviennent un filtre, la France entière n'en met aucun", () => {
     expect(filtreDesZones("agences", [])).toBeNull()
