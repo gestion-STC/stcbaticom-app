@@ -21,7 +21,6 @@ export type PageId =
   | "st_machine"
   | "st_base"
   | "st_sequences"
-  | "st_dossiers"
   | "st_reglages"
   | "parametrage"
 
@@ -67,8 +66,6 @@ const HORS_MENU: { id: PageId; espace: Espace | null }[] = [
   { id: "st_machine", espace: "recrutement" },
   { id: "st_sequences", espace: "recrutement" },
   { id: "st_reglages", espace: "recrutement" },
-  // Les dossiers déposés tombent dans « Leads reçus » (09/11/2026) ; leur écran s'ouvre depuis un lead.
-  { id: "st_dossiers", espace: "recrutement" },
 ]
 
 const visible = (espace: Espace | null, espaces: Espace[]) => espace === null || espaces.includes(espace)

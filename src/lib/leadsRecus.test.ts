@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { statutDossier } from "./dossierStatut"
 import { campagneParContact, compterParNiveau, filtrerLeads, leadsVisibles, niveauAgence, trierLeads, type LeadRecu } from "./leadsRecus"
 
 const lead = (o: Partial<LeadRecu>): LeadRecu => ({
@@ -49,5 +50,17 @@ describe("leads reçus (09/11/2026)", () => {
   })
   it("compte par chaleur", () => {
     expect(compterParNiveau([lead({ niveau: "fiche" }), lead({}), lead({})])).toEqual({ fiche: 1, reponse: 0, interet: 2 })
+  })
+})
+
+describe("l'état d'un dossier déposé", () => {
+  const d = { vuLe: null, traiteLe: null, completLe: null }
+  it("suit le chemin nouveau, vu, traité, contrats, partenaire", () => {
+    expect(statutDossier(d).texte).toBe("nouveau")
+    expect(statutDossier({ ...d, vuLe: "x" }).texte).toBe("vu")
+    expect(statutDossier({ ...d, traiteLe: "x" }).texte).toBe("traité")
+    expect(statutDossier(d, { contratStatut: "envoye", accesOuvertLe: null }).texte).toBe("contrats envoyés")
+    expect(statutDossier({ ...d, completLe: "x" }).texte).toBe("contrats signés")
+    expect(statutDossier({ ...d, completLe: "x" }, { contratStatut: "signe", accesOuvertLe: "x" }).texte).toBe("partenaire")
   })
 })

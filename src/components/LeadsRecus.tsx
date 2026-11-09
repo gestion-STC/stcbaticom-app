@@ -2,11 +2,13 @@
 // Tous les leads des bases du compte au même endroit : les fiches remplies en tête (dossiers déposés des
 // artisans ; demain les formulaires des campagnes), puis les réponses, puis l'intérêt. Le choix de base
 // pour qui a les deux ; le choix de la campagne pour les administrateurs. Remplace « Dossiers déposés » :
-// un dossier s'ouvre toujours dans son écran (rattacher, contrats).
+// une fiche remplie s'ouvre ICI, en panneau (Mahdi, 09/11 : « on ne peut pas avoir deux pages de leads reçus ») ;
+// un lead simple garde le bouton Appeler.
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ExternalLink, FileText, Phone, RefreshCw } from "lucide-react"
+import DossierDepuisLead from "./recrutement/DossierDepuisLead"
 import type { Session } from "@supabase/supabase-js"
-import { Bandeau as BandeauAlerte, Bouton, Chargement, Pastille, Selecteur } from "../ui"
+import { Bandeau as BandeauAlerte, Bouton, Chargement, Panneau, Pastille, Selecteur } from "../ui"
 import { Bandeau, Table } from "./demarchage/aujourdhui/courtier"
 import { Onglets, Titre } from "./prospection/morceaux"
 import ChoixBase from "./ChoixBase"
@@ -20,12 +22,11 @@ import { chargerLeadsRecus, type CampagneCourte } from "../lib/leadsRecusDb"
 const ROLE_NIVEAU: Record<Niveau, "fait" | "actif" | "inerte"> = { fiche: "fait", reponse: "actif", interet: "inerte" }
 const quandCourt = (iso: string) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—")
 
-export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrirAgence, onOuvrirDossier, onSessionArtisans }: {
+export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrirAgence, onSessionArtisans }: {
   session: Session | null
   espaces: Espace[]
   onAppelerAgence: (agenceId: string) => void
   onOuvrirAgence: (agenceId: string) => void
-  onOuvrirDossier: (dossierId: string) => void
   onSessionArtisans: () => void
 }) {
   const admin = estAdmin(session)
@@ -35,6 +36,9 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
   const [statut, setStatut] = useState<"a_traiter" | "traites">("a_traiter")
   const [donnees, setDonnees] = useState<{ leads: LeadRecu[]; campagnes: CampagneCourte[] } | null>(null)
   const [erreur, setErreur] = useState("")
+  // La fiche ouverte sur place : un dossier d'artisan, ou la fiche remplie par une agence.
+  const [dossierOuvert, setDossierOuvert] = useState<string | null>(null)
+  const [ficheAgence, setFicheAgence] = useState<LeadRecu | null>(null)
 
   const charger = useCallback(() => {
     chargerLeadsRecus(new Date())
@@ -59,7 +63,8 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
   const deuxBases = espaces.length > 1
 
   const action = (l: LeadRecu) =>
-    l.cible.type === "dossier" ? <Bouton taille="sm" icone={<FileText />} onClick={() => onOuvrirDossier(l.cible.id)}>Ouvrir le dossier</Bouton>
+    l.cible.type === "dossier" ? <Bouton taille="sm" icone={<FileText />} onClick={() => setDossierOuvert(l.cible.id)}>Ouvrir le dossier</Bouton>
+      : l.cible.type === "agence" && l.niveau === "fiche" ? <Bouton taille="sm" icone={<FileText />} onClick={() => setFicheAgence(l)}>Ouvrir la fiche</Bouton>
       : l.cible.type === "agence" ? <Bouton taille="sm" icone={<Phone />} onClick={() => onAppelerAgence(l.cible.id)}>Appeler</Bouton>
         : <Bouton taille="sm" icone={<Phone />} onClick={onSessionArtisans}>Appeler</Bouton>
 
@@ -102,13 +107,25 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
               {l.detail ? <span className="block truncate text-colonne text-encre-2">{l.detail}</span> : null}
             </span>,
             ...(deuxBases ? [<span className="text-encre-2">{NOM_BASE[l.espace]}</span>] : []),
-            <span className="block truncate text-encre">{l.signal}</span>,
+            <span className="flex min-w-0 items-center gap-2"><span className="truncate text-encre">{l.signal}</span>{l.etat ? <Pastille role={l.etat.role} point={l.etat.texte === "nouveau"}>{l.etat.texte}</Pastille> : null}</span>,
             <span className="block truncate text-encre-2">{l.campagne?.nom ?? "Hors campagne"}</span>,
             <span className="chiffres text-encre-2">{quandCourt(l.quand)}</span>,
             <span className="flex justify-end">{action(l)}</span>,
           ] }))} />
       )}
       {lignes.length > 200 ? <p className="text-colonne text-encre-3">Les 200 premiers affichés sur {lignes.length}.</p> : null}
+
+      {dossierOuvert ? <DossierDepuisLead id={dossierOuvert} onFermer={() => setDossierOuvert(null)} onChange={charger} /> : null}
+      {ficheAgence && ficheAgence.cible.type === "agence" ? (() => {
+        const agenceId = ficheAgence.cible.id
+        return (
+          <Panneau titre={ficheAgence.nom} sousTitre={<span>{ficheAgence.signal} · {quandCourt(ficheAgence.quand)}</span>} onFermer={() => setFicheAgence(null)} largeur="w-[720px]"
+            pied={<><Bouton icone={<ExternalLink />} onClick={() => { setFicheAgence(null); onOuvrirAgence(agenceId) }}>Fiche de l'agence</Bouton><Bouton variante="plein" icone={<Phone />} onClick={() => { setFicheAgence(null); onAppelerAgence(agenceId) }}>Appeler</Bouton></>}>
+            <h3 className="mb-2 text-colonne font-medium text-encre-2">Ce qu'elle a renseigné</h3>
+            <p className="whitespace-pre-wrap text-legende leading-relaxed text-encre">{ficheAgence.detail || "Aucun détail."}</p>
+          </Panneau>
+        )
+      })() : null}
     </div>
   )
 }

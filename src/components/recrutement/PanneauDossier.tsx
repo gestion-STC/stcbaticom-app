@@ -1,42 +1,20 @@
-// ════════════════════════════════════════════════════════════════════════════
-// DOSSIERS DÉPOSÉS — les dossiers de qualification déposés par les artisans
-// sur stcbatiment.fr/sous-traitants (table dossiers_st).
-//
-// Un dossier est « nouveau » tant que personne ne l'a ouvert, « vu » dès
-// qu'on l'ouvre, « traité » quand on le dit. Il doit être RATTACHÉ à une fiche
-// de recrutement : c'est ce rattachement qui arrête la séquence de l'artisan
-// (la machine le fait seule quand le lien tracké a suivi, sinon on le fait ici).
-// ════════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useMemo, useState } from "react"
+// La fiche d'un dossier déposé, en panneau. Sortie de l'ancienne page « Dossiers déposés » le 09/11/2026 :
+// elle s'ouvre désormais depuis « Leads reçus », avec son état, ses pièces, ses réponses et les contrats.
+import { useMemo, useState } from "react"
 import { ExternalLink, FileSignature, KeyRound, Link2, Paperclip, Unlink, UserPlus } from "lucide-react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
-import { supabaseConfigure } from "../../lib/supabase"
-import { chargerDossiers, creerFicheHorsBase, lienPieceDossier, marquerDossier, rattacherDossier } from "../../lib/machineDb"
-import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
+import { creerFicheHorsBase, lienPieceDossier, marquerDossier, rattacherDossier } from "../../lib/machineDb"
+import { statutDossier } from "../../lib/dossierStatut"
 import { chiffresTel } from "../../lib/telephone"
-import FicheArtisan from "./FicheArtisan"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { LIBELLE_CONTRAT, ROLE_CONTRAT, envoyerLienAcces } from "../../lib/contratsDb"
-import { Bandeau, Bouton, Carte, Champ, Chargement, Compteurs, Dialogue, EnTetePage, Etiquette, Ligne, Panneau, Pastille, Tableau, Td, Th, Tr, Vide } from "../../ui"
-
-type Filtre = "tous" | "nouveaux" | "a_traiter" | "sans_fiche" | "contrats" | "complets" | "partenaires"
+import { Bandeau, Bouton, Carte, Champ, Dialogue, Etiquette, Ligne, Panneau, Pastille } from "../../ui"
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const dateHeure = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
 const normaliser = (s: string) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim()
-const estNouveau = (d: DossierST) => !d.vuLe && !d.traiteLe
-// Le chemin d'un dossier (Mahdi, 11/10) : nouveau → vu → traité → contrats envoyés → contrats signés → partenaire (accès ouvert).
-// L'archive garde tout ; l'état dit où en est chacun.
-const CONTRATS_EN_COURS = ["envoye", "livre", "signe_artisan"]
-const enCoursDeSignature = (f?: SousTraitant) => !!f && CONTRATS_EN_COURS.includes(f.contratStatut ?? "")
-const statutDossier = (d: DossierST, fiche?: SousTraitant): { role: "fait" | "actif" | "info"; texte: string } =>
-  fiche?.accesOuvertLe ? { role: "fait", texte: "partenaire" }
-    : d.completLe ? { role: "fait", texte: "contrats signés" }
-    : enCoursDeSignature(fiche) ? { role: "actif", texte: "contrats envoyés" }
-    : d.traiteLe ? { role: "fait", texte: "traité" } : d.vuLe ? { role: "actif", texte: "vu" } : { role: "info", texte: "nouveau" }
 const nomDePiece = (p: { nom?: string; path: string }) => p.nom || p.path.split("/").pop() || p.path
-const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`
 
 /**
  * Une réponse du questionnaire, lisible : courte = sur une ligne (libellé à gauche, valeur à droite) ;
@@ -86,136 +64,12 @@ function chercherFiches(fiches: SousTraitant[], recherche: string, dossier: Doss
     .sort((a, b) => b.s - a.s || a.f.entreprise.localeCompare(b.f.entreprise, "fr")).slice(0, 8).map((x) => x.f)
 }
 
-export default function DossiersST({ dossierInitial = null }: { dossierInitial?: string | null }) {
-  const [dossiers, setDossiers] = useState<DossierST[]>([])
-  const [fiches, setFiches] = useState<SousTraitant[]>([])
-  const [chargement, setChargement] = useState(!!supabaseConfigure)
-  const [erreur, setErreur] = useState(supabaseConfigure ? "" : "Base non configurée.")
-  const [filtre, setFiltre] = useState<Filtre>("tous")
-  const [ouvertId, setOuvertId] = useState<string | null>(dossierInitial)
-  const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
-
-  const charger = useCallback(() =>
-    Promise.all([chargerDossiers(), chargerSousTraitants()])
-      .then(([ds, fs]) => { setDossiers(ds); setFiches(fs) })
-      .catch((e) => setErreur(msg(e)))
-      .finally(() => setChargement(false)),
-  [])
-  useEffect(() => { if (supabaseConfigure) charger() }, [charger])
-
-  const parId = useMemo(() => new Map(fiches.map((f) => [f.id ?? "", f])), [fiches])
-  const compte = useMemo(() => ({
-    tous: dossiers.length,
-    nouveaux: dossiers.filter(estNouveau).length,
-    a_traiter: dossiers.filter((d) => !d.traiteLe).length,
-    sans_fiche: dossiers.filter((d) => !d.sousTraitantId).length,
-    complets: dossiers.filter((d) => !!d.completLe && !parId.get(d.sousTraitantId ?? "")?.accesOuvertLe).length,
-    contrats: dossiers.filter((d) => enCoursDeSignature(parId.get(d.sousTraitantId ?? ""))).length,
-    partenaires: dossiers.filter((d) => !!parId.get(d.sousTraitantId ?? "")?.accesOuvertLe).length,
-  }), [dossiers, parId])
-  const visibles = useMemo(() => dossiers.filter((d) =>
-    filtre === "nouveaux" ? estNouveau(d) : filtre === "a_traiter" ? !d.traiteLe : filtre === "sans_fiche" ? !d.sousTraitantId
-      : filtre === "contrats" ? enCoursDeSignature(parId.get(d.sousTraitantId ?? ""))
-      : filtre === "complets" ? !!d.completLe && !parId.get(d.sousTraitantId ?? "")?.accesOuvertLe
-      : filtre === "partenaires" ? !!parId.get(d.sousTraitantId ?? "")?.accesOuvertLe : true,
-  ), [dossiers, filtre, parId])
-  const ouvert = dossiers.find((d) => d.id === ouvertId) ?? null
-
-  const majLocal = (id: string, champs: Partial<DossierST>) => setDossiers((l) => l.map((d) => (d.id === id ? { ...d, ...champs } : d)))
-  const ouvrir = (d: DossierST) => {
-    setOuvertId(d.id)
-    // Vu dès l'ouverture : le compteur « nouveaux » baisse tout de suite.
-    if (!d.vuLe) marquerDossier(d.id, { vu: true }).then(() => majLocal(d.id, { vuLe: new Date().toISOString() })).catch((e) => setErreur(msg(e)))
-  }
-
-  return (
-    <div className="page">
-      <EnTetePage
-        titre="Dossiers déposés"
-        sousTitre={`${pluriel(compte.tous, "dossier")} · ${compte.a_traiter} à traiter · ${compte.sans_fiche} sans fiche rattachée`}
-      />
-
-      {erreur ? <Bandeau role="alerte" className="mb-4" action={<Bouton variante="discret" taille="sm" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
-
-      {chargement ? <Chargement /> : (
-        <>
-          <Compteurs<Filtre>
-            actif={filtre}
-            onSelect={setFiltre}
-            valeurs={[
-              { id: "tous", libelle: "Tous", valeur: compte.tous },
-              { id: "nouveaux", libelle: "Nouveaux", valeur: compte.nouveaux, detail: "ni vus ni traités" },
-              { id: "a_traiter", libelle: "À traiter", valeur: compte.a_traiter, detail: "pas encore traités" },
-              { id: "sans_fiche", libelle: "Sans fiche", valeur: compte.sans_fiche, detail: "à rattacher", role: compte.sans_fiche > 0 ? "alerte" : undefined },
-              { id: "contrats", libelle: "Contrats en cours", valeur: compte.contrats, detail: "envoyés, pas encore signés des deux côtés" },
-              { id: "complets", libelle: "Contrats signés", valeur: compte.complets, detail: "dossier complet, accès pas encore ouvert" },
-              { id: "partenaires", libelle: "Partenaires", valeur: compte.partenaires, detail: "contrats signés et accès ouvert", role: compte.partenaires > 0 ? "ok" : undefined },
-            ]}
-          />
-
-          <Carte className="mt-4 overflow-hidden">
-            {visibles.length === 0 ? (
-              <Vide
-                titre={dossiers.length === 0 ? "Aucun dossier déposé" : "Rien dans ce filtre"}
-                texte={dossiers.length === 0 ? "Les dossiers déposés sur stcbatiment.fr/sous-traitants apparaîtront ici." : "Changez de compteur pour voir les autres dossiers."}
-              />
-            ) : (
-              <Tableau>
-                <thead>
-                  <tr>
-                    <Th>Déposé le</Th>
-                    <Th>Entreprise</Th>
-                    <Th>E-mail</Th>
-                    <Th>Fiche rattachée</Th>
-                    <Th num>Pièces</Th>
-                    <Th>Statut</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibles.map((d) => {
-                    const fiche = d.sousTraitantId ? parId.get(d.sousTraitantId) : undefined
-                    const s = statutDossier(d, fiche)
-                    return (
-                      <Tr key={d.id} onClick={() => ouvrir(d)}>
-                        <Td className="chiffres whitespace-nowrap text-encre-2">{dateHeure(d.creeLe)}</Td>
-                        <Td className={estNouveau(d) ? "font-semibold text-encre" : "font-medium text-encre"}>{d.raisonSociale || <span className="italic text-encre-2">Sans nom</span>}</Td>
-                        <Td className="text-encre-2">{d.email || "—"}</Td>
-                        <Td>{fiche ? <span className="text-encre">{fiche.entreprise}</span> : d.sousTraitantId ? <Pastille role="attente">fiche introuvable</Pastille> : <Pastille role="attente">à rattacher</Pastille>}</Td>
-                        <Td num>{d.fichiers.length}</Td>
-                        <Td><Pastille role={s.role} point={s.texte === "nouveau"}>{s.texte}</Pastille></Td>
-                      </Tr>
-                    )
-                  })}
-                </tbody>
-              </Tableau>
-            )}
-          </Carte>
-        </>
-      )}
-
-      {/* Le panneau du dossier s'efface derrière la fiche artisan, et revient quand elle se ferme. */}
-      {ouvert && !ficheOuverte ? (
-        <PanneauDossier
-          dossier={ouvert}
-          fiche={ouvert.sousTraitantId ? parId.get(ouvert.sousTraitantId) : undefined}
-          fiches={fiches}
-          onFermer={() => setOuvertId(null)}
-          onMaj={majLocal}
-          onRecharger={charger}
-          onOuvrirFiche={setFicheOuverte}
-        />
-      ) : null}
-      {ficheOuverte ? <FicheArtisan id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={charger} /> : null}
-    </div>
-  )
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // LE PANNEAU D'UN DOSSIER — la fiche rattachée (ou le bloc pour la rattacher),
 // les pièces, les réponses du formulaire section par section ; en pied,
 // « Marquer traité » ou « Rouvrir ».
 // ════════════════════════════════════════════════════════════════════════════
-function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, onOuvrirFiche }: {
+export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, onOuvrirFiche }: {
   dossier: DossierST
   fiche: SousTraitant | undefined
   fiches: SousTraitant[]
