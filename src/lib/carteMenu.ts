@@ -11,6 +11,7 @@ import type { Espace } from "./messagesDb"
 export type PageId =
   | "aujourdhui"
   | "campagnes"
+  | "leads"
   | "sessions"
   | "agences"
   | "agenda"
@@ -33,6 +34,7 @@ export const MENU: GroupeMenu[] = [
     titre: "Prospecter",
     entrees: [
       { id: "campagnes", titre: "Campagnes", espace: null },
+      { id: "leads", titre: "Leads reçus", espace: null },
       { id: "sessions", titre: "Session de call", espace: null },
     ],
   },
@@ -41,7 +43,6 @@ export const MENU: GroupeMenu[] = [
     entrees: [
       { id: "messages", titre: "Boîte de réception", espace: null },
       { id: "agenda", titre: "Agenda", espace: "demarchage" },
-      { id: "st_dossiers", titre: "Dossiers déposés", espace: "recrutement" },
     ],
   },
   {
@@ -66,6 +67,8 @@ const HORS_MENU: { id: PageId; espace: Espace | null }[] = [
   { id: "st_machine", espace: "recrutement" },
   { id: "st_sequences", espace: "recrutement" },
   { id: "st_reglages", espace: "recrutement" },
+  // Les dossiers déposés tombent dans « Leads reçus » (09/11/2026) ; leur écran s'ouvre depuis un lead.
+  { id: "st_dossiers", espace: "recrutement" },
 ]
 
 const visible = (espace: Espace | null, espaces: Espace[]) => espace === null || espaces.includes(espace)

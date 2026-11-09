@@ -29,6 +29,7 @@ import DossiersST from "./components/recrutement/DossiersST"
 import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 // Les campagnes (07/11/2026) : le même outil pour les deux bases.
 import PageCampagnes from "./components/prospection/PageCampagnes"
+import LeadsRecus from "./components/LeadsRecus"
 
 function App() {
   const [page, setPage] = useState<PageId>("aujourdhui")
@@ -72,6 +73,8 @@ function App() {
   const espaces = perimetre ?? []
   const [baseSession, setBaseSession] = useChoixBase("sessions", espaces, false)
   const [baseBoite, setBaseBoite] = useChoixBase("messages", espaces, true)
+  // Le dossier déposé ouvert depuis « Leads reçus ».
+  const [dossierOuvert, setDossierOuvert] = useState<string | null>(null)
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
   if (session === undefined)
@@ -136,7 +139,17 @@ function App() {
           {vue === "st_reglages" && <ReglagesMachineST />}
           {vue === "st_base" && <BaseST />}
           {vue === "st_sequences" && <SequencesST />}
-          {vue === "st_dossiers" && <DossiersST />}
+          {vue === "st_dossiers" && <DossiersST key={dossierOuvert ?? "liste"} dossierInitial={dossierOuvert} />}
+          {vue === "leads" && (
+            <LeadsRecus
+              session={session}
+              espaces={espaces}
+              onAppelerAgence={(id) => { setBaseSession("demarchage"); ouvrirSession(id) }}
+              onOuvrirAgence={(id) => ouvrirAgence(id)}
+              onOuvrirDossier={(id) => { setDossierOuvert(id); naviguer("st_dossiers") }}
+              onSessionArtisans={() => { setBaseSession("recrutement"); naviguer("sessions") }}
+            />
+          )}
 
           {/* La session de call : une page, le choix de base dedans (07/11/2026). */}
           {vue === "sessions" && deuxBases ? <div className="px-8 pt-5"><ChoixBase valeur={baseSession} onChange={setBaseSession} espaces={espaces} avecTout={false} /></div> : null}
