@@ -92,6 +92,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
   const proprietaire = useMemo(() => proprietaireDepuisChoix(choixBase, moiId, admin, nonAttribueesLibres), [choixBase, moiId, admin, nonAttribueesLibres])
+  // Les LEADS d'un administrateur : tous, quelle que soit la base d'appel choisie (Mahdi, 07/11/2026 : « moi, je
+  // traite tout dans les leads, je vois tous les leads »). Le choix de base ne filtre que la prospection.
+  const proprietaireLeads = admin ? "tous" : proprietaire
   const optionsDeBase = useMemo(() => optionsBase(admin, nonAttribueesLibres, comptesListe, moiId), [admin, nonAttribueesLibres, comptesListe, moiId])
   useEffect(() => {
     if (!session) return
@@ -290,7 +293,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const [sect, cpt, app, parNumero, res, nl] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
       chargerSecteurs().catch(() => [] as Secteur[]), compterPiles(proprietaire).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
-      compterLeads(proprietaire).catch(() => null),
+      compterLeads(proprietaireLeads).catch(() => null),
     ])
     if (!enVie.current || jeton !== jetonCompteurs.current) return
     setSecteurs(sect)
@@ -312,7 +315,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setSansNumero(res.parCompte && res.miens.length === 0)
     }
     setMaintenant(Date.now())
-  }, [proprietaire, moiId])
+  }, [proprietaire, proprietaireLeads, moiId])
   const premierReperes = useRef(true)
   const proprietaireRef = useRef(proprietaire)
   useEffect(() => {
@@ -328,8 +331,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       .catch(() => {
         if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(null)
       })
-    compterLeads(proprietaireRef.current).then((n) => { if (enVie.current) setNbLeads(n) }).catch(() => { if (enVie.current) setNbLeads(null) })
-  }, [])
+    compterLeads(admin ? "tous" : proprietaireRef.current).then((n) => { if (enVie.current) setNbLeads(n) }).catch(() => { if (enVie.current) setNbLeads(null) })
+  }, [admin])
 
   // La file : rechargée quand on change de pile, de secteur, d'étape, de sourçage, ou la case des
   // déjà appelées. LA BASE la calcule (pile_demarchage : l'ordre, le repos, un numéro = un appel
@@ -343,7 +346,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       // Mode Leads : la file des leads ouverts de la base choisie, le plus ancien d'abord (la base les ordonne).
       const [lus, app] = await Promise.all([
         mode === "leads"
-          ? chargerLeads(proprietaire)
+          ? chargerLeads(proprietaireLeads)
           : chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees }).then((l) => l.map((agence) => ({ agence, lead: null as Lead | null }))),
         agencesAppeleesAujourdHui(new Date()),
       ])
@@ -358,7 +361,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     } finally {
       if (enVie.current && jeton === jetonFile.current) setChargementFile(false)
     }
-  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, moiId])
+  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, proprietaireLeads, moiId])
 
   useEffect(() => {
     enVie.current = true
