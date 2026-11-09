@@ -29,6 +29,7 @@ const PLAFOND_JOUR = { mail: 200, sms: 40 } as const
 const CADENCE_MS = { mail: 700, sms: 3000 } as const
 const REJOUER_APRES_MIN = [15, 60, 240]
 const TENTATIVES_MAX = 3
+const LIEN_NEUTRE = "https://www.stcbatiment.fr"
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const jourParisIso = (d: Date) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(d)
 
@@ -134,6 +135,8 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   const leCreatif = creatifs.find((x) => x.variantes?.some((v) => v.id === varianteId))
   const cible = leCreatif?.versId ? creatifs.find((x) => x.id === leCreatif.versId) : undefined
   if (cible && canal !== "sms") texte = ajouterBouton(texte, await lienDe(cible.id), leCreatif?.video ? "Voir la vidéo" : cible.type === "formulaire" ? "Remplir le formulaire" : "En savoir plus")
+  // Mode test : aucun lien ne doit agir sur la vraie fiche (désinscrire l'agence, poser un lead).
+  if (test) { for (const m of new Set(`${texte}${sujet}`.match(/{{lien_[a-z_]+}}/g) ?? [])) remplacer(m, LIEN_NEUTRE) }
   let stop = ""
   if (k.baseId === "artisans") {
     const { data } = await sb.from("st_sous_traitants").select("token, metier").eq("id", k.id).maybeSingle()
@@ -148,6 +151,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     remplacer("{{lien_creer_compte}}", compte.url); remplacer("{{lien_principal}}", compte.url); remplacer("{{lien_desinscription}}", stop)
     if (texte.includes("{{lien_site}}")) remplacer("{{lien_site}}", (await lienAgence(sb, base, k.id, "site")).url)
   }
+  if (test) stop = LIEN_NEUTRE
   // Un mail de prospection propose toujours de ne plus en recevoir, agence ou artisan.
   if (canal !== "sms" && !corps.includes("{{lien_desinscription}}")) texte += `\n\nPour ne plus recevoir nos messages : ${stop}`
 
