@@ -10,6 +10,7 @@
 // (la dernière campagne où le contact est entré), ou « hors campagne ».
 // Fichier PUR : leadsRecus.test.ts le lit ; la lecture en base est dans leadsRecusDb.ts.
 // ════════════════════════════════════════════════════════════════════════════
+import type { EtatDossier } from "./dossierStatut"
 import type { Espace } from "./messagesDb"
 
 export type Niveau = "fiche" | "reponse" | "interet"
@@ -29,6 +30,8 @@ export type LeadRecu = {
   detail: string
   quand: string
   aTraiter: boolean
+  /** L'état d'un dossier déposé (nouveau, vu, contrats envoyés…). */
+  etat?: EtatDossier
   /** Le compte à qui le contact est attribué (agences), null sinon. */
   proprietaireId: string | null
   /** L'id du contact (agence ou artisan) : sert à retrouver sa campagne. */

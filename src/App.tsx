@@ -25,7 +25,6 @@ import MachineST from "./components/recrutement/MachineST"
 import SessionCallST from "./components/recrutement/SessionCallST"
 import BaseST from "./components/recrutement/BaseST"
 import SequencesST from "./components/recrutement/SequencesST"
-import DossiersST from "./components/recrutement/DossiersST"
 import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 // Les campagnes (07/11/2026) : le même outil pour les deux bases.
 import PageCampagnes from "./components/prospection/PageCampagnes"
@@ -73,8 +72,6 @@ function App() {
   const espaces = perimetre ?? []
   const [baseSession, setBaseSession] = useChoixBase("sessions", espaces, false)
   const [baseBoite, setBaseBoite] = useChoixBase("messages", espaces, true)
-  // Le dossier déposé ouvert depuis « Leads reçus ».
-  const [dossierOuvert, setDossierOuvert] = useState<string | null>(null)
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
   if (session === undefined)
@@ -135,18 +132,16 @@ function App() {
           {vue === "parametrage" && <Parametrage session={session} />}
 
           {vue === "campagnes" && <PageCampagnes base={deuxBases ? null : espaces[0] === "recrutement" ? "artisans" : "agences"} onSession={() => naviguer("sessions")} />}
-          {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages" : p)} />}
+          {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages" : p === "st_dossiers" ? "leads" : p)} />}
           {vue === "st_reglages" && <ReglagesMachineST />}
           {vue === "st_base" && <BaseST />}
           {vue === "st_sequences" && <SequencesST />}
-          {vue === "st_dossiers" && <DossiersST key={dossierOuvert ?? "liste"} dossierInitial={dossierOuvert} />}
           {vue === "leads" && (
             <LeadsRecus
               session={session}
               espaces={espaces}
               onAppelerAgence={(id) => { setBaseSession("demarchage"); ouvrirSession(id) }}
               onOuvrirAgence={(id) => ouvrirAgence(id)}
-              onOuvrirDossier={(id) => { setDossierOuvert(id); naviguer("st_dossiers") }}
               onSessionArtisans={() => { setBaseSession("recrutement"); naviguer("sessions") }}
             />
           )}
