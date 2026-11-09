@@ -46,6 +46,9 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   // L'heure de la dernière lecture : « aujourd'hui » et « en retard » s'y rapportent.
   const [maintenant, setMaintenant] = useState(() => new Date())
   const [taches, setTaches] = useState<TacheAgenda[] | null>(null)
+  // Les tâches et RDV non faits d'AVANT la période affichée (09/11/2026) : le Dashboard les comptait dans
+  // « À rappeler », l'agenda ne les montrait sur aucune semaine. Ils s'affichent en tête, en retard.
+  const [retards, setRetards] = useState<TacheAgenda[]>([])
   const [masquerFaits, setMasquerFaits] = useState(false)
   const [erreur, setErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
@@ -65,9 +68,13 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   const charger = useCallback(async () => {
     try {
       // Cloisonnement (09/11/2026) : un téléprospecteur ne voit que ses tâches et RDV ; un administrateur tout.
-      const lignes = (await chargerAgenda(bornes.de, bornes.a)).filter((t) => aMoi(t, moiId, admin))
+      const [lignes, anciens] = await Promise.all([
+        chargerAgenda(bornes.de, bornes.a).then((l) => l.filter((t) => aMoi(t, moiId, admin))),
+        chargerAgenda(new Date(2020, 0, 1), debutDuJour(new Date()), { seulementOuvertes: true }).then((l) => l.filter((t) => aMoi(t, moiId, admin) && t.echeance !== null && new Date(t.echeance) < bornes.de)),
+      ])
       if (!enVie.current) return
       setTaches(lignes)
+      setRetards(anciens)
       setMaintenant(new Date())
       setErreur("")
     } catch (e) {
@@ -164,6 +171,24 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
           <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-3 border border-alerte/30 bg-alerte-fond" /> En retard</span>
         </span>
       </div>
+
+      {retards.length ? (
+        <Carte className="mb-4 overflow-hidden">
+          <div className="flex items-baseline justify-between gap-3 border-b border-trait px-4 py-2.5">
+            <span className="text-legende font-semibold text-alerte">En retard · {retards.length}</span>
+            <span className="text-colonne text-encre-2">non faits, d'avant {vue === "semaine" ? "cette semaine" : "ce jour"} · le plus ancien d'abord{admin ? " · toute l'équipe" : ""}</span>
+          </div>
+          <div className="max-h-[260px] space-y-1 overflow-y-auto p-2">
+            {retards.map((t) => (
+              <div key={t.id} className="flex items-center gap-2">
+                <span className="chiffres w-[72px] shrink-0 text-colonne text-alerte">{t.echeance ? new Date(t.echeance).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "—"}</span>
+                <div className="min-w-0 flex-1">{vignette(t, true)}</div>
+                {admin ? <span className="w-[130px] shrink-0 truncate text-colonne text-encre-2">{t.compteNom || "—"}</span> : null}
+              </div>
+            ))}
+          </div>
+        </Carte>
+      ) : null}
 
       {taches === null ? (
         <Carte>{erreur ? null : <Chargement texte="Lecture de l'agenda…" />}</Carte>
