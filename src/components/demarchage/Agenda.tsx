@@ -13,8 +13,9 @@ import { chargerAgence, chargerAgences, chargerAgenda, creerRdv, creerTache, dep
 import { nomContact, type Agence, type Contact } from "../../demarchage/modele"
 import { ajouterJours, composerDate, dateLongue, debutDeSemaine, debutDuJour, decomposerDate, estEnRetard, finDeSemaine, finDuJour, grouperParHeure, heureCourte, joursDeLaSemaine, libelleRelatif, libelleSemaine, majusculeInitiale, memeJour } from "../../demarchage/aujourdhuiOutils"
 import { useSession } from "../../lib/auth"
-import { nomAffiche } from "../../lib/comptes"
+import { estAdmin, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Ligne, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
+import { aMoi } from "../../lib/perimetre"
 
 type Vue = "semaine" | "jour"
 type TypeRdv = "telephone" | "visio" | "sur_place"
@@ -53,6 +54,8 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   const [confirmerSuppression, setConfirmerSuppression] = useState(false)
   const [creation, setCreation] = useState<"tache" | "rdv" | null>(null)
   const enVie = useRef(true)
+  const moiId = session?.user?.id ?? ""
+  const admin = estAdmin(session)
 
   const bornes = useMemo(
     () => (vue === "semaine" ? { de: debutDeSemaine(ancre), a: finDeSemaine(ancre) } : { de: debutDuJour(ancre), a: finDuJour(ancre) }),
@@ -61,7 +64,8 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
 
   const charger = useCallback(async () => {
     try {
-      const lignes = await chargerAgenda(bornes.de, bornes.a)
+      // Cloisonnement (09/11/2026) : un téléprospecteur ne voit que ses tâches et RDV ; un administrateur tout.
+      const lignes = (await chargerAgenda(bornes.de, bornes.a)).filter((t) => aMoi(t, moiId, admin))
       if (!enVie.current) return
       setTaches(lignes)
       setMaintenant(new Date())
@@ -69,7 +73,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
     } catch (e) {
       if (enVie.current) setErreur(message(e))
     }
-  }, [bornes])
+  }, [bornes, moiId, admin])
 
   useEffect(() => {
     enVie.current = true

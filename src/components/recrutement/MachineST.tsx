@@ -48,7 +48,7 @@ type Donnees = {
   lu: number
 }
 
-export type PageVoisine = "st_base" | "st_sequences" | "st_suivi" | "st_boite" | "st_dossiers" | "reglages"
+export type PageVoisine = "st_base" | "st_sequences" | "sessions" | "st_boite" | "st_dossiers" | "reglages"
 
 export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVoisine) => void }) {
   const [d, setD] = useState<Donnees | null>(null)
@@ -238,7 +238,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
         <div className="grid content-start gap-4">
           {/* ── À traiter ── */}
           <Carte>
-            <TitreCarte droite={calc.aTraiter.interesses.length ? <Bouton taille="sm" onClick={() => onNaviguer?.("st_suivi")}>Tout voir</Bouton> : undefined}>À traiter</TitreCarte>
+            <TitreCarte droite={calc.aTraiter.interesses.length ? <Bouton taille="sm" onClick={() => onNaviguer?.("sessions")}>Tout voir</Bouton> : undefined}>À traiter</TitreCarte>
             <ul className="px-5 pb-3">
               {calc.aTraiter.reponses ? <li className="flex items-center gap-3 border-b border-fond-4 py-2.5 text-legende"><Pastille role="info">Réponses</Pastille><span className="min-w-0 flex-1"><b className="font-semibold text-encre">{calc.aTraiter.reponses} non lue{calc.aTraiter.reponses > 1 ? "s" : ""}</b><span className="block text-encre-2">des artisans ont répondu par e-mail</span></span><Bouton taille="sm" variante="discret" onClick={() => onNaviguer?.("st_boite")}>Lire</Bouton></li> : null}
               {calc.aTraiter.interesses.slice(0, 5).map((f) => (

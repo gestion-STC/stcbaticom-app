@@ -19,7 +19,7 @@ import { ISSUES } from "../../demarchage/modele"
 import { dateHeureCourte } from "../../demarchage/sessionOutils"
 import { Bandeau, BarreFiltres, Bouton, Carte, Chargement, EnTetePage, Onglets, Pastille, Selecteur, Tableau, Td, Th, TitreCarte, Tr, Vide } from "../../ui"
 import { useSession } from "../../lib/auth"
-import { nomAffiche } from "../../lib/comptes"
+import { estAdmin, nomAffiche } from "../../lib/comptes"
 import MonEntrainement from "./MonEntrainement"
 
 type Vue = "entrainement" | "arguments" | "objections" | "equipe" | "appels"
@@ -75,7 +75,9 @@ export default function AnalyseAppels() {
   }, [bornes])
 
   const commerciaux = useMemo(() => [...new Set((appels ?? []).map((a) => a.compteNom).filter(Boolean))].sort((x, y) => x.localeCompare(y, "fr")), [appels])
-  const filtres = useMemo(() => (appels ?? []).filter((a) => !commercial || a.compteNom === commercial), [appels, commercial])
+  // Cloisonnement (09/11/2026) : un téléprospecteur ne voit que SES appels ; un administrateur choisit.
+  const admin = estAdmin(session)
+  const filtres = useMemo(() => (appels ?? []).filter((a) => (admin ? !commercial || a.compteNom === commercial : a.compteNom === moi)), [appels, commercial, admin, moi])
   const bilan = useMemo(() => bilanGlobal(filtres), [filtres])
   const args = useMemo(() => statsArguments(filtres), [filtres])
   const objs = useMemo(() => statsObjections(filtres), [filtres])
@@ -104,10 +106,12 @@ export default function AnalyseAppels() {
         <Selecteur value={periode} onChange={(e) => setPeriode(e.target.value as Periode)} aria-label="Période">
           {PERIODES.map((p) => <option key={p.code} value={p.code}>{p.libelle}</option>)}
         </Selecteur>
-        <Selecteur value={commercial} onChange={(e) => setCommercial(e.target.value)} aria-label="Commercial">
-          <option value="">{vue === "entrainement" ? `Moi (${moi})` : "Tous les commerciaux"}</option>
-          {commerciaux.map((c) => <option key={c} value={c}>{c}</option>)}
-        </Selecteur>
+        {admin ? (
+          <Selecteur value={commercial} onChange={(e) => setCommercial(e.target.value)} aria-label="Commercial">
+            <option value="">{vue === "entrainement" ? `Moi (${moi})` : "Tous les commerciaux"}</option>
+            {commerciaux.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Selecteur>
+        ) : null}
       </BarreFiltres>
 
       {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}

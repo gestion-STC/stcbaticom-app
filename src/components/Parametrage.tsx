@@ -6,6 +6,7 @@ import EmailsManager from "./EmailsManager"
 import NumerosManager from "./NumerosManager"
 import Comptes from "./Comptes"
 import { estAdmin } from "../lib/comptes"
+import { usePerimetre } from "../lib/usePerimetre"
 
 // LES RÉGLAGES, RANGÉS PAR RUBRIQUE (Mahdi, 24/10/2026 : « c'est le bordel, on comprend rien »).
 // Avant : cinq onglets côte à côte (dont un « Objectifs et script » et un « Modèles d'e-mail »
@@ -17,31 +18,36 @@ import { estAdmin } from "../lib/comptes"
 // Aucun réglage n'a changé : seulement leur place.
 type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "comptes" | "numeros"
 
-type Rubrique = { titre: string; sections: { id: Section; label: string; admin?: boolean }[] }
+type Rubrique = { titre: string; sections: { id: Section; label: string; admin?: boolean; agences?: boolean }[] }
 const RUBRIQUES: Rubrique[] = [
   { titre: "Mon compte", sections: [{ id: "signatures", label: "Mes signatures" }] },
   {
     titre: "Démarchage",
     sections: [
-      { id: "regles", label: "Objectif et règles d'appel" },
-      { id: "script", label: "Script d'appel" },
-      { id: "secteurs", label: "Secteurs" },
-      { id: "modeles", label: "Modèles d'e-mail" },
+      { id: "regles", label: "Objectif et règles d'appel", agences: true },
+      { id: "script", label: "Script d'appel", agences: true },
+      { id: "secteurs", label: "Secteurs", agences: true },
+      { id: "modeles", label: "Modèles d'e-mail", agences: true },
     ],
   },
   {
     titre: "Équipe",
     sections: [
       { id: "comptes", label: "Comptes", admin: true },
-      { id: "numeros", label: "Numéros Ringover" },
+      { id: "numeros", label: "Numéros Ringover", admin: true },
     ],
   },
 ]
 
 export default function Parametrage({ session, sectionInitiale }: { session: Session | null; sectionInitiale?: Section }) {
   const admin = estAdmin(session)
-  const rubriques = RUBRIQUES.map((r) => ({ ...r, sections: r.sections.filter((s) => !s.admin || admin) })).filter((r) => r.sections.length)
-  const [section, setSection] = useState<Section>(sectionInitiale ?? "regles")
+  // Cloisonnement (09/11/2026) : les réglages du démarchage pour un compte qui a les agences ; les comptes
+  // et les numéros Ringover pour les administrateurs (un téléprospecteur ne réattribue pas les lignes).
+  const agences = (usePerimetre(session) ?? []).includes("demarchage")
+  const rubriques = RUBRIQUES.map((r) => ({ ...r, sections: r.sections.filter((s) => (!s.admin || admin) && (!s.agences || agences)) })).filter((r) => r.sections.length)
+  const permises = rubriques.flatMap((r) => r.sections.map((s) => s.id))
+  const [sectionVoulue, setSection] = useState<Section>(sectionInitiale ?? "regles")
+  const section: Section = permises.includes(sectionVoulue) ? sectionVoulue : (permises[0] ?? "signatures")
   const titre = RUBRIQUES.flatMap((r) => r.sections).find((s) => s.id === section)?.label ?? ""
 
   return (
