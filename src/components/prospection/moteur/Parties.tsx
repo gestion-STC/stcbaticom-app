@@ -1,5 +1,6 @@
 // ── LES PARTIES D'UNE CAMPAGNE (09/11/2026) : séquence, créatifs, qualification, garde-fous, et le chemin du contact ──
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
+import { listerComptes, type Compte } from "../../../lib/comptes"
 import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, MessageSquare, Newspaper, Phone, Play, Plus, Square, Trash2, UserRoundPlus, X, type LucideIcon } from "lucide-react"
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
@@ -119,8 +120,12 @@ export function Creatifs({ cfg, maj }: { cfg: ConfigCampagne; maj: MajConfig }) 
 }
 
 // ── Qualification ──
-export function Qualification({ cfg, maj }: { cfg: ConfigCampagne; maj: MajConfig }) {
+export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: MajConfig; baseId: string }) {
   const q = cfg.qualification
+  const [comptes, setComptes] = useState<Compte[]>([])
+  useEffect(() => { listerComptes().then(setComptes).catch(() => setComptes([])) }, [])
+  const choix = q.attributionIds ?? []
+  const choisir = (id: string) => majQ({ attributionIds: q.attribution === "Une personne précise" ? [id] : choix.includes(id) ? choix.filter((x) => x !== id) : [...choix, id] })
   const majQ = (p: Partial<typeof q>) => maj((x) => ({ ...x, qualification: { ...x.qualification, ...p } }))
   const majE = (id: string, p: Partial<EtapeParcours>) => majQ({ etapes: q.etapes.map((e) => (e.id === id ? { ...e, ...p } : e)) })
   const majN = (id: string, p: Partial<Qualite>) => majQ({ qualites: q.qualites.map((y) => (y.id === id ? { ...y, ...p } : y)) })
@@ -138,7 +143,7 @@ export function Qualification({ cfg, maj }: { cfg: ConfigCampagne; maj: MajConfi
   })
   return (
     <div className="space-y-8">
-      <Bandeau role="info">Le parcours décide de ce qui tombe dans Leads reçus, et de l'étape de chaque lead. L'attribution, elle, n'est pas encore active. Pour les agences, les règles d'intérêt se lisent dans la campagne « traçabilité ».</Bandeau>
+      <Bandeau role="info">Le parcours décide de ce qui tombe dans Leads reçus, et de l'étape de chaque lead. Une agence touchée par cette campagne suit les règles d'intérêt ci-dessous pendant 30 jours après le dernier envoi.</Bandeau>
       <Bloc titre="C'est un lead quand…" droite="un seul choix, modifiable à tout moment">
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <Libelle titre="L'événement" className="w-[320px]"><Selecteur value={q.leadA} onChange={(e) => (e.target.value === "_form" ? leadSurFormulaire() : majQ({ leadA: e.target.value }))}>{q.etapes.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}{!q.etapes.some((e) => TYPES_FORMULAIRE.includes(e.type)) ? <option value="_form">+ Il a rempli un formulaire</option> : null}</Selecteur></Libelle>
@@ -195,9 +200,11 @@ export function Qualification({ cfg, maj }: { cfg: ConfigCampagne; maj: MajConfi
           <Bouton taille="sm" icone={<Plus />} onClick={() => majQ({ qualites: [...q.qualites, { id: nid(), niveau: String.fromCharCode(65 + q.qualites.length), source: questions.length ? "question" : "toujours", questionId: "", operateur: "au moins", valeur: "", etapeId: "" }] })}>Ajouter un niveau</Bouton>
         </div></Bloc>
         <Bloc titre="À qui il arrive"><div className="mt-3 grid grid-cols-[minmax(0,1fr)_110px] gap-3">
-          <Libelle titre="Attribution"><Selecteur value={q.attribution} onChange={(e) => majQ({ attribution: e.target.value })}>{ATTRIBUTIONS.map((a) => <option key={a}>{a}</option>)}</Selecteur></Libelle>
+          {baseId === "agences" ? <Libelle titre="Attribution"><Selecteur value={q.attribution} onChange={(e) => majQ({ attribution: e.target.value, attributionIds: [] })}>{ATTRIBUTIONS.map((a) => <option key={a}>{a}</option>)}</Selecteur></Libelle> : <p className="self-center text-colonne text-encre-2">Les sous-traitants sont traités par l'équipe recrutement.</p>}
           <Libelle titre="À traiter sous (h)"><Champ type="number" min={0} value={q.delaiH} onChange={(e) => majQ({ delaiH: Number(e.target.value) || 0 })} /></Libelle>
-        </div></Bloc>
+        </div>
+        {baseId === "agences" && (q.attribution === "Une personne précise" || q.attribution === "Chacun son tour") ? <div className="mt-3 flex flex-wrap gap-1.5">{comptes.map((x) => <button key={x.id} type="button" aria-pressed={choix.includes(x.id)} onClick={() => choisir(x.id)} className={`h-7 rounded-full px-3 text-colonne ${choix.includes(x.id) ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>{x.nom || x.email}</button>)}</div> : null}
+        </Bloc>
       </div>
       <Bloc titre="Perdu"><div className="mt-3 space-y-3">
         <div className="flex flex-wrap items-center gap-1.5">{q.motifs.map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 pl-3 pr-1 text-colonne">{m}<button type="button" aria-label={`Retirer ${m}`} className="rounded-full p-1 hover:bg-fond-4" onClick={() => majQ({ motifs: q.motifs.filter((y) => y !== m) })}><X size={11} /></button></span>)}<span className="w-44"><Champ value={motif} placeholder="Ajouter un motif + Entrée" aria-label="Ajouter un motif" onChange={(e) => setMotif(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && motif.trim()) { majQ({ motifs: [...q.motifs, motif.trim()] }); setMotif("") } }} /></span></div>

@@ -27,6 +27,7 @@ import { destinataireDepuis } from "../../lib/destinataire"
 import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
+import CampagneSurFiche from "../prospection/moteur/CampagneSurFiche"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import { chargerNumerosDuCompte, estDansLaReserve } from "../../lib/numerosEmission"
 import { lireParametre } from "../../lib/parametresDb"
@@ -1244,6 +1245,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           ) : (
             <div className="grid gap-x-12 gap-y-8 @min-[1240px]:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
               <div className="min-w-0 space-y-4">
+              <CampagneSurFiche agenceId={fiche.agence.id} parNom={compteNom} />
               <FicheEnCours
                 fiche={fiche}
                 lead={mode === "leads" ? leadsParAgence.get(fiche.agence.id) : undefined}

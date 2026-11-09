@@ -36,8 +36,10 @@ Deno.serve(async (req: Request) => {
 
     if (b.action === "lire") {
       if (!test) {
-        const { count } = await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("type", "clic").eq("lien", "formulaire")
-        if (!count) await sb.from("cmp_evenements").insert({ campagne_id: c, contact_ref: k, type: "clic", le: new Date().toISOString(), lien: "formulaire" })
+        // Une page avec vidéo ouverte compte pour « A regardé la vidéo » (on ne sait pas mesurer jusqu'où).
+        const lien = creatif.video && creatif.videoUrl ? "video" : "formulaire"
+        const { count } = await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("type", "clic").eq("lien", lien)
+        if (!count) await sb.from("cmp_evenements").insert({ campagne_id: c, contact_ref: k, type: "clic", le: new Date().toISOString(), lien })
       }
       const { count: deja } = test ? { count: 0 } : await sb.from("cmp_reponses").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("creatif_id", f)
       return json({ type: creatif.type, titre: creatif.variantes?.[0]?.objet || creatif.nom, texte: creatif.variantes?.[0]?.corps ?? "", videoUrl: creatif.video ? creatif.videoUrl ?? "" : "", versId: creatif.versId ?? "", questions: (creatif.questions ?? []).map((q) => ({ id: q.id, libelle: q.libelle, type: q.type, requis: q.requis, options: q.options ?? "" })), dejaRepondu: (deja ?? 0) > 0 })

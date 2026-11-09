@@ -42,12 +42,14 @@ function App() {
   const [agencePourSession, setAgencePourSession] = useState<string | null>(null)
   // La fiche agence ouverte par-dessus n'importe quelle page (depuis le téléphone, l'agenda…).
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
+  // L'artisan à appeler tout de suite (depuis une tâche de campagne dans l'agenda).
+  const [artisanPourSession, setArtisanPourSession] = useState<string | null>(null)
   const [ficheSurEtape, setFicheSurEtape] = useState(false)
   // Agences, ouverte sur une étape précise (depuis « Où en est la base »).
   const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
   // Une écriture sur une fiche (étape, contact, note, mail…) : la session recharge sa file et ses compteurs (13/10).
   const [versionAgences, setVersionAgences] = useState(0)
-  const naviguer = (p: PageId) => setPage(p)
+  const naviguer = (p: PageId) => { setArtisanPourSession(null); setPage(p) }
   const ouvrirSession = (agenceId: string) => {
     // Deux fois la même agence de suite : on repasse par « rien » pour que la
     // session voie bien un changement et la rouvre.
@@ -118,7 +120,7 @@ function App() {
         <main className="min-h-0 flex-1 overflow-y-auto bg-fond">
           {vue === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
           {vue === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
-          {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
+          {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={(id) => { setBaseSession("demarchage"); ouvrirSession(id) }} espaces={espaces} onOuvrirArtisan={(id) => { setBaseSession("recrutement"); naviguer("sessions"); setArtisanPourSession(id) }} />}
           {vue === "analyse" && <AnalyseAppels />}
           {vue === "apporteurs" && <Apporteurs />}
           {vue === "messages" && (
@@ -148,7 +150,7 @@ function App() {
 
           {/* La session de call : une page, le choix de base dedans (07/11/2026). */}
           {vue === "sessions" && deuxBases ? <div className="px-8 pt-5"><ChoixBase valeur={baseSession} onChange={setBaseSession} espaces={espaces} avecTout={false} /></div> : null}
-          {vue === "sessions" && baseSession === "recrutement" && <SessionCallST />}
+          {vue === "sessions" && baseSession === "recrutement" && <SessionCallST key={artisanPourSession ?? ""} artisanInitial={artisanPourSession} />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant

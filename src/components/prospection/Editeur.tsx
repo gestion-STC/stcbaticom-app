@@ -13,6 +13,8 @@ import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } fr
 import { Titre } from "./morceaux"
 import { fr, useVue } from "./outils"
 
+import MesureCampagne from "./moteur/MesureCampagne"
+
 const Carte = lazy(() => import("./moteur/Carte"))
 type Partie = "audience" | "sequence" | "creatifs" | "qualification" | "garde" | "mesure"
 const JOURS = ["L", "M", "M", "J", "V", "S", "D"]
@@ -42,8 +44,6 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
   const basculerFiltre = (cle: string, val: string) => setC((x) => { const l = x.audience.filtres[cle] ?? []; return { ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, [cle]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } } } })
   const compter = c.baseId === "agences" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
   const enregistrer = (statut: Campagne["statut"]) => { const s = { ...compilee, nom: c.nom.trim() || "Campagne sans nom", statut, lanceeLe: statut === "active" ? c.lanceeLe ?? v.etat.maintenant : c.lanceeLe }; depot.enregistrerCampagne(s); fini(s.id) }
-  const iL = cfg.qualification.etapes.findIndex((e) => e.id === cfg.qualification.leadA), iG = cfg.qualification.etapes.findIndex((e) => e.id === cfg.qualification.gagneA)
-  const entonnoir = ["Contacts dans la campagne", "Touchés", "Ouvert", "Cliqué", ...(cfg.qualification.interet.length ? ["Intérêt (session de call)"] : []), ...cfg.qualification.etapes.slice(0, iG + 1).filter((e) => !(cfg.qualification.interet.length && e.type === "Intérêt détecté" && e.id !== cfg.qualification.leadA)).map((e) => e.nom)]
 
   return (
     <div className="space-y-5">
@@ -77,7 +77,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} />
               : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} />
-              : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} />
+              : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">
                   <Bandeau role="info">Le mode test et le coût des SMS s'appliquent déjà. Les autres réglages sont enregistrés : le moteur garde pour l'instant ses plafonds actuels (200 mails et 40 SMS par jour et par campagne).</Bandeau>
@@ -86,7 +86,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                     <Libelle titre="Mails par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondMail} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondMail: Number(e.target.value) || 0 } }))} /></Libelle>
                     <Libelle titre="SMS par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondSms} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondSms: Number(e.target.value) || 0 } }))} /></Libelle>
                   </div></Bloc>
-                  <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}<button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button></span>)}<span className="w-52"><Champ value={ex} placeholder="Ajouter + Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>
+                  <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}{m === "Désinscrit" ? null : <button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button>}</span>)}<span className="w-52"><Champ value={ex} placeholder="Ex. Endormie, puis Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>
                   {!tracabilite ? <Bloc titre="Mode test" droite={c.modeTest ? <span className="text-colonne text-attention">actif</span> : <span className="text-colonne text-encre-2">envois réels</span>}>
                     <label className="mt-3 flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(c.modeTest)} onChange={(e) => setC({ ...c, modeTest: e.target.checked })} />Tout envoyer à moi, pas aux contacts</label>
                     {c.modeTest ? <div className="mt-2 grid max-w-[520px] grid-cols-2 gap-2"><Champ value={c.testEmail ?? ""} aria-label="Adresse de test" onChange={(e) => setC({ ...c, testEmail: e.target.value })} placeholder="Adresse de test" /><Champ value={c.testMobile ?? ""} aria-label="Mobile de test" onChange={(e) => setC({ ...c, testMobile: e.target.value })} placeholder="Mobile de test (pour les SMS)" /></div> : null}
@@ -95,7 +95,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                 </div>
               ) : (
                 <div className="max-w-[720px] space-y-8">
-                  <Bloc titre="L'entonnoir de cette campagne" droite="il suit ton parcours"><ol className="mt-3 divide-y-[0.5px] divide-trait">{entonnoir.map((l, i) => <li key={i} className="flex items-center gap-2 py-2 text-legende">{l}{l === cfg.qualification.etapes[iL]?.nom ? <span className="rounded-full bg-signature px-2 text-[10px] font-medium leading-4 text-white">LEAD</span> : null}{l === cfg.qualification.etapes[iG]?.nom ? <span className="rounded-full bg-ok px-2 text-[10px] font-medium leading-4 text-white">GAGNÉ</span> : null}</li>)}</ol><p className="mt-3 text-colonne text-encre-2">Les chiffres d'envoi, d'ouverture et de clic sont dans le suivi de la campagne. Les chiffres par étape et les coûts arrivent avec le parcours.</p></Bloc>
+                  <MesureCampagne campagne={c} cfg={cfg} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.etat.evenements} />
                 </div>
               )}
           </div>
