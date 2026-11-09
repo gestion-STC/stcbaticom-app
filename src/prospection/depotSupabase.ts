@@ -11,7 +11,7 @@ import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscript
 export const BASES: Base[] = [
   {
     id: "agences", nom: "Agences immobilières", unite: "agences", equipeId: "dev",
-    champs: [{ cle: "secteur", libelle: "Secteur" }, { cle: "etape", libelle: "Étape" }, { cle: "enseigne", libelle: "Enseigne" }],
+    champs: [{ cle: "secteur", libelle: "Secteur" }, { cle: "etape", libelle: "Étape" }],
     issues: [{ code: "interesse", libelle: "Intéressé" }, { code: "rdv", libelle: "RDV" }, { code: "a_rappeler", libelle: "À rappeler le…" }, { code: "pas_interesse", libelle: "Pas intéressé" }],
     gagne: "Devenue cliente (1er ordre de service)", prospection: true, liens: [{ cle: "principal", libelle: "Créer un compte" }, { cle: "plaquette", libelle: "Plaquette" }, { cle: "site", libelle: "Site" }],
   },

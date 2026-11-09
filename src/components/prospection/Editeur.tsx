@@ -3,7 +3,7 @@
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useMemo, useState } from "react"
 import { Check } from "lucide-react"
-import { Bandeau, Bouton, Champ, Chargement, Onglets, Selecteur } from "../../ui"
+import { Bouton, Champ, Chargement, Onglets, Selecteur } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
@@ -80,15 +80,14 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
               : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">
-                  <Bandeau role="info">Le mode test et le coût des SMS s'appliquent déjà. Les autres réglages sont enregistrés : le moteur garde pour l'instant ses plafonds actuels (200 mails et 40 SMS par jour et par campagne).</Bandeau>
                   <Bloc titre="Ne pas fatiguer les contacts"><div className="mt-3 grid grid-cols-3 gap-4">
                     <Libelle titre="Écart entre deux campagnes (j)"><Champ type="number" min={0} value={cfg.garde.ecartCampagnes} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, ecartCampagnes: Number(e.target.value) || 0 } }))} /></Libelle>
                     <Libelle titre="Mails par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondMail} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondMail: Number(e.target.value) || 0 } }))} /></Libelle>
                     <Libelle titre="SMS par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondSms} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondSms: Number(e.target.value) || 0 } }))} /></Libelle>
                   </div></Bloc>
                   <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}{m === "Désinscrit" ? null : <button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button>}</span>)}<span className="w-52"><Champ value={ex} placeholder="Ex. Endormie, puis Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>
-                  {!tracabilite ? <Bloc titre="Mode test" droite={c.modeTest ? <span className="text-colonne text-attention">actif</span> : <span className="text-colonne text-encre-2">envois réels</span>}>
-                    <label className="mt-3 flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(c.modeTest)} onChange={(e) => setC({ ...c, modeTest: e.target.checked })} />Tout envoyer à moi, pas aux contacts</label>
+                  {!tracabilite ? <Bloc titre="Mode essai" droite={c.modeTest ? <span className="text-colonne text-attention">actif</span> : <span className="text-colonne text-encre-2">envois réels</span>}>
+                    <label className="mt-3 flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(c.modeTest)} onChange={(e) => setC({ ...c, modeTest: e.target.checked })} />Mode essai : les mails arrivent chez moi, pas chez les contacts</label>
                     {c.modeTest ? <div className="mt-2 grid max-w-[520px] grid-cols-2 gap-2"><Champ value={c.testEmail ?? ""} aria-label="Adresse de test" onChange={(e) => setC({ ...c, testEmail: e.target.value })} placeholder="Adresse de test" /><Champ value={c.testMobile ?? ""} aria-label="Mobile de test" onChange={(e) => setC({ ...c, testMobile: e.target.value })} placeholder="Mobile de test (pour les SMS)" /></div> : null}
                   </Bloc> : null}
                   <Bloc titre="Coûts"><label className="mt-3 flex items-center gap-2 text-legende">Un SMS coûte <Champ type="number" step="0.01" min={0} className="!w-20" value={c.coutSms} onChange={(e) => setC({ ...c, coutSms: Number(e.target.value) })} /> €</label></Bloc>
