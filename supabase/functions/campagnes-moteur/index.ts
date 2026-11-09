@@ -18,6 +18,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
+import { lienPublic } from "../_shared/campagnes/lien.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -87,11 +88,27 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
 }
 
 type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string }
-async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean): Promise<Resultat> {
+type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[] }
+/** Le bouton du mail vers sa page ou son formulaire : dans le HTML s'il y en a, sinon une ligne de texte. */
+function ajouterBouton(texte: string, url: string, libelle: string): string {
+  if (!/<\/body>/i.test(texte)) return `${texte}\n\n${libelle} : ${url}`
+  return texte.replace(/<\/body>/i, `<div style="text-align:center;padding:16px 0 28px"><a href="${url}" style="display:inline-block;padding:14px 32px;background:#0f172b;color:#fff;font-family:Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none">${libelle}</a></div></body>`)
+}
+
+async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
   remplacer("{{contact}}", k.personne); remplacer("{{entreprise}}", k.nom)
+  // Les formulaires et les pages de la campagne : un lien personnel et signé.
+  const creatifs = ((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? [])
+  const lienDe = (id: string) => lienPublic(clePassage, String(c.id), id, k.id, test)
+  const formulaire = creatifs.find((x) => x.type === "formulaire" && x.remplirPar !== "commercial"), page = creatifs.find((x) => x.type === "page")
+  if (formulaire && (texte + sujet).includes("{{lien_formulaire}}")) remplacer("{{lien_formulaire}}", await lienDe(formulaire.id))
+  if (page && (texte + sujet).includes("{{lien_page}}")) remplacer("{{lien_page}}", await lienDe(page.id))
+  const leCreatif = creatifs.find((x) => x.variantes?.some((v) => v.id === varianteId))
+  const cible = leCreatif?.versId ? creatifs.find((x) => x.id === leCreatif.versId) : undefined
+  if (cible && canal !== "sms") texte = ajouterBouton(texte, await lienDe(cible.id), leCreatif?.video ? "Voir la vidéo" : cible.type === "formulaire" ? "Remplir le formulaire" : "En savoir plus")
   let stop = ""
   if (k.baseId === "artisans") {
     const { data } = await sb.from("st_sous_traitants").select("token, metier").eq("id", k.id).maybeSingle()
@@ -130,6 +147,7 @@ Deno.serve(async (req: Request) => {
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const sb = createClient(base, service)
   const { data: p } = await sb.from("parametres").select("valeur").eq("cle", "analyse_passage_cle").maybeSingle()
+  const clePassage = String((p as { valeur?: string } | null)?.valeur ?? "")
   const attendue = String((p as { valeur?: unknown } | null)?.valeur ?? "").replace(/^"|"$/g, "")
   if (!(attendue.length >= 20 && req.headers.get("x-passage-cle") === attendue)) return json({ error: "non autorisé" }, 401)
   const maintenant = new Date()
@@ -194,7 +212,7 @@ Deno.serve(async (req: Request) => {
         const k = parContact.get(e.contactId)!
         const test = Boolean(ligne.mode_test)
         await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
-        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test)
+        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage)
         if (r.ok) {
           await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null }).eq("id", e.id)
           budget[canal]--; envoisPassage++; bilan.envois = Number(bilan.envois) + 1

@@ -10,8 +10,8 @@
 import type { Campagne, Condition, Etape, Signal, Variante } from "./modele"
 
 export type TypeCreatif = "mail" | "sms" | "linkedin" | "page" | "formulaire"
-export type Question = { id: string; libelle: string; type: string; requis: boolean; qualifiante: boolean; attendu: string }
-export type Creatif = { id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[] }
+export type Question = { id: string; libelle: string; type: string; requis: boolean; qualifiante: boolean; attendu: string; /** Pour un choix unique : les réponses, séparées par des virgules. */ options?: string }
+export type Creatif = { id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[] }
 export type TypeAction = Etape["type"]
 export type Action = { id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string }
 export type Regle = { id: string; evenement: string; fois: number; jours: number }
@@ -27,7 +27,7 @@ export const TYPES_ETAPE = ["Intérêt détecté", "Appel : joint et intéressé
 export const TYPES_FORMULAIRE = ["Formulaire rempli par le prospect", "Formulaire rempli au téléphone"]
 export const QUI = ["Automatique", "Le commercial", "Le prospect"]
 export const VALIDATIONS = ["Toute seule", "À la main"]
-export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix unique", "Oui / Non", "Date", "Pièce jointe"]
+export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix unique", "Oui / Non", "Date"]
 export const OPERATEURS = ["est", "au moins", "au plus", "contient"]
 export const ATTRIBUTIONS = ["Le commercial attribué au contact", "Le commercial du secteur", "L'équipe de la base", "Chacun son tour", "Une personne précise"]
 export const GARDE_DEFAUT: Garde = { ecartCampagnes: 14, exclusions: ["Déjà client", "Désinscrit", "Adresse en erreur"], plafondMail: 200, plafondSms: 40 }
@@ -49,13 +49,18 @@ export const questionVide = (): Question => ({ id: nid(), libelle: "", type: "Te
 export function qualificationDeDepart(baseId: string, origine = ""): Qualification {
   const commun = { qualites: [], attribution: ATTRIBUTIONS[baseId === "agences" ? 0 : 2], delaiH: 1, motifs: MOTIFS_DEFAUT, relanceMois: 6 }
   if (baseId === "artisans") {
-    const etapes = [etape("p-interet", "Intérêt détecté", "Intérêt détecté", "Automatique", "Toute seule", 0), etape("p-tel", "Intéressé au téléphone", "Appel : joint et intéressé"), etape("p-dossier", "Dossier déposé", "Dossier et pièces reçus", "Le prospect", "Toute seule", 7), etape("p-form", "Formulaire de qualification", "Formulaire rempli au téléphone"), etape("p-envoi", "Contrats envoyés", "Contrats envoyés"), etape("p-signe", "Contrats signés", "Contrats signés", "Le prospect", "Toute seule", 5), etape("p-test", "Test de l'application", "Test de l'application", "Le prospect", "Toute seule", 5), etape("p-compte", "Compte ouvert", "Compte ouvert", "Automatique", "Toute seule", 0)]
+    const etapes = [etape("p-interet", "Intérêt détecté", "Intérêt détecté", "Automatique", "Toute seule", 0), etape("p-tel", "Intéressé au téléphone", "Appel : joint et intéressé"), etape("p-dossier", "Dossier déposé", "Dossier et pièces reçus", "Le prospect", "Toute seule", 7), { ...etape("p-form", "Formulaire de qualification", "Formulaire rempli au téléphone"), formulaireId: "f-qualif" }, etape("p-envoi", "Contrats envoyés", "Contrats envoyés"), etape("p-signe", "Contrats signés", "Contrats signés", "Le prospect", "Toute seule", 5), etape("p-test", "Test de l'application", "Test de l'application", "Le prospect", "Toute seule", 5), etape("p-compte", "Compte ouvert", "Compte ouvert", "Automatique", "Toute seule", 0)]
     return { ...commun, interet: [regle("r-clic", "A cliqué le lien principal")], etapes, leadA: "p-dossier", gagneA: "p-compte" }
   }
   const etapes = [etape("p-interet", "Intérêt détecté", "Intérêt détecté", "Automatique", "Toute seule", 0), etape("p-tel", "Joint et intéressé", "Appel : joint et intéressé"), etape("p-compte", "Compte ouvert", "Compte ouvert", "Le prospect", "Toute seule", 14), etape("p-os", "1er ordre de service", "1er ordre de service", "Le prospect", "Toute seule", 30)]
   // La traçabilité des gestionnaires : les critères tels qu'ils tournent aujourd'hui.
   if (origine === ORIGINE_TRACABILITE) return { ...commun, interet: [regle("r-plaq", "A ouvert la plaquette", 2, 7), regle("r-page", "A ouvert la page « Créer un compte »"), regle("r-mail", "A répondu au mail")], etapes, leadA: "p-interet", gagneA: "p-os" }
   return { ...commun, interet: [regle("r-clic", "A cliqué un lien")], etapes, leadA: "p-tel", gagneA: "p-os" }
+}
+
+const question = (id: string, libelle: string, type: string, qualifiante = false, attendu = ""): Question => ({ id, libelle, type, requis: true, qualifiante, attendu })
+function formulaireQualification(): Creatif {
+  return { id: "f-qualif", type: "formulaire", nom: "Qualification au téléphone", variantes: [], video: false, versId: "", remplirPar: "commercial", questions: [question("q-effectif", "Effectif de l'entreprise", "Nombre"), question("q-zones", "Zones d'intervention", "Texte court"), question("q-assurance", "Assurance décennale à jour", "Oui / Non", true, "Oui"), question("q-dispo", "Disponibilité sous 15 jours", "Oui / Non")] }
 }
 
 const TEXTE_SIGNAL: Record<Signal, Omit<Regle, "id">> = {
@@ -83,6 +88,8 @@ export function configDe(c: Campagne): ConfigCampagne {
   })
   const depart = qualificationDeDepart(c.baseId, c.origine)
   const interet = c.origine === ORIGINE_TRACABILITE ? depart.interet : c.signaux.map((s) => ({ id: "r-" + s, ...TEXTE_SIGNAL[s] }))
+  // Sous-traitants : le formulaire de qualification au téléphone existe d'emblée, modifiable comme le reste.
+  if (c.baseId === "artisans") creatifs.push(formulaireQualification())
   return { v: 1, creatifs, actions, zones: [], qualification: { ...depart, interet }, garde: GARDE_DEFAUT }
 }
 

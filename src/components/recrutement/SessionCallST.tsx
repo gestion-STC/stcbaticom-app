@@ -29,6 +29,8 @@ import { lancerAppelRingover } from "../../lib/ringover"
 import { formaterTelephone } from "../../lib/telephone"
 import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { Section } from "../demarchage/session/morceaux"
+import FormulaireAppel from "../prospection/moteur/FormulaireAppel"
+import { formulaireAppelDe } from "../../lib/leadsRecusDb"
 import FicheArtisan from "./FicheArtisan"
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -150,6 +152,10 @@ export default function SessionCallST() {
     return () => clearInterval(t)
   }, [appelDepuis])
 
+  // Le formulaire de qualification de la campagne de cet artisan, à remplir pendant l'appel.
+  const [appelForm, setAppelForm] = useState<(NonNullable<Awaited<ReturnType<typeof formulaireAppelDe>>> & { contact: string }) | null>(null)
+  const relireForm = useCallback((id: string) => formulaireAppelDe(id).then((r) => setAppelForm(r ? { ...r, contact: id } : null)).catch(() => setAppelForm(null)), [])
+  useEffect(() => { if (courantId) void relireForm(courantId) }, [courantId, relireForm])
   const evenements = useMemo(() => (courant ? chronologie(courant.st, courant.envois, courant.clics, [], courant.etapes) : []), [courant])
 
   const suivant = () => {
@@ -350,6 +356,8 @@ export default function SessionCallST() {
                       </div>
                     ) : null}
                   </Section>
+
+                  {appelForm && appelForm.contact === st.id ? <Section titre={appelForm.formulaire.nom}><FormulaireAppel key={st.id} campagneId={appelForm.campagneId} contactRef={st.id!} formulaire={appelForm.formulaire} reponses={appelForm.reponses} parNom={compteNom} onEnregistre={() => void relireForm(st.id!)} /></Section> : null}
 
                   <Section titre="Note de l'appel">
                     <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />

@@ -10,7 +10,7 @@ import type { Espace } from "./messagesDb"
 import { AUCUN_FAIT, niveauDe, positionDans, type Faits } from "./parcoursLead"
 import { campagneParContact, niveauAgence, type LeadRecu, type Niveau } from "./leadsRecus"
 import { versCampagne } from "../prospection/depotSupabase"
-import { ORIGINE_TRACABILITE, configDe, type Qualification } from "../prospection/configCampagne"
+import { ORIGINE_TRACABILITE, configDe, type Creatif, type Qualification } from "../prospection/configCampagne"
 import type { Campagne } from "../prospection/modele"
 
 function sb() {
@@ -50,6 +50,26 @@ function faitsArtisan(s: LigneArtisan | undefined, dossier: { traiteLe?: string 
 }
 
 /** Valide ou retire à la main une étape du parcours d'un contact. */
+/** Enregistre un formulaire rempli au téléphone (la dernière version compte). */
+export async function enregistrerReponses(campagneId: string, creatifId: string, contactRef: string, reponses: Record<string, string>, parNom: string): Promise<void> {
+  const { error } = await sb().from("cmp_reponses").insert({ campagne_id: campagneId, creatif_id: creatifId, contact_ref: contactRef, reponses, rempli_par: parNom || "commercial" })
+  if (error) throw new Error(error.message)
+}
+
+/** Le formulaire à remplir au téléphone pour un artisan : celui du parcours de sa campagne. */
+export async function formulaireAppelDe(contactRef: string): Promise<{ campagneId: string; formulaire: Creatif; reponses: Record<string, string> | null } | null> {
+  const [{ data: camps }, { data: insc }] = await Promise.all([sb().from("cmp_campagnes").select("*").eq("base_id", "artisans"), sb().from("cmp_inscriptions").select("campagne_id, entree_le").eq("contact_ref", contactRef).order("entree_le", { ascending: false }).limit(1)])
+  const campagnes = ((camps ?? []) as Record<string, unknown>[]).map(versCampagne)
+  const c = campagnes.find((x) => x.id === (insc?.[0] as { campagne_id?: string } | undefined)?.campagne_id) ?? campagnes.find((x) => x.origine === "st")
+  if (!c) return null
+  const cfg = configDe(c)
+  const e = cfg.qualification.etapes.find((x) => x.type === "Formulaire rempli au téléphone" && x.formulaireId)
+  const formulaire = cfg.creatifs.find((k) => k.id === e?.formulaireId)
+  if (!formulaire) return null
+  const { data } = await sb().from("cmp_reponses").select("reponses").eq("campagne_id", c.id).eq("contact_ref", contactRef).eq("creatif_id", formulaire.id).order("cree_le", { ascending: false }).limit(1)
+  return { campagneId: c.id, formulaire, reponses: ((data?.[0] as { reponses?: Record<string, string> } | undefined)?.reponses) ?? null }
+}
+
 export async function validerEtape(campagneId: string, contactRef: string, etapeId: string, valide: boolean, parNom: string): Promise<void> {
   const q = sb().from("cmp_progression")
   const { error } = valide ? await q.upsert({ campagne_id: campagneId, contact_ref: contactRef, etape_id: etapeId, valide_par: parNom }) : await q.delete().eq("campagne_id", campagneId).eq("contact_ref", contactRef).eq("etape_id", etapeId)
@@ -60,7 +80,7 @@ type Brut = { id: string; espace: Espace; contactRef: string; niveau: Niveau; no
 
 export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
-  const [lignesLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression] = await Promise.all([
+  const [lignesLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression, lignesReponses] = await Promise.all([
     lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, tentatives").or(`statut.eq.a_traiter,cree_le.gte.${depuis}`).order("id").range(d, f) as unknown as Lot<LigneLead>),
     lireParLots<LigneAgence>((d, f) => sb().from("agences").select(COLS_AGENCE).in("etape", ETAPES_INTERESSEES).gte("derniere_activite_le", depuis).order("id").range(d, f) as unknown as Lot<LigneAgence>),
     chargerDossiers(),
@@ -68,10 +88,12 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     sb().from("cmp_campagnes").select("*").then(({ data, error }) => { if (error) throw new Error(error.message); return (data ?? []) as Record<string, unknown>[] }),
     // La table arrive avec le SQL de cette étape : absente, personne n'a encore rien validé à la main.
     sb().from("cmp_progression").select("campagne_id, contact_ref, etape_id").then(({ data }) => (data ?? []) as { campagne_id: string; contact_ref: string; etape_id: string }[]),
+    // Du plus ancien au plus récent : la dernière réponse à un formulaire remplace les précédentes.
+    sb().from("cmp_reponses").select("campagne_id, creatif_id, contact_ref, reponses").order("cree_le").limit(1000).then(({ data }) => (data ?? []) as { campagne_id: string; creatif_id: string; contact_ref: string; reponses: Record<string, string> }[]),
   ])
 
   const campagnes = lignesCampagnes.map(versCampagne)
-  const parId = new Map<string, { c: Campagne; q: Qualification }>(campagnes.map((c) => [c.id, { c, q: configDe(c).qualification }]))
+  const parId = new Map<string, { c: Campagne; q: Qualification; formulaires: Creatif[] }>(campagnes.map((c) => { const cfg = configDe(c); return [c.id, { c, q: cfg.qualification, formulaires: cfg.creatifs.filter((k) => k.type === "formulaire") }] }))
   // Sans campagne, un contact relève de la campagne qui tourne pour sa base.
   const parDefaut: Record<Espace, Campagne | undefined> = { demarchage: campagnes.find((c) => c.origine === ORIGINE_TRACABILITE), recrutement: campagnes.find((c) => c.origine === "st") }
 
@@ -108,12 +130,17 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     const camp = (inscrite && parId.get(inscrite.id)) || (parDefaut[b.espace] ? parId.get(parDefaut[b.espace]!.id) : undefined)
     if (!camp) return null
     const valides = new Set(progression.filter((p) => p.campagne_id === camp.c.id && p.contact_ref === b.contactRef).map((p) => p.etape_id))
-    const pos = positionDans(camp.q, b.faits, valides, b.contacte)
+    // Les formulaires remplis pour ce contact dans cette campagne : ce sont des faits, et ils donnent la qualité.
+    const reponses: Record<string, Record<string, string>> = {}
+    for (const r of lignesReponses) if (r.campagne_id === camp.c.id && r.contact_ref === b.contactRef) reponses[r.creatif_id] = r.reponses
+    const remplis = camp.formulaires.filter((k) => reponses[k.id])
+    const faits: Faits = { ...b.faits, formulaireProspect: b.faits.formulaireProspect || remplis.some((k) => k.remplirPar === "prospect"), formulaireTel: b.faits.formulaireTel || remplis.some((k) => k.remplirPar === "commercial") }
+    const pos = positionDans(camp.q, faits, valides, b.contacte)
     if (!pos.estLead) return null
     return {
-      id: b.id, espace: b.espace, niveau: b.niveau, nom: b.nom, signal: b.signal, detail: b.detail, quand: b.quand, etape: pos.etape, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
-      campagne: { id: camp.c.id, nom: camp.c.nom }, cible: b.cible, qualite: niveauDe(camp.q, pos.atteintes),
-      parcours: { etapes: camp.q.etapes, leadA: camp.q.leadA, gagneA: camp.q.gagneA, atteintes: pos.atteintes, valides: [...valides], courante: pos.courante },
+      id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: pos.etape, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
+      campagne: { id: camp.c.id, nom: camp.c.nom }, cible: b.cible, qualite: niveauDe(camp.q, pos.atteintes, Object.assign({}, ...Object.values(reponses))),
+      parcours: { etapes: camp.q.etapes, leadA: camp.q.leadA, gagneA: camp.q.gagneA, atteintes: pos.atteintes, valides: [...valides], courante: pos.courante, formulaires: camp.formulaires, reponses },
     }
   }
 
