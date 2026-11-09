@@ -137,7 +137,7 @@ export function Qualification({ cfg, maj }: { cfg: ConfigCampagne; maj: MajConfi
   })
   return (
     <div className="space-y-8">
-      <Bandeau role="info">Enregistré dans la campagne. Le parcours, la qualité et l'attribution piloteront les leads à l'étape suivante du chantier : pour l'instant, les leads suivent les règles actuelles.</Bandeau>
+      <Bandeau role="info">Le parcours décide de ce qui tombe dans Leads reçus, et de l'étape de chaque lead. L'attribution, elle, n'est pas encore active. Pour les agences, les règles d'intérêt se lisent dans la campagne « traçabilité ».</Bandeau>
       <Bloc titre="C'est un lead quand…" droite="un seul choix, modifiable à tout moment">
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <Libelle titre="L'événement" className="w-[320px]"><Selecteur value={q.leadA} onChange={(e) => (e.target.value === "_form" ? leadSurFormulaire() : majQ({ leadA: e.target.value }))}>{q.etapes.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}{!q.etapes.some((e) => TYPES_FORMULAIRE.includes(e.type)) ? <option value="_form">+ Il a rempli un formulaire</option> : null}</Selecteur></Libelle>

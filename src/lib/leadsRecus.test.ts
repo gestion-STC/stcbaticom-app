@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { statutDossier } from "./dossierStatut"
-import { campagneParContact, etapeAgence, etapeDossier, leadsVisibles, niveauAgence, sourceDe, sourcesDe, trierLeads, type LeadRecu } from "./leadsRecus"
+import { campagneParContact, leadsVisibles, niveauAgence, sourceDe, sourcesDe, trierLeads, type LeadRecu } from "./leadsRecus"
 
 const lead = (o: Partial<LeadRecu>): LeadRecu => ({
   id: "x", espace: "demarchage", niveau: "interet", nom: "", signal: "", detail: "", quand: "2026-11-09T10:00:00Z", etape: "nouveaux",
@@ -22,26 +22,6 @@ describe("leads reçus (09/11/2026)", () => {
       lead({ id: "f", niveau: "fiche", quand: "2026-10-01T00:00:00Z" }),
     ])
     expect(l.map((x) => x.id)).toEqual(["f", "r", "i-recent", "i-ancien"])
-  })
-  it("l'étape d'un lead d'agence", () => {
-    const n = { statut: "a_traiter", resultat: null, tentatives: 0 }
-    expect(etapeAgence(n, {})).toBe("nouveaux")
-    expect(etapeAgence({ ...n, tentatives: 2 }, {})).toBe("contactes")
-    expect(etapeAgence({ statut: "traite", resultat: "interesse", tentatives: 1 }, {})).toBe("qualifies")
-    expect(etapeAgence({ statut: "traite", resultat: "rdv", tentatives: 1 }, {})).toBe("qualifies")
-    expect(etapeAgence({ statut: "traite", resultat: "a_rappeler", tentatives: 1 }, {})).toBe("contactes")
-    expect(etapeAgence({ statut: "traite", resultat: "pas_interesse", tentatives: 1 }, {})).toBe("perdus")
-    expect(etapeAgence({ statut: "retombe", resultat: "injoignable", tentatives: 3 }, {})).toBe("perdus")
-    expect(etapeAgence(n, { etape: "client" })).toBe("gagnes")
-    expect(etapeAgence({ statut: "traite", resultat: "interesse", tentatives: 1 }, { premierOs: "2026-11-01" })).toBe("gagnes")
-  })
-  it("l'étape d'un dossier suit son état", () => {
-    expect(etapeDossier({ role: "info", texte: "nouveau" })).toBe("nouveaux")
-    expect(etapeDossier({ role: "actif", texte: "vu" })).toBe("contactes")
-    expect(etapeDossier({ role: "fait", texte: "traité" })).toBe("qualifies")
-    expect(etapeDossier({ role: "actif", texte: "contrats envoyés" })).toBe("qualifies")
-    expect(etapeDossier({ role: "fait", texte: "contrats signés" })).toBe("gagnes")
-    expect(etapeDossier({ role: "fait", texte: "partenaire" })).toBe("gagnes")
   })
   it("la colonne de gauche : les campagnes d'abord, puis hors campagne, avec les nouveaux", () => {
     const k = { id: "k1", nom: "K1" }
