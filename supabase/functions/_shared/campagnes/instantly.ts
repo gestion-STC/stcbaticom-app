@@ -72,7 +72,7 @@ async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, 
   const cree = await appelInstantly(ins.cle, "/campaigns", { corps: {
     name: `Baticom · ${c.nom} · ${cleVariante.slice(0, 8)}`, campaign_schedule: horaireInstantly(c.rythme),
     sequences: [{ steps: [{ type: "email", delay: 0, variants: [{ subject: "{{bt_objet}}", body: "{{bt_corps}}" }] }] }],
-    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: true, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
+    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: false, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
   } })
   const id = String(cree.data?.id ?? "")
   if (!cree.ok || !id) return { erreur: `création de campagne refusée (${cree.status}) ${String(cree.data?.message ?? "").slice(0, 120)}` }
