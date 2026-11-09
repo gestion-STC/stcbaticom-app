@@ -5,7 +5,7 @@ export const SIGNATURE_PROSPECTION = "L'équipe STC Bâtiment\nSTC Bâtiment · 
 
 /** Les boîtes d'une base : chacune garde les siennes ; si aucune ne porte le bon nom, toutes servent. */
 export function boitesDe(baseId: string, emails: string[]): string[] {
-  const noms = baseId === "artisans" ? ["artisans"] : ["partenaires", "interventions"]
+  const noms = baseId === "artisans" ? ["artisans"] : ["partenaire", "partenaires", "interventions"]
   const miennes = emails.filter((e) => noms.includes(e.split("@")[0].toLowerCase()))
   return miennes.length ? miennes : emails
 }

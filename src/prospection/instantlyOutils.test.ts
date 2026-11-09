@@ -14,6 +14,9 @@ describe("instantlyOutils", () => {
     expect(boitesDe("agences", boites)).toEqual(["partenaires@x.com", "interventions@x.com"])
     expect(boitesDe("artisans", boites)).toEqual(["artisans@x.com"])
   })
+  it("reconnaît partenaire au singulier", () => {
+    expect(boitesDe("agences", ["partenaire@x.org", "artisans@x.org"])).toEqual(["partenaire@x.org"])
+  })
   it("prend toutes les boîtes si aucune ne porte le bon nom", () => {
     expect(boitesDe("agences", ["autre@x.com"])).toEqual(["autre@x.com"])
   })
