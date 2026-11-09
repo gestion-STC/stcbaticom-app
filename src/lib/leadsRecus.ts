@@ -13,6 +13,8 @@
 // Fichier PUR : leadsRecus.test.ts le lit ; la lecture en base est dans leadsRecusDb.ts.
 // ════════════════════════════════════════════════════════════════════════════
 import type { EtatDossier } from "./dossierStatut"
+import type { EtapeParcours } from "../prospection/configCampagne"
+import type { EtapeLead } from "./parcoursLead"
 import type { Espace } from "./messagesDb"
 
 export type Niveau = "fiche" | "reponse" | "interet"
@@ -20,6 +22,8 @@ export const LIBELLE_NIVEAU: Record<Niveau, string> = { fiche: "Fiche remplie", 
 const RANG: Record<Niveau, number> = { fiche: 0, reponse: 1, interet: 2 }
 
 /** Ce vers quoi le lead mène : l'agence (appel), le dossier déposé, l'artisan (appel). */
+export type { EtapeLead }
+export type ParcoursDuLead = { etapes: EtapeParcours[]; leadA: string; gagneA: string; atteintes: string[]; valides: string[]; courante: string | null }
 export type Cible = { type: "agence"; id: string } | { type: "dossier"; id: string } | { type: "artisan"; id: string }
 
 export type LeadRecu = {
@@ -39,6 +43,10 @@ export type LeadRecu = {
   /** L'id du contact (agence ou artisan) : sert à retrouver sa campagne. */
   contactRef: string
   campagne: { id: string; nom: string } | null
+  /** Le niveau de qualité (A, B…) selon les règles de la campagne. */
+  qualite?: string
+  /** Le parcours de sa campagne, et où il en est. */
+  parcours?: ParcoursDuLead
   cible: Cible
 }
 
@@ -55,7 +63,6 @@ export function trierLeads(l: LeadRecu[]): LeadRecu[] {
 }
 
 // ── L'étape d'un lead ──
-export type EtapeLead = "nouveaux" | "contactes" | "qualifies" | "gagnes" | "perdus"
 export const ETAPES_LEAD: { id: EtapeLead; label: string; aide: string }[] = [
   { id: "nouveaux", label: "Nouveaux", aide: "Personne ne s'en est encore occupé" },
   { id: "contactes", label: "Contactés", aide: "Appelé sans réponse, ou dossier ouvert" },
@@ -63,22 +70,6 @@ export const ETAPES_LEAD: { id: EtapeLead; label: string; aide: string }[] = [
   { id: "gagnes", label: "Gagnés", aide: "Client, ou artisan partenaire" },
   { id: "perdus", label: "Perdus", aide: "Pas intéressé, hors cible, injoignable" },
 ]
-
-/** L'étape d'un lead d'agence, d'après le lead et ce que l'agence est devenue. */
-export function etapeAgence(l: { statut: string; resultat: string | null; tentatives: number }, agence: { etape?: string | null; premierOs?: string | null }): EtapeLead {
-  if (agence.etape === "client" || agence.premierOs) return "gagnes"
-  if (l.statut === "a_traiter") return l.tentatives > 0 ? "contactes" : "nouveaux"
-  if (l.statut === "retombe" || ["pas_interesse", "injoignable", "apporteur"].includes(l.resultat ?? "")) return "perdus"
-  if (l.resultat === "interesse" || l.resultat === "rdv") return "qualifies"
-  return "contactes"
-}
-
-/** L'étape d'un dossier d'artisan, d'après son état. */
-export function etapeDossier(e: EtatDossier): EtapeLead {
-  if (e.texte === "partenaire" || e.texte === "contrats signés") return "gagnes"
-  if (e.texte === "traité" || e.texte === "contrats envoyés") return "qualifies"
-  return e.texte === "vu" ? "contactes" : "nouveaux"
-}
 
 /** D'où il vient : l'id de sa campagne, ou la ligne « hors campagne » de sa base. */
 export const sourceDe = (l: Pick<LeadRecu, "campagne" | "espace">): string => l.campagne?.id ?? "hors:" + l.espace

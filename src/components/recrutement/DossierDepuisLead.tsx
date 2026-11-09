@@ -1,6 +1,6 @@
 // Un dossier déposé, ouvert depuis « Leads reçus » : le panneau du dossier (état, pièces, réponses, rattachement,
 // contrats) et, par-dessus, la fiche de l'artisan. Le dossier passe « vu » à l'ouverture.
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { chargerDossiers, marquerDossier } from "../../lib/machineDb"
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
@@ -10,7 +10,7 @@ import PanneauDossier from "./PanneauDossier"
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-export default function DossierDepuisLead({ id, onFermer, onChange }: { id: string; onFermer: () => void; onChange: () => void }) {
+export default function DossierDepuisLead({ id, onFermer, onChange, avant }: { id: string; onFermer: () => void; onChange: () => void; avant?: ReactNode }) {
   const [dossiers, setDossiers] = useState<DossierST[] | null>(null)
   const [fiches, setFiches] = useState<SousTraitant[]>([])
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
@@ -55,6 +55,7 @@ export default function DossierDepuisLead({ id, onFermer, onChange }: { id: stri
           onMaj={majLocal}
           onRecharger={async () => { await charger(); onChange() }}
           onOuvrirFiche={setFicheOuverte}
+          avant={avant}
         />
       ) : <FicheArtisan id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={() => { void charger(); onChange() }} />}
     </>

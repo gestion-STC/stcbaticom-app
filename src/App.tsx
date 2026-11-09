@@ -142,6 +142,7 @@ function App() {
               espaces={espaces}
               onAppelerAgence={(id) => { setBaseSession("demarchage"); ouvrirSession(id) }}
               onOuvrirAgence={(id) => ouvrirAgence(id)}
+              onSessionArtisans={() => { setBaseSession("recrutement"); naviguer("sessions") }}
             />
           )}
 

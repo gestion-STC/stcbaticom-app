@@ -1,6 +1,6 @@
 // La fiche d'un dossier déposé, en panneau. Sortie de l'ancienne page « Dossiers déposés » le 09/11/2026 :
 // elle s'ouvre désormais depuis « Leads reçus », avec son état, ses pièces, ses réponses et les contrats.
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { ExternalLink, FileSignature, KeyRound, Link2, Paperclip, Unlink, UserPlus } from "lucide-react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
@@ -69,7 +69,7 @@ function chercherFiches(fiches: SousTraitant[], recherche: string, dossier: Doss
 // les pièces, les réponses du formulaire section par section ; en pied,
 // « Marquer traité » ou « Rouvrir ».
 // ════════════════════════════════════════════════════════════════════════════
-export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, onOuvrirFiche }: {
+export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj, onRecharger, onOuvrirFiche, avant }: {
   dossier: DossierST
   fiche: SousTraitant | undefined
   fiches: SousTraitant[]
@@ -77,6 +77,7 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
   onMaj: (id: string, champs: Partial<DossierST>) => void
   onRecharger: () => Promise<void>
   onOuvrirFiche: (id: string) => void
+  avant?: ReactNode
 }) {
   const [recherche, setRecherche] = useState("")
   const [occupe, setOccupe] = useState(false)
@@ -146,6 +147,7 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
           : <Bouton variante="plein" chargement={occupe} onClick={() => traiter(true)}>Marquer traité</Bouton>}
       </>}
     >
+      {avant}
       {erreur ? <Bandeau role="alerte" className="mb-3">{erreur}</Bandeau> : null}
       {info ? <Bandeau role="ok" className="mb-3">{info}</Bandeau> : null}
       {fiche ? (
