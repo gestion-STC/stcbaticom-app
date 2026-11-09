@@ -86,6 +86,13 @@ export async function enregistrerAppelST(p: ParamsAppelST): Promise<BilanAppelST
 }
 
 // Les appels d'une période, par compte (pour le classement, plus tard).
+/** Le nombre d'artisans qui ont déposé leur dossier depuis la date donnée (Dashboard, chapitre Recrutement, 09/11/2026). */
+export async function compterDeposesDepuis(de: Date): Promise<number> {
+  const { count, error } = await sb().from("st_sous_traitants").select("id", { count: "exact", head: true }).gte("depose_le", de.toISOString())
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
 export async function compterAppelsST(de: Date, a: Date): Promise<{ compteNom: string; appels: number; joints: number }[]> {
   const lignes = await lireParLots<{ id: string; compte_nom: string; resultat: string }>((d, f) =>
     sb().from("st_appels").select("id, compte_nom, resultat").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f))

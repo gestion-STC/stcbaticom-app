@@ -38,6 +38,7 @@ import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement, Dialogue, Etiquett
 import ClientsAConfirmer from "./ClientsAConfirmer"
 import { Bandeau, Bloc, Chapitre, Courbe, Etiquette, Table, Variation } from "./aujourdhui/courtier"
 import { fr, pct, pctTxt } from "./aujourdhui/outils"
+import RecrutementTableau from "./RecrutementTableau"
 
 const RAFRAICHIR_MS = 60_000
 const CLE_OBJECTIF = "objectif_os_mensuel"
@@ -490,6 +491,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
             ) : <p className="py-6 text-legende text-encre-2">{extra ? "Pas encore assez d'appels analysés." : "Lecture…"}</p>}
           </Bloc>
         </Chapitre>
+
+        {/* ═══ LE RECRUTEMENT DES ARTISANS (administrateurs seulement, 09/11/2026) ═══ */}
+        {admin ? <RecrutementTableau /> : null}
       </div>
 
       {/* ── Reporter une tâche ── */}
