@@ -9,6 +9,7 @@ import type { SousTraitant } from "../recrutement"
 import type { Espace } from "./messagesDb"
 import { AUCUN_FAIT, niveauDe, positionDans, type Faits } from "./parcoursLead"
 import { campagneParContact, niveauAgence, type LeadRecu, type Niveau } from "./leadsRecus"
+import type { PositionCampagne } from "../prospection/mesureCampagne"
 import { versCampagne } from "../prospection/depotSupabase"
 import { ORIGINE_TRACABILITE, configDe, type Creatif, type Qualification } from "../prospection/configCampagne"
 import type { Campagne } from "../prospection/modele"
@@ -56,11 +57,11 @@ export async function enregistrerReponses(campagneId: string, creatifId: string,
   if (error) throw new Error(error.message)
 }
 
-/** Le formulaire à remplir au téléphone pour un artisan : celui du parcours de sa campagne. */
-export async function formulaireAppelDe(contactRef: string): Promise<{ campagneId: string; formulaire: Creatif; reponses: Record<string, string> | null } | null> {
-  const [{ data: camps }, { data: insc }] = await Promise.all([sb().from("cmp_campagnes").select("*").eq("base_id", "artisans"), sb().from("cmp_inscriptions").select("campagne_id, entree_le").eq("contact_ref", contactRef).order("entree_le", { ascending: false }).limit(1)])
+/** Le formulaire à remplir au téléphone pour un contact : celui du parcours de sa campagne. */
+export async function formulaireAppelDe(contactRef: string, baseId: "artisans" | "agences" = "artisans"): Promise<{ campagneId: string; formulaire: Creatif; reponses: Record<string, string> | null } | null> {
+  const [{ data: camps }, { data: insc }] = await Promise.all([sb().from("cmp_campagnes").select("*").eq("base_id", baseId), sb().from("cmp_inscriptions").select("campagne_id, entree_le").eq("contact_ref", contactRef).order("entree_le", { ascending: false }).limit(1)])
   const campagnes = ((camps ?? []) as Record<string, unknown>[]).map(versCampagne)
-  const c = campagnes.find((x) => x.id === (insc?.[0] as { campagne_id?: string } | undefined)?.campagne_id) ?? campagnes.find((x) => x.origine === "st")
+  const c = campagnes.find((x) => x.id === (insc?.[0] as { campagne_id?: string } | undefined)?.campagne_id) ?? campagnes.find((x) => x.origine === (baseId === "artisans" ? "st" : ORIGINE_TRACABILITE))
   if (!c) return null
   const cfg = configDe(c)
   const e = cfg.qualification.etapes.find((x) => x.type === "Formulaire rempli au téléphone" && x.formulaireId)
@@ -78,7 +79,7 @@ export async function validerEtape(campagneId: string, contactRef: string, etape
 
 type Brut = { id: string; espace: Espace; contactRef: string; niveau: Niveau; nom: string; signal: string; detail: string; quand: string; proprietaireId: string | null; cible: LeadRecu["cible"]; faits: Faits; contacte: boolean; etat?: LeadRecu["etat"] }
 
-export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[] }> {
+export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[]; positions: PositionCampagne[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
   const [lignesLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression, lignesReponses] = await Promise.all([
     lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, tentatives").or(`statut.eq.a_traiter,cree_le.gte.${depuis}`).order("id").range(d, f) as unknown as Lot<LigneLead>),
@@ -125,6 +126,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
   }
   const parContact = campagneParContact(inscriptions, new Map(campagnes.map((c) => [c.id, c.nom])))
 
+  const positions: PositionCampagne[] = []
   const construire = (b: Brut): LeadRecu | null => {
     const inscrite = parContact.get(b.contactRef)
     const camp = (inscrite && parId.get(inscrite.id)) || (parDefaut[b.espace] ? parId.get(parDefaut[b.espace]!.id) : undefined)
@@ -136,6 +138,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     const remplis = camp.formulaires.filter((k) => reponses[k.id])
     const faits: Faits = { ...b.faits, formulaireProspect: b.faits.formulaireProspect || remplis.some((k) => k.remplirPar === "prospect"), formulaireTel: b.faits.formulaireTel || remplis.some((k) => k.remplirPar === "commercial") }
     const pos = positionDans(camp.q, faits, valides, b.contacte)
+    positions.push({ campagneId: camp.c.id, atteintes: pos.atteintes, estLead: pos.estLead, etape: pos.etape })
     if (!pos.estLead) return null
     return {
       id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: pos.etape, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
@@ -166,5 +169,5 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
       detail: [s.metier, s.contact].filter(Boolean).join(" · "), quand: s.dernier_clic_le ?? s.candidature_clic_le ?? s.bareme_vu_le ?? s.cree_le, proprietaireId: null, cible: { type: "artisan", id: s.id }, faits: faitsArtisan(s, undefined), contacte: (s.nb_appels ?? 0) > 0,
     })),
   ]
-  return { leads: leads.filter((l): l is LeadRecu => l !== null) }
+  return { leads: leads.filter((l): l is LeadRecu => l !== null), positions }
 }

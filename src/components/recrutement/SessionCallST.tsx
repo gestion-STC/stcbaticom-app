@@ -30,6 +30,7 @@ import { formaterTelephone } from "../../lib/telephone"
 import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { Section } from "../demarchage/session/morceaux"
 import FormulaireAppel from "../prospection/moteur/FormulaireAppel"
+import { TachesDuContact } from "../prospection/moteur/TachesCampagne"
 import { formulaireAppelDe } from "../../lib/leadsRecusDb"
 import FicheArtisan from "./FicheArtisan"
 
@@ -54,7 +55,7 @@ function GrosBouton({ touche, libelle, aide, choisi, onClick }: { touche: string
 /** Le nom court de chaque file dans les onglets. */
 const ONGLET_FILE: Record<FileST, string> = { leads: "Leads", rappels: "À rappeler", promis: "Ont promis de déposer" }
 
-export default function SessionCallST() {
+export default function SessionCallST({ artisanInitial }: { artisanInitial?: string | null }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
   const [file, setFile] = useState<FileST>("leads")
@@ -64,7 +65,7 @@ export default function SessionCallST() {
   const [liste, setListe] = useState<SousTraitant[]>([])
   const [chargementFile, setChargementFile] = useState(true)
   const [index, setIndex] = useState(0)
-  const [directeId, setDirecteId] = useState<string | null>(null) // un artisan pris hors file (recherche)
+  const [directeId, setDirecteId] = useState<string | null>(artisanInitial ?? null) // un artisan pris hors file (recherche, tâche de campagne)
   const [faits, setFaits] = useState<Set<string>>(() => new Set()) // appelés pendant cette session
   const [courant, setCourant] = useState<{ st: SousTraitant; appels: AppelST[]; envois: EnvoiST[]; clics: ClicST[]; etapes: EtapeST[] } | null>(null)
   const [note, setNote] = useState("")
@@ -358,6 +359,8 @@ export default function SessionCallST() {
                   </Section>
 
                   {appelForm && appelForm.contact === st.id ? <Section titre={appelForm.formulaire.nom}><FormulaireAppel key={st.id} campagneId={appelForm.campagneId} contactRef={st.id!} formulaire={appelForm.formulaire} reponses={appelForm.reponses} parNom={compteNom} onEnregistre={() => void relireForm(st.id!)} /></Section> : null}
+
+                  <TachesDuContact key={st.id} contactRef={st.id!} />
 
                   <Section titre="Note de l'appel">
                     <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />

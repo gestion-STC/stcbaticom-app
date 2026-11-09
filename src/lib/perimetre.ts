@@ -24,6 +24,12 @@ export function espacesVisibles(role: Role | null, fonction: Fonction | undefine
  * Une tâche ou un RDV d'agence est-il pour moi ? (09/11/2026) Un administrateur voit tout ; un
  * téléprospecteur voit ce qu'il a posé lui-même et ce qui touche une agence qui lui est attribuée.
  */
+export function tacheCampagnePourMoi(t: { baseId: string; proprietaireId: string | null }, moiId: string, admin: boolean, espaces: Espace[]): boolean {
+  if (admin) return true
+  if (t.baseId === "artisans") return espaces.includes("recrutement")
+  return espaces.includes("demarchage") && Boolean(moiId) && t.proprietaireId === moiId
+}
+
 export function aMoi(t: { compteId: string | null; agenceCommercialId: string | null }, moiId: string, admin: boolean): boolean {
   return admin || (Boolean(moiId) && (t.compteId === moiId || t.agenceCommercialId === moiId))
 }

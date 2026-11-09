@@ -17,7 +17,7 @@ export type Action = { id: string; type: TypeAction; creatifId?: string; jours?:
 export type Regle = { id: string; evenement: string; fois: number; jours: number }
 export type EtapeParcours = { id: string; nom: string; type: string; qui: string; validation: string; delai: number; formulaireId?: string }
 export type Qualite = { id: string; niveau: string; source: "question" | "etape" | "toujours"; questionId: string; operateur: string; valeur: string; etapeId: string }
-export type Qualification = { interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; delaiH: number; motifs: string[]; relanceMois: number }
+export type Qualification = { interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; /** « Une personne précise » : la première ; « Chacun son tour » : toutes. */ attributionIds?: string[]; delaiH: number; motifs: string[]; relanceMois: number }
 export type Garde = { ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number }
 export type ConfigCampagne = { v: 1; creatifs: Creatif[]; actions: Action[]; zones: string[]; qualification: Qualification; garde: Garde }
 
