@@ -76,8 +76,10 @@ export type Campagne = {
   coutSms: number
   /** Mode test (Mahdi, 07/11) : tout part vers ces coordonnées, pas vers les contacts. */
   modeTest?: boolean; testEmail?: string; testMobile?: string
-  /** « st » : la machine sous-traitants reprise. */
+  /** « st » : la machine sous-traitants reprise ; « tracabilite » : les critères actuels des agences, jamais lancée. */
   origine?: string
+  /** Le réglage complet, tel que l'écran l'édite (voir configCampagne.ts). Le moteur lit les colonnes ci-dessus. */
+  config?: Record<string, unknown>
 }
 
 // ── Ce que la machine écrit en tournant ──
@@ -122,7 +124,8 @@ export function contactVisible(c: Contact, compte: Compte, bases: Set<Id>): bool
 export function estEligible(c: Contact, camp: Campagne): boolean {
   if (c.baseId !== camp.baseId || c.desinscrit || c.statut === "exclu" || c.statut === "gagne") return false
   for (const [cle, valeurs] of Object.entries(camp.audience.filtres)) {
-    if (valeurs.length && !valeurs.some((v) => (c.champs[cle] ?? "").includes(v))) return false
+    // Un code postal se compare par le début : le 92 ne doit pas prendre le 78920.
+    if (valeurs.length && !valeurs.some((v) => (cle === "cp" ? (c.champs[cle] ?? "").startsWith(v) : (c.champs[cle] ?? "").includes(v)))) return false
   }
   if (camp.audience.doitAvoir.includes("email") && !c.email) return false
   if (camp.audience.doitAvoir.includes("mobile") && !c.mobile) return false

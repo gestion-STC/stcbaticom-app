@@ -32,11 +32,11 @@ export const versCampagne = (l: L): Campagne => ({
   id: String(l.id), nom: String(l.nom), baseId: String(l.base_id), objectif: String(l.objectif ?? ""), statut: l.statut as Campagne["statut"],
   audience: l.audience as Campagne["audience"], rythme: l.rythme as Campagne["rythme"], etapes: (l.etapes ?? []) as Campagne["etapes"], signaux: (l.signaux ?? []) as Campagne["signaux"],
   creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0),
-  modeTest: Boolean(l.mode_test), testEmail: String(l.test_email ?? ""), testMobile: String(l.test_mobile ?? ""), origine: String(l.origine ?? ""),
+  modeTest: Boolean(l.mode_test), testEmail: String(l.test_email ?? ""), testMobile: String(l.test_mobile ?? ""), origine: String(l.origine ?? ""), config: (l.config as Record<string, unknown>) ?? undefined,
 })
 const versLigne = (c: Campagne) => ({
   id: c.id, nom: c.nom, base_id: c.baseId, objectif: c.objectif, statut: c.statut, audience: c.audience, rythme: c.rythme, etapes: c.etapes, signaux: c.signaux,
-  cout_sms: c.coutSms, mode_test: c.modeTest ?? true, test_email: c.testEmail ?? "", test_mobile: c.testMobile ?? "", lancee_le: c.lanceeLe, maj_le: new Date().toISOString(),
+  cout_sms: c.coutSms, mode_test: c.modeTest ?? true, test_email: c.testEmail ?? "", test_mobile: c.testMobile ?? "", lancee_le: c.lanceeLe, maj_le: new Date().toISOString(), ...(c.config ? { config: c.config } : {}),
 })
 
 export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void): Depot & { charger: () => Promise<void> } {

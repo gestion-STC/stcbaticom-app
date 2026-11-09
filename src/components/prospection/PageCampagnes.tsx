@@ -13,6 +13,7 @@ import Campagnes from "./Campagnes"
 import Editeur from "./Editeur"
 import Suivi from "./Suivi"
 import { ContexteBaseUnique, ContexteCompte } from "./outils"
+import { ORIGINE_TRACABILITE } from "../../prospection/configCampagne"
 
 export default function PageCampagnes({ base, onSession }: { base: "agences" | "artisans" | null; onSession: () => void }) {
   const session = useSession()
@@ -21,6 +22,8 @@ export default function PageCampagnes({ base, onSession }: { base: "agences" | "
   const depot = useMemo(() => creerDepotSupabase({ ...compte, role: "gerant" }, setErreur), [compte])
   const [pret, setPret] = useState(false)
   const [vue, setVue] = useState<{ ecran: "liste" | "suivi" | "editeur"; id: string | null }>({ ecran: "liste", id: null })
+  // La traçabilité n'envoie rien : elle s'ouvre directement sur ses critères, pas sur un suivi d'envois vide.
+  const ouvrir = (id: string) => setVue({ ecran: depot.lire().campagnes.find((c) => c.id === id)?.origine === ORIGINE_TRACABILITE ? "editeur" : "suivi", id })
   const relire = () => depot.charger().then(() => { setPret(true); setErreur("") }).catch((e) => setErreur(`Lecture des campagnes : ${e instanceof Error ? e.message : String(e)}`))
   useEffect(() => { void relire(); const t = setInterval(() => void relire(), 120_000); return () => clearInterval(t) }, [depot]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -32,9 +35,9 @@ export default function PageCampagnes({ base, onSession }: { base: "agences" | "
             {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
             {!pret && !erreur ? <Chargement texte="Lecture des campagnes…" /> : null}
             {pret ? (
-              vue.ecran === "liste" ? <Campagnes ouvrir={(id) => setVue({ ecran: "suivi", id })} creer={() => setVue({ ecran: "editeur", id: null })} />
+              vue.ecran === "liste" ? <Campagnes ouvrir={ouvrir} creer={() => setVue({ ecran: "editeur", id: null })} />
               : vue.ecran === "suivi" && vue.id ? <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => setVue({ ecran: "liste", id: null })}>← Toutes les campagnes</Bouton><Suivi id={vue.id} modifier={() => setVue({ ecran: "editeur", id: vue.id })} aller={() => onSession()} /></div>
-              : <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => setVue(vue.id ? { ecran: "suivi", id: vue.id } : { ecran: "liste", id: null })}>← Retour</Bouton><Editeur key={vue.id ?? "neuve"} id={vue.id} fini={(id) => setVue({ ecran: "suivi", id })} /></div>
+              : <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => (vue.id && depot.lire().campagnes.find((c) => c.id === vue.id)?.origine !== ORIGINE_TRACABILITE ? setVue({ ecran: "suivi", id: vue.id }) : setVue({ ecran: "liste", id: null }))}>← Retour</Bouton><Editeur key={vue.id ?? "neuve"} id={vue.id} fini={ouvrir} /></div>
             ) : null}
           </div>
         </ContexteBaseUnique.Provider>
