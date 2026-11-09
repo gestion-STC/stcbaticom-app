@@ -14,6 +14,9 @@ import { chargerAgenda, terminerTache, type TacheAgenda } from "../demarchage/db
 import { useReglages } from "../demarchage/reglages"
 import { dansLaFenetreDeRappel, debutDuJour, finDuJour, heureCourte, libelleRelatif } from "../demarchage/aujourdhuiOutils"
 import { Bandeau, Bouton, Carte, Pastille } from "../ui"
+import { useSession } from "../lib/auth"
+import { estAdmin } from "../lib/comptes"
+import { aMoi } from "../lib/perimetre"
 
 const RELIRE_MS = 60_000
 // Tenir dans l'écran (Mahdi, 14/10 : « ils débordent ») : trois rappels visibles, le reste replié.
@@ -32,6 +35,11 @@ function IconeType({ type }: { type: string }) {
 }
 
 export default function RappelsRdv() {
+  const session = useSession()
+  const moiRef = useRef({ id: "", admin: false })
+  useEffect(() => {
+    moiRef.current = { id: session?.user?.id ?? "", admin: estAdmin(session) }
+  }, [session])
   const [rdvs, setRdvs] = useState<TacheAgenda[]>([])
   const [maintenant, setMaintenant] = useState(() => new Date())
   const [ignores, setIgnores] = useState<Set<string>>(() => new Set())
@@ -69,7 +77,8 @@ export default function RappelsRdv() {
     if (!supabaseConfigure) return
     const now = new Date()
     try {
-      const lignes = (await chargerAgenda(debutDuJour(now), finDuJour(now), { seulementOuvertes: true })).filter((t) => t.type === "rdv")
+      // Cloisonnement (09/11/2026) : un téléprospecteur n'est prévenu que de SES rendez-vous.
+      const lignes = (await chargerAgenda(debutDuJour(now), finDuJour(now), { seulementOuvertes: true })).filter((t) => t.type === "rdv" && aMoi(t, moiRef.current.id, moiRef.current.admin))
       if (!enVie.current) return
       rdvsRef.current = lignes
       setRdvs(lignes)

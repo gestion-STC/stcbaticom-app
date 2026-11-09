@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { MENU, menuPour, pageAutorisee, premierePage } from "./carteMenu"
-import { espacesVisibles, LES_DEUX } from "./perimetre"
+import { aMoi, espacesVisibles, LES_DEUX } from "./perimetre"
 
 // Le menu unique (07/11/2026) : on a rangé, rien retiré ; chacun ne voit que ses bases.
 describe("carte du menu", () => {
@@ -32,5 +32,13 @@ describe("carte du menu", () => {
     expect(espacesVisibles("telepro", "recrutement")).toEqual(["recrutement"])
     expect(espacesVisibles("telepro", undefined)).toEqual(LES_DEUX)
     expect(espacesVisibles("telepro", "direction")).toEqual(LES_DEUX)
+  })
+  it("un téléprospecteur ne voit que ses tâches et RDV, un administrateur tout", () => {
+    const t = { compteId: "a", agenceCommercialId: "b" }
+    expect(aMoi(t, "a", false)).toBe(true)
+    expect(aMoi(t, "b", false)).toBe(true)
+    expect(aMoi(t, "c", false)).toBe(false)
+    expect(aMoi(t, "c", true)).toBe(true)
+    expect(aMoi({ compteId: null, agenceCommercialId: null }, "", false)).toBe(false)
   })
 })
