@@ -86,13 +86,13 @@ function chercherFiches(fiches: SousTraitant[], recherche: string, dossier: Doss
     .sort((a, b) => b.s - a.s || a.f.entreprise.localeCompare(b.f.entreprise, "fr")).slice(0, 8).map((x) => x.f)
 }
 
-export default function DossiersST() {
+export default function DossiersST({ dossierInitial = null }: { dossierInitial?: string | null }) {
   const [dossiers, setDossiers] = useState<DossierST[]>([])
   const [fiches, setFiches] = useState<SousTraitant[]>([])
   const [chargement, setChargement] = useState(!!supabaseConfigure)
   const [erreur, setErreur] = useState(supabaseConfigure ? "" : "Base non configurée.")
   const [filtre, setFiltre] = useState<Filtre>("tous")
-  const [ouvertId, setOuvertId] = useState<string | null>(null)
+  const [ouvertId, setOuvertId] = useState<string | null>(dossierInitial)
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
 
   const charger = useCallback(() =>
