@@ -32,7 +32,7 @@ import {
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { estAdmin, listerComptes } from "../../lib/comptes"
 import { useSession } from "../../lib/auth"
-import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix, type Proprietaire } from "../../demarchage/attribution"
+import { CLE_CHOIX_TABLEAU, CLE_NON_ATTRIBUEES, choixParDefautPourRegarder, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix, type Proprietaire } from "../../demarchage/attribution"
 import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
 import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement, Dialogue, Etiquette as EtiquetteChamp, Onglets, Selecteur } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
@@ -105,7 +105,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const [saisieObjectif, setSaisieObjectif] = useState("")
   const [periode, setPeriode] = useState<PeriodeC>("semaine")
   const [extra, setExtra] = useState<Extra | null>(null)
-  const [choixLocal, setChoixLocal] = useState<string | null>(() => { try { return localStorage.getItem(CLE_CHOIX_LOCAL) } catch { return null } })
+  const [choixLocal, setChoixLocal] = useState<string | null>(() => { try { return localStorage.getItem(CLE_CHOIX_TABLEAU) } catch { return null } })
   const enVie = useRef(true)
   const session = useSession()
   const admin = estAdmin(session)
@@ -121,8 +121,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
       const fonctions = await chargerFonctions().catch(() => ({}) as Record<string, never>)
       const horsClassement = new Set(Object.entries(fonctions).filter(([, f]) => !estAuClassement(f)).map(([id]) => id))
       const libre = nonAttribueesPourTous(await lireParametre(CLE_NON_ATTRIBUEES).catch(() => null))
-      const choix = normaliserChoix(choixLocal, admin, libre)
-      const proprietaire = proprietaireDepuisChoix(choixLocal, moiId, admin, libre)
+      // Un administrateur regarde toute la base par défaut ; un téléprospecteur, la sienne (09/11/2026).
+      const choix = normaliserChoix(choixLocal, admin, libre, choixParDefautPourRegarder(admin))
+      const proprietaire = proprietaireDepuisChoix(choixLocal, moiId, admin, libre, choixParDefautPourRegarder(admin))
       const jours = joursOuvresRecents(now, JOURS_TENDANCE)
       const [files, taches, objectifBrut, jamaisJointes, reveils, appels, osMois, leads, etapes, leadsBilan, traites, ...parPeriode] = await Promise.all([
         compterPiles(proprietaire).catch(() => null),
@@ -219,7 +220,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     agir(async () => { await ecrireParametre(CLE_OBJECTIF, String(n)); setEditionObjectif(false) })
   }
   // La base affichée (« Ma base », « Base de X »…) : la même que la session de call, mémorisée sur le poste.
-  const choisirBase = (v: string) => { try { localStorage.setItem(CLE_CHOIX_LOCAL, v) } catch { /* poste sans stockage */ } setChoixLocal(v) }
+  const choisirBase = (v: string) => { try { localStorage.setItem(CLE_CHOIX_TABLEAU, v) } catch { /* poste sans stockage */ } setChoixLocal(v) }
 
   // ── Les séries jour par jour : la mienne (la base choisie), celle de l'équipe, celle de chaque commercial ──
   const calc = useMemo(() => {
