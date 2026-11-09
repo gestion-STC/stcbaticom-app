@@ -13,6 +13,7 @@ import { NOM_BASE } from "../lib/perimetre"
 import { ETAPES_LEAD, leadsVisibles, sourceDe, sourcesDe, trierLeads, type EtapeLead, type LeadRecu, type Niveau } from "../lib/leadsRecus"
 import { chargerLeadsRecus, validerEtape } from "../lib/leadsRecusDb"
 import { nomAffiche } from "../lib/comptes"
+import FormulaireAppel from "./prospection/moteur/FormulaireAppel"
 
 const NIVEAU: Record<Niveau, { libelle: string; role: "fait" | "actif" | "inerte" }> = { fiche: { libelle: "Fiche", role: "fait" }, reponse: { libelle: "Réponse", role: "actif" }, interet: { libelle: "Clic", role: "inerte" } }
 const quandCourt = (iso: string) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "—")
@@ -28,9 +29,11 @@ function Source({ actif, nom, n, nouveaux, onClick }: { actif: boolean; nom: str
 }
 
 // Le parcours du lead dans sa fiche : ce qui est fait, ce qui reste ; une étape « à la main » se valide ici.
-function Parcours({ l, onValider }: { l: LeadRecu; onValider: (etapeId: string, valide: boolean) => void }) {
+function Parcours({ l, onValider, parNom, onEnregistre }: { l: LeadRecu; onValider: (etapeId: string, valide: boolean) => void; parNom: string; onEnregistre: () => void }) {
   const p = l.parcours
+  const [ouvert, setOuvert] = useState<string | null>(null)
   if (!p) return null
+  const remplis = p.formulaires.filter((k) => p.reponses[k.id])
   return (
     <div className="mb-5">
       <h3 className="mb-2 text-colonne font-medium text-encre-2">Parcours · {l.campagne?.nom}{l.qualite ? ` · niveau ${l.qualite}` : ""}</h3>
@@ -44,11 +47,13 @@ function Parcours({ l, onValider }: { l: LeadRecu; onValider: (etapeId: string, 
               {e.id === p.leadA ? <span className="rounded-full bg-signature px-2 text-[10px] font-medium leading-4 text-white">LEAD</span> : null}
               {e.id === p.gagneA ? <span className="rounded-full bg-ok px-2 text-[10px] font-medium leading-4 text-white">GAGNÉ</span> : null}
               {/* Le test de l'application n'a pas encore d'interface : il se valide à la main en attendant. */}
-              {(e.validation === "À la main" || e.type === "Test de l'application") && (!fait || main) ? <Bouton taille="sm" variante="discret" onClick={() => onValider(e.id, !main)}>{main ? "Annuler" : "Valider"}</Bouton> : null}
+              {e.type === "Formulaire rempli au téléphone" && e.formulaireId && l.campagne ? <Bouton taille="sm" variante="discret" onClick={() => setOuvert(ouvert === e.id ? null : e.id)}>{p.reponses[e.formulaireId] ? "Modifier" : "Remplir"}</Bouton> : (e.validation === "À la main" || e.type === "Test de l'application") && (!fait || main) ? <Bouton taille="sm" variante="discret" onClick={() => onValider(e.id, !main)}>{main ? "Annuler" : "Valider"}</Bouton> : null}
             </li>
           )
         })}
       </ol>
+      {(() => { const e = p.etapes.find((x) => x.id === ouvert); const k = p.formulaires.find((x) => x.id === e?.formulaireId); return k && l.campagne ? <div className="mt-3 rounded-4 border-[0.5px] border-trait p-3"><FormulaireAppel key={k.id} campagneId={l.campagne.id} contactRef={l.contactRef} formulaire={k} reponses={p.reponses[k.id] ?? null} parNom={parNom} onEnregistre={onEnregistre} /></div> : null })()}
+      {remplis.map((k) => <div key={k.id} className="mt-4"><h3 className="mb-1 text-colonne font-medium text-encre-2">{k.nom}</h3><div className="divide-y divide-fond-4">{k.questions.filter((q) => p.reponses[k.id][q.id]).map((q) => <div key={q.id} className="flex justify-between gap-6 py-2 text-legende"><span className="text-encre-2">{q.libelle}</span><span className="whitespace-pre-wrap text-right text-encre">{p.reponses[k.id][q.id]}</span></div>)}</div></div>)}
     </div>
   )
 }
@@ -146,14 +151,14 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
         </div>
       </div>
 
-      {ouvert?.cible.type === "dossier" ? <DossierDepuisLead id={ouvert.cible.id} onFermer={() => setOuvert(null)} onChange={charger} avant={<Parcours l={ouvert} onValider={(e, v) => valider(ouvert, e, v)} />} /> : null}
+      {ouvert?.cible.type === "dossier" ? <DossierDepuisLead id={ouvert.cible.id} onFermer={() => setOuvert(null)} onChange={charger} avant={<Parcours l={ouvert} parNom={nomAffiche(session)} onEnregistre={charger} onValider={(e, v) => valider(ouvert, e, v)} />} /> : null}
       {ouvert && ouvert.cible.type !== "dossier" ? (() => {
         const cible = ouvert.cible
         const agenceId = cible.type === "agence" ? cible.id : null
         return (
           <Panneau titre={ouvert.nom} sousTitre={<span>{nomSource(ouvert)}</span>} onFermer={() => setOuvert(null)} largeur="w-[720px]"
             pied={agenceId ? <><Bouton icone={<ExternalLink />} onClick={() => { setOuvert(null); onOuvrirAgence(agenceId) }}>Fiche de l'agence</Bouton><Bouton variante="plein" icone={<Phone />} onClick={() => { setOuvert(null); onAppelerAgence(agenceId) }}>Appeler</Bouton></> : <Bouton variante="plein" icone={<Phone />} onClick={() => { setOuvert(null); onSessionArtisans() }}>Aller à la session de call</Bouton>}>
-            <Parcours l={ouvert} onValider={(e, v) => valider(ouvert, e, v)} />
+            <Parcours l={ouvert} parNom={nomAffiche(session)} onEnregistre={charger} onValider={(e, v) => valider(ouvert, e, v)} />
             <div className="flex flex-wrap items-center gap-2 text-legende"><Pastille role={NIVEAU[ouvert.niveau].role} point>{NIVEAU[ouvert.niveau].libelle}</Pastille><span className="text-encre">{ouvert.signal}</span><span className="text-encre-2">le {quandCourt(ouvert.quand)}</span></div>
             {ouvert.detail ? <p className="mt-5 whitespace-pre-wrap text-legende leading-relaxed text-encre">{ouvert.detail}</p> : null}
           </Panneau>

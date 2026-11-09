@@ -41,6 +41,15 @@ describe("la campagne décide de ce qu'est un lead (09/11/2026)", () => {
   it("sans étape de lead, personne n'est un lead", () => {
     expect(positionDans({ ...st, leadA: "supprimee" }, f({ dossier: true, interet: true }), aucun, false).estLead).toBe(false)
   })
+  it("la qualité selon une réponse au formulaire", () => {
+    const n = (niveau: string, source: "question" | "toujours", operateur = "", valeur = "") => ({ id: niveau, niveau, source, questionId: "q", operateur, valeur, etapeId: "" })
+    const q: Qualification = { ...st, qualites: [n("A", "question", "au moins", "50"), n("B", "question", "contient", "paris"), n("C", "question", "est", "oui"), n("D", "toujours")] }
+    expect(niveauDe(q, [], { q: "120" })).toBe("A")
+    expect(niveauDe(q, [], { q: "12" })).toBe("D")
+    expect(niveauDe(q, [], { q: "Grand PARIS" })).toBe("B")
+    expect(niveauDe(q, [], { q: "Oui" })).toBe("C")
+    expect(niveauDe(q, [])).toBe("D")
+  })
   it("la qualité : la première règle vraie", () => {
     const n = (niveau: string, source: "etape" | "toujours" | "question", etapeId = "") => ({ id: niveau, niveau, source, questionId: "", operateur: "", valeur: "", etapeId })
     const q: Qualification = { ...st, qualites: [n("A", "question"), n("B", "etape", "p-dossier"), n("C", "toujours")] }

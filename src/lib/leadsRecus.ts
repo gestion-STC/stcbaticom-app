@@ -13,7 +13,7 @@
 // Fichier PUR : leadsRecus.test.ts le lit ; la lecture en base est dans leadsRecusDb.ts.
 // ════════════════════════════════════════════════════════════════════════════
 import type { EtatDossier } from "./dossierStatut"
-import type { EtapeParcours } from "../prospection/configCampagne"
+import type { Creatif, EtapeParcours } from "../prospection/configCampagne"
 import type { EtapeLead } from "./parcoursLead"
 import type { Espace } from "./messagesDb"
 
@@ -23,7 +23,7 @@ const RANG: Record<Niveau, number> = { fiche: 0, reponse: 1, interet: 2 }
 
 /** Ce vers quoi le lead mène : l'agence (appel), le dossier déposé, l'artisan (appel). */
 export type { EtapeLead }
-export type ParcoursDuLead = { etapes: EtapeParcours[]; leadA: string; gagneA: string; atteintes: string[]; valides: string[]; courante: string | null }
+export type ParcoursDuLead = { etapes: EtapeParcours[]; leadA: string; gagneA: string; atteintes: string[]; valides: string[]; courante: string | null; formulaires: Creatif[]; reponses: Record<string, Record<string, string>> }
 export type Cible = { type: "agence"; id: string } | { type: "dossier"; id: string } | { type: "artisan"; id: string }
 
 export type LeadRecu = {

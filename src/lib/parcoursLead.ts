@@ -38,11 +38,22 @@ export function positionDans(q: Qualification, f: Faits, valides: ReadonlySet<st
   return { estLead, etape, atteintes, courante }
 }
 
-/** Le niveau de qualité : la première règle vraie, de haut en bas. Une règle sur une réponse attend les formulaires. */
-export function niveauDe(q: Qualification, atteintes: string[]): string {
+function reponseValide(reponse: string | undefined, operateur: string, valeur: string): boolean {
+  if (!reponse) return false
+  const a = reponse.trim().toLowerCase(), b = valeur.trim().toLowerCase()
+  const nA = Number(a.replace(",", ".")), nB = Number(b.replace(",", "."))
+  if (operateur === "au moins") return !Number.isNaN(nA) && !Number.isNaN(nB) && nA >= nB
+  if (operateur === "au plus") return !Number.isNaN(nA) && !Number.isNaN(nB) && nA <= nB
+  if (operateur === "contient") return a.includes(b)
+  return a === b
+}
+
+/** Le niveau de qualité : la première règle vraie, de haut en bas. */
+export function niveauDe(q: Qualification, atteintes: string[], reponses: Record<string, string> = {}): string {
   for (const n of q.qualites) {
     if (n.source === "toujours") return n.niveau
     if (n.source === "etape" && atteintes.includes(n.etapeId)) return n.niveau
+    if (n.source === "question" && reponseValide(reponses[n.questionId], n.operateur, n.valeur)) return n.niveau
   }
   return ""
 }
