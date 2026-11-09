@@ -7,7 +7,7 @@ import { chargerDossiers } from "./machineDb"
 import { statutDossier } from "./dossierStatut"
 import type { SousTraitant } from "../recrutement"
 import type { Espace } from "./messagesDb"
-import { AUCUN_FAIT, niveauDe, positionDans, type Faits } from "./parcoursLead"
+import { AUCUN_FAIT, etapeDuSousTraitant, niveauDe, positionDans, type Faits } from "./parcoursLead"
 import { campagneParContact, niveauAgence, type LeadRecu, type Niveau } from "./leadsRecus"
 import type { PositionCampagne } from "../prospection/mesureCampagne"
 import { versCampagne } from "../prospection/depotSupabase"
@@ -81,7 +81,7 @@ type Brut = { id: string; espace: Espace; contactRef: string; niveau: Niveau; no
 
 export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[]; positions: PositionCampagne[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
-  const [lignesLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression, lignesReponses] = await Promise.all([
+  const [lignesLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression, lignesReponses, lignesQualifs] = await Promise.all([
     lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, tentatives").or(`statut.eq.a_traiter,cree_le.gte.${depuis}`).order("id").range(d, f) as unknown as Lot<LigneLead>),
     lireParLots<LigneAgence>((d, f) => sb().from("agences").select(COLS_AGENCE).in("etape", ETAPES_INTERESSEES).gte("derniere_activite_le", depuis).order("id").range(d, f) as unknown as Lot<LigneAgence>),
     chargerDossiers(),
@@ -91,6 +91,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     sb().from("cmp_progression").select("campagne_id, contact_ref, etape_id").then(({ data }) => (data ?? []) as { campagne_id: string; contact_ref: string; etape_id: string }[]),
     // Du plus ancien au plus récent : la dernière réponse à un formulaire remplace les précédentes.
     sb().from("cmp_reponses").select("campagne_id, creatif_id, contact_ref, reponses").order("cree_le").limit(1000).then(({ data }) => (data ?? []) as { campagne_id: string; creatif_id: string; contact_ref: string; reponses: Record<string, string> }[]),
+    sb().from("st_qualifications").select("sous_traitant_id, decision").not("decision", "is", null).then(({ data }) => (data ?? []) as { sous_traitant_id: string; decision: string }[]),
   ])
 
   const campagnes = lignesCampagnes.map(versCampagne)
@@ -127,6 +128,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
   const parContact = campagneParContact(inscriptions, new Map(campagnes.map((c) => [c.id, c.nom])))
 
   const positions: PositionCampagne[] = []
+  const decisions = new Map(lignesQualifs.map((q) => [q.sous_traitant_id, q.decision]))
   const construire = (b: Brut): LeadRecu | null => {
     const inscrite = parContact.get(b.contactRef)
     const camp = (inscrite && parId.get(inscrite.id)) || (parDefaut[b.espace] ? parId.get(parDefaut[b.espace]!.id) : undefined)
@@ -138,10 +140,11 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     const remplis = camp.formulaires.filter((k) => reponses[k.id])
     const faits: Faits = { ...b.faits, formulaireProspect: b.faits.formulaireProspect || remplis.some((k) => k.remplirPar === "prospect"), formulaireTel: b.faits.formulaireTel || remplis.some((k) => k.remplirPar === "commercial") }
     const pos = positionDans(camp.q, faits, valides, b.contacte)
-    positions.push({ campagneId: camp.c.id, atteintes: pos.atteintes, estLead: pos.estLead, etape: pos.etape })
+    const etapeLead = b.espace === "recrutement" ? etapeDuSousTraitant(pos.etape, faits.compteOuvert, decisions.get(b.contactRef)) : pos.etape
+    positions.push({ campagneId: camp.c.id, atteintes: pos.atteintes, estLead: pos.estLead, etape: etapeLead })
     if (!pos.estLead) return null
     return {
-      id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: pos.etape, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
+      id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
       campagne: { id: camp.c.id, nom: camp.c.nom }, cible: b.cible, qualite: niveauDe(camp.q, pos.atteintes, Object.assign({}, ...Object.values(reponses))),
       parcours: { etapes: camp.q.etapes, leadA: camp.q.leadA, gagneA: camp.q.gagneA, atteintes: pos.atteintes, valides: [...valides], courante: pos.courante, formulaires: camp.formulaires, reponses },
     }

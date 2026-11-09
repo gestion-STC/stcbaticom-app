@@ -1,6 +1,7 @@
 // La fiche d'un dossier déposé, en panneau. Sortie de l'ancienne page « Dossiers déposés » le 09/11/2026 :
 // elle s'ouvre désormais depuis « Leads reçus », avec son état, ses pièces, ses réponses et les contrats.
 import { useMemo, useState, type ReactNode } from "react"
+import { useQualification } from "../../lib/qualificationStDb"
 import { ExternalLink, FileSignature, KeyRound, Link2, Paperclip, Unlink, UserPlus } from "lucide-react"
 import type { DossierST, SousTraitant } from "../../recrutement"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
@@ -89,6 +90,7 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
   const candidats = useMemo(() => chercherFiches(fiches, recherche, dossier), [fiches, recherche, dossier])
   const sections = dossier.donnees?.sections ?? []
   const s = statutDossier(dossier, fiche)
+  const qualif = useQualification(fiche?.id ?? "")
 
   const agir = async (f: () => Promise<void>, message: string) => {
     setOccupe(true); setErreur(""); setInfo("")
@@ -141,7 +143,7 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
       onFermer={onFermer}
       largeur="w-[720px]"
       pied={<>
-        {fiche ? <Bouton icone={<FileSignature />} disabled={occupe || ["envoye", "livre", "signe_artisan", "signe"].includes(fiche.contratStatut ?? "")} title={fiche.contratStatut === "signe" ? "Contrats déjà signés" : fiche.contratStatut ? "Contrats déjà en cours de signature" : "Remplir les informations et envoyer les contrats DocuSign"} onClick={() => setEnvoiContrats(true)}>{fiche.contratStatut ? LIBELLE_CONTRAT[fiche.contratStatut] : "Envoyer les contrats"}</Bouton> : <Bouton icone={<FileSignature />} disabled title="Rattache d'abord le dossier à une fiche">Envoyer les contrats</Bouton>}
+        {fiche ? <Bouton icone={<FileSignature />} disabled={occupe || qualif.decision !== "Accepté" || ["envoye", "livre", "signe_artisan", "signe"].includes(fiche.contratStatut ?? "")} title={qualif.decision !== "Accepté" ? "Accepte d'abord le sous-traitant dans sa qualification" : fiche.contratStatut === "signe" ? "Contrats déjà signés" : fiche.contratStatut ? "Contrats déjà en cours de signature" : "Remplir les informations et envoyer les contrats DocuSign"} onClick={() => setEnvoiContrats(true)}>{fiche.contratStatut ? LIBELLE_CONTRAT[fiche.contratStatut] : "Envoyer les contrats"}</Bouton> : <Bouton icone={<FileSignature />} disabled title="Rattache d'abord le dossier à une fiche">Envoyer les contrats</Bouton>}
         {dossier.traiteLe
           ? <Bouton chargement={occupe} onClick={() => traiter(false)}>Rouvrir</Bouton>
           : <Bouton variante="plein" chargement={occupe} onClick={() => traiter(true)}>Marquer traité</Bouton>}

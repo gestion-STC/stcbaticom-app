@@ -7,6 +7,10 @@
 // mettre en pause, ne plus contacter.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
+import QualificationST from "./QualificationST"
+import { useSession } from "../../lib/auth"
+import { nomAffiche } from "../../lib/comptes"
+import { useQualification } from "../../lib/qualificationStDb"
 import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw, KeyRound, Undo2 } from "lucide-react"
 import type { ClicST, EnvoiST, EtapeST, SousTraitant } from "../../recrutement"
 import { chronologie, dateHeure, type Evenement } from "../../lib/chronologieArtisan"
@@ -27,6 +31,8 @@ const POINT: Record<Evenement["role"], string> = {
 }
 
 export default function FicheArtisan({ id, onFermer, onChange }: { id: string; onFermer: () => void; onChange?: () => void }) {
+  const compteNom = nomAffiche(useSession())
+  const qualif = useQualification(id)
   const [st, setSt] = useState<SousTraitant | null>(null)
   const [envois, setEnvois] = useState<EnvoiST[]>([])
   const [clics, setClics] = useState<ClicST[]>([])
@@ -94,7 +100,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             ? <Bouton icone={<RotateCcw />} disabled={occupe} onClick={() => agir(() => remettreAContacter(st.id!), "Fiche remise « à contacter ».")}>Remettre à contacter</Bouton>
             : null}
           <Bouton icone={<Play />} disabled={occupe || arretee || etapes.length === 0} onClick={() => agir(() => relancerMaintenant(st, etapes), "Prochaine étape due maintenant : elle partira au prochain passage.")}>Relancer maintenant</Bouton>
-          <Bouton icone={<FileSignature />} disabled={occupe || !st.deposeLe || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={!st.deposeLe ? "Pas de dossier déposé : pas de contrat (on envoie depuis Dossiers déposés)" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => setEnvoiContrats(true)}>Envoyer les contrats</Bouton>
+          <Bouton icone={<FileSignature />} disabled={occupe || !st.deposeLe || qualif.decision !== "Accepté" || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={qualif.decision !== "Accepté" ? "Accepte d'abord le sous-traitant dans sa qualification" : !st.deposeLe ? "Pas de dossier déposé : pas de contrat (on envoie depuis Dossiers déposés)" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => setEnvoiContrats(true)}>Envoyer les contrats</Bouton>
           {/* Le lien « Ouvrir mon accès » part tout seul à la signature des deux parties ; mais l'artisan ne le voit pas toujours
               et nous appelle (Mahdi, 12/10) : on peut l'envoyer ou le renvoyer à la main, même sans contrats signés (confirmation). */}
           {st.deposeLe && !st.accesOuvertLe ? (
@@ -126,6 +132,10 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             {st.statutMotif ? <Ligne libelle="Pourquoi ce statut">{st.statutMotif}</Ligne> : null}
             {enPause ? <Ligne libelle="En pause jusqu'au">{new Date(st.pauseJusquAu!).toLocaleDateString("fr-FR")}</Ligne> : null}
           </div>
+          <section className="mt-6 border-t-[0.5px] border-trait pt-4" aria-label="Qualification">
+            <h3 className="mb-3 text-colonne font-medium text-encre-2">Qualification</h3>
+            <QualificationST st={st} parNom={compteNom} />
+          </section>
 
           {contrats.length ? (
             <>
