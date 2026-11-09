@@ -1,11 +1,9 @@
-// La lecture des LEADS REÇUS (voir leadsRecus.ts) : les leads des agences (leads_demarchage), les dossiers
-// déposés des artisans (dossiers_st) et les artisans qui ont cliqué sans être encore appelés (la file
-// « Leads » de leur session), plus la campagne de chacun (cmp_inscriptions).
+// La lecture des LEADS REÇUS (voir leadsRecus.ts) : les leads des agences (leads_demarchage) et les dossiers
+// déposés des artisans (dossiers_st), plus la campagne de chacun (cmp_inscriptions). Un artisan qui a seulement
+// cliqué n'est PAS un lead (Mahdi, 09/11/2026) : il reste dans la file de la session de call.
 import { supabase } from "./supabase"
 import { lireParLots } from "./pagination"
 import { chargerDossiers } from "./machineDb"
-import { chargerFileST } from "./appelsStDb"
-import { signaux } from "./appelsStOutils"
 import { statutDossier } from "./dossierStatut"
 import type { SousTraitant } from "../recrutement"
 import { campagneParContact, niveauAgence, type LeadRecu } from "./leadsRecus"
@@ -26,11 +24,10 @@ export type CampagneCourte = { id: string; nom: string; baseId: string }
 
 export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[]; campagnes: CampagneCourte[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
-  const [agences, dossiers, artisans, campagnes] = await Promise.all([
+  const [agences, dossiers, campagnes] = await Promise.all([
     lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, agences(nom, commercial_id)")
       .or(`statut.eq.a_traiter,cree_le.gte.${depuis}`).order("cree_le", { ascending: false }).order("id").range(d, f) as unknown as PromiseLike<{ data: LigneLead[] | null; error: { message: string } | null }>),
     chargerDossiers(),
-    chargerFileST("leads", maintenant),
     sb().from("cmp_campagnes").select("id, nom, base_id").order("cree_le", { ascending: false }).then(({ data, error }) => {
       if (error) throw new Error(error.message)
       return (data ?? []).map((c) => ({ id: c.id as string, nom: c.nom as string, baseId: c.base_id as string }))
@@ -56,11 +53,6 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
       id: `d:${d.id}`, espace: "recrutement", niveau: "fiche", nom: d.raisonSociale || d.email || "Artisan", signal: "A déposé son dossier",
       detail: [d.email, d.sousTraitantId ? "" : "pas encore rattaché à une fiche"].filter(Boolean).join(" · "),
       quand: d.creeLe, aTraiter: !d.traiteLe, etat: statutDossier(d, d.sousTraitantId ? fiches.get(d.sousTraitantId) : undefined), proprietaireId: null, contactRef: d.sousTraitantId ?? d.id, campagne: null, cible: { type: "dossier", id: d.id },
-    })),
-    ...artisans.map((st): LeadRecu => ({
-      id: `s:${st.id}`, espace: "recrutement", niveau: "interet", nom: st.entreprise || st.contact || "Artisan", signal: signaux(st)[0] ?? "A cliqué",
-      detail: [st.metier, st.contact].filter(Boolean).join(" · "), quand: st.dernierClicLe ?? st.candidatureClicLe ?? st.baremeVuLe ?? st.creeLe ?? "",
-      aTraiter: true, proprietaireId: null, contactRef: st.id!, campagne: null, cible: { type: "artisan", id: st.id! },
     })),
   ]
 
