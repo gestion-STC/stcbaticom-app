@@ -6,7 +6,7 @@ import { lireParLots } from "./pagination"
 import { chargerDossiers } from "./machineDb"
 import { statutDossier } from "./dossierStatut"
 import type { SousTraitant } from "../recrutement"
-import { campagneParContact, niveauAgence, type LeadRecu } from "./leadsRecus"
+import { campagneParContact, etapeAgence, etapeDossier, niveauAgence, type LeadRecu } from "./leadsRecus"
 
 function sb() {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
@@ -17,7 +17,7 @@ const JOURS_TRAITES = 60 // les leads déjà traités : les deux derniers mois
 
 type LigneLead = {
   id: string; agence_id: string; source: string; signal: string; detail: string | null; cree_le: string; dernier_signal_le: string | null
-  statut: string; resultat: string | null; agences: { nom: string; commercial_id: string | null } | null
+  statut: string; resultat: string | null; tentatives: number | null; agences: { nom: string; commercial_id: string | null; etape: string | null; premier_os_le: string | null } | null
 }
 
 export type CampagneCourte = { id: string; nom: string; baseId: string }
@@ -25,7 +25,7 @@ export type CampagneCourte = { id: string; nom: string; baseId: string }
 export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[]; campagnes: CampagneCourte[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
   const [agences, dossiers, campagnes] = await Promise.all([
-    lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, agences(nom, commercial_id)")
+    lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, tentatives, agences(nom, commercial_id, etape, premier_os_le)")
       .or(`statut.eq.a_traiter,cree_le.gte.${depuis}`).order("cree_le", { ascending: false }).order("id").range(d, f) as unknown as PromiseLike<{ data: LigneLead[] | null; error: { message: string } | null }>),
     chargerDossiers(),
     sb().from("cmp_campagnes").select("id, nom, base_id").order("cree_le", { ascending: false }).then(({ data, error }) => {
@@ -46,14 +46,14 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
   const leads: LeadRecu[] = [
     ...agences.map((l): LeadRecu => ({
       id: `a:${l.id}`, espace: "demarchage", niveau: niveauAgence(l.source), nom: l.agences?.nom || "Agence", signal: l.signal, detail: l.detail ?? "",
-      quand: l.dernier_signal_le ?? l.cree_le, aTraiter: l.statut === "a_traiter", proprietaireId: l.agences?.commercial_id ?? null,
+      quand: l.dernier_signal_le ?? l.cree_le, etape: etapeAgence({ statut: l.statut, resultat: l.resultat, tentatives: l.tentatives ?? 0 }, { etape: l.agences?.etape, premierOs: l.agences?.premier_os_le }), proprietaireId: l.agences?.commercial_id ?? null,
       contactRef: l.agence_id, campagne: null, cible: { type: "agence", id: l.agence_id },
     })),
-    ...dossiers.map((d): LeadRecu => ({
+    ...dossiers.map((d): LeadRecu => { const etat = statutDossier(d, d.sousTraitantId ? fiches.get(d.sousTraitantId) : undefined); return {
       id: `d:${d.id}`, espace: "recrutement", niveau: "fiche", nom: d.raisonSociale || d.email || "Artisan", signal: "A déposé son dossier",
       detail: [d.email, d.sousTraitantId ? "" : "pas encore rattaché à une fiche"].filter(Boolean).join(" · "),
-      quand: d.creeLe, aTraiter: !d.traiteLe, etat: statutDossier(d, d.sousTraitantId ? fiches.get(d.sousTraitantId) : undefined), proprietaireId: null, contactRef: d.sousTraitantId ?? d.id, campagne: null, cible: { type: "dossier", id: d.id },
-    })),
+      quand: d.creeLe, etape: etapeDossier(etat), etat, proprietaireId: null, contactRef: d.sousTraitantId ?? d.id, campagne: null, cible: { type: "dossier", id: d.id },
+    } }),
   ]
 
   // La campagne de chacun : la dernière où il est entré.

@@ -1,48 +1,48 @@
-// ── LEADS REÇUS (Mahdi, 09/11/2026 : « un endroit où les leads tombent, comme Meta ») ──
-// Tous les leads des bases du compte au même endroit : les fiches remplies en tête (dossiers déposés des
-// artisans ; demain les formulaires des campagnes), puis les réponses, puis l'intérêt. Le choix de base
-// pour qui a les deux ; le choix de la campagne pour les administrateurs. Remplace « Dossiers déposés » :
-// une fiche remplie s'ouvre ICI, en panneau (Mahdi, 09/11 : « on ne peut pas avoir deux pages de leads reçus ») ;
-// un lead simple garde le bouton Appeler.
+// ── LEADS REÇUS, RANGÉS COMME META (Mahdi, 09/11/2026, maquette validée) ──
+// À gauche d'où ils viennent (les campagnes, regroupées par base), en haut l'étape (Nouveaux, Contactés, Qualifiés,
+// Gagnés, Perdus), une seule liste avec les mêmes colonnes pour tout le monde. Un clic sur la ligne ouvre toujours
+// la fiche, sur place : le dossier d'un artisan, ou la fiche d'une agence avec le bouton Appeler.
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ExternalLink, FileText, Phone, RefreshCw } from "lucide-react"
-import DossierDepuisLead from "./recrutement/DossierDepuisLead"
+import { ExternalLink, Phone, RefreshCw } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
-import { Bandeau as BandeauAlerte, Bouton, Chargement, Panneau, Pastille, Selecteur } from "../ui"
-import { Bandeau, Table } from "./demarchage/aujourdhui/courtier"
-import { Onglets, Titre } from "./prospection/morceaux"
-import ChoixBase from "./ChoixBase"
+import DossierDepuisLead from "./recrutement/DossierDepuisLead"
+import { Bandeau, Bouton, Chargement, Onglets, Panneau, Pastille } from "../ui"
 import { estAdmin } from "../lib/comptes"
 import type { Espace } from "../lib/messagesDb"
 import { NOM_BASE } from "../lib/perimetre"
-import { useChoixBase } from "../lib/useChoixBase"
-import { compterParNiveau, filtrerLeads, LIBELLE_NIVEAU, leadsVisibles, trierLeads, type LeadRecu, type Niveau } from "../lib/leadsRecus"
-import { chargerLeadsRecus, type CampagneCourte } from "../lib/leadsRecusDb"
+import { ETAPES_LEAD, leadsVisibles, sourceDe, sourcesDe, trierLeads, type EtapeLead, type LeadRecu, type Niveau } from "../lib/leadsRecus"
+import { chargerLeadsRecus } from "../lib/leadsRecusDb"
 
-const ROLE_NIVEAU: Record<Niveau, "fait" | "actif" | "inerte"> = { fiche: "fait", reponse: "actif", interet: "inerte" }
-const quandCourt = (iso: string) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—")
+const NIVEAU: Record<Niveau, { libelle: string; role: "fait" | "actif" | "inerte" }> = { fiche: { libelle: "Fiche", role: "fait" }, reponse: { libelle: "Réponse", role: "actif" }, interet: { libelle: "Clic", role: "inerte" } }
+const quandCourt = (iso: string) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "—")
 
-export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrirAgence, onSessionArtisans }: {
+function Source({ actif, nom, n, nouveaux, onClick }: { actif: boolean; nom: string; n: number; nouveaux: number; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-current={actif ? "true" : undefined} className={"flex min-h-[30px] w-full items-center gap-2 rounded-4 px-2 py-1 text-left text-legende " + (actif ? "bg-fond-4 font-medium text-encre" : "text-[#3c3c40] hover:bg-fond-3")}>
+      <span className="min-w-0 flex-1 leading-tight">{nom}</span>
+      {nouveaux ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-signature" title={`${nouveaux} nouveau${nouveaux > 1 ? "x" : ""}`} /> : null}
+      <span className="chiffres shrink-0 text-colonne text-encre-2">{n}</span>
+    </button>
+  )
+}
+
+export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrirAgence }: {
   session: Session | null
   espaces: Espace[]
   onAppelerAgence: (agenceId: string) => void
   onOuvrirAgence: (agenceId: string) => void
-  onSessionArtisans: () => void
 }) {
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
-  const [base, setBase] = useChoixBase("leads", espaces, true)
-  const [campagne, setCampagne] = useState("toutes")
-  const [statut, setStatut] = useState<"a_traiter" | "traites">("a_traiter")
-  const [donnees, setDonnees] = useState<{ leads: LeadRecu[]; campagnes: CampagneCourte[] } | null>(null)
+  const [leads, setLeads] = useState<LeadRecu[] | null>(null)
   const [erreur, setErreur] = useState("")
-  // La fiche ouverte sur place : un dossier d'artisan, ou la fiche remplie par une agence.
-  const [dossierOuvert, setDossierOuvert] = useState<string | null>(null)
-  const [ficheAgence, setFicheAgence] = useState<LeadRecu | null>(null)
+  const [source, setSource] = useState("tous")
+  const [etape, setEtape] = useState<EtapeLead>("nouveaux")
+  const [ouvert, setOuvert] = useState<LeadRecu | null>(null)
 
   const charger = useCallback(() => {
     chargerLeadsRecus(new Date())
-      .then((d) => { setDonnees(d); setErreur("") })
+      .then((d) => { setLeads(d.leads); setErreur("") })
       .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
   }, [])
   useEffect(() => {
@@ -51,78 +51,72 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
     return () => { clearTimeout(t); clearInterval(iv) }
   }, [charger])
 
-  // Ce que le compte a le droit de voir, puis les filtres de la page.
-  const miens = useMemo(() => leadsVisibles(donnees?.leads ?? [], espaces, moiId, admin), [donnees, espaces, moiId, admin])
-  const campagnesVisibles = (donnees?.campagnes ?? []).filter((c) => base === "tout" ? espaces.includes(c.baseId === "artisans" ? "recrutement" : "demarchage") : (c.baseId === "artisans") === (base === "recrutement"))
-  const campagneValide = campagne === "toutes" || campagne === "hors" || campagnesVisibles.some((c) => c.id === campagne) ? campagne : "toutes"
-  const filtres = { espace: base, campagne: campagneValide }
-  const aTraiter = filtrerLeads(miens, { ...filtres, aTraiter: true })
-  const traites = filtrerLeads(miens, { ...filtres, aTraiter: false })
-  const lignes = trierLeads(statut === "a_traiter" ? aTraiter : traites)
-  const n = compterParNiveau(aTraiter)
-  const deuxBases = espaces.length > 1
+  const miens = useMemo(() => leadsVisibles(leads ?? [], espaces, moiId, admin), [leads, espaces, moiId, admin])
+  const sources = useMemo(() => sourcesDe(miens), [miens])
+  const sourceValide = source === "tous" || sources.some((s) => s.id === source) ? source : "tous"
+  const dela = miens.filter((l) => sourceValide === "tous" || sourceDe(l) === sourceValide)
+  const lignes = trierLeads(dela.filter((l) => l.etape === etape))
+  const nomSource = (l: LeadRecu) => l.campagne?.nom ?? "Hors campagne"
+  const tousColonne = sourceValide === "tous"
 
-  const action = (l: LeadRecu) =>
-    l.cible.type === "dossier" ? <Bouton taille="sm" icone={<FileText />} onClick={() => setDossierOuvert(l.cible.id)}>Ouvrir le dossier</Bouton>
-      : l.cible.type === "agence" && l.niveau === "fiche" ? <Bouton taille="sm" icone={<FileText />} onClick={() => setFicheAgence(l)}>Ouvrir la fiche</Bouton>
-      : l.cible.type === "agence" ? <Bouton taille="sm" icone={<Phone />} onClick={() => onAppelerAgence(l.cible.id)}>Appeler</Bouton>
-        : <Bouton taille="sm" icone={<Phone />} onClick={onSessionArtisans}>Appeler</Bouton>
+  const groupe = (e: Espace) => {
+    const l = sources.filter((s) => s.espace === e)
+    if (!l.length) return null
+    return (
+      <div key={e}>
+        {espaces.length > 1 ? <p className="px-2 pb-1 pt-4 text-colonne text-encre-2">{NOM_BASE[e]}</p> : <div className="h-3" />}
+        {l.map((s) => <Source key={s.id} actif={sourceValide === s.id} nom={s.nom} n={s.n} nouveaux={s.nouveaux} onClick={() => setSource(s.id)} />)}
+      </div>
+    )
+  }
 
   return (
-    <div className="@container page space-y-6">
-      <Titre titre="Leads reçus" sous="Tous ceux qui se sont manifestés : les fiches remplies en tête, puis les réponses, puis l'intérêt."
-        droite={<Bouton taille="sm" variante="discret" icone={<RefreshCw />} onClick={charger}>Actualiser</Bouton>} />
-      {erreur ? <BandeauAlerte role="alerte">{erreur}</BandeauAlerte> : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <ChoixBase valeur={base} onChange={setBase} espaces={espaces} avecTout />
-        {admin ? (
-          <span className="w-72">
-            <Selecteur value={campagneValide} onChange={(e) => setCampagne(e.target.value)} aria-label="Campagne">
-              <option value="toutes">Toutes les campagnes</option>
-              {campagnesVisibles.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
-              <option value="hors">Hors campagne</option>
-            </Selecteur>
-          </span>
-        ) : null}
-        <Onglets valeur={statut} onChange={setStatut} options={[["a_traiter", "À traiter", aTraiter.length], ["traites", "Traités", traites.length]]} />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-14 shrink-0 items-center justify-between border-b-[0.5px] border-trait px-10">
+        <h1 className="text-sous-titre font-semibold text-encre">Leads reçus</h1>
+        <Bouton taille="sm" variante="discret" icone={<RefreshCw />} onClick={charger}>Actualiser</Bouton>
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <aside className="w-[270px] shrink-0 overflow-y-auto border-r-[0.5px] border-trait px-3 py-4">
+          <p className="px-2 pb-2 text-colonne text-encre-2">D'où ils viennent</p>
+          <Source actif={tousColonne} nom="Tous les leads" n={miens.length} nouveaux={miens.filter((m) => m.etape === "nouveaux").length} onClick={() => setSource("tous")} />
+          {groupe("demarchage")}
+          {groupe("recrutement")}
+        </aside>
+        <div className="min-w-0 flex-1 overflow-y-auto px-10 pb-12 pt-3">
+          {erreur ? <Bandeau role="alerte" className="mb-3">{erreur}</Bandeau> : null}
+          <div className="flex flex-wrap items-end justify-between gap-x-6 border-b-[0.5px] border-trait">
+            <Onglets<EtapeLead> className="!border-b-0" valeur={etape} onChange={setEtape} options={ETAPES_LEAD.map((e) => ({ id: e.id, label: e.label, badge: dela.filter((l) => l.etape === e.id).length || undefined }))} />
+            <span className="pb-2.5 text-colonne text-encre-2">{ETAPES_LEAD.find((e) => e.id === etape)!.aide}</span>
+          </div>
+          {!leads && !erreur ? <Chargement texte="Lecture des leads…" /> : lignes.length === 0 ? <p className="py-10 text-center text-legende text-encre-2">Aucun lead à cette étape.</p> : (
+            <table className="mt-1 w-full table-fixed border-collapse text-left">
+              <colgroup><col /><col style={{ width: "38%" }} />{tousColonne ? <col style={{ width: "24%" }} /> : null}<col style={{ width: "76px" }} /></colgroup>
+              <thead><tr className="h-9 text-[10px] font-medium uppercase tracking-[0.08em] text-encre-2"><th className="font-medium">Qui</th><th className="font-medium">Ce qu'il a fait</th>{tousColonne ? <th className="font-medium">Campagne</th> : null}<th className="text-right font-medium">Quand</th></tr></thead>
+              <tbody>
+                {lignes.slice(0, 300).map((l) => (
+                  <tr key={l.id} onClick={() => setOuvert(l)} className="h-[52px] cursor-pointer border-t-[0.5px] border-trait text-legende hover:bg-fond-2">
+                    <td className="truncate pr-4"><b className="block truncate font-medium text-encre">{l.nom}</b><span className="block truncate text-colonne text-encre-2">{[l.detail || NOM_BASE[l.espace], l.etat?.texte].filter(Boolean).join(" · ")}</span></td>
+                    <td className="pr-4"><span className="flex min-w-0 items-center gap-2"><span className="shrink-0"><Pastille role={NIVEAU[l.niveau].role} point>{NIVEAU[l.niveau].libelle}</Pastille></span><span className="truncate text-encre-2">{l.signal}</span></span></td>
+                    {tousColonne ? <td className="truncate pr-4 text-encre-2">{nomSource(l)}</td> : null}
+                    <td className="chiffres text-right text-encre-2">{quandCourt(l.quand)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {lignes.length > 300 ? <p className="mt-2 text-colonne text-encre-3">Les 300 premiers affichés sur {lignes.length}.</p> : null}
+        </div>
       </div>
 
-      <Bandeau cases={[
-        { libelle: "Fiches remplies", valeur: n.fiche, ton: n.fiche ? "text-ok" : "text-encre", title: "Le plus chaud : un dossier déposé, un formulaire rempli" },
-        { libelle: "Ont répondu", valeur: n.reponse, ton: n.reponse ? "text-signature" : "text-encre" },
-        { libelle: "Intérêt", valeur: n.interet, title: "Un clic, une page ou une plaquette ouverte" },
-        { libelle: "À traiter", valeur: aTraiter.length },
-      ]} />
-
-      {!donnees && !erreur ? <Chargement texte="Lecture des leads…" /> : (
-        <Table colonnes={[{ titre: "", largeur: "130px" }, { titre: "Qui" }, ...(deuxBases ? [{ titre: "Base", largeur: "90px" }] : []), { titre: "Ce qu'il a fait", largeur: "260px" }, { titre: "Campagne", largeur: "220px" }, { titre: "Quand", largeur: "110px" }, { titre: "", largeur: "170px" }]}
-          vide={statut === "a_traiter" ? "Aucun lead à traiter : les prochains tomberont ici." : "Aucun lead traité sur les deux derniers mois."}
-          lignes={lignes.slice(0, 200).map((l) => ({ cle: l.id, cellules: [
-            <Pastille role={ROLE_NIVEAU[l.niveau]} point>{LIBELLE_NIVEAU[l.niveau]}</Pastille>,
-            <span className="block min-w-0 py-1.5">
-              {l.cible.type === "agence" ? (
-                <button type="button" onClick={() => onOuvrirAgence(l.cible.id)} className="flex max-w-full items-center gap-1 truncate text-left font-medium text-encre hover:underline">{l.nom}<ExternalLink size={11} className="shrink-0 text-encre-3" /></button>
-              ) : <b className="block truncate font-medium">{l.nom}</b>}
-              {l.detail ? <span className="block truncate text-colonne text-encre-2">{l.detail}</span> : null}
-            </span>,
-            ...(deuxBases ? [<span className="text-encre-2">{NOM_BASE[l.espace]}</span>] : []),
-            <span className="flex min-w-0 items-center gap-2"><span className="truncate text-encre">{l.signal}</span>{l.etat ? <Pastille role={l.etat.role} point={l.etat.texte === "nouveau"}>{l.etat.texte}</Pastille> : null}</span>,
-            <span className="block truncate text-encre-2">{l.campagne?.nom ?? "Hors campagne"}</span>,
-            <span className="chiffres text-encre-2">{quandCourt(l.quand)}</span>,
-            <span className="flex justify-end">{action(l)}</span>,
-          ] }))} />
-      )}
-      {lignes.length > 200 ? <p className="text-colonne text-encre-3">Les 200 premiers affichés sur {lignes.length}.</p> : null}
-
-      {dossierOuvert ? <DossierDepuisLead id={dossierOuvert} onFermer={() => setDossierOuvert(null)} onChange={charger} /> : null}
-      {ficheAgence && ficheAgence.cible.type === "agence" ? (() => {
-        const agenceId = ficheAgence.cible.id
+      {ouvert?.cible.type === "dossier" ? <DossierDepuisLead id={ouvert.cible.id} onFermer={() => setOuvert(null)} onChange={charger} /> : null}
+      {ouvert?.cible.type === "agence" ? (() => {
+        const agenceId = ouvert.cible.id
         return (
-          <Panneau titre={ficheAgence.nom} sousTitre={<span>{ficheAgence.signal} · {quandCourt(ficheAgence.quand)}</span>} onFermer={() => setFicheAgence(null)} largeur="w-[720px]"
-            pied={<><Bouton icone={<ExternalLink />} onClick={() => { setFicheAgence(null); onOuvrirAgence(agenceId) }}>Fiche de l'agence</Bouton><Bouton variante="plein" icone={<Phone />} onClick={() => { setFicheAgence(null); onAppelerAgence(agenceId) }}>Appeler</Bouton></>}>
-            <h3 className="mb-2 text-colonne font-medium text-encre-2">Ce qu'elle a renseigné</h3>
-            <p className="whitespace-pre-wrap text-legende leading-relaxed text-encre">{ficheAgence.detail || "Aucun détail."}</p>
+          <Panneau titre={ouvert.nom} sousTitre={<span>{nomSource(ouvert)}</span>} onFermer={() => setOuvert(null)} largeur="w-[720px]"
+            pied={<><Bouton icone={<ExternalLink />} onClick={() => { setOuvert(null); onOuvrirAgence(agenceId) }}>Fiche de l'agence</Bouton><Bouton variante="plein" icone={<Phone />} onClick={() => { setOuvert(null); onAppelerAgence(agenceId) }}>Appeler</Bouton></>}>
+            <div className="flex flex-wrap items-center gap-2 text-legende"><Pastille role={NIVEAU[ouvert.niveau].role} point>{NIVEAU[ouvert.niveau].libelle}</Pastille><span className="text-encre">{ouvert.signal}</span><span className="text-encre-2">le {quandCourt(ouvert.quand)}</span></div>
+            {ouvert.detail ? <p className="mt-5 whitespace-pre-wrap text-legende leading-relaxed text-encre">{ouvert.detail}</p> : null}
           </Panneau>
         )
       })() : null}
