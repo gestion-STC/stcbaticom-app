@@ -3,8 +3,6 @@ import { Loader2 } from "lucide-react"
 import Sidebar, { type PageId } from "./components/Sidebar"
 import { pageAutorisee, premierePage } from "./lib/carteMenu"
 import { usePerimetre } from "./lib/usePerimetre"
-import { useChoixBase } from "./lib/useChoixBase"
-import ChoixBase from "./components/ChoixBase"
 // L'espace DÉMARCHAGE, refondu le 09/10/2026 : la fiche, c'est l'agence.
 import Aujourdhui from "./components/demarchage/Aujourdhui"
 import SessionCall from "./components/demarchage/SessionCall"
@@ -19,6 +17,10 @@ import RappelsRdv from "./components/RappelsRdv"
 import TelephoneRingover from "./components/TelephoneRingover"
 import Connexion from "./components/Connexion"
 import { useSession } from "./lib/auth"
+import { roleDeSession } from "./lib/comptes"
+import RecrutementTableau from "./components/demarchage/RecrutementTableau"
+import AgendaST from "./components/recrutement/AgendaST"
+import QualificationsST from "./components/recrutement/QualificationsST"
 import { suivreVersion, veillerVersion, versionPerimee } from "./lib/versionEnLigne"
 // L'espace Recrutement ST : chaque page porte son propre en-tête (trousse STC).
 import MachineST from "./components/recrutement/MachineST"
@@ -72,8 +74,6 @@ function App() {
   // un compte qui a les deux bases choisit dans la page (Campagnes, Session de call, Boîte de réception).
   const perimetre = usePerimetre(session)
   const espaces = perimetre ?? []
-  const [baseSession, setBaseSession] = useChoixBase("sessions", espaces, false)
-  const [baseBoite, setBaseBoite] = useChoixBase("messages", espaces, true)
 
   // Session en cours de vérification → petit écran d'attente (évite un flash).
   if (session === undefined)
@@ -93,14 +93,15 @@ function App() {
         <Loader2 size={22} className="animate-spin" />
       </div>
     )
-  const vue = pageAutorisee(page, espaces) ? page : premierePage(espaces)
-  const deuxBases = espaces.length > 1
+  const admin = roleDeSession(session) !== "telepro"
+  const vue = pageAutorisee(page, espaces, admin) ? page : premierePage(espaces, admin)
 
   return (
     <div className="flex h-screen overflow-hidden bg-fond">
       <Sidebar
         active={vue}
         espaces={espaces}
+        admin={admin}
         onNavigate={(p) => {
           // Depuis le menu, « Sessions de call » repart sur la file, pas sur une agence précise.
           if (p === "sessions") setAgencePourSession(null)
@@ -120,44 +121,42 @@ function App() {
         <main className="min-h-0 flex-1 overflow-y-auto bg-fond">
           {vue === "aujourdhui" && <Aujourdhui onOuvrirSession={ouvrirSession} onOuvrirAgence={ouvrirAgence} onNaviguer={naviguer} onOuvrirEtape={ouvrirAgencesEtape} />}
           {vue === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
-          {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={(id) => { setBaseSession("demarchage"); ouvrirSession(id) }} espaces={espaces} onOuvrirArtisan={(id) => { setBaseSession("recrutement"); naviguer("sessions"); setArtisanPourSession(id) }} />}
+          {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
+          {vue === "agenda_st" && <AgendaST session={session} onAppeler={(id) => { naviguer("sessions_st"); setArtisanPourSession(id) }} />}
+          {vue === "dashboard_st" && <div className="page"><RecrutementTableau /></div>}
+          {vue === "qualification_st" && <QualificationsST />}
           {vue === "analyse" && <AnalyseAppels />}
           {vue === "apporteurs" && <Apporteurs />}
-          {vue === "messages" && (
-            <>
-              {deuxBases ? <div className="px-10 pt-5"><ChoixBase valeur={baseBoite} onChange={setBaseBoite} espaces={espaces} avecTout /></div> : null}
-              <Messages key={baseBoite} espace={baseBoite === "tout" ? null : baseBoite} />
-            </>
-          )}
+          {vue === "messages" && <Messages key="demarchage" espace="demarchage" />}
+          {vue === "messages_st" && <Messages key="recrutement" espace="recrutement" />}
           {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026 ; les réglages
               du recrutement sont dans l'espace Recrutement depuis le 26/10. */}
           {vue === "parametrage" && <Parametrage session={session} />}
 
-          {vue === "campagnes" && <PageCampagnes base={deuxBases ? null : espaces[0] === "recrutement" ? "artisans" : "agences"} onSession={() => naviguer("sessions")} />}
-          {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages" : p === "st_dossiers" ? "leads" : p)} />}
+          {vue === "campagnes" && <PageCampagnes base={null} onSession={() => naviguer("sessions")} />}
+          {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages_st" : p === "st_dossiers" ? "leads_st" : p)} />}
           {vue === "st_reglages" && <ReglagesMachineST />}
           {vue === "st_base" && <BaseST />}
           {vue === "st_sequences" && <SequencesST />}
-          {vue === "leads" && (
+          {(vue === "leads" || vue === "leads_st" || vue === "leads_tous") && (
             <LeadsRecus
+              key={vue}
               session={session}
-              espaces={espaces}
-              onAppelerAgence={(id) => { setBaseSession("demarchage"); ouvrirSession(id) }}
+              espaces={vue === "leads" ? ["demarchage"] : vue === "leads_st" ? ["recrutement"] : espaces}
+              onAppelerAgence={ouvrirSession}
               onOuvrirAgence={(id) => ouvrirAgence(id)}
-              onSessionArtisans={() => { setBaseSession("recrutement"); naviguer("sessions") }}
+              onSessionArtisans={() => naviguer("sessions_st")}
             />
           )}
 
-          {/* La session de call : une page, le choix de base dedans (07/11/2026). */}
-          {vue === "sessions" && deuxBases ? <div className="px-8 pt-5"><ChoixBase valeur={baseSession} onChange={setBaseSession} espaces={espaces} avecTout={false} /></div> : null}
-          {vue === "sessions" && baseSession === "recrutement" && <SessionCallST key={artisanPourSession ?? ""} artisanInitial={artisanPourSession} />}
+          {vue === "sessions_st" && <SessionCallST key={artisanPourSession ?? ""} artisanInitial={artisanPourSession} />}
 
           {/* Sessions de call : TOUJOURS montée pour qu'une session en cours ne se
               coupe pas quand on navigue ailleurs (ex. aller chercher une info pendant
               un appel, puis revenir). Simplement masquée hors de son onglet. */}
           {espaces.includes("demarchage") && (
-          <div className={vue === "sessions" && baseSession === "demarchage" ? undefined : "hidden"}>
-            <SessionCall actif={vue === "sessions" && baseSession === "demarchage"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} versionAgences={versionAgences} />
+          <div className={vue === "sessions" ? undefined : "hidden"}>
+            <SessionCall actif={vue === "sessions"} agenceInitiale={agencePourSession} onOuvrirAgence={ouvrirAgence} versionAgences={versionAgences} />
           </div>
           )}
         </main>

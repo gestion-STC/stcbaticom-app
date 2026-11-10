@@ -88,7 +88,7 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
   return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
 }
 
-type GardeConfig = { ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number }
+type GardeConfig = { ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean }
 const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur"]
 
@@ -170,7 +170,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   if (!to) return { ok: false, saute: "pas de mail" }
   sujet = (test ? "[TEST] " : "") + sujet
   if (!varianteId) return { ok: false, saute: "mail sans texte" }
-  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond }, k, to, sujet, texte, varianteId, test, desinscription)
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: (c.config as { garde?: GardeConfig } | null)?.garde?.suiviOuvertures !== false }, k, to, sujet, texte, varianteId, test, desinscription)
 }
 
 Deno.serve(async (req: Request) => {

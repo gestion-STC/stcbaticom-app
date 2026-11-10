@@ -22,10 +22,9 @@ const sansAccents = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").to
 
 const ICONES: Record<string, string> = {
   "": "M4 14a8 8 0 0 1 16 0M12 14l4-4M3 18h18",
-  Prospecter: "M3 11l18-8-8 18-2-8z",
-  Suivre: "M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6",
-  Contacts: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M2 21a7 7 0 0 1 14 0M17 11a3 3 0 1 0 0-6M22 21a6 6 0 0 0-5-6",
-  Analyser: "M4 19V9M10 19V5M16 19v-7M22 19H2",
+  Campagnes: "M3 11l18-8-8 18-2-8z",
+  Gestionnaires: "M3 21h18M5 21V9l7-5 7 5v12M10 21v-6h4v6",
+  "Sous-traitants": "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M2 21a7 7 0 0 1 14 0M17 11a3 3 0 1 0 0-6M22 21a6 6 0 0 0-5-6",
 };
 const ICONE_REGLAGES = "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0";
 
@@ -64,8 +63,9 @@ function Palette({ ecrans, fermer, aller }: { ecrans: (EntreeMenu & { rubrique: 
   );
 }
 
-export default function Sidebar({ active, espaces, onNavigate, session }: {
+export default function Sidebar({ active, espaces, admin, onNavigate, session }: {
   active: PageId;
+  admin: boolean;
   espaces: Espace[]; // les bases du compte connecté
   onNavigate: (id: PageId) => void;
   session?: Session | null;
@@ -87,12 +87,12 @@ export default function Sidebar({ active, espaces, onNavigate, session }: {
     window.addEventListener("focus", maj);
     return () => { annule = true; clearInterval(t); window.removeEventListener(EVENEMENT_LUS, maj); window.removeEventListener("focus", maj); };
   }, [active]);
-  const badge = (id: PageId) => (id === "messages" ? espaces.reduce((n, e) => n + nonLus[e], 0) : 0);
+  const badge = (id: PageId) => (id === "messages" ? nonLus.demarchage : id === "messages_st" ? nonLus.recrutement : 0);
 
   const rubriques = useMemo<Rubrique[]>(() => [
-    ...menuPour(espaces).map((g) => ({ cle: g.titre || "accueil", titre: g.titre || "Accueil", icone: ICONES[g.titre] ?? ICONES[""], groupes: [{ ...g, titre: "" }] })),
+    ...menuPour(espaces, admin).map((g) => ({ cle: g.titre || "accueil", titre: g.titre || "Accueil", icone: ICONES[g.titre] ?? ICONES[""], groupes: [{ ...g, titre: "" }] })),
     { cle: "reglages", titre: "Réglages", icone: ICONE_REGLAGES, enBas: true, groupes: [{ titre: "", entrees: [{ id: "parametrage" as PageId, titre: "Réglages", espace: null }] }] },
-  ], [espaces]);
+  ], [espaces, admin]);
   const enHaut = rubriques.filter((r) => !r.enBas), enBas = rubriques.filter((r) => r.enBas);
   const courante = rubriques.find((r) => r.groupes.some((g) => g.entrees.some((e) => e.id === active))) ?? rubriques[0];
   const ecrans = useMemo(() => rubriques.flatMap((r) => r.groupes.flatMap((g) => g.entrees.map((e) => ({ ...e, rubrique: r.titre })))), [rubriques]);

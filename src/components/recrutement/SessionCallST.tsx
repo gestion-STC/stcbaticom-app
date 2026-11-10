@@ -24,13 +24,13 @@ import {
   type FileST, type IssueST, type ResultatST,
 } from "../../lib/appelsStOutils"
 import { useSession } from "../../lib/auth"
-import { nomAffiche } from "../../lib/comptes"
+import { estAdmin, nomAffiche } from "../../lib/comptes"
 import { lancerAppelRingover } from "../../lib/ringover"
 import { formaterTelephone } from "../../lib/telephone"
 import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { Section } from "../demarchage/session/morceaux"
 import QualificationST from "./QualificationST"
-import { TachesDuContact } from "../prospection/moteur/TachesCampagne"
+import { TachesCampagneAgenda, TachesDuContact } from "../prospection/moteur/TachesCampagne"
 import FicheArtisan from "./FicheArtisan"
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -222,6 +222,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
   // en gros boutons à touches, l'historique à droite, « Ensuite : » en pied.
   return (
     <div className="@container w-full px-8 pb-10 pt-6">
+      <TachesCampagneAgenda service="soustraitants" appelsSeulement moiId={session?.user?.id ?? ""} admin={estAdmin(session)} espaces={["recrutement"]} onAppelerAgence={() => undefined} onAppelerArtisan={(id) => setDirecteId(id)} />
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b-[0.5px] border-trait">
         <Onglets<FileST>
           className="!border-b-0"

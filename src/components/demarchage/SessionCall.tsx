@@ -28,6 +28,7 @@ import { entrantActif } from "../../lib/appelEntrantActif"
 import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import CampagneSurFiche from "../prospection/moteur/CampagneSurFiche"
+import { TachesCampagneAgenda } from "../prospection/moteur/TachesCampagne"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import { chargerNumerosDuCompte, estDansLaReserve } from "../../lib/numerosEmission"
 import { lireParametre } from "../../lib/parametresDb"
@@ -1141,6 +1142,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // marge passe dans un tiroir ; sous 1 240 px, l'historique passe sous l'appel.
   return (
     <div className="@container w-full px-8 pb-10 pt-6">
+      <TachesCampagneAgenda key={String(actif)} service="gestionnaires" appelsSeulement moiId={moiId} admin={admin} espaces={["demarchage"]} onAppelerAgence={(id) => setDirecteId(id)} onAppelerArtisan={() => undefined} />
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b-[0.5px] border-trait">
         <Onglets
           className="!border-b-0"

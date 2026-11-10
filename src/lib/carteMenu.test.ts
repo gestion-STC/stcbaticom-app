@@ -8,22 +8,26 @@ describe("carte du menu", () => {
   it("chaque page est dans le menu une seule fois", () => {
     const toutes = ids(MENU)
     expect(new Set(toutes).size).toBe(toutes.length)
-    expect([...toutes].sort()).toEqual(["agences", "agenda", "analyse", "apporteurs", "aujourdhui", "campagnes", "leads", "messages", "sessions", "st_base"])
+    expect(MENU.map((g) => g.titre)).toEqual(["Campagnes", "Gestionnaires", "Sous-traitants"])
   })
   it("un administrateur voit tout", () => {
     expect(ids(menuPour(LES_DEUX))).toEqual(ids(MENU))
   })
-  it("un commercial ne voit rien des artisans", () => {
-    const m = ids(menuPour(["demarchage"]))
-    expect(m).toEqual(["aujourdhui", "campagnes", "leads", "sessions", "messages", "agenda", "agences", "apporteurs", "analyse"])
-    expect(pageAutorisee("st_base", ["demarchage"])).toBe(false)
-    expect(pageAutorisee("st_machine", ["demarchage"])).toBe(false)
+  it("un commercial ne voit que son service, sans les campagnes", () => {
+    expect(ids(menuPour(["demarchage"], false))).toEqual(["aujourdhui", "leads", "sessions", "agenda", "messages", "agences", "apporteurs", "analyse"])
+    expect(pageAutorisee("st_base", ["demarchage"], false)).toBe(false)
+    expect(pageAutorisee("campagnes", ["demarchage"], false)).toBe(false)
+    expect(pageAutorisee("st_machine", ["demarchage"], false)).toBe(false)
   })
-  it("un recruteur ne voit rien des agences, et arrive sur les campagnes", () => {
-    expect(ids(menuPour(["recrutement"]))).toEqual(["campagnes", "leads", "sessions", "messages", "st_base"])
-    expect(premierePage(["recrutement"])).toBe("campagnes")
-    expect(pageAutorisee("agences", ["recrutement"])).toBe(false)
-    expect(pageAutorisee("parametrage", ["recrutement"])).toBe(true)
+  it("un recruteur ne voit que son service, et arrive sur ses leads", () => {
+    expect(ids(menuPour(["recrutement"], false))).toEqual(["leads_st", "sessions_st", "agenda_st", "messages_st", "st_base", "qualification_st"])
+    expect(premierePage(["recrutement"], false)).toBe("leads_st")
+    expect(pageAutorisee("agences", ["recrutement"], false)).toBe(false)
+    expect(pageAutorisee("parametrage", ["recrutement"], false)).toBe(true)
+  })
+  it("un administrateur a les campagnes et tous les leads", () => {
+    expect(pageAutorisee("campagnes", ["demarchage", "recrutement"], true)).toBe(true)
+    expect(ids(menuPour(["demarchage", "recrutement"], true))).toContain("leads_tous")
   })
   it("le périmètre suit le rôle puis la fonction", () => {
     expect(espacesVisibles("admin", "recrutement")).toEqual(LES_DEUX)

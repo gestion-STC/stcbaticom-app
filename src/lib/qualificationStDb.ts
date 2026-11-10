@@ -106,3 +106,11 @@ export async function enregistrerQuestionnaire(sections: SectionST[], parNom: st
   questionnaire = sections
   publier()
 }
+
+export type LigneQualification = { id: string; reponses: ReponsesST; decision: DecisionST | null; majLe: string; entreprise: string; contact: string; metier: string }
+export async function chargerQualifications(): Promise<LigneQualification[]> {
+  const { data, error } = await sb().from("st_qualifications").select("sous_traitant_id, reponses, decision, maj_le, st_sous_traitants(entreprise, contact, metier)").order("maj_le", { ascending: false }).limit(1000)
+  if (error) throw new Error(error.message)
+  type Brut = { sous_traitant_id: string; reponses: ReponsesST | null; decision: DecisionST | null; maj_le: string; st_sous_traitants: { entreprise: string | null; contact: string | null; metier: string | null } | null }
+  return ((data ?? []) as unknown as Brut[]).map((l) => ({ id: l.sous_traitant_id, reponses: l.reponses ?? {}, decision: l.decision, majLe: l.maj_le, entreprise: l.st_sous_traitants?.entreprise ?? "", contact: l.st_sous_traitants?.contact ?? "", metier: l.st_sous_traitants?.metier ?? "" }))
+}
