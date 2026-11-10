@@ -5,6 +5,11 @@ import { ArrowLeft, ArrowRight, Check, X } from "lucide-react"
 import { Bandeau, Bouton, Champ, Chargement, Pastille, Zone } from "../../ui"
 import { DECISIONS_ST, avancement, avancementSection, blocageDecision, echecs, moyenneAvis, prerempli, visible, type DecisionST, type QuestionST, type ReponsesST } from "../../recrutement/qualificationST"
 import { deciderQualification, majReponses, useQualification, useQuestionnaire } from "../../lib/qualificationStDb"
+import { useFormation } from "../../lib/formationDb"
+import { useSession } from "../../lib/auth"
+import { roleDeSession } from "../../lib/comptes"
+import { LIBELLE_ETAT, formationValide } from "../../recrutement/formationST"
+import BlocFormation from "./BlocFormation"
 
 const pilule = (on: boolean) => `min-h-8 rounded-full px-3.5 py-1 text-legende transition-colors ${on ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`
 const MESSAGE_ETAT = { "": "Enregistré au fil de l'appel", enregistrement: "Enregistrement…", enregistre: "Enregistré", erreur: "Non enregistré" } as const
@@ -34,6 +39,8 @@ export default function QualificationST({ st, parNom }: { st: { id?: string; ent
   const sections = useQuestionnaire()
   const [i, setI] = useState(0)
   const [essai, setEssai] = useState("")
+  const session = useSession()
+  const { formation, regles, recharger } = useFormation(id)
   if (!dossier.charge) return <Chargement texte="Lecture de la qualification…" />
   const r: ReponsesST = { ...prerempli(st, parNom), ...dossier.reponses }
   const indice = Math.min(i, sections.length - 1)
@@ -41,7 +48,7 @@ export default function QualificationST({ st, parNom }: { st: { id?: string; ent
   const total = avancement(r, sections), rate = echecs(r, sections), moyenne = moyenneAvis(r, sections)
   const maj = (cle: string, v: string | string[]) => majReponses(id, { ...r, [cle]: v })
   const decider = (d: DecisionST) => {
-    const blocage = dossier.decision === d ? "" : blocageDecision(d, r, sections)
+    const blocage = dossier.decision === d ? "" : blocageDecision(d, r, sections) || (d === "Accepté" && !formationValide(regles, formation) ? "La formation doit être réussie, ou une dérogation accordée." : "")
     setEssai(blocage)
     if (!blocage) void deciderQualification(id, dossier.decision === d ? null : d, r, parNom)
   }
@@ -54,6 +61,7 @@ export default function QualificationST({ st, parNom }: { st: { id?: string; ent
         {dossier.decision ? <Pastille role={dossier.decision === "Accepté" ? "actif" : dossier.decision === "Refusé" ? "probleme" : "attente"} point>{dossier.decision}</Pastille> : <Pastille point>En cours</Pastille>}
       </div>
 
+      <ol className="flex flex-wrap items-center gap-x-4 gap-y-1 text-colonne text-encre-2"><li>1 · Questionnaire <span className="chiffres text-encre">{total.fait} / {total.total}</span></li><li>2 · Formation <span className="text-encre">{LIBELLE_ETAT[formation?.etat ?? "a_envoyer"]}{formation?.score != null ? ` ${formation.score} %` : ""}</span></li><li>3 · Décision <span className="text-encre">{dossier.decision ?? "À prendre"}</span></li></ol>
       <div className="flex flex-wrap gap-1">
         {sections.map((s, n) => {
           const a = avancementSection(s, r), fini = a.total > 0 && a.fait === a.total, rouge = s.id === "eliminatoires" && rate.length > 0
@@ -72,6 +80,7 @@ export default function QualificationST({ st, parNom }: { st: { id?: string; ent
         {section.questions.filter((x) => visible(x, r)).map((x) => <Question key={x.id} q={x} r={r} maj={maj} />)}
       </div>
 
+      {section.id === "avis" ? <BlocFormation id={id} formation={formation} regles={regles} parNom={parNom} admin={roleDeSession(session) === "admin"} recharger={recharger} /> : null}
       {section.id === "avis" ? (
         <div className="space-y-2 border-t-[0.5px] border-trait pt-4">
           <p className="text-legende font-medium text-encre">Décision *</p>

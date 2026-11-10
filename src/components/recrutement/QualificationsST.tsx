@@ -4,6 +4,8 @@ import { Bandeau, Chargement, EnTetePage, Onglets, Pastille, Tableau, Td, Th, Tr
 import { avancement, moyenneAvis, type DecisionST } from "../../recrutement/qualificationST"
 import { chargerQualifications, useQuestionnaire, type LigneQualification } from "../../lib/qualificationStDb"
 import FicheArtisan from "./FicheArtisan"
+import { chargerFormations, type Formation } from "../../lib/formationDb"
+import { LIBELLE_ETAT } from "../../recrutement/formationST"
 
 type Filtre = "toutes" | "en_cours" | DecisionST
 const FILTRES: { id: Filtre; label: string }[] = [{ id: "toutes", label: "Toutes" }, { id: "en_cours", label: "En cours" }, { id: "Accepté", label: "Acceptés" }, { id: "En attente", label: "En attente" }, { id: "Refusé", label: "Refusés" }]
@@ -15,7 +17,8 @@ export default function QualificationsST() {
   const [erreur, setErreur] = useState("")
   const [filtre, setFiltre] = useState<Filtre>("toutes")
   const [fiche, setFiche] = useState<string | null>(null)
-  const charger = useCallback(() => { chargerQualifications().then((l) => { setLignes(l); setErreur("") }).catch((e) => setErreur(e instanceof Error ? e.message : String(e))) }, [])
+  const [formations, setFormations] = useState<Map<string, Formation>>(new Map())
+  const charger = useCallback(() => { chargerFormations().then(setFormations).catch(() => undefined); chargerQualifications().then((l) => { setLignes(l); setErreur("") }).catch((e) => setErreur(e instanceof Error ? e.message : String(e))) }, [])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
   const visibles = useMemo(() => (lignes ?? []).filter((l) => filtre === "toutes" || (filtre === "en_cours" ? !l.decision : l.decision === filtre)), [lignes, filtre])
   return (
@@ -27,7 +30,7 @@ export default function QualificationsST() {
       {lignes && !visibles.length ? <Vide titre="Personne ici" texte="Une qualification commence pendant l'appel, ou depuis la fiche du sous-traitant." /> : null}
       {visibles.length ? (
         <Tableau>
-          <thead><tr><Th>Sous-traitant</Th><Th>Métier</Th><Th>Avancement</Th><Th>Avis</Th><Th>Décision</Th><Th>Mis à jour</Th></tr></thead>
+          <thead><tr><Th>Sous-traitant</Th><Th>Métier</Th><Th>Questionnaire</Th><Th>Formation</Th><Th>Avis</Th><Th>Décision</Th><Th>Mis à jour</Th></tr></thead>
           <tbody>
             {visibles.map((l) => {
               const a = avancement(l.reponses, sections), m = moyenneAvis(l.reponses, sections)
@@ -36,6 +39,7 @@ export default function QualificationsST() {
                   <Td><span className="font-medium text-encre">{l.entreprise || l.contact || "Sans nom"}</span></Td>
                   <Td>{l.metier || "—"}</Td>
                   <Td><span className="chiffres">{a.fait} / {a.total}</span></Td>
+                  <Td><span className="chiffres">{LIBELLE_ETAT[formations.get(l.id)?.etat ?? "a_envoyer"]}{formations.get(l.id)?.score != null ? ` · ${formations.get(l.id)?.score} %` : ""}</span></Td>
                   <Td><span className="chiffres">{m === null ? "—" : `${m.toLocaleString("fr-FR")} / 5`}</span></Td>
                   <Td>{l.decision ? <Pastille role={l.decision === "Accepté" ? "actif" : l.decision === "Refusé" ? "probleme" : "attente"} point>{l.decision}</Pastille> : <Pastille point>En cours</Pastille>}</Td>
                   <Td><span className="chiffres">{date(l.majLe)}</span></Td>
