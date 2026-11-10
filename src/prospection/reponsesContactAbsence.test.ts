@@ -15,6 +15,6 @@ describe("ce que l'IA lit dans une réponse", () => {
     expect(sql).toContain("greatest(prochaine_le, v_reprise)")
   })
   it("le lead dit vers qui la réponse renvoie", () => {
-    expect(sql.match(/Renvoie vers/g)?.length).toBe(2)
+    expect(sql.split("left('Renvoie vers '").length - 1).toBe(2)
   })
 })
