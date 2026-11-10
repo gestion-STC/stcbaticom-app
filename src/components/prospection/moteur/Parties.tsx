@@ -11,7 +11,7 @@ import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, M
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { LIBELLE_CONDITION, LIBELLE_ETAPE, type Condition } from "../../../prospection/modele"
-import { ACTIONS_REPONSE, ATTRIBUTIONS, EVENEMENTS, REPONSES_REGLABLES, actionReponse, type ActionReponse, OPERATEURS, TYPES_ETAPE, TYPES_FORMULAIRE, TYPES_QUESTION, VALIDATIONS, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
+import { MOTIFS_AGENCE, evenementsProposes, typesEtapeProposes, ACTIONS_REPONSE, ATTRIBUTIONS, EVENEMENTS, REPONSES_REGLABLES, actionReponse, type ActionReponse, OPERATEURS, TYPES_FORMULAIRE, TYPES_QUESTION, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
 
 export type MajConfig = (f: (c: ConfigCampagne) => ConfigCampagne) => void
 const ICONE: Record<TypeAction, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, newsletter: Newspaper, appel: Phone, attendre: Clock, si: GitBranch, fin: Square }
@@ -150,7 +150,7 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
 }
 
 // ── Qualification ──
-export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: MajConfig; baseId: string }) {
+export function Qualification({ cfg, maj, baseId, tracabilite = false }: { cfg: ConfigCampagne; maj: MajConfig; baseId: string; tracabilite?: boolean }) {
   const q = cfg.qualification
   const [comptes, setComptes] = useState<Compte[]>([])
   useEffect(() => { listerComptes().then(setComptes).catch(() => setComptes([])) }, [])
@@ -162,7 +162,12 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
   const [motif, setMotif] = useState("")
   const iLead = q.etapes.findIndex((e) => e.id === q.leadA), iGagne = q.etapes.findIndex((e) => e.id === q.gagneA)
   const formulaires = cfg.creatifs.filter((k) => k.type === "formulaire")
-  const etapeLead = q.etapes.find((e) => e.id === q.leadA)
+  // Un réglage enregistré avant le tri reste visible, marqué « sans effet », pour pouvoir le retirer.
+  const proposes = evenementsProposes(cfg, baseId, tracabilite)
+  const optionsEvenement = (v: string) => [...proposes, ...(proposes.includes(v) ? [] : [v])].map((x) => <option key={x} value={x}>{proposes.includes(x) ? x : `${x} (sans effet)`}</option>)
+  const types = typesEtapeProposes(baseId)
+  const optionsType = (v: string) => [...types, ...(types.includes(v) ? [] : [v])].map((x) => <option key={x} value={x}>{x}</option>)
+  const avecQualite = formulaires.length > 0 || q.qualites.length > 0
   const questions = formulaires.flatMap((k) => k.questions.filter((x) => x.libelle))
   // « Il a rempli un formulaire » : l'étape est créée au début du parcours, et le formulaire s'il n'y en a aucun.
   const leadSurFormulaire = () => maj((x) => {
@@ -174,14 +179,6 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
   return (
     <div className="space-y-8">
       <Bandeau role="info">Le parcours décide de ce qui tombe dans Leads reçus, et de l'étape de chaque lead. Une agence touchée par cette campagne suit les règles d'intérêt ci-dessous pendant 30 jours après le dernier envoi.</Bandeau>
-      <Bloc titre="C'est un lead quand…" droite="un seul choix, modifiable à tout moment">
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <Libelle titre="L'événement" className="w-[320px]"><Selecteur value={q.leadA} onChange={(e) => (e.target.value === "_form" ? leadSurFormulaire() : majQ({ leadA: e.target.value }))}>{q.etapes.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}{!q.etapes.some((e) => TYPES_FORMULAIRE.includes(e.type)) ? <option value="_form">+ Il a rempli un formulaire</option> : null}</Selecteur></Libelle>
-          {etapeLead && TYPES_FORMULAIRE.includes(etapeLead.type) ? <Libelle titre="Quel formulaire" className="w-[280px]"><Selecteur value={etapeLead.formulaireId ?? ""} onChange={(e) => majE(etapeLead.id, { formulaireId: e.target.value })}><option value="">Choisir…</option>{formulaires.map((k) => <option key={k.id} value={k.id}>{k.nom}{k.remplirPar === "commercial" ? " (au téléphone)" : ""}</option>)}</Selecteur></Libelle> : null}
-        </div>
-        {!q.interet.length ? <p className="mt-2 text-colonne text-encre-2">Aucune règle d'intérêt : seuls ceux qui remplissent cette condition arrivent chez toi. Rien ne part en session de call avant.</p> : null}
-      </Bloc>
-
       {baseId !== "artisans" ? <Bloc titre="Quand il répond au mail" droite="lead ou dead, selon la réponse">
         <p className="mt-2 text-colonne text-encre-2">Toute réponse sort le contact de la séquence, sauf une réponse automatique d'absence. L'IA trie chaque réponse ; le commercial peut corriger dans la boîte de réception (« C'est un lead » / « C'est un dead ») et reste celui qui transforme.</p>
         <div className="mt-3 space-y-2">
@@ -199,7 +196,7 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
         <div className="mt-3 space-y-2">
           {q.interet.map((r) => (
             <div key={r.id} className="flex flex-wrap items-center gap-2 text-legende">
-              <span className="w-[290px]"><Selecteur value={r.evenement} aria-label="Événement" onChange={(e) => majQ({ interet: q.interet.map((y) => (y.id === r.id ? { ...y, evenement: e.target.value } : y)) })}>{EVENEMENTS.map((v) => <option key={v}>{v}</option>)}</Selecteur></span>
+              <span className="w-[290px]"><Selecteur value={r.evenement} aria-label="Événement" onChange={(e) => majQ({ interet: q.interet.map((y) => (y.id === r.id ? { ...y, evenement: e.target.value } : y)) })}>{optionsEvenement(r.evenement)}</Selecteur></span>
               <Champ type="number" min={1} className="!w-16" aria-label="Nombre de fois" value={r.fois} onChange={(e) => majQ({ interet: q.interet.map((y) => (y.id === r.id ? { ...y, fois: Number(e.target.value) || 1 } : y)) })} /> fois en
               <Champ type="number" min={1} className="!w-16" aria-label="Nombre de jours" value={r.jours} onChange={(e) => majQ({ interet: q.interet.map((y) => (y.id === r.id ? { ...y, jours: Number(e.target.value) || 1 } : y)) })} /> jours
               <IconeBtn icone={<X />} label="Retirer" onClick={() => majQ({ interet: q.interet.filter((y) => y.id !== r.id) })} />
@@ -221,25 +218,26 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
                 <IconeBtn icone={<ArrowUp />} label="Monter" onClick={() => majQ({ etapes: deplacer(q.etapes, i, -1) })} /><IconeBtn icone={<ArrowDown />} label="Descendre" onClick={() => majQ({ etapes: deplacer(q.etapes, i, 1) })} /><IconeBtn icone={<Trash2 />} label="Supprimer" onClick={() => majQ({ etapes: q.etapes.filter((y) => y.id !== e.id) })} />
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 pl-6 @min-[700px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-                <Libelle titre="Type"><Selecteur value={e.type} onChange={(v) => majE(e.id, { type: v.target.value })}>{TYPES_ETAPE.map((t) => <option key={t}>{t}</option>)}</Selecteur></Libelle>
-                <Libelle titre="Se valide"><Selecteur value={e.validation} onChange={(v) => majE(e.id, { validation: v.target.value })}>{VALIDATIONS.map((t) => <option key={t}>{t}</option>)}</Selecteur></Libelle>
+                <Libelle titre="Type"><Selecteur value={e.type} onChange={(v) => majE(e.id, { type: v.target.value })}>{optionsType(e.type)}</Selecteur></Libelle>
                 {TYPES_FORMULAIRE.includes(e.type) ? <Libelle titre="Quel formulaire" className="col-span-2"><Selecteur value={e.formulaireId ?? ""} onChange={(v) => majE(e.id, { formulaireId: v.target.value })}><option value="">Choisir…</option>{formulaires.map((k) => <option key={k.id} value={k.id}>{k.nom}</option>)}</Selecteur></Libelle> : null}
               </div>
             </div>) })}
           <Bouton taille="sm" icone={<Plus />} onClick={() => majQ({ etapes: [...q.etapes, { id: nid(), nom: "Nouvelle étape", type: "Validation à la main", qui: "Le commercial", validation: "À la main", delai: 2 }] })}>Ajouter une étape</Bouton>
+          {!q.etapes.some((e) => TYPES_FORMULAIRE.includes(e.type)) ? <Bouton taille="sm" variante="discret" icone={<Plus />} onClick={leadSurFormulaire}>Il devient lead quand il remplit un formulaire</Bouton> : null}
+          {!q.interet.length ? <p className="text-colonne text-encre-2">Aucune règle d'intérêt : seuls ceux qui atteignent l'étape « lead » arrivent chez toi. Rien ne part en session de call avant.</p> : null}
           {iGagne >= 0 && iLead > iGagne ? <p className="text-colonne text-alerte">Le « gagné » doit venir après le lead.</p> : null}
         </div>
       </Bloc>
 
       <div className="grid gap-8 @min-[700px]:grid-cols-2">
-        <Bloc titre="Qualité du lead" droite="la première règle vraie, de haut en bas"><div className="mt-3 space-y-2">
+        {avecQualite ? <Bloc titre="Qualité du lead" droite="la première règle vraie, de haut en bas"><div className="mt-3 space-y-2">
           {q.qualites.map((n, i) => <div key={n.id} className="space-y-2 rounded-4 border-[0.5px] border-trait p-3">
             <div className="flex items-center gap-2 text-legende"><span className="text-encre-2">Niveau</span><Champ className="!w-14 text-center" aria-label="Niveau" value={n.niveau} onChange={(e) => majN(n.id, { niveau: e.target.value })} /><span className="text-encre-2">si</span><span className="min-w-0 flex-1"><Selecteur value={n.source} aria-label="Condition" onChange={(e) => majN(n.id, { source: e.target.value as Qualite["source"] })}><option value="question">Une réponse au formulaire</option><option value="etape">Il a atteint une étape</option><option value="toujours">Tous les autres</option></Selecteur></span><IconeBtn icone={<ArrowUp />} label="Monter" off={i === 0} onClick={() => majQ({ qualites: deplacer(q.qualites, i, -1) })} /><IconeBtn icone={<X />} label="Retirer" onClick={() => majQ({ qualites: q.qualites.filter((y) => y.id !== n.id) })} /></div>
             {n.source === "question" ? (questions.length ? <div className="grid grid-cols-[minmax(0,1fr)_100px_90px] gap-2"><Selecteur value={n.questionId} aria-label="Question" onChange={(e) => majN(n.id, { questionId: e.target.value })}><option value="">Quelle question ?</option>{questions.map((x) => <option key={x.id} value={x.id}>{x.libelle}</option>)}</Selecteur><Selecteur value={n.operateur} aria-label="Comparaison" onChange={(e) => majN(n.id, { operateur: e.target.value })}>{OPERATEURS.map((o) => <option key={o}>{o}</option>)}</Selecteur><Champ value={n.valeur} placeholder="Valeur" aria-label="Valeur" onChange={(e) => majN(n.id, { valeur: e.target.value })} /></div> : <p className="text-colonne text-attention">Crée d'abord un formulaire avec des questions (onglet Créatifs).</p>) : null}
             {n.source === "etape" ? <Selecteur value={n.etapeId} aria-label="Étape" onChange={(e) => majN(n.id, { etapeId: e.target.value })}><option value="">Quelle étape ?</option>{q.etapes.map((x) => <option key={x.id} value={x.id}>{x.nom}</option>)}</Selecteur> : null}
           </div>)}
           <Bouton taille="sm" icone={<Plus />} onClick={() => majQ({ qualites: [...q.qualites, { id: nid(), niveau: String.fromCharCode(65 + q.qualites.length), source: questions.length ? "question" : "toujours", questionId: "", operateur: "au moins", valeur: "", etapeId: "" }] })}>Ajouter un niveau</Bouton>
-        </div></Bloc>
+        </div></Bloc> : null}
         <Bloc titre="À qui il arrive"><div className="mt-3 grid grid-cols-[minmax(0,1fr)_110px] gap-3">
           {baseId !== "artisans" ? <Libelle titre="Attribution"><Selecteur value={q.attribution} onChange={(e) => majQ({ attribution: e.target.value, attributionIds: [] })}>{ATTRIBUTIONS.map((a) => <option key={a}>{a}</option>)}</Selecteur></Libelle> : <p className="self-center text-colonne text-encre-2">Les sous-traitants sont traités par l'équipe recrutement.</p>}
           <Libelle titre="À traiter sous (h)"><Champ type="number" min={0} value={q.delaiH} onChange={(e) => majQ({ delaiH: Number(e.target.value) || 0 })} /></Libelle>
@@ -248,7 +246,7 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
         </Bloc>
       </div>
       <Bloc titre="Perdu"><div className="mt-3 space-y-3">
-        <div className="flex flex-wrap items-center gap-1.5">{q.motifs.map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 pl-3 pr-1 text-colonne">{m}<button type="button" aria-label={`Retirer ${m}`} className="rounded-full p-1 hover:bg-fond-4" onClick={() => majQ({ motifs: q.motifs.filter((y) => y !== m) })}><X size={11} /></button></span>)}<span className="w-44"><Champ value={motif} placeholder="Ajouter un motif + Entrée" aria-label="Ajouter un motif" onChange={(e) => setMotif(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && motif.trim()) { majQ({ motifs: [...q.motifs, motif.trim()] }); setMotif("") } }} /></span></div>
+        {baseId === "artisans" ? <><div className="flex flex-wrap items-center gap-1.5">{q.motifs.map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 pl-3 pr-1 text-colonne">{m}<button type="button" aria-label={`Retirer ${m}`} className="rounded-full p-1 hover:bg-fond-4" onClick={() => majQ({ motifs: q.motifs.filter((y) => y !== m) })}><X size={11} /></button></span>)}<span className="w-44"><Champ value={motif} placeholder="Ajouter un motif + Entrée" aria-label="Ajouter un motif" onChange={(e) => setMotif(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && motif.trim()) { majQ({ motifs: [...q.motifs, motif.trim()] }); setMotif("") } }} /></span></div></> : <p className="text-legende"><span className="text-encre-2">Les motifs de la fiche agence, partout : </span>{MOTIFS_AGENCE.join(" · ")}</p>}
         <label className="flex items-center gap-2 text-legende">Le recontacter après <Champ type="number" min={0} className="!w-16" value={q.relanceMois} onChange={(e) => majQ({ relanceMois: Number(e.target.value) || 0 })} /> mois (0 : jamais)</label>
       </div></Bloc>
     </div>

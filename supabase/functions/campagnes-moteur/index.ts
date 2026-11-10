@@ -97,11 +97,13 @@ const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
 /** Ceux que les garde-fous de la campagne empêchent d'entrer. Une campagne jamais enregistrée n'en a pas. */
-async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number): Promise<Set<string>> {
+async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null): Promise<Set<string>> {
   const bloques = new Set<string>()
   if (!garde) return bloques
-  if ((garde.ecartCampagnes ?? 0) > 0) {
-    const depuis = new Date(maintenant.getTime() - Number(garde.ecartCampagnes) * JOUR_MS).toISOString()
+  // L'écart commun à toutes les campagnes l'emporte sur l'ancien réglage de la campagne.
+  const ecart = ecartCommun ?? garde.ecartCampagnes ?? 0
+  if (ecart > 0) {
+    const depuis = new Date(maintenant.getTime() - Number(ecart) * JOUR_MS).toISOString()
     const recus = await tout<{ contact_ref: string }>((d, f) => sb.from("cmp_envois").select("contact_ref").neq("campagne_id", campagneId).eq("statut", "envoye").eq("test", false).gte("le", depuis).order("id").range(d, f))
     for (const r of recus) bloques.add(r.contact_ref)
   }
@@ -259,6 +261,9 @@ Deno.serve(async (req: Request) => {
     const { data: ligneDomaines } = await sb.from("parametres").select("valeur").eq("cle", "domaines_bloques").maybeSingle()
     let domaines: string[] = []
     try { domaines = JSON.parse(String((ligneDomaines as { valeur?: string } | null)?.valeur ?? "[]")) } catch { domaines = [] }
+    const { data: ligneEcart } = await sb.from("parametres").select("valeur").eq("cle", "cmp_ecart_campagnes").maybeSingle()
+    const brutEcart = (ligneEcart as { valeur?: string } | null)?.valeur
+    const ecartCommun = brutEcart != null && brutEcart !== "" && Number.isFinite(Number(brutEcart)) ? Number(brutEcart) : null
     let envoisPassage = 0
     for (const ligne of (actives ?? []) as Ligne[]) {
       bilan.campagnes = Number(bilan.campagnes) + 1
@@ -300,7 +305,7 @@ Deno.serve(async (req: Request) => {
 
       // 2. La décision, par le moteur pur.
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
-      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0))
+      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun)
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
       const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
       const ecr = passage({ campagne: c, contacts: autorises, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
