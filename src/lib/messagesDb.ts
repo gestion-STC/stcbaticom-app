@@ -118,6 +118,13 @@ export async function compterNonLus(espace?: Espace): Promise<number> {
 }
 
 // Marque une liste de messages comme lus (ouverture d'un fil de discussion).
+/** Le commercial tranche une réponse : lead (on rouvre ou on crée le lead) ou dead (l'agence passe en « Pas intéressé »). */
+export async function deciderReponse(id: string, decision: "lead" | "dead"): Promise<void> {
+  if (!supabase) throw new Error("Supabase n'est pas configuré.")
+  const { error } = await supabase.rpc("cmp_decider_reponse", { p_message: id, p_decision: decision })
+  if (error) throw new Error(error.message)
+}
+
 export async function marquerLus(ids: string[]): Promise<void> {
   if (!supabase || ids.length === 0) return
   const { error } = await supabase.from("messages").update({ lu: true }).in("id", ids)
