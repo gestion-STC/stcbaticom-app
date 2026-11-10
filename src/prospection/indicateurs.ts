@@ -14,7 +14,7 @@ export type LigneEtape = {
   etapeId: string; rang: number; libelle: string; type: Etape["type"]; envoyes: number; erreurs: number; sautes: number
   delivres: number; ouvreurs: number; cliqueurs: number; repondants: number; premiersClics: number; leads: number; gagnes: number
 }
-export type LigneVariante = { etapeId: string; varianteId: string; nom: string; objet: string; envoyes: number; ouvreurs: number; cliqueurs: number; repondants: number; tauxOuverture: number | null; tauxClic: number | null }
+export type LigneVariante = { etapeId: string; varianteId: string; nom: string; objet: string; envoyes: number; ouvreurs: number; cliqueurs: number; repondants: number; leads: number; tauxOuverture: number | null; tauxClic: number | null }
 export type LigneSegment = { valeur: string; entres: number; touches: number; cliqueurs: number; repondants: number; leads: number; gagnes: number }
 export type LigneJour = { jour: string; entres: number; envoyes: number; erreurs: number; ouvreurs: number; cliqueurs: number; leads: number }
 
@@ -74,7 +74,7 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
       const ids = new Set(ee.map((e) => e.id))
       const ev = evs.filter((e) => e.envoiId && ids.has(e.envoiId))
       const o = uniques(ev, "ouvert").size, k = uniques(ev, "clic").size
-      parVariante.push({ etapeId: et.id, varianteId: v.id, nom: v.nom, objet: v.objet, envoyes: ee.length, ouvreurs: o, cliqueurs: k, repondants: uniques(ev, "reponse").size, tauxOuverture: taux(o, ee.length), tauxClic: taux(k, ee.length) })
+      parVariante.push({ etapeId: et.id, varianteId: v.id, nom: v.nom, objet: v.objet, envoyes: ee.length, ouvreurs: o, cliqueurs: k, repondants: uniques(ev, "reponse").size, leads: new Set(ee.map((e) => e.contactId).filter((id) => lds.some((l) => l.contactId === id))).size, tauxOuverture: taux(o, ee.length), tauxClic: taux(k, ee.length) })
     }
   }
 

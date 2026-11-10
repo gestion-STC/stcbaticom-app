@@ -9,11 +9,12 @@
 // ════════════════════════════════════════════════════════════════════════════
 import type { Campagne, Condition, Etape, Signal, Variante } from "./modele"
 import type { ReglageIA } from "./ia"
+import { AB_DEPART, type ReglageAB } from "./abTest"
 import { MONTEE_DEFAUT, type AlerteOuverture, type Montee } from "./montee"
 
 export type TypeCreatif = "mail" | "sms" | "linkedin" | "page" | "formulaire" | "avis"
 export type Question = { id: string; libelle: string; type: string; requis: boolean; qualifiante: boolean; attendu: string; /** Pour un choix unique : les réponses, séparées par des virgules. */ options?: string }
-export type Creatif = { id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[]; /** Page d'avis : le lien Google proposé à tout le monde après l'avis. */ lienGoogle?: string; /** Un mail personnalisé par l'IA. */ ia?: ReglageIA; /** false : la relance part en nouveau mail plutôt que dans le fil. */ memeFil?: boolean }
+export type Creatif = { /** Le test A/B de ce créatif (Mahdi, 11/11/2026). */ ab?: ReglageAB; id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[]; /** Page d'avis : le lien Google proposé à tout le monde après l'avis. */ lienGoogle?: string; /** Un mail personnalisé par l'IA. */ ia?: ReglageIA; /** false : la relance part en nouveau mail plutôt que dans le fil. */ memeFil?: boolean }
 export type TypeAction = Etape["type"]
 export type Action = { id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string; cible?: "standard" | "contact" }
 export type Regle = { id: string; evenement: string; fois: number; jours: number }
@@ -62,6 +63,8 @@ export const REPONSES_REGLABLES: { tri: string; libelle: string; aide: string; d
 ]
 export const ACTIONS_REPONSE: { id: ActionReponse; libelle: string }[] = [{ id: "lead", libelle: "Lead" }, { id: "dead", libelle: "Dead : l'agence passe en « Pas intéressé »" }, { id: "rien", libelle: "Rien" }]
 export const actionReponse = (q: Pick<Qualification, "reponses">, tri: string): ActionReponse => (tri === "absent" ? "rien" : q.reponses?.[tri] ?? REPONSES_REGLABLES.find((r) => r.tri === tri)?.defaut ?? "lead")
+/** Le réglage du test A/B d'une étape : celui de son créatif. */
+export const reglageABDe = (cfg: ConfigCampagne, etapeId: string): ReglageAB => cfg.creatifs.find((k) => k.id === cfg.actions.find((a) => a.id === etapeId)?.creatifId)?.ab ?? AB_DEPART
 export const MOTIFS_DEFAUT = ["Pas intéressé", "Hors cible", "Déjà équipé", "Injoignable"]
 
 const FRANCE = "pays:250"
