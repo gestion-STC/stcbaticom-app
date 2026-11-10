@@ -18,9 +18,23 @@ const JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "
 export const jourParis = (d: Date) => JOURS_FR.indexOf(paris(d, { weekday: "long" })) + 1
 const jourDe = (iso: string) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date(iso))
 
+/** Les jours fériés en France (Mahdi, 11/11/2026) : rien ne part ces jours-là, les envois prévus partent le jour ouvré suivant. */
+function paques(annee: number): Date {
+  const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1
+  return new Date(Date.UTC(annee, mois - 1, jour))
+}
+/** `jour` au format AAAA-MM-JJ (le jour à Paris). */
+export function estFerie(jour: string): boolean {
+  if (["01-01", "05-01", "05-08", "07-14", "08-15", "11-01", "11-11", "12-25"].includes(jour.slice(5))) return true
+  const p = paques(Number(jour.slice(0, 4)))
+  return [1, 39, 50].some((n) => new Date(p.getTime() + n * 86_400_000).toISOString().slice(0, 10) === jour) // lundi de Pâques, Ascension, lundi de Pentecôte
+}
+
 export function dansLaPlage(c: Campagne, maintenant: Date): boolean {
   const h = heureParis(maintenant)
-  return c.rythme.jours.includes(jourParis(maintenant)) && h >= c.rythme.heureMin && h < c.rythme.heureMax
+  return c.rythme.jours.includes(jourParis(maintenant)) && !estFerie(jourDe(maintenant.toISOString())) && h >= c.rythme.heureMin && h < c.rythme.heureMax
 }
 
 /** Une étape qui envoie : la variante du contact (A/B réparti par contact, toujours la même pour lui). */
