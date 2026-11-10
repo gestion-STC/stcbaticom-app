@@ -24,7 +24,7 @@ import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
 import { ETAPE_ALERTE, aAppelerSurOuverture, boitesSaines, envoisDuJour, type AlerteOuverture, type Montee } from "../_shared/campagnes/montee.ts"
 import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
-import { ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
+import { ceQuiMarche, ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/campagnes/pareFeu.ts"
 import { estBaseAvis } from "../_shared/campagnes/avis.ts"
@@ -143,7 +143,7 @@ async function texteIA(sb: SupabaseClient, c: Ligne, cr: CreatifConfig, r: Regla
   if (compteurIA.n >= IA_MAX_PAR_PASSAGE) return { reporte: true }
   compteurIA.n++
   try {
-    const g = await genererTexteIA({ baseId: k.baseId, reglage: r, campagneNom: String(c.nom), objet, corps, fiche, offre: await offreSTC(sb) })
+    const g = await genererTexteIA({ baseId: k.baseId, reglage: r, campagneNom: String(c.nom), objet, corps, fiche, offre: await offreSTC(sb), appels: await ceQuiMarche(sb, k.baseId, r) })
     const valide = r.relecture !== "tous"
     const { error } = await sb.from("cmp_textes_ia").upsert({ campagne_id: c.id, creatif_id: cr.id, variante_id: varianteId, contact_ref: k.id, texte: g.texte, valide, cout: g.cout }, { onConflict: "campagne_id,variante_id,contact_ref" })
     if (error) throw new Error(error.message)

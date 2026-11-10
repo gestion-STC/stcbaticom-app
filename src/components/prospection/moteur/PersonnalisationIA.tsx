@@ -4,8 +4,8 @@ import { RefreshCw, Sparkles } from "lucide-react"
 import { Bandeau, Bouton, Champ, Chargement, Dialogue, Interrupteur, Selecteur, Zone } from "../../../ui"
 import { Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { ChoixFichiers } from "./ChoixFichiers"
-import { enregistrerTextesIA, essayerIA, type LigneIA } from "../../../lib/campagnesIa"
-import { BALISE_IA, CHAMPS_IA, familleIA, reglageIADepart, type ModeIA, type ReglageIA } from "../../../prospection/ia"
+import { ceQuiMarcheAuTelephone, enregistrerTextesIA, essayerIA, type Appris, type LigneIA } from "../../../lib/campagnesIa"
+import { BALISE_IA, CHAMPS_IA, avecAppels, familleIA, reglageIADepart, type ModeIA, type ReglageIA } from "../../../prospection/ia"
 
 const MODES: { id: ModeIA; label: string; aide: string }[] = [
   { id: "accroche", label: "Une accroche", aide: `Une phrase écrite pour chaque fiche, placée où tu mets ${BALISE_IA}. Le reste du mail est le tien.` },
@@ -26,6 +26,13 @@ export default function PersonnalisationIA({ reglage, onChange, baseId, campagne
   const [erreur, setErreur] = useState("")
   const [occupe, setOccupe] = useState("")
   const champs = CHAMPS_IA[familleIA(baseId)]
+  const [appris, setAppris] = useState<Appris | null>(null)
+  const [voirAppris, setVoirAppris] = useState(false)
+  const [erreurAppris, setErreurAppris] = useState("")
+  const lireAppris = async (refaire: boolean) => {
+    setOccupe(refaire ? "apprendre" : "appris"); setErreurAppris("")
+    try { setAppris(await ceQuiMarcheAuTelephone(refaire)); setVoirAppris(true) } catch (e) { setErreurAppris(e instanceof Error ? e.message : String(e)) } finally { setOccupe("") }
+  }
   const aide = MODES.find((m) => m.id === r.mode)?.aide
   const parametres = { baseId, campagneNom: campagne.nom || "Campagne", objet: variante.objet, corps: variante.corps, ia: r }
   const voir = async () => {
@@ -47,6 +54,12 @@ export default function PersonnalisationIA({ reglage, onChange, baseId, campagne
       {r.actif ? <div className="mt-4 space-y-4">
         <div className="space-y-1.5"><Etiquette>Ce que l'IA écrit</Etiquette><div className="flex flex-wrap gap-1.5">{MODES.map((m) => <button key={m.id} type="button" aria-pressed={r.mode === m.id} className={pilule(r.mode === m.id)} onClick={() => maj({ mode: m.id })}>{m.label}</button>)}</div><p className="text-colonne text-encre-2">{aide}</p>{r.mode !== "mail" && !variante.corps.includes(BALISE_IA) ? <Bouton taille="sm" onClick={inserer}>Insérer {BALISE_IA} après la salutation</Bouton> : null}</div>
         <div className="space-y-1.5"><Etiquette>Ce qu'elle a le droit d'utiliser</Etiquette><div className="flex flex-wrap gap-1.5">{champs.map((c) => <button key={c.cle} type="button" aria-pressed={r.champs.includes(c.cle)} className={pilule(r.champs.includes(c.cle))} onClick={() => maj({ champs: r.champs.includes(c.cle) ? r.champs.filter((x) => x !== c.cle) : [...r.champs, c.cle] })}>{c.libelle}</button>)}</div></div>
+        {familleIA(baseId) === "agence" ? <div className="space-y-2 rounded-3 bg-fond-2 p-3">
+          <div className="flex items-start gap-3"><span className="min-w-0 flex-1"><b className="block text-legende font-medium">S'appuyer sur ce qui marche au téléphone</b><span className="block text-colonne text-encre-2">L'IA lit une fiche tirée des appels analysés : les accroches et les arguments qui ont intéressé les gestionnaires, les objections fréquentes. Elle ne cite jamais un appel.</span></span><Interrupteur libelle="S'appuyer sur ce qui marche au téléphone" allume={avecAppels(baseId, r)} onChange={(v) => maj({ appels: v })} /></div>
+          <div className="flex flex-wrap gap-2"><Bouton taille="sm" variante="discret" chargement={occupe === "appris"} onClick={() => (voirAppris ? setVoirAppris(false) : void lireAppris(false))}>{voirAppris ? "Masquer la fiche" : "Voir ce qu'elle a retenu"}</Bouton><Bouton taille="sm" variante="discret" icone={<RefreshCw />} chargement={occupe === "apprendre"} onClick={() => void lireAppris(true)}>Mettre à jour depuis les appels</Bouton></div>
+          {erreurAppris ? <Bandeau role="alerte">{erreurAppris}</Bandeau> : null}
+          {voirAppris ? appris ? <div className="space-y-1"><p className="text-colonne text-encre-2">Tirée de {appris.nb} appels intéressés, le {new Date(appris.le).toLocaleDateString("fr-FR")}.</p><p className="whitespace-pre-line text-colonne text-encre">{appris.texte}</p></div> : <p className="text-colonne text-encre-2">Pas encore de fiche : touche « Mettre à jour depuis les appels ».</p> : null}
+        </div> : null}
         <label className="block space-y-1.5"><Etiquette>Le contexte de la campagne</Etiquette><Zone rows={4} value={r.contexte} onChange={(e) => maj({ contexte: e.target.value })} /></label>
         <label className="block space-y-1.5"><Etiquette>Ta consigne</Etiquette><Zone rows={3} value={r.consigne} onChange={(e) => maj({ consigne: e.target.value })} /></label>
         <label className="block space-y-1.5"><Etiquette>Ce qu'elle ne doit jamais faire</Etiquette><Champ value={r.interdit} onChange={(e) => maj({ interdit: e.target.value })} /></label>

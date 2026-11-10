@@ -17,6 +17,19 @@ export async function essayerIA(a: { baseId: string; campagneNom: string; objet:
   return data as { lignes: LigneIA[]; cout: number }
 }
 
+export type Appris = { texte: string; nb: number; le: string }
+
+/** Ce que l'IA a retenu des appels : la fiche enregistrée, ou refaite (`refaire`). */
+export async function ceQuiMarcheAuTelephone(refaire = false): Promise<Appris | null> {
+  const { data, error } = await sb().functions.invoke("campagnes-ia", { body: { action: refaire ? "apprendre" : "appris" } })
+  if (error) {
+    const ctx = (error as { context?: Response }).context
+    const lu = ctx && typeof ctx.json === "function" ? ((await ctx.json().catch(() => null)) as { error?: string } | null) : null
+    throw new Error(lu?.error ?? error.message)
+  }
+  return (data as { appris?: Appris | null }).appris ?? null
+}
+
 /** Les exemples relus : ces fiches recevront exactement ces textes. */
 export async function enregistrerTextesIA(campagneId: string, creatifId: string, varianteId: string, lignes: LigneIA[]): Promise<void> {
   const aGarder = lignes.filter((l) => !l.pauvre && l.texte.trim()).map((l) => ({ campagne_id: campagneId, creatif_id: creatifId, variante_id: varianteId, contact_ref: l.contactRef, texte: l.texte.trim(), valide: true, modifie: Boolean(l.modifie), cout: l.cout }))
