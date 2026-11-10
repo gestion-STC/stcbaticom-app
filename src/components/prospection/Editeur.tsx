@@ -3,7 +3,7 @@
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useMemo, useState } from "react"
 import { Check } from "lucide-react"
-import { Bouton, Champ, Chargement, Onglets } from "../../ui"
+import { Bouton, Champ, Chargement, Dialogue, Onglets } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
@@ -34,7 +34,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const [c, setC] = useState<Campagne>(() => existante ?? {
     id: crypto.randomUUID(), nom: "", baseId: v.bases[0]?.id ?? "", objectif: "Créer des leads", statut: "brouillon",
     audience: { filtres: {}, doitAvoir: ["email", "telephone"] }, rythme: { parJour: 20, jours: [1, 2, 3, 4, 5], heureMin: 9, heureMax: 18, ecartMinH: 48 },
-    etapes: [], signaux: [], creeParId: v.compte.id, creeLe: v.etat.maintenant, lanceeLe: null, coutSms: 0.06, modeTest: true, testEmail: "gestion@stcbatiment.fr", testMobile: "",
+    etapes: [], signaux: [], creeParId: v.compte.id, creeLe: v.etat.maintenant, lanceeLe: null, coutSms: 0.06, modeTest: false, testEmail: "", testMobile: "",
   })
   const [cfg, setCfg] = useState<ConfigCampagne>(() => configDe(c))
   const [partie, setPartie] = useState<Partie>("audience")
@@ -44,6 +44,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
     setObjectifChoisi(true)
   }
   const [ex, setEx] = useState("")
+  const [confirmer, setConfirmer] = useState(false)
   const maj: MajConfig = (f) => setCfg(f)
   const tracabilite = c.origine === ORIGINE_TRACABILITE
   const base = v.base(c.baseId)
@@ -67,9 +68,10 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
 
   return (
     <div className="space-y-5">
+      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={c.modeTest ? "Cette campagne est en mode essai : les envois partiront vers l'adresse d'essai." : `${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${c.rythme.heureMin} h à ${c.rythme.heureMax} h, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}
       <Titre titre={existante ? existante.nom : "Créer une campagne"} sous={tracabilite ? "Ce qui tourne aujourd'hui : les mails envoyés après les appels, avec leurs liens suivis. Cette campagne n'envoie rien toute seule." : existante?.statut === "active" ? "Campagne active : les changements valent pour les prochaines touches." : "Rien ne part tant qu'elle n'est pas lancée."}
-        droite={<><Bouton onClick={() => enregistrer(c.statut)}>Enregistrer</Bouton>{c.statut !== "active" && !tracabilite ? <Bouton variante="plein" icone={<Check />} disabled={!eligibles || vide} title={vide ? "Un message est vide" : !eligibles ? "Personne dans l'audience" : undefined} onClick={() => enregistrer("active")}>Lancer</Bouton> : null}</>} />
+        droite={<><Bouton onClick={() => enregistrer(c.statut)}>Enregistrer</Bouton>{c.statut !== "active" && !tracabilite ? <Bouton variante="plein" icone={<Check />} disabled={!eligibles || vide} title={vide ? "Un message est vide" : !eligibles ? "Personne dans l'audience" : undefined} onClick={() => setConfirmer(true)}>Lancer</Bouton> : null}</>} />
       <div className="grid gap-10 @min-[1100px]:grid-cols-[minmax(0,1fr)_250px]">
         <div className="min-w-0">
           <Onglets<Partie> valeur={partie} onChange={setPartie} options={avis ? [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "garde", label: "4 · Garde-fous" }, { id: "mesure", label: "5 · Mesure" }] : [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "qualification", label: "4 · Qualification" }, { id: "garde", label: "5 · Garde-fous" }, { id: "mesure", label: "6 · Mesure" }]} />
@@ -99,7 +101,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                 </div></Bloc>
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} />
-              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} />
+              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={{ contact: contactsBase[0]?.personne ?? "", entreprise: contactsBase[0]?.nom ?? "" }} />
               : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">
@@ -110,7 +112,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                   </div></Bloc>
                   <Bloc titre="Suivi des ouvertures"><div className="mt-3 space-y-2"><label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={cfg.garde.suiviOuvertures !== false} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, suiviOuvertures: e.target.checked } }))} />Savoir qui ouvre mes mails</label><p className="text-colonne text-encre-2">Conseil : la CNIL demande un consentement pour ce suivi, et il peut réduire l'arrivée en boîte de réception. Sans lui, « A ouvert » ne se déclenche pas.</p></div></Bloc>
                   <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}{m === "Désinscrit" ? null : <button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button>}</span>)}<span className="w-52"><Champ value={ex} placeholder="Ex. Endormie, puis Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>
-                  {!tracabilite ? <Bloc titre="Mode essai" droite={c.modeTest ? <span className="text-colonne text-attention">actif</span> : <span className="text-colonne text-encre-2">envois réels</span>}>
+                  {!tracabilite && c.modeTest ? <Bloc titre="Mode essai" droite={c.modeTest ? <span className="text-colonne text-attention">actif</span> : <span className="text-colonne text-encre-2">envois réels</span>}>
                     <label className="mt-3 flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(c.modeTest)} onChange={(e) => setC({ ...c, modeTest: e.target.checked })} />Mode essai : les mails arrivent chez moi, pas chez les contacts</label>
                     {c.modeTest ? <div className="mt-2 grid max-w-[520px] grid-cols-2 gap-2"><Champ value={c.testEmail ?? ""} aria-label="Adresse de test" onChange={(e) => setC({ ...c, testEmail: e.target.value })} placeholder="Adresse de test" /><Champ value={c.testMobile ?? ""} aria-label="Mobile de test" onChange={(e) => setC({ ...c, testMobile: e.target.value })} placeholder="Mobile de test (pour les SMS)" /></div> : null}
                   </Bloc> : null}

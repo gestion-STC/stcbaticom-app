@@ -146,4 +146,12 @@ describe("le moteur du serveur", () => {
     expect(estEligible(contact({ telephone: "0145000000" }), c)).toBe(true)
     expect(estEligible(contact({ telephone: "" }), c)).toBe(false)
   })
+  it("ne relance plus quelqu'un qui a répondu", () => {
+    const c = campagne({ etapes: [{ id: "m1", type: "mail", variantes: [{ id: "a", nom: "A", objet: "o", corps: "c" }] }], rythme: { parJour: 5, jours: [1, 2, 3, 4, 5, 6, 7], heureMin: 0, heureMax: 24, ecartMinH: 0 } })
+    const k = { id: "k1", baseId: c.baseId, nom: "N", personne: "", email: "a@b.fr", mobile: "", telephone: "01", champs: {}, statut: "libre" as const, desinscrit: false, proprietaireId: null }
+    const insc = { id: "i1", campagneId: c.id, contactId: "k1", entreeLe: "2026-11-01T08:00:00Z", etapeIndex: 0, prochaineLe: "2026-11-01T08:00:00Z", statut: "en_cours" as const, sortieLe: null }
+    const r = passage({ campagne: c, contacts: [k], inscriptions: [insc], envois: [], evenements: [{ id: "e", campagneId: c.id, envoiId: null, contactId: "k1", type: "reponse", le: "2026-11-02T08:00:00Z" }] }, new Date("2026-11-03T10:00:00Z"), () => "x")
+    expect(r.envois).toHaveLength(0)
+    expect(r.majInscriptions[0].statut).toBe("terminee")
+  })
 })

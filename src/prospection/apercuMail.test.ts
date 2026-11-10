@@ -17,7 +17,7 @@ describe("aperçu du mail", () => {
   it("ne double pas la désinscription quand le texte la contient", () => {
     expect(apercuMail("", "Stop : {{lien_desinscription}}").document).not.toContain("Pour ne plus recevoir")
   })
-  it("ajoute le lien du créatif", () => expect(apercuMail("", "Bonjour", "Remplir le formulaire").document).toContain("Remplir le formulaire : "))
+  it("ajoute le lien du créatif", () => expect(apercuMail("", "Bonjour", "Remplir le formulaire").document).toContain(">Remplir le formulaire</a>"))
 })
 
 describe("une image au milieu du texte", () => {

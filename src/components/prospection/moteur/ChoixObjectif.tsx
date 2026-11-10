@@ -9,6 +9,7 @@ const ZERO = "zero"
 const DETAILS: Record<string, { pour: string; prepare: string[] }> = {
   "ag-vol": { pour: "Toucher beaucoup de gestionnaires et repérer ceux qui montrent de l'intérêt.", prepare: ["Un mail, puis un appel 3 jours après", "Un clic suffit pour créer le lead", "Idéal sur un grand fichier"] },
   "ag-qual": { pour: "Obtenir moins de contacts, mais déjà renseignés.", prepare: ["Un mail vers un formulaire", "Le lead naît quand la fiche est remplie", "Idéal sur un fichier ciblé"] },
+  "ap-vol": { pour: "Toucher vos apporteurs d'affaires et repérer ceux qui veulent travailler avec vous.", prepare: ["Un mail, puis un appel 3 jours après", "Un clic ou une réponse crée le lead", "Idéal sur le fichier apporteurs"] },
   "st-vol": { pour: "Constituer un stock de sous-traitants intéressés à appeler.", prepare: ["Un mail, puis un appel 3 jours après", "Le clic les met en session de call", "Le lead naît au dossier déposé"] },
   "st-qual": { pour: "Ne garder que ceux qui déposent leur dossier.", prepare: ["Un mail vers le dépôt de dossier", "Le lead naît au dossier déposé", "Aucun appel prévu"] },
   "av-loc": { pour: "Récolter l'avis des locataires après une intervention.", prepare: ["Un mail, une relance à 7 jours", "Une page d'avis", "Aucun lead, aucun appel"] },

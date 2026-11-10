@@ -30,7 +30,9 @@ export function horaireInstantly(r: { jours: number[]; heureMin: number; heureMa
 
 const echapper = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 const estHtml = (s: string) => /<(html|body|table|div|p|a|br)\b/i.test(s)
-const liens = (s: string) => echapper(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+/** Un lien se lit en mots : [Mon texte](adresse), sinon « Cliquez ici ». L'adresse technique ne s'affiche jamais. */
+export const LIBELLE_LIEN = "Cliquez ici"
+const liens = (s: string) => echapper(s).replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/g, (_tout, texte: string | undefined, url: string | undefined, nu: string | undefined) => (url ? `<a href="${url}">${texte}</a>` : `<a href="${nu}">${LIBELLE_LIEN}</a>`))
 // Une image ajoutée dans le texte reste une image ; tout le reste est du texte.
 const texteEnHtml = (s: string) => s.split(/(<img\b[^>]*>)/i).map((morceau, i) => (i % 2 ? morceau : liens(morceau))).join("").replace(/\n/g, "<br/>")
 
@@ -42,6 +44,9 @@ export function corpsAvecMentions(texte: string, desinscription?: string, suivi 
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${mentions}</p></body>`)
   return `${html}<br/><br/>${mentions}`
 }
+
+/** {{contact}} sans nom : « Bonjour {{contact}}, » devient « Bonjour, ». */
+export const remplirContact = (s: string, personne: string) => (personne.trim() ? s.split("{{contact}}").join(personne.trim()) : s.replace(/[ \u00a0]*\{\{contact\}\}/g, ""))
 
 /** Ce qu'une série de boîtes peut envoyer par jour sans abîmer leur réputation. */
 export const MAILS_PAR_BOITE = 30

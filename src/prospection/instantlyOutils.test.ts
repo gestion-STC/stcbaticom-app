@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly } from "./instantlyOutils"
+import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, remplirContact } from "./instantlyOutils"
 import ecran from "./instantlyOutils.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/instantlyOutils.ts?raw"
 
@@ -39,6 +39,16 @@ describe("instantlyOutils", () => {
   it("insère la signature dans un mail HTML, sans la doubler", () => {
     expect(corpsAvecMentions("<html><body>x</body></html>")).toMatch(/78280 Guyancourt<\/p><\/body>/)
     expect(corpsAvecMentions("<p>Adresse 78280</p>")).toBe("<p>Adresse 78280</p>")
+  })
+  it("n'affiche jamais une adresse technique", () => {
+    const c = corpsAvecMentions("Voir https://x.supabase.co/a?b=1\n[Créer mon compte](https://x.supabase.co/c)")
+    expect(c).toContain(">Cliquez ici</a>")
+    expect(c).toContain('<a href="https://x.supabase.co/c">Créer mon compte</a>')
+    expect(c).not.toContain(">https://")
+  })
+  it("retire le nom quand la fiche n'en a pas", () => {
+    expect(remplirContact("Bonjour {{contact}},", "")).toBe("Bonjour,")
+    expect(remplirContact("Bonjour {{contact}},", "Claire")).toBe("Bonjour Claire,")
   })
   it("limite le volume selon le nombre de boîtes", () => expect(capaciteJour(3)).toBe(90))
   it("s'arrête au-delà de 3 % de rebonds, jamais sur un petit nombre", () => {
