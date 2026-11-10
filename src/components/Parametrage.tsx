@@ -5,7 +5,7 @@ import ObjectifsReglage from "./demarchage/ObjectifsReglage"
 import EmailsManager from "./EmailsManager"
 import NumerosManager from "./NumerosManager"
 import Comptes from "./Comptes"
-import QuestionnaireST from "./recrutement/QuestionnaireST"
+import ReglagesQualification from "./recrutement/ReglagesQualification"
 import { estAdmin } from "../lib/comptes"
 import { usePerimetre } from "../lib/usePerimetre"
 
@@ -34,7 +34,7 @@ const RUBRIQUES: Rubrique[] = [
   {
     titre: "Équipe",
     sections: [
-      { id: "qualification", label: "Questionnaire sous-traitants", admin: true },
+      { id: "qualification", label: "Qualification sous-traitants", admin: true },
       { id: "comptes", label: "Comptes", admin: true },
       { id: "numeros", label: "Numéros Ringover", admin: true },
     ],
@@ -87,7 +87,7 @@ export default function Parametrage({ session, sectionInitiale }: { session: Ses
         {section === "script" && <ObjectifsReglage partie="script" />}
         {section === "secteurs" && <SecteursReglage />}
         {section === "modeles" && <EmailsManager partie="modeles" />}
-        {section === "qualification" && admin && <QuestionnaireST />}
+        {section === "qualification" && admin && <ReglagesQualification />}
         {section === "comptes" && admin && <Comptes session={session} />}
         {section === "numeros" && <NumerosManager />}
       </div>
