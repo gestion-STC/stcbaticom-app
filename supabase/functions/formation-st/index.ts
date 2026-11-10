@@ -8,7 +8,8 @@ const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
 type Question = { id: string; theme: string; texte: string; bonne: string; fausses: string[]; explication: string; actif: boolean; posee: number; ratee: number }
 type Essai = { ids: string[]; ordres: Record<string, string[]>; reponses: Record<string, { reponse: string; juste: boolean }> }
-type Fiche = { sous_traitant_id: string; etat: EtatFormation; score: number | null; essais: number; vues: string[]; essai: Essai | null; journal: unknown[]; termine_le: string | null }
+type Fiche = { sous_traitant_id: string; etat: EtatFormation; score: number | null; essais: number; vues: string[]; essai: Essai | null; journal: unknown[]; termine_le: string | null; scenario_le?: string | null; scenario_score?: number | null }
+const APPLICATION = "https://stcbatiment.com/"
 
 async function reglesDe(sb: SupabaseClient): Promise<ReglesFormation> {
   const { data } = await sb.from("parametres").select("valeur").eq("cle", "formation_regles").maybeSingle()
@@ -34,14 +35,14 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   try {
-    const b = await req.json().catch(() => ({})) as { action?: string; jeton?: string; questionId?: string; reponse?: string; theme?: string; nombre?: number }
+    const b = await req.json().catch(() => ({})) as { action?: string; jeton?: string; questionId?: string; reponse?: string; theme?: string; nombre?: number; score?: number; journal?: unknown[]; reflexes?: unknown[] }
     if (b.action === "proposer") {
       const { data: u } = await sb.auth.getUser((req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim())
       if (u.user?.app_metadata?.role !== "admin") return json({ error: "Réservé aux administrateurs." }, 403)
       return json({ questions: await proposer(sb, String(b.theme ?? ""), Math.min(Math.max(b.nombre ?? 5, 1), 10)) })
     }
     if (!/^[0-9a-f]{32}$/i.test(b.jeton ?? "")) return json({ error: "Ce lien n'est pas valide." }, 400)
-    const { data: ligne } = await sb.from("st_formations").select("sous_traitant_id, etat, score, essais, vues, essai, journal, termine_le").eq("jeton", b.jeton).maybeSingle()
+    const { data: ligne } = await sb.from("st_formations").select("*").eq("jeton", b.jeton).maybeSingle()
     if (!ligne) return json({ error: "Ce lien n'est pas valide." }, 404)
     const f = ligne as unknown as Fiche
     const r = await reglesDe(sb)
@@ -49,10 +50,15 @@ Deno.serve(async (req: Request) => {
     const maj = async (p: Record<string, unknown>) => { const { error } = await sb.from("st_formations").update({ ...p, maj_le: iso }).eq("sous_traitant_id", f.sous_traitant_id); if (error) throw new Error(error.message) }
     const bloque = () => blocageEssai(r, { essais: f.essais, termineLe: f.termine_le, etat: f.etat }, maintenant)
 
+    if (b.action === "scenario") {
+      const score = Math.min(100, Math.max(0, Math.round(Number(b.score) || 0)))
+      await maj({ scenario_score: score, scenario_journal: (Array.isArray(b.journal) ? b.journal : []).slice(0, 80), scenario_reflexes: (Array.isArray(b.reflexes) ? b.reflexes : []).slice(0, 20), scenario_le: iso, ...(f.etat === "a_envoyer" || f.etat === "envoye" ? { etat: "en_cours" } : {}) })
+      return json({ ok: true })
+    }
     if (b.action === "charger") {
       const { data: st } = await sb.from("st_sous_traitants").select("entreprise, contact").eq("id", f.sous_traitant_id).maybeSingle()
       const s = st as { entreprise?: string; contact?: string } | null
-      return json({ nom: s?.contact || s?.entreprise || "", etat: f.etat, score: f.score, essais: f.essais, essaisMax: r.essais, questions: r.questions, seuil: r.seuil, enCours: Boolean(f.essai), blocage: f.essai ? "" : bloque() })
+      return json({ nom: s?.contact || s?.entreprise || "", etat: f.etat, score: f.score, scenarioFait: Boolean(f.scenario_le), scenarioScore: f.scenario_score ?? null, lienScenario: `${APPLICATION}?formation=${b.jeton}`, essais: f.essais, essaisMax: r.essais, questions: r.questions, seuil: r.seuil, enCours: Boolean(f.essai), blocage: f.essai ? "" : bloque() })
     }
     const banque = async (ids?: string[]) => {
       let q = sb.from("st_formation_questions").select("id, theme, texte, bonne, fausses, explication, actif, posee, ratee").limit(2000)
@@ -65,6 +71,7 @@ Deno.serve(async (req: Request) => {
 
     if (b.action === "commencer") {
       if (f.essai) return json({ questions: vue(f.essai, await banque(f.essai.ids)) })
+      if (!f.scenario_le) return json({ error: "Commence par ta mission d'entraînement." }, 400)
       const blocage = bloque()
       if (blocage) return json({ error: blocage }, 400)
       const toutes = await banque()
