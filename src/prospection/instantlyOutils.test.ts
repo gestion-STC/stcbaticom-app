@@ -57,6 +57,11 @@ describe("instantlyOutils", () => {
     expect(remplirVariables("{{lien_principal}}", { prenom: "" })).toBe("{{lien_principal}}")
   })
   it("ne compte pas « Indépendante » comme une enseigne", () => expect(valeursDe({ nom: "A", personne: "", champs: { enseigne: "Indépendante" } }).enseigne).toBe(""))
+  it("garde une image cliquable sans casser le texte", () => {
+    const c = corpsAvecMentions('Ligne 1\nLigne 2\n<a href="https://a.fr/x"><img src="https://a.fr/i.jpg" width="600"></a>')
+    expect(c).toContain("Ligne 1<br/>Ligne 2")
+    expect(c).toContain('<a href="https://a.fr/x"><img src="https://a.fr/i.jpg"')
+  })
   it("conseille sans bloquer", () => {
     expect(conseilsEnvoi([], 10, "2026-11-20T00:00:00Z")[0]).toContain("aucune boîte")
     expect(conseilsEnvoi([{ depuis: "2026-11-01T00:00:00Z" }], 20, "2026-11-20T00:00:00Z")).toEqual([])

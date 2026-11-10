@@ -188,3 +188,11 @@ function groupes(v: LigneVariante[]): LigneVariante[][] {
   for (const x of v) m.set(x.etapeId, [...(m.get(x.etapeId) ?? []), x])
   return [...m.values()]
 }
+
+/** La meilleure version d'un test : au moins 20 envois par version, puis les réponses, puis les clics. */
+export function meilleureVariante(lignes: Pick<LigneVariante, "varianteId" | "envoyes" | "repondants" | "cliqueurs">[]): string | null {
+  if (lignes.length < 2 || lignes.some((l) => l.envoyes < 20)) return null
+  const note = (l: (typeof lignes)[number]) => (l.repondants / l.envoyes) * 1000 + l.cliqueurs / l.envoyes
+  const triees = [...lignes].sort((a, b) => note(b) - note(a))
+  return note(triees[0]) > note(triees[1]) ? triees[0].varianteId : null
+}

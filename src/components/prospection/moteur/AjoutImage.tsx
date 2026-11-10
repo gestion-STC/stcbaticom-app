@@ -1,7 +1,7 @@
 // Ajouter une image à un mail (09/11/2026) : réduite pour rester légère, puis mise en ligne pour que le mail puisse l'afficher.
 import { useRef, useState } from "react"
 import { ImagePlus } from "lucide-react"
-import { Bouton } from "../../../ui"
+import { Bouton, Selecteur } from "../../../ui"
 import { televerser } from "../../../lib/stockage"
 
 const LARGEUR = 600
@@ -25,19 +25,21 @@ async function reduire(fichier: File): Promise<File> {
   return new File([blob], `${fichier.name.replace(/\.[^.]+$/, "") || "image"}.jpg`, { type: "image/jpeg" })
 }
 
-export default function AjoutImage({ onImage }: { onImage: (url: string) => void }) {
+export default function AjoutImage({ onImage }: { onImage: (url: string, lien: string) => void }) {
+  const [lien, setLien] = useState("")
   const entree = useRef<HTMLInputElement>(null)
   const [occupe, setOccupe] = useState(false)
   const [erreur, setErreur] = useState("")
   const choisi = (f?: File) => {
     if (!f) return
     setOccupe(true); setErreur("")
-    reduire(f).then(televerser).then((p) => onImage(p.url)).catch((e) => setErreur(e instanceof Error ? e.message : String(e))).finally(() => { setOccupe(false); if (entree.current) entree.current.value = "" })
+    reduire(f).then(televerser).then((p) => onImage(p.url, lien)).catch((e) => setErreur(e instanceof Error ? e.message : String(e))).finally(() => { setOccupe(false); if (entree.current) entree.current.value = "" })
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
       <input ref={entree} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" aria-label="Choisir une image" onChange={(e) => choisi(e.target.files?.[0])} />
       <Bouton taille="sm" icone={<ImagePlus />} chargement={occupe} onClick={() => entree.current?.click()}>Ajouter une image</Bouton>
+      <span className="w-[190px]"><Selecteur value={lien} aria-label="Au clic sur l'image" onChange={(e) => setLien(e.target.value)}><option value="">Image non cliquable</option><option value="{{lien_principal}}">Clic : lien principal</option><option value="{{lien_formulaire}}">Clic : formulaire</option><option value="{{lien_page}}">Clic : page</option></Selecteur></span>
       <span className="text-colonne text-encre-2">Elle s'ajoute à la fin du texte, sous forme de code : tu peux déplacer ce code. À éviter dans le premier mail.</span>
       {erreur ? <span className="text-colonne text-alerte">{erreur}</span> : null}
     </div>

@@ -26,4 +26,19 @@ export function essaiMail(objet: string, corps: string, marque: string, bouton: 
 export const essaiSms = (corps: string, marque: string, v?: ValeursEssai) => `${marque}${remplirExemples(corps, v)}`
 
 /** La balise d'une image ajoutée à un mail : elle ne dépasse jamais la largeur du message. */
-export const baliseImage = (url: string) => `<img src="${url}" alt="" width="600" style="max-width:100%;height:auto">`
+export const baliseImage = (url: string, lien = "") => { const img = `<img src="${url}" alt="" width="600" style="max-width:100%;height:auto;border:0">`; return lien ? `<a href="${lien}">${img}</a>` : img }
+
+/** Les conseils sur un mail : jamais un blocage. */
+export function conseilsMail(objet: string, corps: string, premier: boolean): string[] {
+  const out: string[] = []
+  const mots = objet.trim().split(/\s+/).filter(Boolean).length
+  if (objet.trim() && (mots > 7 || objet.length > 50)) out.push("Objet long : 2 à 7 mots passent mieux.")
+  if (/!{2,}/.test(objet + corps) || /\b[A-ZÉÈ]{6,}\b/.test(objet)) out.push("Évite les majuscules et les points d'exclamation répétés.")
+  if (/\b(gratuit|urgent|promotion|offre exceptionnelle|garanti|100 ?%)\b/i.test(objet + " " + corps)) out.push("Certains mots font penser à du spam (gratuit, urgent, garanti…).")
+  const liens = (corps.match(/\{\{lien_(?!desinscription)[a-z_]+\}\}|https?:\/\/[^\s)<"]+/g) ?? []).length
+  if (premier && liens > 1) out.push("Premier mail : un seul lien, c'est mieux pour arriver en boîte de réception.")
+  if (premier && /<img\b/i.test(corps)) out.push("Premier mail : évite les images.")
+  const longueur = corps.replace(/<[^>]+>/g, " ").trim().split(/\s+/).filter(Boolean).length
+  if (longueur > 130) out.push(`Mail long (${longueur} mots) : moins de 120 mots se lisent mieux.`)
+  return out
+}

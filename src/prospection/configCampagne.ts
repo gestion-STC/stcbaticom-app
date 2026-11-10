@@ -12,7 +12,7 @@ import type { ReglageIA } from "./ia"
 
 export type TypeCreatif = "mail" | "sms" | "linkedin" | "page" | "formulaire" | "avis"
 export type Question = { id: string; libelle: string; type: string; requis: boolean; qualifiante: boolean; attendu: string; /** Pour un choix unique : les réponses, séparées par des virgules. */ options?: string }
-export type Creatif = { id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[]; /** Page d'avis : le lien Google proposé à tout le monde après l'avis. */ lienGoogle?: string; /** Un mail personnalisé par l'IA. */ ia?: ReglageIA }
+export type Creatif = { id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[]; /** Page d'avis : le lien Google proposé à tout le monde après l'avis. */ lienGoogle?: string; /** Un mail personnalisé par l'IA. */ ia?: ReglageIA; /** false : la relance part en nouveau mail plutôt que dans le fil. */ memeFil?: boolean }
 export type TypeAction = Etape["type"]
 export type Action = { id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string; cible?: "standard" | "contact" }
 export type Regle = { id: string; evenement: string; fois: number; jours: number }

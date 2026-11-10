@@ -98,3 +98,23 @@ export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInsta
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé le contact (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
   return { ok: true, fournisseurId: String(r.data?.id ?? "") }
 }
+
+/** Une relance : une réponse au dernier mail envoyé à ce contact, dans le même fil. Rien à quoi répondre : null, et le mail part normalement. */
+export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; baseId: string }, contact: string, to: string, objet: string, texte: string, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string } | null> {
+  if (!ins.cle) return null
+  const { data: envois } = await sb.from("cmp_envois").select("fournisseur_id").eq("campagne_id", c.id).eq("contact_ref", contact).eq("statut", "envoye").eq("test", false).not("fournisseur_id", "is", null).order("le", { ascending: false }).limit(1)
+  const id = (envois?.[0] as { fournisseur_id?: string } | undefined)?.fournisseur_id
+  if (!id) return null
+  const { data: mail } = await sb.from("messages").select("de, objet").eq("sens", "sortant").eq("message_id", id).maybeSingle()
+  const m = mail as { de?: string; objet?: string } | null
+  if (!m?.de) return null
+  const sujet = m.objet ? (/^re\s*:/i.test(m.objet) ? m.objet : `Re: ${m.objet}`) : objet
+  const html = corpsAvecMentions(texte, desinscription, true)
+  const r = await appelInstantly(ins.cle, "/emails/reply", { corps: { reply_to_uuid: id, eaccount: m.de, subject: sujet, body: { html, text: texte } } })
+  if (!r.ok) return { ok: false, erreur: `Instantly a refusé la relance (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
+  const nouveau = String(r.data?.id ?? "")
+  const lien = c.baseId === "artisans" ? { sous_traitant_id: contact, espace: "recrutement" } : { agence_id: contact, espace: "demarchage" }
+  const { error } = await sb.from("messages").insert({ sens: "sortant", de: m.de, a: to, objet: sujet, corps_text: texte, corps_html: html, message_id: nouveau || null, in_reply_to: id, lu: true, ...lien })
+  if (error) console.error("[INSTANTLY] journal de la relance", error.message)
+  return { ok: true, fournisseurId: nouveau }
+}
