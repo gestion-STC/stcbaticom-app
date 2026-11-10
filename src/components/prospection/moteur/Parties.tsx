@@ -61,7 +61,7 @@ export function Sequence({ cfg, maj, allerCreatifs, avis }: { cfg: ConfigCampagn
       </ol>
       <div className="relative mt-3">
         <Bouton icone={<Plus />} onClick={() => setPalette((x) => !x)}>Ajouter une action</Bouton>
-        {palette ? <div className="absolute left-0 top-[calc(100%+6px)] z-20 grid w-[520px] grid-cols-2 gap-1 rounded-4 border-[0.5px] border-trait bg-fond p-2 shadow-flottante">{(Object.keys(AIDE) as Exclude<TypeAction, "fin">[]).filter((t) => !avis || ["mail", "sms", "attendre", "si"].includes(t)).map((t) => { const I = ICONE[t]; return <button key={t} type="button" onClick={() => ajouter(t)} className="flex items-start gap-2 rounded-3 px-2 py-2 text-left hover:bg-fond-3"><I size={14} className="mt-0.5 shrink-0" /><span><span className="block text-legende font-medium">{LIBELLE_ETAPE[t]}</span><span className="block text-colonne text-encre-2">{AIDE[t]}</span></span></button> })}</div> : null}
+        {palette ? <div className="absolute left-0 top-[calc(100%+6px)] z-20 grid w-[520px] grid-cols-2 gap-1 rounded-4 border-[0.5px] border-trait bg-fond p-2 shadow-flottante">{(Object.keys(AIDE) as Exclude<TypeAction, "fin">[]).filter((t) => t !== "newsletter" && (!avis || ["mail", "sms", "attendre", "si"].includes(t))).map((t) => { const I = ICONE[t]; return <button key={t} type="button" onClick={() => ajouter(t)} className="flex items-start gap-2 rounded-3 px-2 py-2 text-left hover:bg-fond-3"><I size={14} className="mt-0.5 shrink-0" /><span><span className="block text-legende font-medium">{LIBELLE_ETAPE[t]}</span><span className="block text-colonne text-encre-2">{AIDE[t]}</span></span></button> })}</div> : null}
       </div>
     </Bloc>
   )
