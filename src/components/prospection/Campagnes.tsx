@@ -16,7 +16,7 @@ const ROLE = { brouillon: "inerte", active: "fait", pause: "attente", terminee: 
 const LIB = { brouillon: "Brouillon", active: "Active", pause: "En pause", terminee: "Terminée" } as const
 // La traçabilité des agences tourne hors du moteur : en base elle reste « pause » pour qu'il ne la touche jamais.
 const tracabilite = (c: Campagne) => c.origine === ORIGINE_TRACABILITE
-const criteres = (c: Campagne) => { const q = configDe(c).qualification; return `Lead : ${q.etapes.find((e) => e.id === q.leadA)?.nom ?? "à choisir"} · Gagné : ${q.etapes.find((e) => e.id === q.gagneA)?.nom ?? "à choisir"}` }
+const criteres = (c: Campagne) => { const q = configDe(c).qualification; return `Lead : ${q.etapes.find((e) => e.id === q.leadA)?.nom ?? "à choisir"}${q.gagneA ? ` · Gagné : ${q.etapes.find((e) => e.id === q.gagneA)?.nom ?? "à choisir"}` : ""}` }
 
 export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => void; creer: () => void }) {
   const v = useVue()
@@ -39,7 +39,7 @@ export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => v
         { libelle: "Gagnés", valeur: fr(somme((x) => x.i.conversion.gagnes)) },
       ]} />
       {/* Le choix de base de la page (07/11/2026 : pas de sélecteur en haut du menu, un choix dans chaque page). */}
-      {v.bases.length > 1 ? <Onglets valeur={filtre} onChange={setFiltre} options={[["", "Toutes"], ...v.bases.map((b) => [b.id, b.unite === "agences" ? "Agences" : "Artisans"] as [string, string])]} /> : null}
+      {v.bases.length > 1 ? <Onglets valeur={filtre} onChange={setFiltre} options={[["", "Toutes"], ...v.bases.map((b) => [b.id, b.nom] as [string, string])]} /> : null}
       <Table colonnes={[{ titre: "", largeur: "44px" }, { titre: "Campagne" }, ...(v.bases.length > 1 ? [{ titre: "Base", largeur: "170px" }] : []), { titre: "Statut", largeur: "120px" }, { titre: "En cours", largeur: "76px", droite: true }, { titre: "Touchés", largeur: "76px", droite: true }, { titre: "Ouverture", largeur: "84px", droite: true }, { titre: "Clic", largeur: "70px", droite: true }, { titre: "Leads", largeur: "64px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }, { titre: "Coût", largeur: "76px", droite: true }, { titre: "", largeur: "28px" }]}
         vide="Aucune campagne : crée la première."
         lignes={lignes.map(({ c, i }) => ({ cle: c.id, cellules: [
