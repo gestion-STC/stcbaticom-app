@@ -10,9 +10,9 @@ export function remplirExemples(s: string): string {
 }
 
 /** Le mail d'exemple. `bouton` : le libellé du lien vers la page ou le formulaire du créatif, s'il y en a un. */
-export function apercuMail(objet: string, corps: string, bouton = ""): { objet: string; document: string } {
+export function apercuMail(objet: string, corps: string, bouton = "", prospection = true): { objet: string; document: string } {
   const texte = remplirExemples(corps) + (bouton && !/<\/body>/i.test(corps) ? `\n\n${bouton} : ${LIEN_EXEMPLE}` : "")
-  const html = corpsAvecMentions(texte, corps.includes("{{lien_desinscription}}") ? undefined : LIEN_EXEMPLE)
+  const html = corpsAvecMentions(texte, corps.includes("{{lien_desinscription}}") ? undefined : LIEN_EXEMPLE, prospection)
   return { objet: remplirExemples(objet), document: `<!doctype html><html><body style="margin:12px;font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#1e293b">${html}</body></html>` }
 }
 

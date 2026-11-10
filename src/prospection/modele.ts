@@ -48,7 +48,7 @@ export type Etape =
   | { id: Id; type: Canal; variantes: Variante[] }
   | { id: Id; type: "attendre"; jours: number }
   | { id: Id; type: "si"; condition: Condition; /** Si NON : on saute à cette étape (sinon on continue). */ sinonVers: Id | null }
-  | { id: Id; type: "appel"; consigne: string }
+  | { id: Id; type: "appel"; consigne: string; /** Le standard de l'entreprise, ou le contact en direct. */ cible?: "standard" | "contact" }
   | { id: Id; type: "fin" }
 
 export type Signal = "clic_lien" | "reponse" | "ouvertures_2" | "clic_lien_principal"
@@ -100,7 +100,7 @@ export type Lead = {
   statut: "a_traiter" | "traite"; proprietaireId: Id | null
 }
 /** Une étape « Appel » ou « LinkedIn » : une tâche pour le commercial, dans la session. */
-export type Tache = { id: Id; contactId: Id; campagneId: Id; etapeId: Id; type: "appel" | "linkedin"; consigne: string; creeLe: string; faiteLe: string | null }
+export type Tache = { id: Id; contactId: Id; campagneId: Id; etapeId: Id; type: "appel" | "linkedin"; consigne: string; cible?: "standard" | "contact"; creeLe: string; faiteLe: string | null }
 export type Appel = { id: Id; contactId: Id; compteId: Id; le: string; resultat: "pas_de_reponse" | "standard" | "joint" | "faux_numero"; issue: string; campagneId: Id | null }
 export type Message = {
   id: Id; contactId: Id | null; sens: "entrant" | "sortant"; de: string; a: string; objet: string; corps: string

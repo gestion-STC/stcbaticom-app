@@ -32,6 +32,7 @@ import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 import PageCampagnes from "./components/prospection/PageCampagnes"
 import LeadsRecus from "./components/LeadsRecus"
 import BibliothequeAvis from "./components/prospection/BibliothequeAvis"
+import Fichiers from "./components/prospection/Fichiers"
 
 function App() {
   const [page, setPage] = useState<PageId>("aujourdhui")
@@ -127,6 +128,7 @@ function App() {
           {vue === "dashboard_st" && <div className="page"><RecrutementTableau /></div>}
           {vue === "qualification_st" && <QualificationsST />}
           {vue === "avis" && <BibliothequeAvis />}
+          {vue === "fichiers" && <Fichiers session={session} />}
           {vue === "analyse" && <AnalyseAppels />}
           {vue === "apporteurs" && <Apporteurs />}
           {vue === "messages" && <Messages key="demarchage" espace="demarchage" />}

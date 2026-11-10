@@ -16,7 +16,7 @@ function Ligne({ t, occupe, onFait, ouvrir }: { t: TacheCampagne; occupe: boolea
     <li className="flex flex-wrap items-center justify-between gap-3 py-2.5">
       <div className="min-w-0">
         <p className="truncate text-legende text-encre"><b className="font-medium">{LIBELLE[t.type]}</b> · {t.nom || "Sans nom"}{t.personne ? ` · ${t.personne}` : ""}</p>
-        <p className="mt-0.5 text-colonne text-encre-2">{[t.consigne, t.campagneNom, t.type === "appel" ? t.telephone : ""].filter(Boolean).join(" · ")}</p>
+        <p className="mt-0.5 text-colonne text-encre-2">{[t.consigne, t.campagneNom, t.type === "appel" ? `${t.appelStandard ? "Standard : " : ""}${t.telephone}` : ""].filter(Boolean).join(" · ")}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {t.type === "linkedin" ? <a className="inline-flex h-8 items-center gap-1.5 rounded-4 px-2 text-legende text-encre hover:bg-fond-2" href={rechercheLinkedin(t)} target="_blank" rel="noreferrer"><ExternalLink size={14} />Chercher sur LinkedIn</a> : null}

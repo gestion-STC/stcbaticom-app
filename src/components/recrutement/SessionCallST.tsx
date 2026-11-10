@@ -18,7 +18,10 @@ import { chronologie, dateHeure } from "../../lib/chronologieArtisan"
 import { chargerSousTraitant, chargerSousTraitants, metiersDistincts } from "../../lib/sousTraitantsDb"
 import { chargerClicsDe, chargerEnvoisDe } from "../../lib/machineDb"
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
-import { chargerAppelsDe, chargerFileST, compterFilesST, enregistrerAppelST, type AppelST } from "../../lib/appelsStDb"
+import { BoutonNePlusContacter, ChoixFichierSession } from "../prospection/moteur/ChoixFichiers"
+import { contactsEnCampagne } from "../../lib/fichiersDb"
+import { nePlusContacter } from "../../lib/sousTraitantsDb"
+import { chargerAppelsDe, chargerArtisansDuFichier, chargerFileST, compterFilesST, enregistrerAppelST, type AppelST } from "../../lib/appelsStDb"
 import {
   FILES_ST, ISSUES_ST, LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, MOTIFS_ST, RESULTATS_ST, dureeLisibleST, effetAppel, signaux,
   type FileST, type IssueST, type ResultatST,
@@ -65,6 +68,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
   const [chargementFile, setChargementFile] = useState(true)
   const [index, setIndex] = useState(0)
   const [volet, setVolet] = useState<"qualification" | "historique">("qualification") // à droite, pendant l'appel
+  const [fichierSession, setFichierSession] = useState("") // un fichier appelé à la place de la file habituelle
   const [directeId, setDirecteId] = useState<string | null>(artisanInitial ?? null) // un artisan pris hors file (recherche, tâche de campagne)
   const [faits, setFaits] = useState<Set<string>>(() => new Set()) // appelés pendant cette session
   const [courant, setCourant] = useState<{ st: SousTraitant; appels: AppelST[]; envois: EnvoiST[]; clics: ClicST[]; etapes: EtapeST[] } | null>(null)
@@ -94,7 +98,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
   const chargerFile = useCallback(async () => {
     setChargementFile(true)
     try {
-      const l = await chargerFileST(file, new Date(), metier)
+      const l = fichierSession ? await chargerArtisansDuFichier(fichierSession, await contactsEnCampagne()) : await chargerFileST(file, new Date(), metier)
       if (!enVie.current) return
       setListe(l)
       setIndex(0)
@@ -104,7 +108,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
     } finally {
       if (enVie.current) setChargementFile(false)
     }
-  }, [file, metier])
+  }, [file, metier, fichierSession])
 
   useEffect(() => {
     enVie.current = true
@@ -235,6 +239,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
       <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <span className="chiffres text-legende text-encre-2">Le plus ancien d'abord{faits.size ? ` · ${faits.size} appel${s(faits.size)} enregistré${s(faits.size)} dans cette session` : ""}</span>
         <div className="flex flex-wrap items-center gap-2">
+          <ChoixFichierSession espace="recrutement" moiId={session?.user?.id ?? ""} admin={estAdmin(session)} valeur={fichierSession} onChange={(id) => { setFichierSession(id); setDirecteId(null) }} />
           <Selecteur className="w-[200px]" value={metier} onChange={(e) => setMetier(e.target.value)} aria-label="Métier">
             <option value="">Tous les métiers</option>
             {metiers.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -358,6 +363,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
 
 
                   <TachesDuContact key={st.id} contactRef={st.id!} />
+                  <div className="flex justify-end"><BoutonNePlusContacter key={`stop-${st.id}`} action={() => nePlusContacter(st, "demande au téléphone")} onFait={() => { setDirecteId(null); void chargerFile() }} /></div>
 
                   <Section titre="Note de l'appel">
                     <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />

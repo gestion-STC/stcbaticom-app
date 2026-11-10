@@ -186,14 +186,14 @@ export async function creerSousTraitant(st: Partial<SousTraitant>): Promise<Sous
 }
 
 // Import en lot (fichier Excel/CSV). Renvoie le nombre inséré.
-export async function insererSousTraitants(liste: Partial<SousTraitant>[]): Promise<number> {
+export async function insererSousTraitants(liste: Partial<SousTraitant>[], fichierId?: string): Promise<number> {
   if (!supabase) throw new Error("Supabase non configuré")
   if (liste.length === 0) return 0
   let total = 0
   for (let i = 0; i < liste.length; i += 500) {
     const { data, error } = await supabase
       .from("st_sous_traitants")
-      .insert(liste.slice(i, i + 500).map(versLigne))
+      .insert(liste.slice(i, i + 500).map((s) => ({ ...versLigne(s), ...(fichierId ? { fichier_id: fichierId } : {}) })))
       .select("id")
     if (error) throw new Error(error.message)
     total += (data as { id: string }[]).length

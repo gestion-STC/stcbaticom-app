@@ -10,6 +10,7 @@ import { estEligible, type Campagne } from "../../prospection/modele"
 import { sansDejaSollicites } from "../../prospection/pareFeu"
 import { estBaseAvis } from "../../prospection/avis"
 import MesureAvis from "./moteur/MesureAvis"
+import { ChoixFichiers } from "./moteur/ChoixFichiers"
 import { GARDE_DEFAUT, ORIGINE_TRACABILITE, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
@@ -77,6 +78,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                   <div className="mt-3"><Suspense fallback={<Chargement texte="Lecture de la carte…" />}><Carte zones={cfg.zones} compter={compter} onChange={(z) => maj((x) => ({ ...x, zones: z }))} avertissement={c.baseId === "artisans" ? "La base ne connaît que Paris, petite et grande couronne : le ciblage se fait sur ces trois zones." : undefined} /></Suspense></div>
                 </Bloc>}
                 <Bloc titre="Qui on touche"><div className="mt-3 space-y-4">
+                  {!avis ? <ChoixFichiers baseId={c.baseId} valeurs={c.audience.filtres.fichier ?? []} onChange={(l) => setC((x) => ({ ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, fichier: l } } }))} /> : null}
                   {base?.champs.filter((ch) => !CHAMPS_GEO.includes(ch.cle)).map((ch) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{val}</button> })}</div></div>)}
                   <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile"] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : "mobile (pour les SMS)"}</label>)}</div>
                   <div className="grid max-w-[640px] grid-cols-4 gap-4">
