@@ -9,13 +9,11 @@ import type { Espace } from "../../../lib/messagesDb"
 export function ChoixFichiers({ baseId, valeurs, onChange }: { baseId: string; valeurs: string[]; onChange: (v: string[]) => void }) {
   const [fichiers, setFichiers] = useState<Fichier[]>([])
   useEffect(() => { let vivant = true; chargerFichiers().then((l) => { if (vivant) setFichiers(l.filter((f) => f.baseId === baseId)) }).catch(() => undefined); return () => { vivant = false } }, [baseId])
-  if (!fichiers.length) return null
   const total = fichiers.filter((f) => valeurs.includes(f.id)).reduce((s, f) => s + f.mails, 0)
   return (
     <div className="space-y-1.5">
-      <p className="text-colonne text-encre-2">Dans quels fichiers ?</p>
       <div className="flex flex-wrap gap-1.5"><button type="button" aria-pressed={!valeurs.length} onClick={() => onChange([])} className={`h-7 rounded-full px-3 text-colonne ${!valeurs.length ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>Toute la base</button>{fichiers.map((f) => { const on = valeurs.includes(f.id); return <button key={f.id} type="button" aria-pressed={on} onClick={() => onChange(on ? valeurs.filter((x) => x !== f.id) : [...valeurs, f.id])} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>{f.nom} · {f.mails.toLocaleString("fr-FR")}</button> })}</div>
-      {valeurs.length ? <p className="text-colonne text-encre-2">{total.toLocaleString("fr-FR")} contacts avec un mail dans ces fichiers.</p> : null}
+      <p className="text-colonne text-encre-2">{valeurs.length ? `${total.toLocaleString("fr-FR")} contacts avec un mail dans ces fichiers.` : fichiers.length ? "Toute la base est ciblée. Choisis un ou plusieurs fichiers pour la réduire." : "Aucun fichier importé pour cette base : toute la base est ciblée."}</p>
     </div>
   )
 }
