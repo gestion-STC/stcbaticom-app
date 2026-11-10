@@ -13,8 +13,9 @@ import MesureAvis from "./moteur/MesureAvis"
 import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
-import { boitesDe, conseilsEnvoi } from "../../prospection/instantlyOutils"
+import { boitesDe, conseilsEnvoi, valeursDe } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
+import { listerComptes, type Compte } from "../../lib/comptes"
 import { GARDE_DEFAUT, ORIGINE_TRACABILITE, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
@@ -44,7 +45,8 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const [cfgDepart, setCfgDepart] = useState(() => JSON.stringify(cfg))
   const [baseVoulue, setBaseVoulue] = useState<string | null>(null)
   const [boites, setBoites] = useState<BoiteEnvoi[]>([])
-  useEffect(() => { chargerBoites().then(setBoites).catch(() => undefined) }, [])
+  const [comptes, setComptes] = useState<Compte[]>([])
+  useEffect(() => { chargerBoites().then(setBoites).catch(() => undefined); listerComptes().then(setComptes).catch(() => undefined) }, [])
   const [objectifChoisi, setObjectifChoisi] = useState(Boolean(existante))
   const choisirObjectif = (m: (typeof MODELES)[number] | null) => {
     if (m) { const n = m.creer(); setC((x) => ({ ...x, baseId: m.baseId, nom: x.nom || m.titre, audience: { ...x.audience, filtres: {}, doitAvoir: estBaseAvis(m.baseId) ? ["email"] : x.audience.doitAvoir } })); setCfg(n); setCfgDepart(JSON.stringify(n)); setModeleId(m.id) }
@@ -89,6 +91,8 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   }, [boites, c.baseId, c.id, c.rythme.parJour, v.etat.campagnes, v.etat.maintenant])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
+  const nomValeur = (cle: string, val: string) => { if (cle !== "commercial") return val; const q = comptes.find((x) => x.id === val); return q ? q.nom || q.email : "Commercial" }
+  const champFiltre = (ch: { cle: string; libelle: string }) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{nomValeur(ch.cle, val)}</button> })}</div></div>
   const enregistrer = (statut: Campagne["statut"]) => { const s = { ...compilee, nom: c.nom.trim() || "Campagne sans nom", statut, lanceeLe: statut === "active" ? c.lanceeLe ?? v.etat.maintenant : c.lanceeLe }; depot.enregistrerCampagne(s); fini(s.id) }
 
   return (
@@ -113,14 +117,16 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                 {!avis ? <Bloc titre="2 · Dans quels fichiers ?"><div className="mt-3"><ChoixFichiers baseId={c.baseId} valeurs={c.audience.filtres.fichier ?? []} onChange={(l) => setC((x) => ({ ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, fichier: l } } }))} /></div></Bloc> : null}
                 {avis ? <p className="chiffres text-colonne text-encre"><b className="font-medium">{fr(eligibles)}</b> {base?.unite} éligibles</p> : <Bloc titre="3 · Où" droite={<span className="chiffres text-colonne text-encre"><b className="font-medium">{fr(eligibles)}</b> {base?.unite} éligibles</span>}>
                   <div className="mt-3"><Suspense fallback={<Chargement texte="Lecture de la carte…" />}><Carte zones={cfg.zones} compter={compter} onChange={(z) => maj((x) => ({ ...x, zones: z }))} avertissement={c.baseId === "artisans" ? "La base ne connaît que Paris, petite et grande couronne : le ciblage se fait sur ces trois zones." : undefined} /></Suspense></div>
+                  {base?.champs.some((ch) => ch.cle === "secteur") ? <div className="mt-4">{base.champs.filter((ch) => ch.cle === "secteur").map(champFiltre)}</div> : null}
                 </Bloc>}
                 <Bloc titre={avis ? "Qui on touche" : "4 · Qui on touche"}><div className="mt-3 space-y-4">
-                  {base?.champs.filter((ch) => !CHAMPS_GEO.includes(ch.cle)).map((ch) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{val}</button> })}</div></div>)}
+                  {base?.champs.filter((ch) => !CHAMPS_GEO.includes(ch.cle)).map(champFiltre)}
+                  <Libelle titre="Sans contact depuis (jours)" className="max-w-[220px]"><Champ type="number" min={0} placeholder="Tous" value={c.audience.pasContacteDepuis || ""} onChange={(e) => setC({ ...c, audience: { ...c.audience, pasContacteDepuis: Number(e.target.value) || undefined } })} /></Libelle>
                   <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile"] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : "mobile (pour les SMS)"}</label>)}</div>
                 </div></Bloc>
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} avis={avis} />
-              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={{ contact: contactsBase[0]?.personne ?? "", entreprise: contactsBase[0]?.nom ?? "" }} />
+              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={contactsBase[0] ? valeursDe(contactsBase[0]) : undefined} baseId={c.baseId} />
               : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">

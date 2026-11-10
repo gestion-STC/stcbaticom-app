@@ -80,17 +80,25 @@ function Apercu({ k, cfg }: { k: Creatif; cfg: ConfigCampagne }) {
   const html = (v?.corps ?? "").trimStart().startsWith("<")
   return <div className="space-y-3"><h3 className="text-sous-titre font-semibold">{v?.objet || "Titre de la page"}</h3>{k.video ? <Lecture /> : null}{html ? <iframe title="Aperçu du mail" sandbox="" srcDoc={v?.corps} className="h-[420px] w-full rounded-4 border-[0.5px] border-trait" /> : <p className="whitespace-pre-line text-legende text-encre">{v?.corps || "Le texte."}</p>}{vers ? <div className="inline-block rounded-full bg-action px-4 py-1.5 text-legende text-white">{vers.type === "formulaire" ? "Remplir le formulaire" : "Voir la présentation"}</div> : null}</div>
 }
-export function Creatifs({ cfg, maj, avis, exemple }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple: ValeursEssai }) {
+const VARIABLES: Record<"agence" | "artisan" | "avis", [string, string][]> = {
+  agence: [["Prénom", "{{prenom}}"], ["Agence", "{{entreprise}}"], ["Secteur", "{{secteur|votre secteur}}"], ["Enseigne", "{{enseigne}}"]],
+  artisan: [["Nom", "{{contact}}"], ["Entreprise", "{{entreprise}}"], ["Métier", "{{metier|votre métier}}"], ["Zone", "{{zone|votre secteur}}"]],
+  avis: [["Nom", "{{contact}}"], ["Entreprise", "{{entreprise}}"]],
+}
+
+export function Creatifs({ cfg, maj, avis, exemple, baseId }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple?: ValeursEssai; baseId: string }) {
   const [id, setId] = useState(cfg.creatifs[0]?.id ?? "")
   const k = cfg.creatifs.find((x) => x.id === id) ?? cfg.creatifs[0]
   const majK = (p: Partial<Creatif>) => k && maj((x) => ({ ...x, creatifs: x.creatifs.map((y) => (y.id === k.id ? { ...y, ...p } : y)) }))
   const majV = (i: number, p: { nom?: string; objet?: string; corps?: string }) => k && majK({ variantes: k.variantes.map((v, j) => (j === i ? { ...v, ...p } : v)) })
   const ajouter = (type: TypeCreatif) => { const n = creatifVide(type, `${LIB_CREATIF[type]} ${cfg.creatifs.filter((x) => x.type === type).length + 1}`); maj((x) => ({ ...x, creatifs: [...x.creatifs, n] })); setId(n.id) }
+  const variables = VARIABLES[avis ? "avis" : baseId === "artisans" ? "artisan" : "agence"]
+  const insererVariable = (i: number, corps: string, id: string, texte: string) => { const el = document.getElementById(`corps-${id}`) as HTMLTextAreaElement | null; const a = el?.selectionStart ?? corps.length, b = el?.selectionEnd ?? corps.length; majV(i, { corps: corps.slice(0, a) + texte + corps.slice(b) }) }
   const liables = cfg.creatifs.filter((x) => k && x.id !== k.id && (x.type === "page" || x.type === "formulaire"))
   const texteLong = k?.type === "mail" || k?.type === "page" || k?.type === "avis"
   return (
     <div className="space-y-4">
-      <Bandeau role="info">{avis ? <>Dans le mail, {"{{lien_avis}}"} devient le lien personnel de chaque contact vers la page d'avis.</> : <>Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Chaque contact reçoit son lien personnel. Pour choisir les mots du lien : [Créer mon compte]({"{{lien_principal}}"}).</>}</Bandeau>
+      <Bandeau role="info">{avis ? <>Dans le mail, {"{{lien_avis}}"} devient le lien personnel de chaque contact vers la page d'avis.</> : <>Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Chaque contact reçoit son lien personnel. Pour choisir les mots du lien : [Créer mon compte]({"{{lien_principal}}"}). Si une fiche n'a pas la donnée, le texte après la barre la remplace : {"{{secteur|votre secteur}}"}.</>}</Bandeau>
       <div className="grid gap-8 @min-[760px]:grid-cols-[170px_minmax(0,1fr)_minmax(0,0.75fr)]">
         <div className="space-y-1">
           {cfg.creatifs.map((x) => { const I = ICONE_CREATIF[x.type]; return <button key={x.id} type="button" onClick={() => setId(x.id)} className={`flex w-full items-center gap-2 rounded-4 px-2 py-1.5 text-left text-legende ${k?.id === x.id ? "bg-fond-4 font-medium" : "hover:bg-fond-3"}`}><I size={14} className="shrink-0 text-encre-2" /><span className="min-w-0 flex-1 truncate">{x.nom}</span></button> })}
@@ -104,7 +112,8 @@ export function Creatifs({ cfg, maj, avis, exemple }: { cfg: ConfigCampagne; maj
               <div key={v.id} className="space-y-2 rounded-4 border-[0.5px] border-trait p-3">
                 {k.variantes.length > 1 ? <div className="flex items-center gap-2"><Champ className="!w-40" aria-label="Nom de la variante" value={v.nom} onChange={(e) => majV(i, { nom: e.target.value })} /><IconeBtn icone={<X />} label="Retirer la variante" onClick={() => majK({ variantes: k.variantes.filter((y) => y.id !== v.id) })} /></div> : null}
                 {texteLong ? <Libelle titre={k.type === "mail" ? "Objet" : "Titre"}><Champ value={v.objet} onChange={(e) => majV(i, { objet: e.target.value })} /></Libelle> : null}
-                <Libelle titre="Texte"><Zone rows={k.type === "sms" ? 3 : 6} value={v.corps} placeholder={avis ? "Variables : {{contact}}, {{entreprise}}, {{lien_avis}}" : "Variables : {{contact}}, {{entreprise}}, {{lien_principal}}, {{lien_formulaire}}, {{lien_page}}"} onChange={(e) => majV(i, { corps: e.target.value })} /></Libelle>
+                <Libelle titre="Texte"><Zone id={`corps-${v.id}`} rows={k.type === "sms" ? 3 : 6} value={v.corps} placeholder={avis ? "Variables : {{contact}}, {{entreprise}}, {{lien_avis}}" : "Variables : {{contact}}, {{entreprise}}, {{lien_principal}}, {{lien_formulaire}}, {{lien_page}}"} onChange={(e) => majV(i, { corps: e.target.value })} /></Libelle>
+                {k.type === "mail" || k.type === "sms" ? <div className="flex flex-wrap items-center gap-1.5"><span className="text-colonne text-encre-2">Insérer :</span>{variables.map(([nom, code]) => <button key={code} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insererVariable(i, v.corps, v.id, code)} className="h-6 rounded-full border-[0.5px] border-trait px-2.5 text-colonne text-encre hover:bg-fond-2">{nom}</button>)}</div> : null}
                 {(k.type === "mail" || k.type === "page") && !avis ? <InsererAvis onAvis={(citation) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${citation}` })} /> : null}
                 {k.type === "mail" ? <AjoutImage onImage={(url) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${baliseImage(url)}` })} /> : null}
                 {k.type === "sms" ? <p className="text-colonne text-encre-2">{v.corps.length} caractères · {Math.max(1, Math.ceil(v.corps.length / 160))} SMS</p> : null}

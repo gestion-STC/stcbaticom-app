@@ -64,6 +64,8 @@ export type Audience = {
   filtres: Record<string, string[]>
   /** Mahdi, 07/11 : « on n'attaque que les contacts complets » → mail ET téléphone par défaut. */
   doitAvoir: ("email" | "mobile" | "telephone")[]
+  /** Seulement ceux sans contact depuis ce nombre de jours (vide : tous). */
+  pasContacteDepuis?: number
 }
 export type Rythme = { parJour: number; jours: number[]; heureMin: number; heureMax: number; ecartMinH: number }
 
@@ -121,12 +123,14 @@ export function contactVisible(c: Contact, compte: Compte, bases: Set<Id>): bool
 }
 
 /** L'audience d'une campagne : les contacts de la base qui passent les filtres et peuvent recevoir. */
-export function estEligible(c: Contact, camp: Campagne): boolean {
+export function estEligible(c: Contact, camp: Campagne, maintenant: Date = new Date()): boolean {
   if (c.baseId !== camp.baseId || c.desinscrit || c.statut === "exclu" || c.statut === "gagne") return false
   for (const [cle, valeurs] of Object.entries(camp.audience.filtres)) {
     // Un code postal se compare par le début : le 92 ne doit pas prendre le 78920.
     if (valeurs.length && !valeurs.some((v) => (cle === "cp" ? (c.champs[cle] ?? "").startsWith(v) : (c.champs[cle] ?? "").includes(v)))) return false
   }
+  const jours = camp.audience.pasContacteDepuis ?? 0
+  if (jours > 0 && c.champs.dernier_contact && maintenant.getTime() - new Date(c.champs.dernier_contact).getTime() < jours * 86_400_000) return false
   if (camp.audience.doitAvoir.includes("email") && !c.email) return false
   if (camp.audience.doitAvoir.includes("mobile") && !c.mobile) return false
   if (camp.audience.doitAvoir.includes("telephone") && !c.telephone && !c.mobile) return false

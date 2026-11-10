@@ -7,10 +7,11 @@ import { envoyerEssaiMail, envoyerEssaiSms } from "../../../lib/essaiCampagne"
 import { essaiMail, essaiSms, type ValeursEssai } from "../../../prospection/apercuMail"
 import type { ConfigCampagne, Creatif } from "../../../prospection/configCampagne"
 
-export default function EssaiCreatif({ k, cfg, exemple }: { k: Creatif; cfg: ConfigCampagne; exemple: ValeursEssai }) {
+export default function EssaiCreatif({ k, cfg, exemple }: { k: Creatif; cfg: ConfigCampagne; exemple?: ValeursEssai }) {
   const session = useSession()
   const sms = k.type === "sms"
-  const [adresse, setAdresse] = useState(sms ? "" : session?.user?.email ?? "")
+  const [saisie, setAdresse] = useState<string | null>(null)
+  const adresse = saisie ?? (sms ? "" : session?.user?.email ?? "")
   const [occupe, setOccupe] = useState(false)
   const [etat, setEtat] = useState("")
   const [erreur, setErreur] = useState("")

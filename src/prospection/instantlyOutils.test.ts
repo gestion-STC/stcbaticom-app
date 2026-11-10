@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, remplirContact } from "./instantlyOutils"
+import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, remplirContact, remplirVariables, valeursDe } from "./instantlyOutils"
 import ecran from "./instantlyOutils.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/instantlyOutils.ts?raw"
 
@@ -50,6 +50,13 @@ describe("instantlyOutils", () => {
     expect(remplirContact("Bonjour {{contact}},", "")).toBe("Bonjour,")
     expect(remplirContact("Bonjour {{contact}},", "Claire")).toBe("Bonjour Claire,")
   })
+  it("remplit les variables, avec un repli", () => {
+    expect(remplirVariables("Dans {{secteur|votre secteur}} !", { secteur: "Paris 12e" })).toBe("Dans Paris 12e !")
+    expect(remplirVariables("Dans {{secteur|votre secteur}} !", { secteur: "" })).toBe("Dans votre secteur !")
+    expect(remplirVariables("Bonjour {{prenom}},", { prenom: "" })).toBe("Bonjour,")
+    expect(remplirVariables("{{lien_principal}}", { prenom: "" })).toBe("{{lien_principal}}")
+  })
+  it("ne compte pas « Indépendante » comme une enseigne", () => expect(valeursDe({ nom: "A", personne: "", champs: { enseigne: "Indépendante" } }).enseigne).toBe(""))
   it("conseille sans bloquer", () => {
     expect(conseilsEnvoi([], 10, "2026-11-20T00:00:00Z")[0]).toContain("aucune boîte")
     expect(conseilsEnvoi([{ depuis: "2026-11-01T00:00:00Z" }], 20, "2026-11-20T00:00:00Z")).toEqual([])

@@ -11,19 +11,19 @@ import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscript
 export const BASES: Base[] = [
   {
     id: "agences", nom: "Gestionnaires", unite: "agences", equipeId: "dev",
-    champs: [{ cle: "secteur", libelle: "Secteur" }, { cle: "etape", libelle: "Étape" }],
+    champs: [{ cle: "secteur", libelle: "Secteur" }, { cle: "etape", libelle: "Étape" }, { cle: "joint", libelle: "Déjà joint au téléphone" }, { cle: "commercial", libelle: "Commercial" }],
     issues: [{ code: "interesse", libelle: "Intéressé" }, { code: "rdv", libelle: "RDV" }, { code: "a_rappeler", libelle: "À rappeler le…" }, { code: "pas_interesse", libelle: "Pas intéressé" }],
     gagne: "Devenue cliente (1er ordre de service)", prospection: true, liens: [{ cle: "principal", libelle: "Créer un compte" }, { cle: "plaquette", libelle: "Plaquette" }, { cle: "site", libelle: "Site" }],
   },
   {
     id: "apporteurs", nom: "Apporteurs d'affaires", unite: "apporteurs", equipeId: "dev",
-    champs: [{ cle: "secteur", libelle: "Secteur" }, { cle: "etape", libelle: "Étape" }],
+    champs: [{ cle: "secteur", libelle: "Secteur" }, { cle: "etape", libelle: "Étape" }, { cle: "joint", libelle: "Déjà joint au téléphone" }, { cle: "commercial", libelle: "Commercial" }],
     issues: [{ code: "interesse", libelle: "Intéressé" }, { code: "rdv", libelle: "RDV" }, { code: "a_rappeler", libelle: "À rappeler le…" }, { code: "pas_interesse", libelle: "Pas intéressé" }],
     gagne: "Devenue cliente (1er ordre de service)", prospection: true, liens: [{ cle: "principal", libelle: "Créer un compte" }, { cle: "plaquette", libelle: "Plaquette" }, { cle: "site", libelle: "Site" }],
   },
   {
     id: "artisans", nom: "Artisans sous-traitants", unite: "artisans", equipeId: "rec",
-    champs: [{ cle: "metier", libelle: "Corps de métier" }, { cle: "zone", libelle: "Zone" }, { cle: "statut", libelle: "Statut" }],
+    champs: [{ cle: "metier", libelle: "Corps de métier" }, { cle: "zone", libelle: "Zone" }, { cle: "statut", libelle: "Statut" }, { cle: "joint", libelle: "Déjà joint au téléphone" }],
     issues: [{ code: "va_deposer", libelle: "Va déposer son dossier" }, { code: "a_rappeler", libelle: "À rappeler le…" }, { code: "pas_interesse", libelle: "Pas intéressé" }, { code: "hors_cible", libelle: "Hors cible" }],
     gagne: "Dossier déposé", prospection: false, liens: [{ cle: "principal", libelle: "Candidature" }, { cle: "bareme", libelle: "Barème" }],
   },
