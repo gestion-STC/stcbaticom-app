@@ -60,7 +60,7 @@ export async function preparerInstantly(sb: SupabaseClient, base: string, mainte
   // Depuis quand chaque boîte chauffe : ce que dit Instantly, sinon la première fois qu'on l'a vue.
   let anciennes: { email?: string; depuis?: string }[] = []
   try { anciennes = (JSON.parse(await lireParametre(sb, CLE_ETAT) || "{}") as { boites?: { email?: string; depuis?: string }[] }).boites ?? [] } catch { anciennes = [] }
-  const boites = ((r.data.items ?? []) as (Boite & { timestamp_warmup_start?: string | null; timestamp_created?: string | null })[]).map((b) => ({ email: b.email, status: b.status, warmup_status: b.warmup_status, setup_pending: Boolean(b.setup_pending), stat_warmup_score: b.stat_warmup_score ?? null, depuis: b.timestamp_warmup_start ?? b.timestamp_created ?? anciennes.find((x) => x.email === b.email)?.depuis ?? maintenant }))
+  const boites = ((r.data.items ?? []) as (Boite & { timestamp_warmup_start?: string | null; timestamp_created?: string | null })[]).map((b) => ({ email: b.email, status: b.status, warmup_status: b.warmup_status, setup_pending: Boolean(b.setup_pending), stat_warmup_score: b.stat_warmup_score ?? null, limite: Number((b as { daily_limit?: number }).daily_limit ?? 0) || null, depuis: b.timestamp_warmup_start ?? b.timestamp_created ?? anciennes.find((x) => x.email === b.email)?.depuis ?? maintenant }))
   const retours = await installerRetours(base, cle)
   await ecrireParametre(sb, CLE_ETAT, JSON.stringify({ le: maintenant, boites, retours }))
   let carte: Record<string, string> = {}
@@ -92,7 +92,7 @@ export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInsta
   const camp = await campagneDeLaVariante(sb, ins, c, varianteId)
   if (!camp.id) return { ok: false, erreur: camp.erreur }
   const r = await appelInstantly(ins.cle, "/leads", { corps: {
-    campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: !test,
+    campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: false, // l'adresse est déjà vérifiée par Baticom (verification.ts)
     custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription, true), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
   } })
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé le contact (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }

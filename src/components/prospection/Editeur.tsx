@@ -13,6 +13,7 @@ import { estBaseAvis } from "../../prospection/avis"
 import MesureAvis from "./moteur/MesureAvis"
 import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
+import VerificationAdresses from "./moteur/VerificationAdresses"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
 import { PHRASE_SUIVI, boitesDe, conseilsEnvoi, corpsAvecMentions, valeursDe } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
@@ -103,6 +104,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const [textesRelus, setTextesRelus] = useState(0)
   const iaSansRelecture = cfg.creatifs.some((k) => k.ia?.actif && k.ia.relecture === "dix") && !textesRelus
   useEffect(() => { if (confirmer) compterTextesValides(c.id).then(setTextesRelus).catch(() => undefined) }, [confirmer, c.id])
+  const emailsCible = useMemo(() => contactsBase.filter((x) => x.email && estEligible(x, compilee)).map((x) => x.email), [contactsBase, compilee])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
   const nbActions = (t: string) => cfg.actions.filter((a) => a.type === t).length
@@ -184,7 +186,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
               )}
           </div>
         </div>
-        <div className="min-w-0"><div className="sticky top-4 space-y-6"><TailleAudience total={eligibles} mails={contactsBase.filter((x) => x.email && estEligible(x, compilee)).length} mobiles={contactsBase.filter((x) => x.mobile && estEligible(x, compilee)).length} enAttente={enAttente} parJour={c.rythme.parJour} unite={base?.unite ?? "contacts"} cible={[base?.nom ?? "", avis ? "" : (c.audience.filtres.fichier?.length ? `${c.audience.filtres.fichier.length} fichier${c.audience.filtres.fichier.length > 1 ? "s" : ""}` : "toute la base"), cfg.zones.length ? `${cfg.zones.length} zone${cfg.zones.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")} />{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
+        <div className="min-w-0"><div className="sticky top-4 space-y-6"><TailleAudience total={eligibles} mails={contactsBase.filter((x) => x.email && estEligible(x, compilee)).length} mobiles={contactsBase.filter((x) => x.mobile && estEligible(x, compilee)).length} enAttente={enAttente} parJour={c.rythme.parJour} unite={base?.unite ?? "contacts"} cible={[base?.nom ?? "", avis ? "" : (c.audience.filtres.fichier?.length ? `${c.audience.filtres.fichier.length} fichier${c.audience.filtres.fichier.length > 1 ? "s" : ""}` : "toute la base"), cfg.zones.length ? `${cfg.zones.length} zone${cfg.zones.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")} /><VerificationAdresses emails={emailsCible} />{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
       </div>
     </div>
   )

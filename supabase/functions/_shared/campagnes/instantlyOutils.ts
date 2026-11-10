@@ -72,11 +72,13 @@ export const capaciteJour = (boites: number) => boites * MAILS_PAR_BOITE
 
 /** Les conseils avant d'envoyer : jamais un blocage (Mahdi, 10/11/2026 : « des conseils »). */
 export const JOURS_CHAUFFE = 14
-export function conseilsEnvoi(boites: { depuis?: string | null }[], parJour: number, maintenant: string): string[] {
+export function conseilsEnvoi(boites: { email?: string; depuis?: string | null; limite?: number | null }[], parJour: number, maintenant: string): string[] {
   if (!boites.length) return ["Conseil : aucune boîte d'envoi n'est prête pour cette cible."]
   const out: string[] = []
   const capacite = capaciteJour(boites.length)
   if (parJour > capacite) out.push(`Conseil : ${MAILS_PAR_BOITE} envois par boîte et par jour, soit ${capacite} pour cette cible. Tes campagnes en prévoient ${parJour}.`)
+  // La limite d'Instantly vaut pour toutes les campagnes : au-delà de 30 par jour, la boîte s'abîme.
+  for (const b of boites) if ((b.limite ?? 0) > MAILS_PAR_BOITE) out.push(`Conseil : dans Instantly, la boîte ${b.email ?? ""} peut envoyer ${b.limite} mails par jour. Règle-la à ${MAILS_PAR_BOITE}.`)
   const jours = boites.flatMap((b) => (b.depuis ? [Math.floor((new Date(maintenant).getTime() - new Date(b.depuis).getTime()) / 86_400_000)] : []))
   if (jours.length && Math.min(...jours) < JOURS_CHAUFFE) out.push(`Conseil : ces boîtes chauffent depuis ${Math.min(...jours)} jour${Math.min(...jours) > 1 ? "s" : ""}. Mieux vaut attendre ${JOURS_CHAUFFE} jours avant de lancer.`)
   return out
