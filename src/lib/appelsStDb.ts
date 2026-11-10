@@ -28,6 +28,12 @@ function sb() {
 const finDeJournee = (maintenant: Date) => new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1).toISOString()
 const CLIC = "bareme_vu_le.not.is.null,candidature_clic_le.not.is.null,nb_clics.gt.0"
 
+/** La file d'un fichier en appel direct : jamais un artisan déjà dans une campagne en cours. */
+export async function chargerArtisansDuFichier(fichierId: string, exclus: ReadonlySet<string>): Promise<SousTraitant[]> {
+  const lignes = await chargerSousTraitantsParLots((de, a) => sb().from("st_sous_traitants").select("*").eq("fichier_id", fichierId).is("depose_le", null).is("desinscrit_le", null).neq("statut", "desinscrit").eq("suivi", "").is("rappel_le", null).neq("telephone", "").eq("telephone_invalide", false).order("nb_appels").order("id").range(de, a))
+  return lignes.filter((s) => !exclus.has(s.id!))
+}
+
 // Les trois files. `metier` filtre en plus (optionnel).
 export async function chargerFileST(file: FileST, maintenant: Date, metier = ""): Promise<SousTraitant[]> {
   const base = (de: number, a: number) => {

@@ -13,7 +13,7 @@ export type TypeCreatif = "mail" | "sms" | "linkedin" | "page" | "formulaire" | 
 export type Question = { id: string; libelle: string; type: string; requis: boolean; qualifiante: boolean; attendu: string; /** Pour un choix unique : les réponses, séparées par des virgules. */ options?: string }
 export type Creatif = { id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[]; /** Page d'avis : le lien Google proposé à tout le monde après l'avis. */ lienGoogle?: string }
 export type TypeAction = Etape["type"]
-export type Action = { id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string }
+export type Action = { id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string; cible?: "standard" | "contact" }
 export type Regle = { id: string; evenement: string; fois: number; jours: number }
 export type EtapeParcours = { id: string; nom: string; type: string; qui: string; validation: string; delai: number; formulaireId?: string }
 export type Qualite = { id: string; niveau: string; source: "question" | "etape" | "toujours"; questionId: string; operateur: string; valeur: string; etapeId: string }
@@ -80,7 +80,7 @@ export function configDe(c: Campagne): ConfigCampagne {
     }
     if (e.type === "attendre") return { id: e.id, type: e.type, jours: e.jours }
     if (e.type === "si") return { id: e.id, type: e.type, condition: e.condition, sinonVers: e.sinonVers }
-    if (e.type === "appel") return { id: e.id, type: e.type, consigne: e.consigne }
+    if (e.type === "appel") return { id: e.id, type: e.type, consigne: e.consigne, cible: e.cible }
     return { id: e.id, type: e.type }
   })
   const depart = qualificationDeDepart(c.baseId, c.origine)
@@ -92,7 +92,7 @@ export function versEtapes(cfg: ConfigCampagne): Etape[] {
   return cfg.actions.map((a): Etape => {
     if (a.type === "attendre") return { id: a.id, type: a.type, jours: a.jours ?? 1 }
     if (a.type === "si") return { id: a.id, type: a.type, condition: a.condition ?? "a_clique", sinonVers: a.sinonVers ?? null }
-    if (a.type === "appel") return { id: a.id, type: a.type, consigne: a.consigne ?? "" }
+    if (a.type === "appel") return { id: a.id, type: a.type, consigne: a.consigne ?? "", ...(a.cible ? { cible: a.cible } : {}) }
     if (a.type === "fin") return { id: a.id, type: a.type }
     return { id: a.id, type: a.type, variantes: cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? [] }
   })

@@ -327,7 +327,7 @@ Deno.serve(async (req: Request) => {
       const reporteesContacts = new Set([...reportees].map((id) => (nouvelles.get(id) ?? avant.get(id))?.contactId))
       const taches = ecr.taches.filter((t) => !reporteesContacts.has(t.contactId))
       if (taches.length) {
-        await sb.from("cmp_taches").insert(taches.map((t) => ({ id: t.id, campagne_id: c.id, contact_ref: t.contactId, etape_id: t.etapeId, type: t.type, consigne: t.consigne })))
+        await sb.from("cmp_taches").insert(taches.map((t) => ({ id: t.id, campagne_id: c.id, contact_ref: t.contactId, etape_id: t.etapeId, type: t.type, consigne: t.consigne, cible: t.cible ?? "contact" })))
         bilan.taches = Number(bilan.taches) + taches.length
       }
       if (envoisPassage >= ENVOIS_MAX_PAR_PASSAGE) break

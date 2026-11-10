@@ -8,7 +8,7 @@
 // de call. Les apporteurs d'affaires n'apparaissent jamais ici (archive).
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus, Upload } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus } from "lucide-react"
 import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape } from "../../demarchage/modele"
 import { chargerAgences, chargerPile, chargerSecteurs, compterApporteurs, compterParEtape, compterPiles, type FiltresAgences } from "../../demarchage/db"
 import { useReglages } from "../../demarchage/reglages"
@@ -24,7 +24,6 @@ import { supabaseConfigure } from "../../lib/supabase"
 import { Bandeau, BarreFiltres, Bouton, Carte, Case, Champ, Chargement, Compteurs, EnTetePage, Pastille, Selecteur, Tableau, Td, Th, Tr, Vide } from "../../ui"
 import FicheAgence from "./FicheAgence"
 import NouvelleAgence from "./NouvelleAgence"
-import ImportAgences from "./ImportAgences"
 
 const PAR_PAGE = 50
 const COMPTES_VIDES: Record<File, number> = { a_prospecter: 0, rappels: 0, sans_nouvelle: 0, a_reveiller: 0 }
@@ -55,7 +54,6 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
   const [ficheSurEtape, setFicheSurEtape] = useState(false) // la fiche s'ouvre sur « Changer l'étape »
   const [nouvelle, setNouvelle] = useState(false)
-  const [importOuvert, setImportOuvert] = useState(false)
   const [menuExport, setMenuExport] = useState(false)
   const [exportEnCours, setExportEnCours] = useState(false)
 
@@ -172,7 +170,6 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
         }
         droite={
           <>
-            <Bouton icone={<Upload />} onClick={() => setImportOuvert(true)} disabled={!supabaseConfigure}>Importer un fichier</Bouton>
             <div className="relative">
               <Bouton icone={<Download />} chargement={exportEnCours} disabled={triees.length === 0} onClick={() => setMenuExport((v) => !v)}>Exporter <ChevronDown /></Bouton>
               {menuExport ? (
@@ -346,7 +343,6 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
 
       {ficheOuverte ? <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => { setFicheOuverte(null); setFicheSurEtape(false) }} onChange={recharger} onOuvrirSession={onOuvrirSession} /> : null}
       {nouvelle ? <NouvelleAgence onFermer={() => setNouvelle(false)} onCree={(id) => { setNouvelle(false); setFicheOuverte(id); recharger() }} /> : null}
-      {importOuvert ? <ImportAgences onFermer={() => setImportOuvert(false)} onImporte={() => { setImportOuvert(false); setInfo("Import terminé."); recharger() }} /> : null}
     </div>
   )
 }

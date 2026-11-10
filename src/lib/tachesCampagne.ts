@@ -5,10 +5,10 @@ import { lireParLots } from "./pagination"
 
 export type TacheCampagne = {
   id: string; type: "appel" | "linkedin"; consigne: string; creeLe: string; campagneNom: string
-  contactRef: string; baseId: string; nom: string; personne: string; telephone: string; proprietaireId: string | null
+  contactRef: string; baseId: string; nom: string; personne: string; telephone: string; appelStandard: boolean; proprietaireId: string | null
 }
-type LigneTache = { id: string; campagne_id: string; contact_ref: string; type: string; consigne: string | null; cree_le: string }
-type LigneContact = { id: string; base_id: string; nom: string | null; personne: string | null; telephone: string | null; proprietaire_id: string | null }
+type LigneTache = { id: string; campagne_id: string; contact_ref: string; type: string; consigne: string | null; cree_le: string; cible: string | null }
+type LigneContact = { id: string; base_id: string; nom: string | null; personne: string | null; telephone: string | null; proprietaire_id: string | null; champs: { standard?: string } | null }
 type Lot<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>
 
 function sb() {
@@ -19,7 +19,7 @@ function sb() {
 /** Les tâches ouvertes, les plus anciennes d'abord ; pour un seul contact si on le précise. */
 export async function chargerTachesCampagne(contactRef?: string): Promise<TacheCampagne[]> {
   const taches = await lireParLots<LigneTache>((d, f) => {
-    const q = sb().from("cmp_taches").select("id, campagne_id, contact_ref, type, consigne, cree_le").is("faite_le", null)
+    const q = sb().from("cmp_taches").select("id, campagne_id, contact_ref, type, consigne, cree_le, cible").is("faite_le", null)
     return (contactRef ? q.eq("contact_ref", contactRef) : q).order("cree_le").order("id").range(d, f) as unknown as Lot<LigneTache>
   })
   if (!taches.length) return []
@@ -29,14 +29,14 @@ export async function chargerTachesCampagne(contactRef?: string): Promise<TacheC
   const refs = [...new Set(taches.map((t) => t.contact_ref))]
   const contacts = new Map<string, LigneContact>()
   for (let i = 0; i < refs.length; i += 200) {
-    const { data, error: e } = await sb().from("cmp_contacts").select("id, base_id, nom, personne, telephone, proprietaire_id").in("id", refs.slice(i, i + 200))
+    const { data, error: e } = await sb().from("cmp_contacts").select("id, base_id, nom, personne, telephone, proprietaire_id, champs").in("id", refs.slice(i, i + 200))
     if (e) throw new Error(e.message)
     for (const k of (data ?? []) as LigneContact[]) contacts.set(k.id, k)
   }
   return taches.flatMap((t) => {
     const k = contacts.get(t.contact_ref)
     if (!k) return []
-    return [{ id: t.id, type: t.type === "linkedin" ? "linkedin" as const : "appel" as const, consigne: t.consigne ?? "", creeLe: t.cree_le, campagneNom: nomCampagne.get(t.campagne_id) ?? "Campagne", contactRef: t.contact_ref, baseId: k.base_id, nom: k.nom ?? "", personne: k.personne ?? "", telephone: k.telephone ?? "", proprietaireId: k.proprietaire_id }]
+    return [{ id: t.id, type: t.type === "linkedin" ? "linkedin" as const : "appel" as const, consigne: t.consigne ?? "", creeLe: t.cree_le, campagneNom: nomCampagne.get(t.campagne_id) ?? "Campagne", contactRef: t.contact_ref, baseId: k.base_id, nom: k.nom ?? "", personne: k.personne ?? "", telephone: t.cible === "standard" ? k.champs?.standard || k.telephone || "" : k.telephone ?? "", appelStandard: t.cible === "standard", proprietaireId: k.proprietaire_id }]
   })
 }
 

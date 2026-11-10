@@ -1,6 +1,8 @@
 // L'ENVOI DES MAILS DE PROSPECTION PAR INSTANTLY (09/11/2026) : ce qui se calcule sans rien appeler. Copie exacte côté
 // serveur (_shared/campagnes/instantlyOutils.ts), vérifiée par un test. Fichier PUR.
 
+/** Demandée par Mahdi le 10/11/2026 : le mail dit que les clics sont suivis. */
+export const PHRASE_SUIVI = "Nous suivons les clics sur ces liens et pouvons vous recontacter si le sujet vous intéresse."
 export const SIGNATURE_PROSPECTION = "L'équipe STC Bâtiment\nSTC Bâtiment · 7 rue Oscar Niemeyer, 78280 Guyancourt"
 
 /** Les boîtes d'une base : chacune garde les siennes ; si aucune ne porte le bon nom, toutes servent. */
@@ -33,9 +35,9 @@ const liens = (s: string) => echapper(s).replace(/(https?:\/\/[^\s<]+)/g, '<a hr
 const texteEnHtml = (s: string) => s.split(/(<img\b[^>]*>)/i).map((morceau, i) => (i % 2 ? morceau : liens(morceau))).join("").replace(/\n/g, "<br/>")
 
 /** Le corps prêt à partir : en HTML, avec la signature, l'adresse postale de STC et le lien de désinscription, jamais en double. */
-export function corpsAvecMentions(texte: string, desinscription?: string): string {
+export function corpsAvecMentions(texte: string, desinscription?: string, suivi = false): string {
   const html = estHtml(texte) ? texte : texteEnHtml(texte)
-  const mentions = [texte.includes("78280") ? "" : SIGNATURE_PROSPECTION.replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
+  const mentions = [suivi && !texte.includes(PHRASE_SUIVI) ? PHRASE_SUIVI : "", texte.includes("78280") ? "" : SIGNATURE_PROSPECTION.replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
   if (!mentions) return html
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${mentions}</p></body>`)
   return `${html}<br/><br/>${mentions}`

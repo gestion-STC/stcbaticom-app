@@ -90,7 +90,7 @@ export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInsta
   if (!camp.id) return { ok: false, erreur: camp.erreur }
   const r = await appelInstantly(ins.cle, "/leads", { corps: {
     campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: !test,
-    custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
+    custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription, true), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
   } })
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé le contact (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
   return { ok: true, fournisseurId: String(r.data?.id ?? "") }

@@ -12,6 +12,7 @@ export type PageId =
   | "aujourdhui"
   | "leads_tous"
   | "avis"
+  | "fichiers"
   | "dashboard_st"
   | "leads_st"
   | "sessions_st"
@@ -44,6 +45,7 @@ export const MENU: GroupeMenu[] = [
       { id: "campagnes", titre: "Campagnes", espace: null, admin: true },
       { id: "leads_tous", titre: "Tous les leads", espace: null, admin: true },
       { id: "avis", titre: "Avis", espace: null, admin: true },
+      { id: "fichiers", titre: "Fichiers", espace: null, admin: true },
     ],
   },
   {

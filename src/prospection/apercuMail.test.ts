@@ -11,7 +11,9 @@ describe("aperçu du mail", () => {
     expect(a.objet).toBe("Pour Agence Exemple")
     expect(a.document).toContain("78280 Guyancourt")
     expect(a.document).toContain("Pour ne plus recevoir nos messages")
+    expect(a.document).toContain("Nous suivons les clics sur ces liens")
   })
+  it("ne parle pas de suivi dans un mail d'avis", () => expect(apercuMail("", "Bonjour", "", false).document).not.toContain("Nous suivons les clics"))
   it("ne double pas la désinscription quand le texte la contient", () => {
     expect(apercuMail("", "Stop : {{lien_desinscription}}").document).not.toContain("Pour ne plus recevoir")
   })

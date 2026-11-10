@@ -29,6 +29,8 @@ import { useSession } from "../../lib/auth"
 import { estAdmin, listerComptes, nomAffiche } from "../../lib/comptes"
 import CampagneSurFiche from "../prospection/moteur/CampagneSurFiche"
 import { TachesCampagneAgenda } from "../prospection/moteur/TachesCampagne"
+import { BoutonNePlusContacter, ChoixFichierSession } from "../prospection/moteur/ChoixFichiers"
+import { contactsEnCampagne, nePlusContacterAgence } from "../../lib/fichiersDb"
 import { CLE_CHOIX_LOCAL, CLE_NON_ATTRIBUEES, nonAttribueesPourTous, normaliserChoix, optionsBase, proprietaireDepuisChoix } from "../../demarchage/attribution"
 import { chargerNumerosDuCompte, estDansLaReserve } from "../../lib/numerosEmission"
 import { lireParametre } from "../../lib/parametresDb"
@@ -37,6 +39,7 @@ import { chiffresTel, formaterTelephone, numeroValide } from "../../lib/telephon
 import {
   agencesAppeleesAujourdHui, chargerAgence, chargerAgences, chargerPile, passerApporteur, chargerSecteurs, compterAppelsDuJourParNumero, compterPiles, creerContact,
   appelLance, appelVerifier, enregistrerAppel, majAgence, chargerLeads, compterLeads, type AgenceComplete, type Lead,
+  chargerAgencesDuFichier,
 } from "../../demarchage/db"
 import {
   libelleEtape, numeroParDefaut,
@@ -130,6 +133,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [chargementFile, setChargementFile] = useState(true)
   const [index, setIndex] = useState(0)
   const [directeId, setDirecteId] = useState<string | null>(null) // une agence appelée hors file
+  const [fichierSession, setFichierSession] = useState("") // un fichier appelé à la place de la file habituelle
   // LE VERROU DU COMPTE (Mahdi, 24/10/2026) : « à partir du moment où tu as passé ton call, tu es obligé de rentrer
   // les états ; tu ne peux pas faire suivant ou précédent ». Mon plus ancien appel lancé sans résultat, relu en base :
   // il survit à un onglet fermé ou rechargé (c'est par là que 10 appels avaient échappé entre le 19 et le 22/10).
@@ -349,7 +353,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const [lus, app] = await Promise.all([
         mode === "leads"
           ? chargerLeads(proprietaireLeads)
-          : chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees }).then((l) => l.map((agence) => ({ agence, lead: null as Lead | null }))),
+          : (fichierSession ? contactsEnCampagne().then((x) => chargerAgencesDuFichier(fichierSession, x)) : chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees })).then((l) => l.map((agence) => ({ agence, lead: null as Lead | null }))),
         agencesAppeleesAujourdHui(new Date()),
       ])
       if (!enVie.current || jeton !== jetonFile.current) return // une lecture plus récente est en route
@@ -363,7 +367,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     } finally {
       if (enVie.current && jeton === jetonFile.current) setChargementFile(false)
     }
-  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, proprietaireLeads, moiId])
+  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, proprietaireLeads, moiId, fichierSession])
 
   useEffect(() => {
     enVie.current = true
@@ -1164,6 +1168,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           <span className="text-legende text-encre-2">Le plus ancien d'abord · objectif : moins d'une heure</span>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          {mode === "prospection" ? <ChoixFichierSession espace="demarchage" moiId={moiId} admin={admin} valeur={fichierSession} onChange={setFichierSession} /> : null}
           <EnTeteSession
             modeLeads={mode === "leads"}
             etapeFiltre={etapeFiltre}
@@ -1248,6 +1253,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
             <div className="grid gap-x-12 gap-y-8 @min-[1240px]:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
               <div className="min-w-0 space-y-4">
               <CampagneSurFiche agenceId={fiche.agence.id} parNom={compteNom} />
+              <div className="flex justify-end"><BoutonNePlusContacter key={fiche.agence.id} action={() => nePlusContacterAgence(fiche.agence.id)} onFait={() => { setDirecteId(null); void chargerLaFile() }} /></div>
               <FicheEnCours
                 fiche={fiche}
                 lead={mode === "leads" ? leadsParAgence.get(fiche.agence.id) : undefined}

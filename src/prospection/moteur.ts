@@ -80,7 +80,7 @@ export function passage(etat: Etat, maintenant: Date, nouvelId: () => Id): Ecrit
         continue
       }
       if (e.type === "appel") {
-        sortie.taches.push({ id: nouvelId(), contactId: contact.id, campagneId: c.id, etapeId: e.id, type: "appel", consigne: e.consigne, creeLe: iso, faiteLe: null })
+        sortie.taches.push({ id: nouvelId(), contactId: contact.id, campagneId: c.id, etapeId: e.id, type: "appel", consigne: e.consigne, cible: e.cible, creeLe: iso, faiteLe: null })
         i += 1
         continue
       }

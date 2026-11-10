@@ -8,17 +8,15 @@
 // entrer (nouvelles, doublons, exclus, rejetées), puis seulement on insère.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
-import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, Upload } from "lucide-react"
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react"
 import type { SousTraitant, StatutST } from "../../recrutement"
 import { STATUTS_ARRETES, libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
-import { chargerSousTraitants, creerSousTraitant, insererSousTraitants, majSousTraitant, remettreAContacter, supprimerSousTraitant } from "../../lib/sousTraitantsDb"
-import { chargerExclusions } from "../../lib/machineDb"
+import { chargerSousTraitants, creerSousTraitant, majSousTraitant, remettreAContacter, supprimerSousTraitant } from "../../lib/sousTraitantsDb"
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { CORPS_METIERS } from "../../lib/recrutementCalc"
-import { dedoublonner, importerSousTraitants } from "../../lib/importSousTraitants"
 import { FILTRES_VIDES, compterParStatut, filtrerFiches, sourcesDistinctes, type FiltresBase } from "../../lib/baseFiltres"
-import { Bandeau, BarreFiltres, Bouton, Carte, Case, Champ, Chargement, Compteurs, Dialogue, EnTetePage, Etiquette, Ligne, Pastille, Selecteur, Tableau, Td, Th, Tr, Vide } from "../../ui"
+import { Bandeau, BarreFiltres, Bouton, Carte, Case, Champ, Chargement, Compteurs, Dialogue, EnTetePage, Etiquette, Pastille, Selecteur, Tableau, Td, Th, Tr, Vide } from "../../ui"
 import FicheArtisan from "./FicheArtisan"
 
 const PAR_PAGE = 50
@@ -65,7 +63,6 @@ export default function BaseST() {
   const [page, setPage] = useState(0)
   const [ficheOuverte, setFicheOuverte] = useState<string | null>(null)
   const [edition, setEdition] = useState<{ st: SousTraitant | null } | null>(null) // null = fermé ; st null = ajout
-  const [importOuvert, setImportOuvert] = useState(false)
 
   // Relire la base (après un ajout, un import, une action dans la fiche).
   const recharger = useCallback(
@@ -115,7 +112,6 @@ export default function BaseST() {
         sousTitre={sousTitre}
         droite={
           <>
-            <Bouton icone={<Upload />} onClick={() => setImportOuvert(true)} disabled={chargement || !!erreur}>Importer un fichier</Bouton>
             <Bouton variante="plein" icone={<Plus />} onClick={() => setEdition({ st: null })} disabled={chargement}>Ajouter</Bouton>
           </>
         }
@@ -162,7 +158,7 @@ export default function BaseST() {
           <Carte className="overflow-hidden">
             {filtrees.length === 0 ? (
               fiches.length === 0
-                ? <Vide titre="Aucune fiche" texte="Importez un fichier Excel ou CSV, ou ajoutez un artisan à la main." action={<Bouton icone={<Upload />} onClick={() => setImportOuvert(true)}>Importer un fichier</Bouton>} />
+                ? <Vide titre="Aucune fiche" texte="Importez un fichier depuis Campagnes › Fichiers, ou ajoutez un artisan à la main." />
                 : <Vide titre="Rien ne correspond" texte="Aucune fiche ne passe ces filtres." action={<Bouton onClick={() => { setFiltres(FILTRES_VIDES); setPage(0) }}>Effacer les filtres</Bouton>} />
             ) : (
               <Tableau>
@@ -250,13 +246,6 @@ export default function BaseST() {
         />
       ) : null}
 
-      {importOuvert ? (
-        <DialogueImport
-          fiches={fiches}
-          onFermer={() => setImportOuvert(false)}
-          onImporte={async (n) => { setImportOuvert(false); setInfo(`${pluriel(n, "fiche importée", "fiches importées")}.`); await recharger() }}
-        />
-      ) : null}
     </div>
   )
 }
@@ -388,100 +377,3 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
   )
 }
 
-// ── Importer un fichier, en deux temps ───────────────────────────────────────
-type Rapport = { aAjouter: Partial<SousTraitant>[]; doublons: number; exclus: number; rejetees: number; feuille: string }
-
-function DialogueImport({ fiches, onFermer, onImporte }: { fiches: SousTraitant[]; onFermer: () => void; onImporte: (n: number) => Promise<void> }) {
-  const [fichier, setFichier] = useState<File | null>(null)
-  const [corps, setCorps] = useState("")
-  const [source, setSource] = useState("")
-  const [rapport, setRapport] = useState<Rapport | null>(null)
-  const [erreur, setErreur] = useState("")
-  const [occupe, setOccupe] = useState(false)
-
-  const analyser = async () => {
-    if (!fichier) return
-    setOccupe(true); setErreur("")
-    try {
-      const [lu, exclusions] = await Promise.all([importerSousTraitants(fichier), chargerExclusions()])
-      // Le corps et la source choisis s'appliquent à TOUT le fichier ; vides, on garde ses colonnes.
-      const nouvelles = lu.sousTraitants.map((s) => ({ ...s, ...(corps ? { metier: corps } : {}), ...(source.trim() ? { source: source.trim() } : {}) }))
-      const d = dedoublonner(nouvelles, fiches, exclusions)
-      setRapport({ aAjouter: d.aAjouter, doublons: d.doublons, exclus: d.exclus, rejetees: lu.ignorees, feuille: lu.feuille })
-    } catch (e) {
-      setErreur(message(e))
-    } finally {
-      setOccupe(false)
-    }
-  }
-
-  const importer = async () => {
-    if (!rapport || rapport.aAjouter.length === 0) return
-    setOccupe(true); setErreur("")
-    try {
-      const n = await insererSousTraitants(rapport.aAjouter)
-      await onImporte(n)
-    } catch (e) {
-      setErreur(message(e))
-      setOccupe(false)
-    }
-  }
-
-  if (rapport) {
-    const n = rapport.aAjouter.length
-    return (
-      <Dialogue
-        titre="Ce qui va entrer dans la base"
-        description={`${fichier?.name ?? ""}${rapport.feuille && rapport.feuille !== fichier?.name ? ` · onglet « ${rapport.feuille} »` : ""}`}
-        onFermer={onFermer}
-        pied={
-          <>
-            <Bouton onClick={() => setRapport(null)} disabled={occupe}>Retour</Bouton>
-            <Bouton variante="plein" icone={<Upload />} chargement={occupe} disabled={n === 0} onClick={importer}>Importer {pluriel(n, "fiche")}</Bouton>
-          </>
-        }
-      >
-        {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
-        <div className="divide-y divide-fond-4">
-          <Ligne libelle="Nouvelles fiches"><span className={`chiffres font-semibold ${n > 0 ? "text-ok" : ""}`}>{n}</span></Ligne>
-          <Ligne libelle="Doublons ignorés (déjà dans la base)"><span className="chiffres">{rapport.doublons}</span></Ligne>
-          <Ligne libelle="Exclus ignorés (liste d'exclusion)"><span className="chiffres">{rapport.exclus}</span></Ligne>
-          <Ligne libelle="Rejetées (sans e-mail ni téléphone)"><span className="chiffres">{rapport.rejetees}</span></Ligne>
-          {corps ? <Ligne libelle="Corps de métier appliqué">{CORPS_METIERS.find((c) => c.value === corps)?.label ?? corps}</Ligne> : null}
-          {source.trim() ? <Ligne libelle="Source appliquée">{source.trim()}</Ligne> : null}
-        </div>
-        {n === 0 ? <Bandeau role="attention" className="mt-4">Rien à importer : toutes les lignes sont déjà connues, exclues ou inutilisables.</Bandeau> : null}
-      </Dialogue>
-    )
-  }
-
-  return (
-    <Dialogue
-      titre="Importer un fichier"
-      description="Excel (.xlsx) ou CSV, avec une ligne d'en-tête : Entreprise, Contact, E-mail, Téléphone, Métier, Zone, Source. Rien n'est inséré avant que vous ayez vu le rapport."
-      onFermer={onFermer}
-      pied={
-        <>
-          <Bouton onClick={onFermer} disabled={occupe}>Annuler</Bouton>
-          <Bouton variante="plein" chargement={occupe} disabled={!fichier} onClick={analyser}>Lire le fichier</Bouton>
-        </>
-      }
-    >
-      {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
-      <div className="grid gap-4">
-        <Etiquette texte="Fichier">
-          <Champ type="file" accept=".xlsx,.csv" className="py-1.5 file:mr-3 file:rounded-3 file:border-0 file:bg-fond-3 file:px-2 file:text-legende file:text-encre" onChange={(e) => setFichier(e.target.files?.[0] ?? null)} />
-        </Etiquette>
-        <Etiquette texte="Corps de métier de ce fichier" aide="Appliqué à toutes les lignes. Vide = on garde la colonne « Métier » du fichier.">
-          <Selecteur value={corps} onChange={(e) => setCorps(e.target.value)}>
-            <option value="">— garder le métier du fichier —</option>
-            {CORPS_METIERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </Selecteur>
-        </Etiquette>
-        <Etiquette texte="Source" aide="D'où viennent ces artisans. Vide = on garde la colonne « Source » du fichier, si elle existe.">
-          <Champ value={source} onChange={(e) => setSource(e.target.value)} placeholder="ex. Pages Jaunes, Google Maps, salon…" />
-        </Etiquette>
-      </div>
-    </Dialogue>
-  )
-}

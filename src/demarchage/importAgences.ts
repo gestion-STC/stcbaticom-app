@@ -46,7 +46,7 @@ export type Analyse = {
   feuille: string
   total: number // lignes non vides lues (hors en-tête)
 }
-export type AgenceConnue = { id: string; nomCle: string; secteur: string | null; telephone: string }
+export type AgenceConnue = { id: string; nomCle: string; secteur: string | null; telephone: string; emails?: string[] }
 export type FichierLu = { lignes: string[][]; feuille: string }
 
 // ── Petits outils de lecture ──
@@ -236,7 +236,9 @@ export function contactsDe(l: LigneImport): ContactImport[] {
 export function rapprocher(lignes: LigneImport[], connues: AgenceConnue[], contactsParAgence: Map<string, string[]>): { aCreer: LigneImport[]; dejaLa: DejaLa[] } {
   const parCle = new Map<string, AgenceConnue>()
   const parTel = new Map<string, AgenceConnue>()
+  const parMail = new Map<string, AgenceConnue>()
   for (const a of connues) {
+    for (const m of a.emails ?? []) if (m) parMail.set(m.trim().toLowerCase(), a)
     parCle.set(`${a.nomCle}|${a.secteur ?? ""}`, a)
     const k = cleTel(a.telephone)
     if (k && !parTel.has(k)) parTel.set(k, a)
@@ -245,7 +247,8 @@ export function rapprocher(lignes: LigneImport[], connues: AgenceConnue[], conta
   const dejaLa: DejaLa[] = []
   for (const l of lignes) {
     const kTel = cleTel(l.telephone)
-    const a = parCle.get(`${nomCle(l.nom)}|${l.secteur ?? ""}`) ?? (kTel ? parTel.get(kTel) : undefined)
+    const mails = [l.email, ...contactsDe(l).map((c) => c.email)].map((m) => m.trim().toLowerCase()).filter(Boolean)
+    const a = parCle.get(`${nomCle(l.nom)}|${l.secteur ?? ""}`) ?? (kTel ? parTel.get(kTel) : undefined) ?? mails.map((m) => parMail.get(m)).find(Boolean)
     if (!a) { aCreer.push(l); continue }
     const connus = (contactsParAgence.get(a.id) ?? []).map(nomCle)
     const contactsAAjouter: ContactImport[] = []
@@ -310,9 +313,14 @@ function sb() {
 // Toutes les agences, en une lecture par lots : de quoi reconnaître les doublons sans une requête par ligne.
 export async function chargerAgencesConnues(): Promise<AgenceConnue[]> {
   const s = sb()
-  type L = { id: string; nom: string; nom_cle: string | null; secteur: string | null; telephone: string | null }
-  const lignes = await lireParLots<L>((de, a) => s.from("agences").select("id, nom, nom_cle, secteur, telephone").order("id").range(de, a))
-  return lignes.map((l) => ({ id: l.id, nomCle: l.nom_cle ?? nomCle(l.nom), secteur: l.secteur, telephone: l.telephone ?? "" }))
+  type L = { id: string; nom: string; nom_cle: string | null; secteur: string | null; telephone: string | null; email: string | null }
+  const [lignes, contacts] = await Promise.all([
+    lireParLots<L>((de, a) => s.from("agences").select("id, nom, nom_cle, secteur, telephone, email").order("id").range(de, a)),
+    lireParLots<{ agence_id: string; email: string | null }>((de, a) => s.from("contacts").select("agence_id, email").neq("email", "").order("id").range(de, a)),
+  ])
+  const mails = new Map<string, string[]>()
+  for (const c of contacts) if (c.email) mails.set(c.agence_id, [...(mails.get(c.agence_id) ?? []), c.email])
+  return lignes.map((l) => ({ id: l.id, nomCle: l.nom_cle ?? nomCle(l.nom), secteur: l.secteur, telephone: l.telephone ?? "", emails: [l.email ?? "", ...(mails.get(l.id) ?? [])] }))
 }
 // Les noms des contacts de ces agences (pour ne pas créer deux fois « Mme Dupont »).
 async function chargerNomsContacts(agenceIds: string[]): Promise<Map<string, string[]>> {
@@ -335,8 +343,8 @@ async function chargerCodesSecteurs(): Promise<Set<string>> {
 }
 
 // Le fichier → l'analyse complète, contre la base.
-export async function analyserFichier(fichier: File): Promise<Analyse> {
-  const [lu, connues, secteurs] = await Promise.all([lireFichier(fichier), chargerAgencesConnues(), chargerCodesSecteurs()])
+export async function analyserLignesDuFichier(lu: FichierLu): Promise<Analyse> {
+  const [connues, secteurs] = await Promise.all([chargerAgencesConnues(), chargerCodesSecteurs()])
   // Un premier passage trouve les agences déjà là ; on lit alors leurs contacts, puis on refait le rapprochement avec.
   const premier = analyserLignes(lu.lignes, connues, new Map(), secteurs, lu.feuille)
   const ids = [...new Set(premier.dejaLa.map((d) => d.agenceId))]
@@ -348,7 +356,7 @@ export async function analyserFichier(fichier: File): Promise<Analyse> {
 export type Progression = { fait: number; total: number; enCours: string }
 export type Bilan = { agencesCreees: number; contactsAjoutes: number; secteursCrees: number; erreurs: { ligne: LigneImport; message: string }[] }
 
-export async function executerImport(analyse: Analyse, onProgres: (p: Progression) => void): Promise<Bilan> {
+export async function executerImport(analyse: Analyse, onProgres: (p: Progression) => void, origine?: { fichierId: string; source: string }): Promise<Bilan> {
   const bilan: Bilan = { agencesCreees: 0, contactsAjoutes: 0, secteursCrees: 0, erreurs: [] }
   const aCompleter = analyse.dejaLa.filter((d) => d.contactsAAjouter.length)
   const total = analyse.aCreer.length + aCompleter.length
@@ -364,7 +372,7 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
       const id = await creerAgence({ nom: l.nom, enseigne: l.enseigne, type: l.type, secteur: l.secteur, adresse: l.adresse, telephone: l.telephone, email: l.email })
       bilan.agencesCreees++
       // La trace d'origine : créée par un import, pas à la main.
-      await sb().from("agences").update({ source: "import" }).eq("id", id)
+      await sb().from("agences").update({ source: origine?.source || "import", fichier_id: origine?.fichierId ?? null }).eq("id", id)
       for (const c of contactsDe(l)) {
         await creerContact(id, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: l.type === "apporteur" ? "apporteur" : "gestionnaire" })
         bilan.contactsAjoutes++

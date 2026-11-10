@@ -138,6 +138,12 @@ export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> 
 // filtre plus rien : il affiche. Les compteurs sont la longueur de ces mêmes listes.
 const versProprietaireSql = (p: Proprietaire): string => (p === "tous" || p === "non_attribuees" ? p : p.compteId)
 export type OptionsPile = { proprietaire: Proprietaire; etape?: Etape | ""; secteur?: string | null; sourcage?: "" | "sourcees" | "non_sourcees"; inclureAppelees?: boolean }
+/** La file d'un fichier en appel direct : à prospecter, jamais une agence déjà dans une campagne en cours. */
+export async function chargerAgencesDuFichier(fichierId: string, exclus: ReadonlySet<string>): Promise<Agence[]> {
+  const lignes = await lireParLots<LigneAgence>((de, a) => sb().from("agences").select(COLONNES_AGENCE).eq("fichier_id", fichierId).eq("etape", "a_prospecter").is("ne_plus_ecrire_le", null).order("tentatives").order("id").range(de, a))
+  return lignes.filter((l) => !exclus.has(l.id)).map(versAgence)
+}
+
 export async function chargerPile(pile: File, o: OptionsPile): Promise<Agence[]> {
   const args = {
     p_pile: o.etape ? "etape" : pile,
