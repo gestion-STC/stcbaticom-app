@@ -2,7 +2,7 @@
 // Réservé aux administrateurs. Rien n'est envoyé ici. Déployée sans vérification de JWT : le jeton est contrôlé ci-dessous.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
-import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, lireAppris, offreSTC, trierReponse } from "../_shared/campagnes/generationIA.ts"
+import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, lireAppris, lireReponse, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
 import { remplirVariables } from "../_shared/campagnes/instantlyOutils.ts"
@@ -38,7 +38,7 @@ Deno.serve(async (req: Request) => {
       const v = await verifierLesAdresses(sb, emails, Deno.env.get("INSTANTLY_API_KEY") ?? "", 25)
       return json({ verdicts: [...v.values()] })
     }
-    if (entree.action === "trier") return json({ tri: await trierReponse(String(entree.objet ?? ""), String(entree.texte ?? "")) })
+    if (entree.action === "trier") return json(await lireReponse(String(entree.objet ?? ""), String(entree.texte ?? "")))
     // Le test d'arrivée : le vrai mail, par les vraies boîtes, vers des adresses à soi. Rien n'est compté dans la campagne.
     if (entree.action === "arrivee") {
       const a = entree as unknown as { campagne: { id: string; nom: string; baseId: string; rythme: { jours: number[]; heureMin: number; heureMax: number } }; adresses: string[]; objet: string; corps: string; varianteId: string }

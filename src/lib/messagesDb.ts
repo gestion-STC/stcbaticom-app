@@ -26,10 +26,13 @@ export type Message = {
   piecesJointes: PieceRecue[]
   /** Le tri de l'IA, pour une réponse à une campagne. */
   tri?: string | null
+  /** Ce que l'IA a lu en plus : la date de retour d'un absent, le bon contact. */
+  triDetail?: { retour?: string; contact_nom?: string; contact_email?: string; contact_telephone?: string } | null
 }
 
 type Ligne = {
   tri?: string | null
+  tri_detail?: Message["triDetail"]
   id: string
   sens: SensMessage
   espace: Espace | null
@@ -58,6 +61,7 @@ function vers(l: Ligne): Message {
     objet: l.objet,
     corpsText: l.corps_text,
     tri: l.tri ?? null,
+    triDetail: l.tri_detail ?? null,
     corpsHtml: l.corps_html,
     messageId: l.message_id,
     inReplyTo: l.in_reply_to,
@@ -69,7 +73,7 @@ function vers(l: Ligne): Message {
 }
 
 const COLONNES =
-  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, lu, created_at, pieces_jointes, tri"
+  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, lu, created_at, pieces_jointes, tri, tri_detail"
 
 // Sans `espace`, on lit tout (ancien comportement).
 export async function chargerMessages(espace?: Espace): Promise<Message[]> {

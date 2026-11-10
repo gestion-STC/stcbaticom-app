@@ -8,7 +8,7 @@
 // Les contacts de test sont ignorés. Un événement sans nos variables ne vient pas du moteur : ignoré aussi.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { cleRetours } from "../_shared/campagnes/instantly.ts"
-import { trierReponse } from "../_shared/campagnes/generationIA.ts"
+import { lireReponse } from "../_shared/campagnes/generationIA.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 type Corps = Record<string, unknown>
@@ -66,8 +66,8 @@ Deno.serve(async (req: Request) => {
       await desinscrire(sb, baseId, contact, email, "instantly", le)
     } else if (type === "reply_received" && messageId && !(await dejaRange(sb, "entrant", messageId))) {
       const objet = String(b.reply_subject ?? ""), texte = String(b.reply_text ?? "")
-      const tri = await trierReponse(objet, texte)
-      const { error } = await sb.from("messages").insert({ sens: "entrant", de: email, a: String(b.email_account ?? ""), objet, corps_text: texte, corps_html: String(b.reply_html ?? ""), message_id: messageId, lu: false, brut: b, tri, ...lien })
+      const { tri, detail: tri_detail } = await lireReponse(objet, texte)
+      const { error } = await sb.from("messages").insert({ sens: "entrant", de: email, a: String(b.email_account ?? ""), objet, corps_text: texte, corps_html: String(b.reply_html ?? ""), message_id: messageId, lu: false, brut: b, tri, tri_detail, ...lien })
       if (error) throw new Error(error.message)
       if (demandeArret(objet, texte)) await desinscrire(sb, baseId, contact, email, "reponse_email", le)
     }

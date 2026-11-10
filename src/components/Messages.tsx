@@ -37,6 +37,7 @@ import {
   X,
 } from "lucide-react"
 import { deciderReponse } from "../lib/messagesDb"
+import { creerContact } from "../demarchage/db"
 import {
   chargerMessages,
   type Espace,
@@ -352,6 +353,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   }, [enLecture, nouveau, mode])
 
   const [decision, setDecision] = useState<"lead" | "dead" | null>(null)
+  const [creation, setCreation] = useState(false)
+  const [contactCree, setContactCree] = useState("")
 
   function retourListe() {
     setCleOuverte(null)
@@ -427,6 +430,17 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const ouvert = ouverte
   // La réponse à trancher : la dernière reçue d'une agence, côté démarchage.
   const reponseATrancher = ouvert && ouvert.agenceId ? [...ouvert.messages].reverse().find((m) => m.sens === "entrant" && m.espace === "demarchage") ?? null : null
+  async function creerLeContact() {
+    const r = reponseATrancher, d = r?.triDetail
+    if (!r?.agenceId || !d) return
+    setCreation(true); setErreur("")
+    const [prenom, ...reste] = (d.contact_nom ?? "").replace(/^(m\.|mme|madame|monsieur|mr)\s+/i, "").trim().split(/\s+/)
+    const tel = (d.contact_telephone ?? "").replace(/\s/g, "")
+    try {
+      await creerContact(r.agenceId, { prenom: reste.length ? prenom : "", nom: reste.length ? reste.join(" ") : prenom ?? "", email: d.contact_email ?? "", ...(/^(\+33|0)[67]/.test(tel) ? { mobile: d.contact_telephone } : { ligneDirecte: d.contact_telephone ?? "" }), note: "Cité dans une réponse à une campagne", principal: false })
+      setContactCree(r.id)
+    } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } finally { setCreation(false) }
+  }
   async function trancher(d: "lead" | "dead") {
     if (!reponseATrancher) return
     setDecision(d); setErreur("")
@@ -607,6 +621,13 @@ export default function Messages({ espace }: { espace: Espace | null }) {
                 </p>
               </div>
 
+              {reponseATrancher?.triDetail?.contact_nom || reponseATrancher?.triDetail?.contact_email ? (
+                <div className="mx-10 mb-3 flex flex-wrap items-center gap-3 rounded-4 bg-fond-2 px-4 py-2.5 text-legende">
+                  <span className="min-w-0 flex-1"><span className="text-encre-2">Bon contact cité : </span>{[reponseATrancher.triDetail.contact_nom, reponseATrancher.triDetail.contact_email, reponseATrancher.triDetail.contact_telephone].filter(Boolean).join(" · ")}</span>
+                  {contactCree === reponseATrancher.id ? <span className="text-ok">Contact ajouté à la fiche</span> : <Bouton taille="sm" variante="discret" chargement={creation} onClick={() => void creerLeContact()}>Créer ce contact</Bouton>}
+                </div>
+              ) : null}
+              {reponseATrancher?.tri === "absent" && reponseATrancher.triDetail?.retour ? <p className="mx-10 mb-3 text-legende text-encre-2">Absent jusqu'au {new Date(reponseATrancher.triDetail.retour + "T12:00:00").toLocaleDateString("fr-FR")} : la séquence reprend après son retour.</p> : null}
               <div>
                 {ouvert.messages.map((m) => (
                   <MessageCard key={m.id} m={m} ouvert={depiles.includes(m.id)} onToggle={() => basculerMessage(m.id)} />
