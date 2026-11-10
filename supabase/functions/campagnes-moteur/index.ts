@@ -22,7 +22,7 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
-import { boitesDe, capaciteJour, corpsAvecMentions, doitArreter, remplirContact } from "../_shared/campagnes/instantlyOutils.ts"
+import { corpsAvecMentions, doitArreter, remplirContact } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
 import { estBaseAvis } from "../_shared/campagnes/avis.ts"
 
@@ -91,10 +91,10 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
 
 type GardeConfig = { ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean }
 const REBOND = "E-mail rebondi (adresse injoignable)"
-const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur"]
+const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
 /** Ceux que les garde-fous de la campagne empêchent d'entrer. Une campagne jamais enregistrée n'en a pas. */
-async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date): Promise<Set<string>> {
+async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number): Promise<Set<string>> {
   const bloques = new Set<string>()
   if (!garde) return bloques
   if ((garde.ecartCampagnes ?? 0) > 0) {
@@ -110,6 +110,14 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   if (exclusions.includes("Adresse en erreur")) {
     const rebonds = await tout<{ contact_ref: string }>((d, f) => sb.from("cmp_evenements").select("contact_ref").eq("type", "rebond").order("id").range(d, f))
     for (const r of rebonds) bloques.add(r.contact_ref)
+  }
+  // Pas intéressé : exclu, jusqu'au délai « Le recontacter après » de la campagne (0 : jamais).
+  if (exclusions.includes("Pas intéressé")) {
+    const limite = relanceMois > 0 ? new Date(maintenant.getTime() - relanceMois * 30 * JOUR_MS).toISOString() : ""
+    const lignes = baseId === "artisans"
+      ? (await tout<{ id: string; suivi_le: string | null }>((d, f) => sb.from("st_sous_traitants").select("id, suivi_le").eq("suivi", "pas_interesse").order("id").range(d, f))).map((r) => ({ id: r.id, le: r.suivi_le }))
+      : (await tout<{ id: string; etape_depuis: string | null }>((d, f) => sb.from("agences").select("id, etape_depuis").eq("etape", "pas_interesse").order("id").range(d, f))).map((r) => ({ id: r.id, le: r.etape_depuis }))
+    for (const r of lignes) if (!limite || !r.le || r.le > limite) bloques.add(r.id)
   }
   // Une exclusion ajoutée à la main (« Endormie », « Orpi »…) : la valeur d'un champ du contact.
   const libres = exclusions.filter((x) => !EXCLUSIONS_CONNUES.includes(x)).map((x) => x.trim().toLowerCase()).filter(Boolean)
@@ -249,7 +257,7 @@ Deno.serve(async (req: Request) => {
 
       // 2. La décision, par le moteur pur.
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
-      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant)
+      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0))
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
       const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || !bloques.has(k.id)), dejaDedans, actifs)
       const ecr = passage({ campagne: c, contacts: autorises, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
@@ -264,7 +272,7 @@ Deno.serve(async (req: Request) => {
       const { count: mailsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "mail").eq("statut", "envoye").gte("le", debutJour)
       const { count: smsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "sms").eq("statut", "envoye").gte("le", debutJour)
       const avis = estBaseAvis(c.baseId)
-      const plafondMail = avis ? garde?.plafondMail ?? PLAFOND_JOUR.mail : Math.min(garde?.plafondMail ?? PLAFOND_JOUR.mail, capaciteJour(boitesDe(c.baseId, ins.pretes).length))
+      const plafondMail = garde?.plafondMail ?? PLAFOND_JOUR.mail
       const budget = { mail: plafondMail - (mailsJour ?? 0), sms: (garde?.plafondSms ?? PLAFOND_JOUR.sms) - (smsJour ?? 0) }
       const hSms = heureParis(maintenant) >= 10 && heureParis(maintenant) < 17
       let arret = false

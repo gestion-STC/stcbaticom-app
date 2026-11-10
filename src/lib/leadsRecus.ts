@@ -47,7 +47,14 @@ export type LeadRecu = {
   qualite?: string
   /** Le parcours de sa campagne, et où il en est. */
   parcours?: ParcoursDuLead
+  /** « À traiter sous » de sa campagne, en heures (0 : pas de délai). */
+  aTraiterSous?: number
   cible: Cible
+}
+
+/** Un nouveau lead qui attend depuis plus longtemps que sa campagne ne le permet. */
+export function enRetard(l: Pick<LeadRecu, "etape" | "quand" | "aTraiterSous">, maintenant: number): boolean {
+  return l.etape === "nouveaux" && Boolean(l.aTraiterSous) && Boolean(l.quand) && maintenant - new Date(l.quand).getTime() > (l.aTraiterSous ?? 0) * 3_600_000
 }
 
 /** La chaleur d'un lead d'agence, d'après sa source (leads_demarchage.source). */

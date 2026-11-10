@@ -33,6 +33,7 @@ import { formaterTelephone } from "../../lib/telephone"
 import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { Section } from "../demarchage/session/morceaux"
 import QualificationST from "./QualificationST"
+import OptionsMotifs from "../prospection/moteur/OptionsMotifs"
 import { TachesCampagneAgenda, TachesDuContact } from "../prospection/moteur/TachesCampagne"
 import FicheArtisan from "./FicheArtisan"
 
@@ -396,7 +397,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
                           <Etiquette texte="Motif">
                             <Selecteur value={choix.motif} onChange={(e) => setChoix({ ...choix, motif: e.target.value })}>
                               <option value="">Sans précision</option>
-                              {MOTIFS_ST.map((m) => <option key={m} value={m}>{m}</option>)}
+                              <OptionsMotifs contactRef={st.id ?? ""} defaut={MOTIFS_ST.map((m) => ({ valeur: m, libelle: m }))} />
                             </Selecteur>
                           </Etiquette>
                         </div>

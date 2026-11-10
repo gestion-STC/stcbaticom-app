@@ -20,7 +20,7 @@ export default function TailleAudience({ total, mails, mobiles, enAttente, parJo
       <p className="mt-2 text-legende font-medium text-encre">{j.texte}</p>
       <div className="mt-3 space-y-1 text-colonne text-encre-2">
         <p>{fr(mails)} avec un mail · {fr(mobiles)} avec un mobile</p>
-        {total ? <p>À {fr(parJour)} par jour : environ {fr(jours)} jour{jours > 1 ? "s" : ""} d'envoi</p> : null}
+        {total ? <p>À {fr(parJour)} envois par jour : environ {fr(jours)} jour{jours > 1 ? "s" : ""}</p> : null}
         {enAttente > 0 ? <p>Pare-feu : {fr(enAttente)} déjà dans une campagne, ils attendront</p> : null}
       </div>
     </Bloc>

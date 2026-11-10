@@ -25,7 +25,6 @@ export const ORIGINE_TRACABILITE = "tracabilite"
 export const EVENEMENTS = ["A ouvert le mail", "A cliqué un lien", "A cliqué le lien principal", "A ouvert la plaquette", "A ouvert la page « Créer un compte »", "A cliqué le SMS", "A regardé la vidéo", "A répondu au mail"]
 export const TYPES_ETAPE = ["Intérêt détecté", "Appel : joint et intéressé", "Formulaire rempli par le prospect", "Formulaire rempli au téléphone", "Dossier et pièces reçus", "Contrats envoyés", "Contrats signés", "RDV", "Test de l'application", "Compte ouvert", "1er ordre de service", "Validation à la main"]
 export const TYPES_FORMULAIRE = ["Formulaire rempli par le prospect", "Formulaire rempli au téléphone"]
-export const QUI = ["Automatique", "Le commercial", "Le prospect"]
 export const VALIDATIONS = ["Toute seule", "À la main"]
 export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix unique", "Oui / Non", "Date"]
 export const OPERATEURS = ["est", "au moins", "au plus", "contient"]
@@ -125,13 +124,15 @@ export function compiler(c: Campagne, cfg: ConfigCampagne): Campagne {
   if (c.baseId === "artisans") delete filtres.zone
   const f = filtreDesZones(c.baseId, cfg.zones)
   if (f) filtres[f.cle] = f.valeurs
-  return { ...c, audience: { ...c.audience, filtres }, etapes: versEtapes(cfg), signaux: versSignaux(cfg.qualification.interet), config: cfg as unknown as Record<string, unknown> }
+  // Un seul chiffre par jour : le rythme de la campagne est aussi le plafond des mails.
+  const reglage: ConfigCampagne = { ...cfg, garde: { ...cfg.garde, plafondMail: c.rythme.parJour } }
+  return { ...c, audience: { ...c.audience, filtres }, etapes: versEtapes(cfg), signaux: versSignaux(cfg.qualification.interet), config: reglage as unknown as Record<string, unknown> }
 }
 
 /** Un envoi sans texte empêche de lancer. */
 export function messageVide(cfg: ConfigCampagne): boolean {
   return cfg.actions.some((a) => {
-    if (a.type !== "mail" && a.type !== "sms" && a.type !== "newsletter") return false
+    if (a.type !== "mail" && a.type !== "sms" && a.type !== "newsletter" && a.type !== "linkedin") return false
     const k = cfg.creatifs.find((x) => x.id === a.creatifId)
     return !k || !k.variantes.length || k.variantes.some((v) => !v.corps.trim())
   })
