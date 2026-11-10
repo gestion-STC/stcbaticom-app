@@ -19,7 +19,9 @@ export type Action = { id: string; type: TypeAction; creatifId?: string; jours?:
 export type Regle = { id: string; evenement: string; fois: number; jours: number }
 export type EtapeParcours = { id: string; nom: string; type: string; qui: string; validation: string; delai: number; formulaireId?: string }
 export type Qualite = { id: string; niveau: string; source: "question" | "etape" | "toujours"; questionId: string; operateur: string; valeur: string; etapeId: string }
-export type Qualification = { interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; /** « Une personne précise » : la première ; « Chacun son tour » : toutes. */ attributionIds?: string[]; delaiH: number; motifs: string[]; relanceMois: number }
+/** Ce que fait une réponse au mail, selon le tri de l'IA (Mahdi, 11/11/2026). */
+export type ActionReponse = "lead" | "dead" | "rien"
+export type Qualification = { /** Absent : le réglage par défaut. */ reponses?: Partial<Record<string, ActionReponse>>; interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; /** « Une personne précise » : la première ; « Chacun son tour » : toutes. */ attributionIds?: string[]; delaiH: number; motifs: string[]; relanceMois: number }
 export type Garde = { ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 export type ConfigCampagne = { v: 1; creatifs: Creatif[]; actions: Action[]; zones: string[]; qualification: Qualification; garde: Garde }
 
@@ -32,6 +34,15 @@ export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix uni
 export const OPERATEURS = ["est", "au moins", "au plus", "contient"]
 export const ATTRIBUTIONS = ["Le commercial attribué au contact", "Le commercial du secteur", "L'équipe de la base", "Chacun son tour", "Une personne précise"]
 export const GARDE_DEFAUT: Garde = { ecartCampagnes: 14, exclusions: ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"], plafondMail: 200, plafondSms: 40, suiviOuvertures: true, montee: MONTEE_DEFAUT }
+/** Les réponses réglables, et ce qu'elles font par défaut. Même règle en base : cmp_action_reponse. */
+export const REPONSES_REGLABLES: { tri: string; libelle: string; aide: string; defaut: ActionReponse }[] = [
+  { tri: "interesse", libelle: "Intéressé", aide: "veut en savoir plus, demande un rappel, un prix", defaut: "lead" },
+  { tri: "pas_interesse", libelle: "Pas intéressé", aide: "refuse, pas de besoin, déjà un prestataire", defaut: "dead" },
+  { tri: "mauvaise_personne", libelle: "Mauvaise personne", aide: "renvoie vers quelqu'un d'autre", defaut: "lead" },
+  { tri: "autre", libelle: "À lire", aide: "l'IA ne sait pas trancher", defaut: "lead" },
+]
+export const ACTIONS_REPONSE: { id: ActionReponse; libelle: string }[] = [{ id: "lead", libelle: "Lead" }, { id: "dead", libelle: "Dead : l'agence passe en « Pas intéressé »" }, { id: "rien", libelle: "Rien" }]
+export const actionReponse = (q: Pick<Qualification, "reponses">, tri: string): ActionReponse => (tri === "absent" ? "rien" : q.reponses?.[tri] ?? REPONSES_REGLABLES.find((r) => r.tri === tri)?.defaut ?? "lead")
 export const MOTIFS_DEFAUT = ["Pas intéressé", "Hors cible", "Déjà équipé", "Injoignable"]
 
 const FRANCE = "pays:250"

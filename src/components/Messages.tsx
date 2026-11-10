@@ -36,6 +36,7 @@ import {
   UserRound,
   X,
 } from "lucide-react"
+import { deciderReponse } from "../lib/messagesDb"
 import {
   chargerMessages,
   type Espace,
@@ -350,6 +351,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     return () => window.removeEventListener("keydown", onKey)
   }, [enLecture, nouveau, mode])
 
+  const [decision, setDecision] = useState<"lead" | "dead" | null>(null)
+
   function retourListe() {
     setCleOuverte(null)
     setMode(null)
@@ -422,6 +425,18 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   }
 
   const ouvert = ouverte
+  // La réponse à trancher : la dernière reçue d'une agence, côté démarchage.
+  const reponseATrancher = ouvert && ouvert.agenceId ? [...ouvert.messages].reverse().find((m) => m.sens === "entrant" && m.espace === "demarchage") ?? null : null
+  async function trancher(d: "lead" | "dead") {
+    if (!reponseATrancher) return
+    setDecision(d); setErreur("")
+    try {
+      await deciderReponse(reponseATrancher.id, d)
+      const tri = d === "lead" ? "interesse" : "pas_interesse"
+      setMessages((l) => l.map((m) => (m.id === reponseATrancher.id ? { ...m, tri } : m)))
+    } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } finally { setDecision(null) }
+  }
+
   const pretAEnvoyer = !piecesTropLourdes(compoPieces) && (
     nouveau
       ? ADRESSE_VALIDE.test(compoTo.trim()) && compoCorps.trim() !== ""
@@ -569,6 +584,11 @@ export default function Messages({ espace }: { espace: Espace | null }) {
                     Ouvrir la fiche
                   </Bouton>
                 )}
+                {reponseATrancher ? <span className="ml-auto flex items-center gap-1">
+                  {reponseATrancher.tri ? <Pastille role={reponseATrancher.tri === "interesse" ? "actif" : "inerte"}>{LIBELLE_TRI[reponseATrancher.tri] ?? reponseATrancher.tri}</Pastille> : null}
+                  <Bouton variante="discret" taille="sm" chargement={decision === "lead"} disabled={reponseATrancher.tri === "interesse"} onClick={() => void trancher("lead")}>C'est un lead</Bouton>
+                  <Bouton variante="discret" taille="sm" chargement={decision === "dead"} disabled={reponseATrancher.tri === "pas_interesse"} onClick={() => void trancher("dead")}>C'est un dead</Bouton>
+                </span> : null}
                 <Bouton variante="discret" taille="sm" icone={<Forward />} onClick={() => ouvrirCompo("transferer")}>
                   Transférer
                 </Bouton>

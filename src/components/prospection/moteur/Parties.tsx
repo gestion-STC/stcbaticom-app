@@ -11,7 +11,7 @@ import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, M
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { LIBELLE_CONDITION, LIBELLE_ETAPE, type Condition } from "../../../prospection/modele"
-import { ATTRIBUTIONS, EVENEMENTS, OPERATEURS, TYPES_ETAPE, TYPES_FORMULAIRE, TYPES_QUESTION, VALIDATIONS, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
+import { ACTIONS_REPONSE, ATTRIBUTIONS, EVENEMENTS, REPONSES_REGLABLES, actionReponse, type ActionReponse, OPERATEURS, TYPES_ETAPE, TYPES_FORMULAIRE, TYPES_QUESTION, VALIDATIONS, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
 
 export type MajConfig = (f: (c: ConfigCampagne) => ConfigCampagne) => void
 const ICONE: Record<TypeAction, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, newsletter: Newspaper, appel: Phone, attendre: Clock, si: GitBranch, fin: Square }
@@ -181,6 +181,19 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
         </div>
         {!q.interet.length ? <p className="mt-2 text-colonne text-encre-2">Aucune règle d'intérêt : seuls ceux qui remplissent cette condition arrivent chez toi. Rien ne part en session de call avant.</p> : null}
       </Bloc>
+
+      {baseId !== "artisans" ? <Bloc titre="Quand il répond au mail" droite="lead ou dead, selon la réponse">
+        <p className="mt-2 text-colonne text-encre-2">Toute réponse sort le contact de la séquence, sauf une réponse automatique d'absence. L'IA trie chaque réponse ; le commercial peut corriger dans la boîte de réception (« C'est un lead » / « C'est un dead ») et reste celui qui transforme.</p>
+        <div className="mt-3 space-y-2">
+          {REPONSES_REGLABLES.map((x) => (
+            <div key={x.tri} className="flex flex-wrap items-center gap-3 text-legende">
+              <span className="w-[290px] min-w-0"><b className="font-medium">{x.libelle}</b> <span className="text-encre-2">· {x.aide}</span></span>
+              <span className="w-[300px]"><Selecteur aria-label={`Réponse « ${x.libelle} »`} value={actionReponse(q, x.tri)} onChange={(e) => majQ({ reponses: { ...(q.reponses ?? {}), [x.tri]: e.target.value as ActionReponse } })}>{ACTIONS_REPONSE.map((a) => <option key={a.id} value={a.id}>{a.libelle}</option>)}</Selecteur></span>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-3 text-legende text-encre-2"><span className="w-[290px]"><b className="font-medium text-encre">Absent</b> · réponse automatique, congés</span><span>Rien : la séquence continue</span></div>
+        </div>
+      </Bloc> : null}
 
       <Bloc titre="Intérêt : ce qui envoie en session de call" droite="facultatif, ce n'est pas encore un lead">
         <div className="mt-3 space-y-2">
