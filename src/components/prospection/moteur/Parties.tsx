@@ -3,7 +3,8 @@ import { useEffect, useState, type ReactNode } from "react"
 import { listerComptes, type Compte } from "../../../lib/comptes"
 import { apercuMail, baliseImage } from "../../../prospection/apercuMail"
 import AjoutImage from "./AjoutImage"
-import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, MessageSquare, Newspaper, Phone, Play, Plus, Square, Trash2, UserRoundPlus, X, type LucideIcon } from "lucide-react"
+import InsererAvis from "./InsererAvis"
+import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, MessageSquare, Newspaper, Phone, Play, Plus, Square, Star, Trash2, UserRoundPlus, X, type LucideIcon } from "lucide-react"
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { LIBELLE_CONDITION, LIBELLE_ETAPE, type Condition } from "../../../prospection/modele"
@@ -12,8 +13,8 @@ import { ATTRIBUTIONS, EVENEMENTS, OPERATEURS, QUI, TYPES_ETAPE, TYPES_FORMULAIR
 export type MajConfig = (f: (c: ConfigCampagne) => ConfigCampagne) => void
 const ICONE: Record<TypeAction, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, newsletter: Newspaper, appel: Phone, attendre: Clock, si: GitBranch, fin: Square }
 const AIDE: Record<Exclude<TypeAction, "fin">, string> = { mail: "Envoie un créatif mail", sms: "Envoie un créatif SMS", linkedin: "Une tâche pour le commercial", newsletter: "Un envoi unique à toute l'audience", appel: "Le contact arrive en session de call", attendre: "Un délai en jours", si: "Si oui on continue, sinon on saute" }
-const ICONE_CREATIF: Record<TypeCreatif, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, page: LayoutTemplate, formulaire: FileText }
-const LIB_CREATIF: Record<TypeCreatif, string> = { mail: "Mail", sms: "SMS", linkedin: "LinkedIn", page: "Page", formulaire: "Formulaire" }
+const ICONE_CREATIF: Record<TypeCreatif, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, page: LayoutTemplate, formulaire: FileText, avis: Star }
+const LIB_CREATIF: Record<TypeCreatif, string> = { mail: "Mail", sms: "SMS", linkedin: "LinkedIn", page: "Page", formulaire: "Formulaire", avis: "Page d'avis" }
 const creatifPour = (t: TypeAction): TypeCreatif | null => (t === "mail" || t === "newsletter" ? "mail" : t === "sms" ? "sms" : t === "linkedin" ? "linkedin" : null)
 function deplacer<T>(l: T[], i: number, d: number): T[] { const j = i + d; if (j < 0 || j >= l.length) return l; const x = [...l]; [x[i], x[j]] = [x[j], x[i]]; return x }
 
@@ -70,6 +71,7 @@ function Apercu({ k, cfg }: { k: Creatif; cfg: ConfigCampagne }) {
   const vers = cfg.creatifs.find((x) => x.id === k.versId)
   if (k.type === "sms" || k.type === "linkedin") return <div className="max-w-[300px] rounded-[14px] bg-fond-3 px-3 py-2 text-legende">{v?.corps || "Le texte"}</div>
   if (k.type === "formulaire") return <div className="space-y-3">{k.remplirPar === "commercial" ? <p className="text-colonne text-encre-2">S'affichera sur la fiche, dans la session de call.</p> : null}{k.questions.map((q) => <div key={q.id} className="space-y-1"><p className="text-legende font-medium">{q.libelle || "Question"}{q.requis ? " *" : ""}</p>{q.type === "Oui / Non" ? <div className="flex gap-2"><span className="rounded-full border-[0.5px] border-trait px-3 py-1 text-colonne">Oui</span><span className="rounded-full border-[0.5px] border-trait px-3 py-1 text-colonne">Non</span></div> : <div className={`rounded-4 bg-fond-3 ${q.type === "Texte long" ? "h-14" : "h-8"}`} />}</div>)}<div className="inline-block rounded-full bg-action px-4 py-1.5 text-legende text-white">Envoyer</div></div>
+  if (k.type === "avis") return <div className="space-y-3"><h3 className="text-sous-titre font-semibold">{v?.objet || "Titre de la page"}</h3><p className="whitespace-pre-line text-legende">{v?.corps}</p><div className="flex gap-1.5">{[1, 2, 3, 4, 5].map((n) => <span key={n} className="flex h-8 w-8 items-center justify-center rounded-full border-[0.5px] border-trait text-legende">{n}</span>)}</div><p className="text-colonne text-encre-2">Note, commentaire, nom à afficher et autorisation de réutiliser. Après l'envoi, le lien Google est proposé à tout le monde.</p></div>
   if (k.type === "mail") {
     const a = apercuMail(v?.objet ?? "", v?.corps ?? "", vers ? (k.video ? "Voir la vidéo" : vers.type === "formulaire" ? "Remplir le formulaire" : "En savoir plus") : "")
     return <div className="space-y-2"><p className="border-b-[0.5px] border-trait pb-2 text-legende font-medium">{a.objet || "Objet du mail"}</p><iframe title="Aperçu du mail" sandbox="" srcDoc={a.document} className="h-[420px] w-full rounded-4 border-[0.5px] border-trait" /><p className="text-colonne text-encre-2">Tel qu'il arrive, avec des valeurs d'exemple.</p></div>
@@ -77,30 +79,32 @@ function Apercu({ k, cfg }: { k: Creatif; cfg: ConfigCampagne }) {
   const html = (v?.corps ?? "").trimStart().startsWith("<")
   return <div className="space-y-3"><h3 className="text-sous-titre font-semibold">{v?.objet || "Titre de la page"}</h3>{k.video ? <Lecture /> : null}{html ? <iframe title="Aperçu du mail" sandbox="" srcDoc={v?.corps} className="h-[420px] w-full rounded-4 border-[0.5px] border-trait" /> : <p className="whitespace-pre-line text-legende text-encre">{v?.corps || "Le texte."}</p>}{vers ? <div className="inline-block rounded-full bg-action px-4 py-1.5 text-legende text-white">{vers.type === "formulaire" ? "Remplir le formulaire" : "Voir la présentation"}</div> : null}</div>
 }
-export function Creatifs({ cfg, maj }: { cfg: ConfigCampagne; maj: MajConfig }) {
+export function Creatifs({ cfg, maj, avis }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean }) {
   const [id, setId] = useState(cfg.creatifs[0]?.id ?? "")
   const k = cfg.creatifs.find((x) => x.id === id) ?? cfg.creatifs[0]
   const majK = (p: Partial<Creatif>) => k && maj((x) => ({ ...x, creatifs: x.creatifs.map((y) => (y.id === k.id ? { ...y, ...p } : y)) }))
   const majV = (i: number, p: { nom?: string; objet?: string; corps?: string }) => k && majK({ variantes: k.variantes.map((v, j) => (j === i ? { ...v, ...p } : v)) })
   const ajouter = (type: TypeCreatif) => { const n = creatifVide(type, `${LIB_CREATIF[type]} ${cfg.creatifs.filter((x) => x.type === type).length + 1}`); maj((x) => ({ ...x, creatifs: [...x.creatifs, n] })); setId(n.id) }
   const liables = cfg.creatifs.filter((x) => k && x.id !== k.id && (x.type === "page" || x.type === "formulaire"))
-  const texteLong = k?.type === "mail" || k?.type === "page"
+  const texteLong = k?.type === "mail" || k?.type === "page" || k?.type === "avis"
   return (
     <div className="space-y-4">
       <Bandeau role="info">Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Chaque contact reçoit son lien personnel.</Bandeau>
       <div className="grid gap-8 @min-[760px]:grid-cols-[170px_minmax(0,1fr)_minmax(0,0.75fr)]">
         <div className="space-y-1">
           {cfg.creatifs.map((x) => { const I = ICONE_CREATIF[x.type]; return <button key={x.id} type="button" onClick={() => setId(x.id)} className={`flex w-full items-center gap-2 rounded-4 px-2 py-1.5 text-left text-legende ${k?.id === x.id ? "bg-fond-4 font-medium" : "hover:bg-fond-3"}`}><I size={14} className="shrink-0 text-encre-2" /><span className="min-w-0 flex-1 truncate">{x.nom}</span></button> })}
-          <div className="flex flex-wrap gap-1 pt-3">{(["mail", "sms", "page", "formulaire"] as TypeCreatif[]).map((t) => <Bouton key={t} taille="sm" icone={<Plus />} onClick={() => ajouter(t)}>{LIB_CREATIF[t]}</Bouton>)}</div>
+          <div className="flex flex-wrap gap-1 pt-3">{((avis ? ["mail", "sms"] : ["mail", "sms", "page", "formulaire"]) as TypeCreatif[]).map((t) => <Bouton key={t} taille="sm" icone={<Plus />} onClick={() => ajouter(t)}>{LIB_CREATIF[t]}</Bouton>)}</div>
         </div>
         {k ? (
           <div className="min-w-0 space-y-4">
             <Libelle titre={`Nom du créatif · ${LIB_CREATIF[k.type]}`}><Champ value={k.nom} onChange={(e) => majK({ nom: e.target.value })} /></Libelle>
+            {k.type === "avis" ? <Libelle titre="Lien Google (proposé à tout le monde après l'avis)"><Champ value={k.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => majK({ lienGoogle: e.target.value })} /></Libelle> : null}
             {k.type !== "formulaire" ? k.variantes.map((v, i) => (
               <div key={v.id} className="space-y-2 rounded-4 border-[0.5px] border-trait p-3">
                 {k.variantes.length > 1 ? <div className="flex items-center gap-2"><Champ className="!w-40" aria-label="Nom de la variante" value={v.nom} onChange={(e) => majV(i, { nom: e.target.value })} /><IconeBtn icone={<X />} label="Retirer la variante" onClick={() => majK({ variantes: k.variantes.filter((y) => y.id !== v.id) })} /></div> : null}
                 {texteLong ? <Libelle titre={k.type === "mail" ? "Objet" : "Titre"}><Champ value={v.objet} onChange={(e) => majV(i, { objet: e.target.value })} /></Libelle> : null}
-                <Libelle titre="Texte"><Zone rows={k.type === "sms" ? 3 : 6} value={v.corps} placeholder="Variables : {{contact}}, {{entreprise}}, {{lien_principal}}, {{lien_formulaire}}, {{lien_page}}" onChange={(e) => majV(i, { corps: e.target.value })} /></Libelle>
+                <Libelle titre="Texte"><Zone rows={k.type === "sms" ? 3 : 6} value={v.corps} placeholder={avis ? "Variables : {{contact}}, {{entreprise}}, {{lien_avis}}" : "Variables : {{contact}}, {{entreprise}}, {{lien_principal}}, {{lien_formulaire}}, {{lien_page}}"} onChange={(e) => majV(i, { corps: e.target.value })} /></Libelle>
+                {(k.type === "mail" || k.type === "page") && !avis ? <InsererAvis onAvis={(citation) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${citation}` })} /> : null}
                 {k.type === "mail" ? <AjoutImage onImage={(url) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${baliseImage(url)}` })} /> : null}
                 {k.type === "sms" ? <p className="text-colonne text-encre-2">{v.corps.length} caractères · {Math.max(1, Math.ceil(v.corps.length / 160))} SMS</p> : null}
               </div>

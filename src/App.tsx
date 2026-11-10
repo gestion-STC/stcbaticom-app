@@ -31,6 +31,7 @@ import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 // Les campagnes (07/11/2026) : le même outil pour les deux bases.
 import PageCampagnes from "./components/prospection/PageCampagnes"
 import LeadsRecus from "./components/LeadsRecus"
+import BibliothequeAvis from "./components/prospection/BibliothequeAvis"
 
 function App() {
   const [page, setPage] = useState<PageId>("aujourdhui")
@@ -125,6 +126,7 @@ function App() {
           {vue === "agenda_st" && <AgendaST session={session} onAppeler={(id) => { naviguer("sessions_st"); setArtisanPourSession(id) }} />}
           {vue === "dashboard_st" && <div className="page"><RecrutementTableau /></div>}
           {vue === "qualification_st" && <QualificationsST />}
+          {vue === "avis" && <BibliothequeAvis />}
           {vue === "analyse" && <AnalyseAppels />}
           {vue === "apporteurs" && <Apporteurs />}
           {vue === "messages" && <Messages key="demarchage" espace="demarchage" />}
