@@ -22,7 +22,7 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
-import { boitesDe, capaciteJour, corpsAvecMentions, doitArreter } from "../_shared/campagnes/instantlyOutils.ts"
+import { boitesDe, capaciteJour, corpsAvecMentions, doitArreter, remplirContact } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
 import { estBaseAvis } from "../_shared/campagnes/avis.ts"
 
@@ -121,7 +121,7 @@ type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: 
 type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[] }
 /** Le bouton du mail vers sa page ou son formulaire : dans le HTML s'il y en a, sinon une ligne de texte. */
 function ajouterBouton(texte: string, url: string, libelle: string): string {
-  if (!/<\/body>/i.test(texte)) return `${texte}\n\n${libelle} : ${url}`
+  if (!/<\/body>/i.test(texte)) return `${texte}\n\n[${libelle}](${url})`
   return texte.replace(/<\/body>/i, `<div style="text-align:center;padding:16px 0 28px"><a href="${url}" style="display:inline-block;padding:14px 32px;background:#0f172b;color:#fff;font-family:Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none">${libelle}</a></div></body>`)
 }
 
@@ -129,7 +129,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
-  remplacer("{{contact}}", k.personne); remplacer("{{entreprise}}", k.nom)
+  texte = remplirContact(texte, k.personne); sujet = remplirContact(sujet, k.personne); remplacer("{{entreprise}}", k.nom)
   // Les formulaires et les pages de la campagne : un lien personnel et signé.
   const creatifs = ((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? [])
   const lienDe = (id: string) => lienPublic(clePassage, String(c.id), id, k.id, test)
@@ -155,7 +155,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     }
     const to = test ? String(c.test_email ?? "") : k.email
     if (!to) return { ok: false, saute: test ? "mode test sans mail de test" : "pas de mail" }
-    const html = corpsAvecMentions(`${texte}${sansLien ? `\n\nDonner mon avis : ${lien}` : ""}`, sansStop ? stopAvis : undefined)
+    const html = corpsAvecMentions(`${texte}${sansLien ? `\n\n[Donner mon avis](${lien})` : ""}`, sansStop ? stopAvis : undefined)
     const r = await invoquer(base, service, "envoyer-email", { espace: "demarchage", to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
     return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
   }

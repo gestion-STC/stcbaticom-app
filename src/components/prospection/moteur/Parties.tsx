@@ -1,9 +1,10 @@
 // ── LES PARTIES D'UNE CAMPAGNE (09/11/2026) : séquence, créatifs, qualification, garde-fous, et le chemin du contact ──
 import { useEffect, useState, type ReactNode } from "react"
 import { listerComptes, type Compte } from "../../../lib/comptes"
-import { apercuMail, baliseImage } from "../../../prospection/apercuMail"
+import { apercuMail, baliseImage, type ValeursEssai } from "../../../prospection/apercuMail"
 import AjoutImage from "./AjoutImage"
 import InsererAvis from "./InsererAvis"
+import EssaiCreatif from "./EssaiCreatif"
 import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, MessageSquare, Newspaper, Phone, Play, Plus, Square, Star, Trash2, UserRoundPlus, X, type LucideIcon } from "lucide-react"
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
@@ -79,7 +80,7 @@ function Apercu({ k, cfg }: { k: Creatif; cfg: ConfigCampagne }) {
   const html = (v?.corps ?? "").trimStart().startsWith("<")
   return <div className="space-y-3"><h3 className="text-sous-titre font-semibold">{v?.objet || "Titre de la page"}</h3>{k.video ? <Lecture /> : null}{html ? <iframe title="Aperçu du mail" sandbox="" srcDoc={v?.corps} className="h-[420px] w-full rounded-4 border-[0.5px] border-trait" /> : <p className="whitespace-pre-line text-legende text-encre">{v?.corps || "Le texte."}</p>}{vers ? <div className="inline-block rounded-full bg-action px-4 py-1.5 text-legende text-white">{vers.type === "formulaire" ? "Remplir le formulaire" : "Voir la présentation"}</div> : null}</div>
 }
-export function Creatifs({ cfg, maj, avis }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean }) {
+export function Creatifs({ cfg, maj, avis, exemple }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple: ValeursEssai }) {
   const [id, setId] = useState(cfg.creatifs[0]?.id ?? "")
   const k = cfg.creatifs.find((x) => x.id === id) ?? cfg.creatifs[0]
   const majK = (p: Partial<Creatif>) => k && maj((x) => ({ ...x, creatifs: x.creatifs.map((y) => (y.id === k.id ? { ...y, ...p } : y)) }))
@@ -89,7 +90,7 @@ export function Creatifs({ cfg, maj, avis }: { cfg: ConfigCampagne; maj: MajConf
   const texteLong = k?.type === "mail" || k?.type === "page" || k?.type === "avis"
   return (
     <div className="space-y-4">
-      <Bandeau role="info">{avis ? <>Dans le mail, {"{{lien_avis}}"} devient le lien personnel de chaque contact vers la page d'avis.</> : <>Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Chaque contact reçoit son lien personnel.</>}</Bandeau>
+      <Bandeau role="info">{avis ? <>Dans le mail, {"{{lien_avis}}"} devient le lien personnel de chaque contact vers la page d'avis.</> : <>Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Chaque contact reçoit son lien personnel. Pour choisir les mots du lien : [Créer mon compte]({"{{lien_principal}}"}).</>}</Bandeau>
       <div className="grid gap-8 @min-[760px]:grid-cols-[170px_minmax(0,1fr)_minmax(0,0.75fr)]">
         <div className="space-y-1">
           {cfg.creatifs.map((x) => { const I = ICONE_CREATIF[x.type]; return <button key={x.id} type="button" onClick={() => setId(x.id)} className={`flex w-full items-center gap-2 rounded-4 px-2 py-1.5 text-left text-legende ${k?.id === x.id ? "bg-fond-4 font-medium" : "hover:bg-fond-3"}`}><I size={14} className="shrink-0 text-encre-2" /><span className="min-w-0 flex-1 truncate">{x.nom}</span></button> })}
@@ -124,7 +125,7 @@ export function Creatifs({ cfg, maj, avis }: { cfg: ConfigCampagne; maj: MajConf
             <Bouton taille="sm" variante="discret" icone={<Trash2 />} onClick={() => { maj((x) => ({ ...x, creatifs: x.creatifs.filter((y) => y.id !== k.id) })); setId("") }}>Supprimer ce créatif</Bouton>
           </div>
         ) : <p className="text-legende text-encre-2">Crée un mail, un SMS, une page ou un formulaire.</p>}
-        {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div></div> : null}
+        {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div>{k.type === "mail" || k.type === "sms" ? <EssaiCreatif key={k.id} k={k} cfg={cfg} exemple={exemple} /> : null}</div> : null}
       </div>
     </div>
   )

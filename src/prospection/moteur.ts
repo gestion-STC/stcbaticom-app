@@ -65,6 +65,8 @@ export function passage(etat: Etat, maintenant: Date, nouvelId: () => Id): Ecrit
     const contact = parContact.get(insc.contactId)
     if (!contact) continue
     const evs = etat.evenements.filter((e) => e.campagneId === c.id && e.contactId === contact.id)
+    // Il a répondu, oui ou non : on ne le relance plus (Mahdi, 10/11/2026).
+    if (evs.some((e) => e.type === "reponse")) { sortie.majInscriptions.push({ ...insc, statut: "terminee", sortieLe: iso }); continue }
     const derniereTouche = etat.envois.filter((e) => e.inscriptionId === insc.id && e.statut === "envoye").reduce((m, e) => (e.le > m ? e.le : m), "")
     let i = insc.etapeIndex
     let prochaine = insc.prochaineLe
