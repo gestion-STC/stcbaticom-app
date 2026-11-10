@@ -8,11 +8,12 @@ function niveau(n: number): { part: number; texte: string } {
   return { part: 88, texte: "Audience large" }
 }
 
-export default function TailleAudience({ total, mails, mobiles, enAttente, parJour, unite }: { total: number; mails: number; mobiles: number; enAttente: number; parJour: number; unite: string }) {
+export default function TailleAudience({ total, mails, mobiles, enAttente, parJour, unite, cible }: { total: number; mails: number; mobiles: number; enAttente: number; parJour: number; unite: string; cible: string }) {
   const j = niveau(total), jours = parJour > 0 ? Math.ceil(total / parJour) : 0, fr = (n: number) => n.toLocaleString("fr-FR")
   return (
     <Bloc titre="Taille de l'audience">
-      <p className="chiffres mt-3 text-h1 font-semibold text-encre">{fr(total)}</p>
+      <p className="mt-3 text-legende font-medium text-encre">{cible}</p>
+      <p className="chiffres mt-2 text-h1 font-semibold text-encre">{fr(total)}</p>
       <p className="text-colonne text-encre-2">{unite} éligibles</p>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-fond-4"><div className="h-full rounded-full bg-action transition-all" style={{ width: `${j.part}%` }} /></div>
       <div className="mt-1 flex justify-between text-colonne text-encre-2"><span>Précise</span><span>Large</span></div>
