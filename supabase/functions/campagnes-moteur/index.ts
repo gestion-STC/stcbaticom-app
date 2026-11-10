@@ -21,11 +21,11 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
-import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
+import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
 import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
 import { ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
-import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
+import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/campagnes/pareFeu.ts"
 import { estBaseAvis } from "../_shared/campagnes/avis.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
@@ -128,7 +128,7 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
 }
 
 type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; reporte?: boolean }
-type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[]; ia?: ReglageIA }
+type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[]; ia?: ReglageIA; memeFil?: boolean }
 const IA_MAX_PAR_PASSAGE = 15
 const compteurIA = { n: 0 }
 
@@ -228,6 +228,11 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   if (!to) return { ok: false, saute: "pas de mail" }
   sujet = (test ? "[TEST] " : "") + sujet
   if (!varianteId) return { ok: false, saute: "mail sans texte" }
+  // Une relance part dans le fil du mail précédent, sauf si le créatif demande un nouveau mail.
+  if (leCreatif?.memeFil !== false && !test) {
+    const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId }, k.id, to, sujet, texte, desinscription)
+    if (fil) return fil
+  }
   return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: (c.config as { garde?: GardeConfig } | null)?.garde?.suiviOuvertures !== false }, k, to, sujet, texte, varianteId, test, desinscription)
 }
 
@@ -250,6 +255,9 @@ Deno.serve(async (req: Request) => {
     // Le pare-feu regarde toutes les bases, une fois par passage.
     const annuaire = new Map((await tout<Coordonnees>((d, f) => sb.from("cmp_contacts").select("id, email, mobile, telephone").order("id").range(d, f))).map((k) => [k.id, k]))
     const entresCePassage: Coordonnees[] = []
+    const { data: ligneDomaines } = await sb.from("parametres").select("valeur").eq("cle", "domaines_bloques").maybeSingle()
+    let domaines: string[] = []
+    try { domaines = JSON.parse(String((ligneDomaines as { valeur?: string } | null)?.valeur ?? "[]")) } catch { domaines = [] }
     let envoisPassage = 0
     for (const ligne of (actives ?? []) as Ligne[]) {
       bilan.campagnes = Number(bilan.campagnes) + 1
@@ -289,7 +297,7 @@ Deno.serve(async (req: Request) => {
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
       const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0))
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
-      const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || !bloques.has(k.id)), dejaDedans, actifs)
+      const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
       const ecr = passage({ campagne: c, contacts: autorises, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
       const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
       for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }

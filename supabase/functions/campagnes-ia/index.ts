@@ -2,7 +2,9 @@
 // Réservé aux administrateurs. Rien n'est envoyé ici. Déployée sans vérification de JWT : le jeton est contrôlé ci-dessous.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
-import { ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
+import { ficheIA, genererTexteIA, offreSTC, trierReponse } from "../_shared/campagnes/generationIA.ts"
+import { envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
+import { remplirVariables } from "../_shared/campagnes/instantlyOutils.ts"
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-passage-cle", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
@@ -25,7 +27,22 @@ Deno.serve(async (req: Request) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   try {
     if (!(await autorise(sb, req))) return json({ error: "Réservé aux administrateurs." }, 403)
-    const b = await req.json() as { baseId: string; campagneNom: string; objet: string; corps: string; ia: ReglageIA; nombre?: number; contactRef?: string }
+    const entree = await req.json() as Record<string, unknown>
+    if (entree.action === "trier") return json({ tri: await trierReponse(String(entree.objet ?? ""), String(entree.texte ?? "")) })
+    // Le test d'arrivée : le vrai mail, par les vraies boîtes, vers des adresses à soi. Rien n'est compté dans la campagne.
+    if (entree.action === "arrivee") {
+      const a = entree as unknown as { campagne: { id: string; nom: string; baseId: string; rythme: { jours: number[]; heureMin: number; heureMax: number } }; adresses: string[]; objet: string; corps: string; varianteId: string }
+      const ins = await preparerInstantly(sb, Deno.env.get("SUPABASE_URL")!, new Date().toISOString())
+      if (!ins.pretes.length) return json({ error: "Aucune boîte d'envoi n'est prête." }, 400)
+      const valeurs = { contact: "", prenom: "", entreprise: "Agence Exemple", agence: "Agence Exemple", secteur: "Paris 12e", enseigne: "", metier: "Peinture", zone: "Paris", accroche_ia: "" }
+      const propre = (s: string) => remplirVariables(s, valeurs).replace(/\{\{lien_[a-z_]+\}\}/g, "https://www.stcbatiment.fr")
+      for (const to of a.adresses.slice(0, 5)) {
+        const r = await envoyerParInstantly(sb, ins, { id: a.campagne.id, nom: a.campagne.nom, baseId: a.campagne.baseId, rythme: a.campagne.rythme, plafond: 30, suiviOuvertures: false }, { id: "essai-arrivee", nom: "Essai", personne: "" }, to.trim(), `[ESSAI] ${propre(a.objet)}`, propre(a.corps), a.varianteId, true, "https://www.stcbatiment.fr")
+        if (!r.ok) return json({ error: r.erreur ?? "Envoi refusé." }, 502)
+      }
+      return json({ ok: true })
+    }
+    const b = entree as unknown as { baseId: string; campagneNom: string; objet: string; corps: string; ia: ReglageIA; nombre?: number; contactRef?: string }
     let contacts: Contact[]
     if (b.contactRef) {
       const { data } = await sb.from("cmp_contacts").select("id, base_id, nom, personne, email, champs").eq("base_id", b.baseId).eq("id", b.contactRef)

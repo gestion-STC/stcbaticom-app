@@ -1,7 +1,7 @@
 // La génération des textes par l'IA, partagée par le moteur et par l'écran d'essai.
 import Anthropic from "npm:@anthropic-ai/sdk@0.137.0"
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { SCHEMA_IA, consignesIA, coutIA, messageIA, type ReglageIA } from "./ia.ts"
+import { CONSIGNES_TRI, SCHEMA_IA, SCHEMA_TRI, consignesIA, coutIA, messageIA, type ReglageIA } from "./ia.ts"
 import { valeursDe } from "./instantlyOutils.ts"
 
 export const MODELE_IA = "claude-opus-5-5"
@@ -37,4 +37,19 @@ export async function genererTexteIA(a: { baseId: string; reglage: ReglageIA; ca
   if (reponse.stop_reason === "max_tokens") throw new Error("texte coupé")
   const brut = (reponse.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("")
   return { texte: String((JSON.parse(brut) as { texte?: string }).texte ?? "").trim(), cout: coutIA(reponse.usage?.input_tokens ?? 0, reponse.usage?.output_tokens ?? 0) }
+}
+
+/** Le tri d'une réponse. En cas d'échec : null, et la règle simple prend le relais. */
+export async function trierReponse(objet: string, texte: string): Promise<string | null> {
+  try {
+    const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") || "" })
+    const reponse = await client.beta.messages.create({
+      model: MODELE_IA, max_tokens: 2000, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+      output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA_TRI } },
+      system: CONSIGNES_TRI,
+      messages: [{ role: "user", content: `Objet : ${objet.slice(0, 200)}\n\n${texte.slice(0, 2000)}` }],
+    } as never) as { stop_reason?: string; content?: Array<{ type: string; text?: string }> }
+    if (reponse.stop_reason !== "end_turn") return null
+    return (JSON.parse((reponse.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("")) as { tri?: string }).tri ?? null
+  } catch (e) { console.error("[TRI-REPONSE]", e); return null }
 }

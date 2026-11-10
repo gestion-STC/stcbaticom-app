@@ -29,12 +29,13 @@ export function horaireInstantly(r: { jours: number[]; heureMin: number; heureMa
 }
 
 const echapper = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-const estHtml = (s: string) => /<(html|body|table|div|p|a|br)\b/i.test(s)
+const IMAGE = /(<a\b[^>]*>\s*<img\b[^>]*>\s*<\/a>|<img\b[^>]*>)/i
+const estHtml = (s: string) => /<(html|body|table|div|p|a|br)\b/i.test(s.replace(new RegExp(IMAGE.source, "gi"), ""))
 /** Un lien se lit en mots : [Mon texte](adresse), sinon « Cliquez ici ». L'adresse technique ne s'affiche jamais. */
 export const LIBELLE_LIEN = "Cliquez ici"
 const liens = (s: string) => echapper(s).replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/g, (_tout, texte: string | undefined, url: string | undefined, nu: string | undefined) => (url ? `<a href="${url}">${texte}</a>` : `<a href="${nu}">${LIBELLE_LIEN}</a>`))
 // Une image ajoutée dans le texte reste une image ; tout le reste est du texte.
-const texteEnHtml = (s: string) => s.split(/(<img\b[^>]*>)/i).map((morceau, i) => (i % 2 ? morceau : liens(morceau))).join("").replace(/\n/g, "<br/>")
+const texteEnHtml = (s: string) => s.split(IMAGE).map((morceau, i) => (i % 2 ? morceau : liens(morceau))).join("").replace(/\n/g, "<br/>")
 
 /** Le corps prêt à partir : en HTML, avec la signature, l'adresse postale de STC et le lien de désinscription, jamais en double. */
 export function corpsAvecMentions(texte: string, desinscription?: string, suivi = false): string {

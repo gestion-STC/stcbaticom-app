@@ -7,7 +7,7 @@ import { Copy, Pause, Pencil, Play, Sparkles } from "lucide-react"
 import { Bandeau, Bouton, Pastille, Selecteur } from "../../ui"
 import { Bloc, Etiquette, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
-import { constats, indicateurs, type Constat } from "../../prospection/indicateurs"
+import { constats, indicateurs, type Constat, meilleureVariante } from "../../prospection/indicateurs"
 import { LIBELLE_ETAPE } from "../../prospection/modele"
 import { Barre, NomBase, Onglets, Titre } from "./morceaux"
 import { dateHeure, euros, fr, jourCourt, pct, useVue } from "./outils"
@@ -113,7 +113,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
       ) : vue === "ab" ? (
         ind.parVariante.length ? (
           <Table colonnes={[{ titre: "Étape", largeur: "110px" }, { titre: "Variante" }, { titre: "Envois", largeur: "80px", droite: true }, { titre: "Ouvreurs", largeur: "84px", droite: true }, { titre: "Taux ouv.", largeur: "84px", droite: true }, { titre: "Cliqueurs", largeur: "84px", droite: true }, { titre: "Taux clic", largeur: "84px", droite: true }, { titre: "Réponses", largeur: "84px", droite: true }]}
-            lignes={ind.parVariante.map((x) => ({ cle: x.varianteId, cellules: [nomEtape(x.etapeId), <span className="block truncate py-1.5"><b className="font-medium">{x.nom}</b><span className="block truncate text-colonne text-encre-2">{x.objet}</span></span>, fr(x.envoyes), fr(x.ouvreurs), pct(x.tauxOuverture), fr(x.cliqueurs), <b className="font-medium">{pct(x.tauxClic)}</b>, fr(x.repondants)] }))} />
+            lignes={ind.parVariante.map((x) => ({ cle: x.varianteId, cellules: [nomEtape(x.etapeId), <span className="block truncate py-1.5"><b className="font-medium">{x.nom}</b>{meilleureVariante(ind.parVariante.filter((y) => y.etapeId === x.etapeId)) === x.varianteId ? <span className="ml-2 rounded-full bg-ok px-2 text-[10px] font-medium leading-4 text-white">Meilleure</span> : null}<span className="block truncate text-colonne text-encre-2">{x.objet}</span></span>, fr(x.envoyes), fr(x.ouvreurs), pct(x.tauxOuverture), fr(x.cliqueurs), <b className="font-medium">{pct(x.tauxClic)}</b>, fr(x.repondants)] }))} />
         ) : <p className="text-legende text-encre-2">Aucune étape n'a deux variantes. Dans « Modifier », ajoute une variante B à un mail : la moitié des contacts reçoit A, l'autre B, toujours la même pour un même contact.</p>
       ) : vue === "audience" ? (
         <div className="space-y-4">

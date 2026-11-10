@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { clesContact, sansDejaSollicites } from "./pareFeu"
+import { clesContact, sansDejaSollicites, domaineBloque } from "./pareFeu"
 import ecran from "./pareFeu.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/pareFeu.ts?raw"
 
 const k = (id: string, email = "", mobile = "", telephone = "") => ({ id, email, mobile, telephone })
+
+it("reconnaît un domaine bloqué", () => { expect(domaineBloque("a@Concurrent.fr", ["concurrent.fr"])).toBe(true); expect(domaineBloque("a@autre.fr", ["concurrent.fr"])).toBe(false) })
 
 describe("le pare-feu des campagnes", () => {
   it("le serveur a la même copie que l'écran", () => {

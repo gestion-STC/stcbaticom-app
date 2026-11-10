@@ -49,6 +49,7 @@ import {
 import { useSession } from "../lib/auth"
 import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
+import { LIBELLE_TRI } from "../prospection/ia"
 import { apercuTexte, dateCourte, nomCorrespondant, objetReponse, objetTransfert } from "../lib/messagesUtils"
 import {
   compterNonLues,
@@ -204,6 +205,7 @@ function MessageCard({ m, ouvert, onToggle }: { m: Message; ouvert: boolean; onT
 function LigneConversation({ c, nom, onOuvrir, onBasculerLu }: { c: Conv; nom: string; onOuvrir: () => void; onBasculerLu: () => void }) {
   const nonLu = c.nonLus > 0
   const apercu = apercuTexte(c.dernier.corpsText || "", 110)
+  const tri = c.messages.find((x) => x.tri)?.tri ?? null
   return (
     <div className={`group relative flex items-center border-b border-fond-4 last:border-b-0 ${nonLu ? "bg-fond" : "bg-fond-2"} hover:z-10 hover:shadow-[0_1px_3px_rgba(0,0,0,0.18)]`}>
       <button type="button" onClick={onOuvrir} className="flex h-11 min-w-0 flex-1 items-center gap-3 px-10 text-left">
@@ -212,7 +214,7 @@ function LigneConversation({ c, nom, onOuvrir, onBasculerLu }: { c: Conv; nom: s
           {c.messages.length > 1 && <span className="chiffres font-normal text-encre-3"> {c.messages.length}</span>}
         </span>
         <span className="min-w-0 flex-1 truncate text-corps">
-          <span className={nonLu ? "font-semibold text-encre" : "text-encre"}>{c.objet || "(sans objet)"}</span>
+          <span className={nonLu ? "font-semibold text-encre" : "text-encre"}>{c.objet || "(sans objet)"}</span>{tri ? <span className={`ml-2 inline-block rounded-full px-2 text-[10px] font-medium leading-4 ${tri === "interesse" ? "bg-ok text-white" : "bg-fond-4 text-encre-2"}`}>{LIBELLE_TRI[tri]}</span> : null}
           {apercu && <span className="text-encre-3"> — {apercu}</span>}
         </span>
         {c.piecesJointes > 0 && <Paperclip size={14} className="shrink-0 text-encre-3" />}

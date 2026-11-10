@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { apercuMail, baliseImage, remplirExemples } from "./apercuMail"
+import { apercuMail, baliseImage, remplirExemples, conseilsMail } from "./apercuMail"
 import { corpsAvecMentions } from "./instantlyOutils"
 
 describe("aperçu du mail", () => {
@@ -17,6 +17,12 @@ describe("aperçu du mail", () => {
   it("ne double pas la désinscription quand le texte la contient", () => {
     expect(apercuMail("", "Stop : {{lien_desinscription}}").document).not.toContain("Pour ne plus recevoir")
   })
+  it("conseille sans bloquer", () => {
+    expect(conseilsMail("Un objet", "Bonjour", true)).toEqual([])
+    expect(conseilsMail("Objet", "{{lien_page}} {{lien_formulaire}}", true)[0]).toContain("un seul lien")
+    expect(conseilsMail("Objet", "{{lien_page}} {{lien_formulaire}}", false)).toEqual([])
+  })
+  it("rend une image cliquable", () => expect(baliseImage("u", "l")).toContain('<a href="l">'))
   it("ajoute le lien du créatif", () => expect(apercuMail("", "Bonjour", "Remplir le formulaire").document).toContain(">Remplir le formulaire</a>"))
 })
 

@@ -2,18 +2,19 @@
 // Six parties : Audience (la carte comme Meta), Actions et séquence, Créatifs, Qualification, Garde-fous, Mesure.
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { Check } from "lucide-react"
+import { Check, X } from "lucide-react"
 import { Bouton, Champ, Chargement, Dialogue, Onglets } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
-import { sansDejaSollicites } from "../../prospection/pareFeu"
+import { domaineBloque, sansDejaSollicites } from "../../prospection/pareFeu"
+import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { estBaseAvis } from "../../prospection/avis"
 import MesureAvis from "./moteur/MesureAvis"
 import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
-import { boitesDe, conseilsEnvoi, valeursDe } from "../../prospection/instantlyOutils"
+import { PHRASE_SUIVI, boitesDe, conseilsEnvoi, corpsAvecMentions, valeursDe } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
 import { listerComptes, type Compte } from "../../lib/comptes"
 import { compterTextesValides } from "../../lib/campagnesIa"
@@ -67,7 +68,11 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const maj: MajConfig = (f) => setCfg(f)
   const tracabilite = c.origine === ORIGINE_TRACABILITE
   const base = v.base(c.baseId)
-  const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId), [v.contacts, c.baseId])
+  const [domaines, setDomaines] = useState<string[]>([])
+  const [domaine, setDomaine] = useState("")
+  useEffect(() => { lireParametre("domaines_bloques").then((x) => { const l = JSON.parse(x || "[]") as unknown; setDomaines(Array.isArray(l) ? (l as string[]) : []) }).catch(() => undefined) }, [])
+  const majDomaines = (l: string[]) => { setDomaines(l); void ecrireParametre("domaines_bloques", JSON.stringify(l)) }
+  const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId && !domaineBloque(x.email, domaines)), [v.contacts, c.baseId, domaines])
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
   const eligibles = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)).length, [contactsBase, compilee])
   const vide = messageVide(cfg)
@@ -95,13 +100,22 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   useEffect(() => { if (confirmer) compterTextesValides(c.id).then(setTextesRelus).catch(() => undefined) }, [confirmer, c.id])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
+  const nbActions = (t: string) => cfg.actions.filter((a) => a.type === t).length
+  const mailsDeLaSuite = cfg.actions.filter((a) => a.type === "mail" || a.type === "newsletter").flatMap((a) => cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? [])
+  const avecPhrase = mailsDeLaSuite.every((x) => corpsAvecMentions(x.corps, "https://x", true).includes(PHRASE_SUIVI))
+  const recapitulatif: [string, boolean][] = [
+    [`${fr(eligibles)} ${base?.unite ?? "contacts"} dans l'audience`, eligibles > 0],
+    [[nbActions("mail") + nbActions("newsletter") ? `${nbActions("mail") + nbActions("newsletter")} mail(s)` : "", nbActions("sms") ? `${nbActions("sms")} SMS` : "", nbActions("appel") ? `${nbActions("appel")} appel(s)` : ""].filter(Boolean).join(", ") || "Aucune action", cfg.actions.length > 0],
+    ["Tous les textes sont remplis", !vide],
+    ...(avis ? [] : [["La phrase sur le suivi des clics est dans chaque mail", avecPhrase] as [string, boolean], ["Le lien de désinscription est dans chaque mail", true] as [string, boolean]]),
+  ]
   const nomValeur = (cle: string, val: string) => { if (cle !== "commercial") return val; const q = comptes.find((x) => x.id === val); return q ? q.nom || q.email : "Commercial" }
   const champFiltre = (ch: { cle: string; libelle: string }) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{nomValeur(ch.cle, val)}</button> })}</div></div>
   const enregistrer = (statut: Campagne["statut"]) => { const s = { ...compilee, nom: c.nom.trim() || "Campagne sans nom", statut, lanceeLe: statut === "active" ? c.lanceeLe ?? v.etat.maintenant : c.lanceeLe }; depot.enregistrerCampagne(s); fini(s.id) }
 
   return (
     <div className="space-y-5">
-      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={c.modeTest ? "Cette campagne est en mode essai : les envois partiront vers l'adresse d'essai." : `${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${c.rythme.heureMin} h à ${c.rythme.heureMax} h, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3">{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
+      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={c.modeTest ? "Cette campagne est en mode essai : les envois partiront vers l'adresse d'essai." : `${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${c.rythme.heureMin} h à ${c.rythme.heureMax} h, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3"><ul className="space-y-1">{recapitulatif.map(([t, ok]) => <li key={t} className="flex items-center gap-2 text-legende">{ok ? <Check size={14} className="shrink-0 text-ok" /> : <X size={14} className="shrink-0 text-alerte" />}{t}</li>)}</ul>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
       {baseVoulue ? <Dialogue titre="Changer de cible ?" description="Tes textes et ton parcours seront remplacés par ceux prévus pour cette cible." onFermer={() => setBaseVoulue(null)} pied={<><Bouton onClick={() => setBaseVoulue(null)}>Annuler</Bouton><Bouton variante="plein" onClick={() => appliquerBase(baseVoulue)}>Changer de cible</Bouton></>}><p className="text-legende text-encre-2">Ton audience et tes filtres sont aussi remis à zéro.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}
       <Titre titre={existante ? existante.nom : "Créer une campagne"} sous={tracabilite ? "Ce qui tourne aujourd'hui : les mails envoyés après les appels, avec leurs liens suivis. Cette campagne n'envoie rien toute seule." : existante?.statut === "active" ? "Campagne active : les changements valent pour les prochaines touches." : "Rien ne part tant qu'elle n'est pas lancée."}
@@ -130,7 +144,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                 </div></Bloc>
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} avis={avis} />
-              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={contactsBase[0] ? valeursDe(contactsBase[0]) : undefined} baseId={c.baseId} campagne={{ id: c.id, nom: c.nom }} />
+              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={contactsBase[0] ? valeursDe(contactsBase[0]) : undefined} baseId={c.baseId} campagne={{ id: c.id, nom: c.nom, rythme: c.rythme }} />
               : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">
@@ -148,6 +162,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                     <Libelle titre="Écart entre deux campagnes (j)"><Champ type="number" min={0} value={cfg.garde.ecartCampagnes} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, ecartCampagnes: Number(e.target.value) || 0 } }))} /></Libelle>
                     {cfg.actions.some((a) => a.type === "sms") ? <Libelle titre="SMS par jour, maximum"><Champ type="number" min={0} value={cfg.garde.plafondSms} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondSms: Number(e.target.value) || 0 } }))} /></Libelle> : null}
                   </div></Bloc>
+                  <Bloc titre="Domaines à ne jamais contacter" droite="vaut pour toutes les campagnes"><div className="mt-3 flex flex-wrap items-center gap-1.5">{domaines.map((d) => <span key={d} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{d}<button type="button" aria-label={`Retirer ${d}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => majDomaines(domaines.filter((y) => y !== d))}>×</button></span>)}<span className="w-52"><Champ value={domaine} placeholder="concurrent.fr, puis Entrée" aria-label="Ajouter un domaine" onChange={(e) => setDomaine(e.target.value)} onKeyDown={(e) => { const d = domaine.trim().toLowerCase().replace(/^.*@/, ""); if (e.key === "Enter" && d) { if (!domaines.includes(d)) majDomaines([...domaines, d]); setDomaine("") } }} /></span></div></Bloc>
                   <Bloc titre="Suivi des ouvertures"><div className="mt-3 space-y-2"><label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={cfg.garde.suiviOuvertures !== false} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, suiviOuvertures: e.target.checked } }))} />Savoir qui ouvre mes mails</label><p className="text-colonne text-encre-2">Conseil : la CNIL demande un consentement pour ce suivi, et il peut réduire l'arrivée en boîte de réception. Sans lui, « A ouvert » ne se déclenche pas.</p></div></Bloc>
                   <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}{m === "Désinscrit" ? null : <button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button>}</span>)}<span className="w-52"><Champ value={ex} placeholder="Ex. Endormie, puis Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>
                   {!tracabilite && c.modeTest ? <Bloc titre="Mode essai" droite={c.modeTest ? <span className="text-colonne text-attention">actif</span> : <span className="text-colonne text-encre-2">envois réels</span>}>

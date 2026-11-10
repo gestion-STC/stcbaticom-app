@@ -1,7 +1,8 @@
 // ── LES PARTIES D'UNE CAMPAGNE (09/11/2026) : séquence, créatifs, qualification, garde-fous, et le chemin du contact ──
 import { useEffect, useState, type ReactNode } from "react"
 import { listerComptes, type Compte } from "../../../lib/comptes"
-import { apercuMail, baliseImage, type ValeursEssai } from "../../../prospection/apercuMail"
+import { apercuMail, baliseImage, conseilsMail, type ValeursEssai } from "../../../prospection/apercuMail"
+import { chargerModelesMail, enregistrerModeleMail, type ModeleMail } from "../../../lib/modelesMail"
 import AjoutImage from "./AjoutImage"
 import InsererAvis from "./InsererAvis"
 import EssaiCreatif from "./EssaiCreatif"
@@ -87,12 +88,15 @@ const VARIABLES: Record<"agence" | "artisan" | "avis", [string, string][]> = {
   avis: [["Nom", "{{contact}}"], ["Entreprise", "{{entreprise}}"]],
 }
 
-export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple?: ValeursEssai; baseId: string; campagne: { id: string; nom: string } }) {
+export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple?: ValeursEssai; baseId: string; campagne: { id: string; nom: string; rythme: { jours: number[]; heureMin: number; heureMax: number } } }) {
   const [id, setId] = useState(cfg.creatifs[0]?.id ?? "")
   const k = cfg.creatifs.find((x) => x.id === id) ?? cfg.creatifs[0]
   const majK = (p: Partial<Creatif>) => k && maj((x) => ({ ...x, creatifs: x.creatifs.map((y) => (y.id === k.id ? { ...y, ...p } : y)) }))
   const majV = (i: number, p: { nom?: string; objet?: string; corps?: string }) => k && majK({ variantes: k.variantes.map((v, j) => (j === i ? { ...v, ...p } : v)) })
   const ajouter = (type: TypeCreatif) => { const n = creatifVide(type, `${LIB_CREATIF[type]} ${cfg.creatifs.filter((x) => x.type === type).length + 1}`); maj((x) => ({ ...x, creatifs: [...x.creatifs, n] })); setId(n.id) }
+  const premierMail = cfg.actions.find((a) => a.type === "mail")?.creatifId
+  const [modeles, setModeles] = useState<ModeleMail[]>([])
+  useEffect(() => { chargerModelesMail().then(setModeles).catch(() => undefined) }, [])
   const variables = VARIABLES[avis ? "avis" : baseId === "artisans" ? "artisan" : "agence"]
   const insererVariable = (i: number, corps: string, id: string, texte: string) => { const el = document.getElementById(`corps-${id}`) as HTMLTextAreaElement | null; const a = el?.selectionStart ?? corps.length, b = el?.selectionEnd ?? corps.length; majV(i, { corps: corps.slice(0, a) + texte + corps.slice(b) }) }
   const liables = cfg.creatifs.filter((x) => k && x.id !== k.id && (x.type === "page" || x.type === "formulaire"))
@@ -109,6 +113,7 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
           <div className="min-w-0 space-y-4">
             <Libelle titre={`Nom du créatif · ${LIB_CREATIF[k.type]}`}><Champ value={k.nom} onChange={(e) => majK({ nom: e.target.value })} /></Libelle>
             {k.type === "avis" ? <Libelle titre="Lien Google (proposé à tout le monde après l'avis)"><Champ value={k.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => majK({ lienGoogle: e.target.value })} /></Libelle> : null}
+            {k.type === "mail" && !avis ? <div className="flex flex-wrap items-end gap-2">{modeles.length ? <span className="min-w-[200px] flex-1"><Selecteur value="" aria-label="Partir d'un modèle" onChange={(e) => { const m = modeles.find((x) => x.id === e.target.value); if (m) majV(0, { objet: m.objet, corps: m.corps }) }}><option value="">Partir d'un modèle…</option>{modeles.map((m) => <option key={m.id} value={m.id}>{m.nom}</option>)}</Selecteur></span> : null}<Bouton taille="sm" variante="discret" disabled={!k.variantes[0]?.corps.trim()} onClick={() => { const v = k.variantes[0]; void enregistrerModeleMail(k.nom, v.objet, v.corps).then(setModeles) }}>Garder comme modèle</Bouton></div> : null}
             {k.type !== "formulaire" ? k.variantes.map((v, i) => (
               <div key={v.id} className="space-y-2 rounded-4 border-[0.5px] border-trait p-3">
                 {k.variantes.length > 1 ? <div className="flex items-center gap-2"><Champ className="!w-40" aria-label="Nom de la variante" value={v.nom} onChange={(e) => majV(i, { nom: e.target.value })} /><IconeBtn icone={<X />} label="Retirer la variante" onClick={() => majK({ variantes: k.variantes.filter((y) => y.id !== v.id) })} /></div> : null}
@@ -116,10 +121,12 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
                 <Libelle titre="Texte"><Zone id={`corps-${v.id}`} rows={k.type === "sms" ? 3 : 6} value={v.corps} placeholder={avis ? "Variables : {{contact}}, {{entreprise}}, {{lien_avis}}" : "Variables : {{contact}}, {{entreprise}}, {{lien_principal}}, {{lien_formulaire}}, {{lien_page}}"} onChange={(e) => majV(i, { corps: e.target.value })} /></Libelle>
                 {k.type === "mail" || k.type === "sms" ? <div className="flex flex-wrap items-center gap-1.5"><span className="text-colonne text-encre-2">Insérer :</span>{variables.map(([nom, code]) => <button key={code} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insererVariable(i, v.corps, v.id, code)} className="h-6 rounded-full border-[0.5px] border-trait px-2.5 text-colonne text-encre hover:bg-fond-2">{nom}</button>)}</div> : null}
                 {(k.type === "mail" || k.type === "page") && !avis ? <InsererAvis onAvis={(citation) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${citation}` })} /> : null}
-                {k.type === "mail" ? <AjoutImage onImage={(url) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${baliseImage(url)}` })} /> : null}
+                {k.type === "mail" ? <AjoutImage onImage={(url, lien) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${baliseImage(url, lien)}` })} /> : null}
+                {k.type === "mail" ? conseilsMail(v.objet, v.corps, premierMail === k.id).map((t) => <p key={t} className="text-colonne text-attention">{t}</p>) : null}
                 {k.type === "sms" ? <p className="text-colonne text-encre-2">{v.corps.length} caractères · {Math.max(1, Math.ceil(v.corps.length / 160))} SMS</p> : null}
               </div>
             )) : null}
+            {k.type === "mail" && !avis && premierMail !== k.id ? <label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={k.memeFil !== false} onChange={(e) => majK({ memeFil: e.target.checked })} />Envoyer en réponse au mail précédent, dans le même fil</label> : null}
             {k.type === "mail" && !avis && k.variantes[0] ? <PersonnalisationIA key={k.id} reglage={k.ia} onChange={(ia) => majK({ ia })} baseId={baseId} campagne={campagne} creatifId={k.id} variante={k.variantes[0]} inserer={() => { const c = k.variantes[0].corps, m = c.match(/^bonjour[^\n]*\n+/i); majV(0, { corps: m ? `${m[0]}{{accroche_ia}}\n\n${c.slice(m[0].length)}` : `{{accroche_ia}}\n\n${c}` }) }} /> : null}
             {k.type === "mail" || k.type === "sms" ? <Bouton taille="sm" icone={<Plus />} onClick={() => majK({ variantes: [...k.variantes, { id: nid(), nom: String.fromCharCode(65 + k.variantes.length), objet: "", corps: "" }] })}>Variante (test A/B)</Bouton> : null}
             {texteLong && k.type !== "avis" ? <><label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={k.video} onChange={(e) => majK({ video: e.target.checked })} />Ajouter une vidéo</label>{k.video ? <Libelle titre="Adresse de la vidéo (YouTube, Vimeo ou fichier)"><Champ value={k.videoUrl ?? ""} placeholder="https://…" onChange={(e) => majK({ videoUrl: e.target.value })} /></Libelle> : null}<Libelle titre="Le bouton mène vers"><Selecteur value={k.versId} onChange={(e) => majK({ versId: e.target.value })}><option value="">Pas de bouton</option>{liables.map((x) => <option key={x.id} value={x.id}>{LIB_CREATIF[x.type]} · {x.nom}</option>)}</Selecteur></Libelle></> : null}
@@ -136,7 +143,7 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
             <Bouton taille="sm" variante="discret" icone={<Trash2 />} onClick={() => { maj((x) => ({ ...x, creatifs: x.creatifs.filter((y) => y.id !== k.id) })); setId("") }}>Supprimer ce créatif</Bouton>
           </div>
         ) : <p className="text-legende text-encre-2">Crée un mail, un SMS, un message LinkedIn, une page ou un formulaire.</p>}
-        {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div>{k.type === "mail" || k.type === "sms" ? <EssaiCreatif key={k.id} k={k} cfg={cfg} exemple={exemple} baseId={baseId} campagneNom={campagne.nom} /> : null}</div> : null}
+        {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div>{k.type === "mail" || k.type === "sms" ? <EssaiCreatif key={k.id} k={k} cfg={cfg} exemple={exemple} baseId={baseId} campagneNom={campagne.nom} campagne={campagne} /> : null}</div> : null}
       </div>
     </div>
   )

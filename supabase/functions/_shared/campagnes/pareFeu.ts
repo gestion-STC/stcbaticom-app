@@ -10,6 +10,9 @@ function numero(s: string): string {
   return n.length >= 9 ? n : ""
 }
 
+/** Un domaine à ne jamais contacter (Mahdi, 10/11/2026). */
+export const domaineBloque = (email: string, domaines: string[]) => Array.isArray(domaines) && domaines.includes(email.trim().toLowerCase().split("@")[1] ?? "")
+
 /** Ce qui identifie une personne : son mail et ses numéros. */
 export function clesContact(k: Omit<Coordonnees, "id">): string[] {
   const mail = k.email.trim().toLowerCase()
