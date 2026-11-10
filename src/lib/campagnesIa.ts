@@ -1,5 +1,6 @@
 // Les textes écrits par l'IA pour les campagnes : les essais sur de vraies fiches, et ceux gardés pour l'envoi.
 import { supabase } from "./supabase"
+import { lireParLots } from "./pagination"
 import type { ReglageIA } from "../prospection/ia"
 
 export type LigneIA = { contactRef: string; nom: string; detail: string; texte: string; pauvre: boolean; cout: number; modifie?: boolean }
@@ -38,4 +39,20 @@ export async function chargerTextesARelire(campagneId: string): Promise<{ id: st
 export async function validerTexteIA(id: string, texte: string): Promise<void> {
   const { error } = await sb().from("cmp_textes_ia").update({ texte: texte.trim(), valide: true, maj_le: new Date().toISOString() }).eq("id", id)
   if (error) throw new Error(error.message)
+}
+
+const DOLLAR_EN_EURO = 0.95
+
+/** Ce que les textes de l'IA ont coûté à cette campagne, en euros (taux approximatif). */
+export async function chargerCoutIA(campagneId: string): Promise<number> {
+  const l = await lireParLots<{ cout: number }>((d, f) => sb().from("cmp_textes_ia").select("cout").eq("campagne_id", campagneId).order("id").range(d, f) as never)
+  return l.reduce((s, x) => s + Number(x.cout || 0), 0) * DOLLAR_EN_EURO
+}
+
+/** Le tri des réponses reçues des contacts de cette campagne. */
+export async function chargerTrisCampagne(inscrits: Map<string, string>): Promise<Record<string, number>> {
+  const l = await lireParLots<{ tri: string; agence_id: string | null; sous_traitant_id: string | null; created_at: string }>((d, f) => sb().from("messages").select("tri, agence_id, sous_traitant_id, created_at").eq("sens", "entrant").not("tri", "is", null).order("id").range(d, f) as never)
+  const totaux: Record<string, number> = {}
+  for (const m of l) { const depuis = inscrits.get(m.agence_id ?? m.sous_traitant_id ?? ""); if (depuis && m.created_at >= depuis) totaux[m.tri] = (totaux[m.tri] ?? 0) + 1 }
+  return totaux
 }

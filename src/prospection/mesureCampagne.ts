@@ -5,11 +5,11 @@ import type { Envoi, Evenement, Inscription } from "./modele"
 
 export type PositionCampagne = { campagneId: string; atteintes: string[]; estLead: boolean; etape: string }
 export type LigneMesure = { libelle: string; n: number; part: number | null; badge?: "LEAD" | "GAGNÉ" }
-export type Mesure = { lignes: LigneMesure[]; leads: number; gagnes: number; sms: number; coutSms: number; coutParLead: number | null; coutParGagne: number | null }
+export type Mesure = { lignes: LigneMesure[]; leads: number; gagnes: number; sms: number; coutSms: number; coutIA: number; coutParLead: number | null; coutParGagne: number | null }
 
 const arrondi = (x: number) => Math.round(x * 100) / 100
 
-export function mesureCampagne(cfg: ConfigCampagne, campagneId: string, coutUnitaireSms: number, inscriptions: Inscription[], envois: Envoi[], evenements: Evenement[], positions: PositionCampagne[]): Mesure {
+export function mesureCampagne(cfg: ConfigCampagne, campagneId: string, coutUnitaireSms: number, inscriptions: Inscription[], envois: Envoi[], evenements: Evenement[], positions: PositionCampagne[], coutIA = 0): Mesure {
   const q = cfg.qualification
   const miens = positions.filter((p) => p.campagneId === campagneId)
   const partis = envois.filter((e) => e.campagneId === campagneId && e.statut === "envoye")
@@ -29,5 +29,6 @@ export function mesureCampagne(cfg: ConfigCampagne, campagneId: string, coutUnit
   const lignes = brutes.map((l, i) => { const avant = i ? brutes[i - 1].n : 0; return { ...l, part: i && avant ? Math.round((l.n / avant) * 100) : null } })
   const leads = miens.filter((p) => p.estLead).length, gagnes = miens.filter((p) => p.etape === "gagnes").length
   const sms = partis.filter((e) => e.canal === "sms").length, coutSms = arrondi(sms * coutUnitaireSms)
-  return { lignes, leads, gagnes, sms, coutSms, coutParLead: leads ? arrondi(coutSms / leads) : null, coutParGagne: gagnes ? arrondi(coutSms / gagnes) : null }
+  const total = coutSms + coutIA
+  return { lignes, leads, gagnes, sms, coutSms, coutIA: arrondi(coutIA), coutParLead: leads ? arrondi(total / leads) : null, coutParGagne: gagnes ? arrondi(total / gagnes) : null }
 }

@@ -22,6 +22,7 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
+import { ETAPE_ALERTE, aAppelerSurOuverture, boitesSaines, envoisDuJour, type AlerteOuverture, type Montee } from "../_shared/campagnes/montee.ts"
 import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
 import { ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
@@ -91,7 +92,7 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
   return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
 }
 
-type GardeConfig = { ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean }
+type GardeConfig = { ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
@@ -283,6 +284,10 @@ Deno.serve(async (req: Request) => {
         continue
       }
 
+      // La montée en charge : le volume du jour, selon l'ancienneté de la campagne et la santé des boîtes.
+      const avecMontee = !estBaseAvis(c.baseId) && garde?.montee?.actif
+      if (avecMontee) c.rythme = { ...c.rythme, parJour: envoisDuJour(garde!.montee!, c.rythme.parJour, c.lanceeLe ?? iso, maintenant, boitesSaines(nbEnvoyes, nbRebonds)) }
+
       // 1. Les sorties : un contact devenu lead, gagné, exclu ou désinscrit quitte la séquence.
       for (const i of inscriptions.filter((x) => x.campagneId === c.id && x.statut === "en_cours")) {
         const k = parContact.get(i.contactId)
@@ -310,7 +315,7 @@ Deno.serve(async (req: Request) => {
       const { count: mailsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "mail").eq("statut", "envoye").gte("le", debutJour)
       const { count: smsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "sms").eq("statut", "envoye").gte("le", debutJour)
       const avis = estBaseAvis(c.baseId)
-      const plafondMail = garde?.plafondMail ?? PLAFOND_JOUR.mail
+      const plafondMail = avecMontee ? c.rythme.parJour : garde?.plafondMail ?? PLAFOND_JOUR.mail
       const budget = { mail: plafondMail - (mailsJour ?? 0), sms: (garde?.plafondSms ?? PLAFOND_JOUR.sms) - (smsJour ?? 0) }
       const hSms = heureParis(maintenant) >= 10 && heureParis(maintenant) < 17
       let arret = false
@@ -376,6 +381,12 @@ Deno.serve(async (req: Request) => {
       if (taches.length) {
         await sb.from("cmp_taches").insert(taches.map((t) => ({ id: t.id, campagne_id: c.id, contact_ref: t.contactId, etape_id: t.etapeId, type: t.type, consigne: t.consigne, cible: t.cible ?? "contact" })))
         bilan.taches = Number(bilan.taches) + taches.length
+      }
+      // L'alerte d'ouverture : un appel au standard, une seule fois par contact.
+      if (garde?.alerteOuverture?.actif && garde.suiviOuvertures !== false && c.baseId !== "artisans" && !estBaseAvis(c.baseId)) {
+        const { data: deja } = await sb.from("cmp_taches").select("contact_ref").eq("campagne_id", c.id).eq("etape_id", ETAPE_ALERTE)
+        const a = aAppelerSurOuverture(garde.alerteOuverture, inscriptions.filter((i) => i.campagneId === c.id), evenements, new Set(((deja ?? []) as { contact_ref: string }[]).map((x) => x.contact_ref)), maintenant)
+        if (a.length) { await sb.from("cmp_taches").insert(a.map((id) => ({ id: crypto.randomUUID(), campagne_id: c.id, contact_ref: id, etape_id: ETAPE_ALERTE, type: "appel", consigne: `A ouvert le mail ${garde.alerteOuverture!.fois} fois : appeler le standard.`, cible: "standard" }))); bilan.taches = Number(bilan.taches) + a.length }
       }
       if (envoisPassage >= ENVOIS_MAX_PAR_PASSAGE) break
     }
