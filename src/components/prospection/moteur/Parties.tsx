@@ -5,6 +5,7 @@ import { apercuMail, baliseImage, type ValeursEssai } from "../../../prospection
 import AjoutImage from "./AjoutImage"
 import InsererAvis from "./InsererAvis"
 import EssaiCreatif from "./EssaiCreatif"
+import PersonnalisationIA from "./PersonnalisationIA"
 import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, MessageSquare, Newspaper, Phone, Play, Plus, Square, Star, Trash2, UserRoundPlus, X, type LucideIcon } from "lucide-react"
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
@@ -86,7 +87,7 @@ const VARIABLES: Record<"agence" | "artisan" | "avis", [string, string][]> = {
   avis: [["Nom", "{{contact}}"], ["Entreprise", "{{entreprise}}"]],
 }
 
-export function Creatifs({ cfg, maj, avis, exemple, baseId }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple?: ValeursEssai; baseId: string }) {
+export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: ConfigCampagne; maj: MajConfig; avis: boolean; exemple?: ValeursEssai; baseId: string; campagne: { id: string; nom: string } }) {
   const [id, setId] = useState(cfg.creatifs[0]?.id ?? "")
   const k = cfg.creatifs.find((x) => x.id === id) ?? cfg.creatifs[0]
   const majK = (p: Partial<Creatif>) => k && maj((x) => ({ ...x, creatifs: x.creatifs.map((y) => (y.id === k.id ? { ...y, ...p } : y)) }))
@@ -119,6 +120,7 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId }: { cfg: ConfigCampa
                 {k.type === "sms" ? <p className="text-colonne text-encre-2">{v.corps.length} caractères · {Math.max(1, Math.ceil(v.corps.length / 160))} SMS</p> : null}
               </div>
             )) : null}
+            {k.type === "mail" && !avis && k.variantes[0] ? <PersonnalisationIA key={k.id} reglage={k.ia} onChange={(ia) => majK({ ia })} baseId={baseId} campagne={campagne} creatifId={k.id} variante={k.variantes[0]} inserer={() => { const c = k.variantes[0].corps, m = c.match(/^bonjour[^\n]*\n+/i); majV(0, { corps: m ? `${m[0]}{{accroche_ia}}\n\n${c.slice(m[0].length)}` : `{{accroche_ia}}\n\n${c}` }) }} /> : null}
             {k.type === "mail" || k.type === "sms" ? <Bouton taille="sm" icone={<Plus />} onClick={() => majK({ variantes: [...k.variantes, { id: nid(), nom: String.fromCharCode(65 + k.variantes.length), objet: "", corps: "" }] })}>Variante (test A/B)</Bouton> : null}
             {texteLong && k.type !== "avis" ? <><label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={k.video} onChange={(e) => majK({ video: e.target.checked })} />Ajouter une vidéo</label>{k.video ? <Libelle titre="Adresse de la vidéo (YouTube, Vimeo ou fichier)"><Champ value={k.videoUrl ?? ""} placeholder="https://…" onChange={(e) => majK({ videoUrl: e.target.value })} /></Libelle> : null}<Libelle titre="Le bouton mène vers"><Selecteur value={k.versId} onChange={(e) => majK({ versId: e.target.value })}><option value="">Pas de bouton</option>{liables.map((x) => <option key={x.id} value={x.id}>{LIB_CREATIF[x.type]} · {x.nom}</option>)}</Selecteur></Libelle></> : null}
             {k.type === "formulaire" ? <div className="space-y-3">
@@ -134,7 +136,7 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId }: { cfg: ConfigCampa
             <Bouton taille="sm" variante="discret" icone={<Trash2 />} onClick={() => { maj((x) => ({ ...x, creatifs: x.creatifs.filter((y) => y.id !== k.id) })); setId("") }}>Supprimer ce créatif</Bouton>
           </div>
         ) : <p className="text-legende text-encre-2">Crée un mail, un SMS, un message LinkedIn, une page ou un formulaire.</p>}
-        {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div>{k.type === "mail" || k.type === "sms" ? <EssaiCreatif key={k.id} k={k} cfg={cfg} exemple={exemple} /> : null}</div> : null}
+        {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div>{k.type === "mail" || k.type === "sms" ? <EssaiCreatif key={k.id} k={k} cfg={cfg} exemple={exemple} baseId={baseId} campagneNom={campagne.nom} /> : null}</div> : null}
       </div>
     </div>
   )

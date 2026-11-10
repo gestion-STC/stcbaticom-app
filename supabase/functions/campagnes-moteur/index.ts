@@ -22,6 +22,8 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
+import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
+import { ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
 import { estBaseAvis } from "../_shared/campagnes/avis.ts"
@@ -125,8 +127,28 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   return bloques
 }
 
-type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string }
-type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[] }
+type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; reporte?: boolean }
+type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[]; ia?: ReglageIA }
+const IA_MAX_PAR_PASSAGE = 15
+const compteurIA = { n: 0 }
+
+/** Le texte de l'IA pour ce contact : déjà écrit, sinon écrit maintenant. « Chaque mail » : rien ne part avant validation. */
+async function texteIA(sb: SupabaseClient, c: Ligne, cr: CreatifConfig, r: ReglageIA, varianteId: string, objet: string, corps: string, k: Contact): Promise<{ texte: string } | { reporte: true } | { saute: string }> {
+  const { data: deja } = await sb.from("cmp_textes_ia").select("texte, valide").eq("campagne_id", c.id).eq("variante_id", varianteId).eq("contact_ref", k.id).maybeSingle()
+  const ligne = deja as { texte: string; valide: boolean } | null
+  if (ligne) return r.relecture === "tous" && !ligne.valide ? { reporte: true } : { texte: ligne.texte }
+  const fiche = await ficheIA(sb, k, r)
+  if (fichePauvre(r, fiche)) return r.pauvre === "attente" ? { saute: "fiche trop pauvre" } : { texte: "" }
+  if (compteurIA.n >= IA_MAX_PAR_PASSAGE) return { reporte: true }
+  compteurIA.n++
+  try {
+    const g = await genererTexteIA({ baseId: k.baseId, reglage: r, campagneNom: String(c.nom), objet, corps, fiche, offre: await offreSTC(sb) })
+    const valide = r.relecture !== "tous"
+    const { error } = await sb.from("cmp_textes_ia").upsert({ campagne_id: c.id, creatif_id: cr.id, variante_id: varianteId, contact_ref: k.id, texte: g.texte, valide, cout: g.cout }, { onConflict: "campagne_id,variante_id,contact_ref" })
+    if (error) throw new Error(error.message)
+    return valide ? { texte: g.texte } : { reporte: true }
+  } catch (e) { console.error("[CAMPAGNES-MOTEUR] IA", e); return { reporte: true } }
+}
 /** Le bouton du mail vers sa page ou son formulaire : dans le HTML s'il y en a, sinon une ligne de texte. */
 function ajouterBouton(texte: string, url: string, libelle: string): string {
   if (!/<\/body>/i.test(texte)) return `${texte}\n\n[${libelle}](${url})`
@@ -136,6 +158,13 @@ function ajouterBouton(texte: string, url: string, libelle: string): string {
 async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
+  const creatifIA = canal === "sms" ? undefined : (((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? []).find((x) => x.variantes?.some((v) => v.id === varianteId)))
+  if (creatifIA?.ia?.actif && varianteId && concerneIA(creatifIA.ia, k)) {
+    const r = await texteIA(sb, c, creatifIA, creatifIA.ia, varianteId, objet, corps, k)
+    if ("reporte" in r) return { ok: false, reporte: true }
+    if ("saute" in r) return { ok: false, saute: r.saute }
+    texte = appliquerIA(corps, creatifIA.ia.mode, r.texte)
+  }
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
   const variables = valeursDe(k); texte = remplirVariables(texte, variables); sujet = remplirVariables(sujet, variables)
   // Les formulaires et les pages de la campagne : un lien personnel et signé.
@@ -210,6 +239,7 @@ Deno.serve(async (req: Request) => {
   const clePassage = String((p as { valeur?: string } | null)?.valeur ?? "")
   const attendue = String((p as { valeur?: unknown } | null)?.valeur ?? "").replace(/^"|"$/g, "")
   if (!(attendue.length >= 20 && req.headers.get("x-passage-cle") === attendue)) return json({ error: "non autorisé" }, 401)
+  compteurIA.n = 0
   const maintenant = new Date()
   const iso = maintenant.toISOString()
   const bilan: Record<string, number | string> = { campagnes: 0, entrees: 0, envois: 0, erreurs: 0, sautes: 0, reportes: 0, sorties: 0, taches: 0 }
@@ -299,6 +329,7 @@ Deno.serve(async (req: Request) => {
         const test = Boolean(ligne.mode_test)
         await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
         const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail)
+        if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
         if (r.ok) {
           await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null }).eq("id", e.id)
           budget[canal]--; envoisPassage++; bilan.envois = Number(bilan.envois) + 1

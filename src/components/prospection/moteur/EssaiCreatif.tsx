@@ -6,8 +6,10 @@ import { useSession } from "../../../lib/auth"
 import { envoyerEssaiMail, envoyerEssaiSms } from "../../../lib/essaiCampagne"
 import { essaiMail, essaiSms, type ValeursEssai } from "../../../prospection/apercuMail"
 import type { ConfigCampagne, Creatif } from "../../../prospection/configCampagne"
+import { appliquerIA } from "../../../prospection/ia"
+import { essayerIA } from "../../../lib/campagnesIa"
 
-export default function EssaiCreatif({ k, cfg, exemple }: { k: Creatif; cfg: ConfigCampagne; exemple?: ValeursEssai }) {
+export default function EssaiCreatif({ k, cfg, exemple, baseId, campagneNom }: { k: Creatif; cfg: ConfigCampagne; exemple?: ValeursEssai; baseId: string; campagneNom: string }) {
   const session = useSession()
   const sms = k.type === "sms"
   const [saisie, setAdresse] = useState<string | null>(null)
@@ -25,7 +27,11 @@ export default function EssaiCreatif({ k, cfg, exemple }: { k: Creatif; cfg: Con
       for (const v of k.variantes) {
         const marque = k.variantes.length > 1 ? `[ESSAI ${v.nom}] ` : "[ESSAI] "
         if (sms) await envoyerEssaiSms(adresse.trim(), essaiSms(v.corps, marque, exemple))
-        else { const m = essaiMail(v.objet, v.corps, marque, bouton, prospection, exemple); await envoyerEssaiMail(adresse.trim(), m.objet, m.html) }
+        else {
+          let corps = v.corps
+          if (k.ia?.actif) { const x = await essayerIA({ baseId, campagneNom: campagneNom || "Campagne", objet: v.objet, corps: v.corps, ia: k.ia, nombre: 1 }); corps = appliquerIA(v.corps, k.ia.mode, x.lignes[0]?.texte ?? "") }
+          const m = essaiMail(v.objet, corps, marque, bouton, prospection, exemple); await envoyerEssaiMail(adresse.trim(), m.objet, m.html)
+        }
       }
       setEtat(`Envoyé à ${adresse.trim()}${k.variantes.length > 1 ? ` (${k.variantes.length} versions)` : ""}.`)
     } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } finally { setOccupe(false) }

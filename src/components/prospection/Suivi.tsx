@@ -12,6 +12,7 @@ import { LIBELLE_ETAPE } from "../../prospection/modele"
 import { Barre, NomBase, Onglets, Titre } from "./morceaux"
 import { dateHeure, euros, fr, jourCourt, pct, useVue } from "./outils"
 import MesureAvis from "./moteur/MesureAvis"
+import TextesARelire from "./moteur/TextesARelire"
 import { estBaseAvis } from "../../prospection/avis"
 
 type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "contacts" | "appels"
@@ -53,6 +54,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   return (
     <div className="space-y-6">
       {entete}
+      {(c.config as { creatifs?: { ia?: { actif?: boolean; relecture?: string } }[] } | undefined)?.creatifs?.some((k) => k.ia?.actif && k.ia.relecture === "tous") ? <TextesARelire campagneId={c.id} nomDe={(id) => v.contacts.find((x) => x.id === id)?.nom ?? "Contact"} /> : null}
       {c.statut === "pause" && arret ? <Bandeau role="alerte">Mise en pause automatiquement : {arret.rebonds} rebonds sur {arret.envois} envois. Nettoie ou vérifie le fichier avant de relancer.</Bandeau> : null}
 
       {/* L'entonnoir, marche par marche, avec le taux de passage */}
