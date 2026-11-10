@@ -2,7 +2,7 @@
 // Réservé aux administrateurs. Rien n'est envoyé ici. Déployée sans vérification de JWT : le jeton est contrôlé ci-dessous.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
-import { ficheIA, genererTexteIA, offreSTC, trierReponse } from "../_shared/campagnes/generationIA.ts"
+import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, lireAppris, offreSTC, trierReponse } from "../_shared/campagnes/generationIA.ts"
 import { envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
 import { remplirVariables } from "../_shared/campagnes/instantlyOutils.ts"
 
@@ -28,6 +28,9 @@ Deno.serve(async (req: Request) => {
   try {
     if (!(await autorise(sb, req))) return json({ error: "Réservé aux administrateurs." }, 403)
     const entree = await req.json() as Record<string, unknown>
+    // Ce qui marche au téléphone : la fiche lue, ou refaite à partir des appels analysés.
+    if (entree.action === "appris") return json({ appris: await lireAppris(sb) })
+    if (entree.action === "apprendre") return json({ appris: await apprendreDesAppels(sb) })
     if (entree.action === "trier") return json({ tri: await trierReponse(String(entree.objet ?? ""), String(entree.texte ?? "")) })
     // Le test d'arrivée : le vrai mail, par les vraies boîtes, vers des adresses à soi. Rien n'est compté dans la campagne.
     if (entree.action === "arrivee") {
@@ -54,12 +57,13 @@ Deno.serve(async (req: Request) => {
       contacts = melanger(possibles).slice(0, Math.min(Math.max(b.nombre ?? 10, 1), 10))
     }
     const offre = await offreSTC(sb)
+    const appels = await ceQuiMarche(sb, b.baseId, b.ia)
     const lignes = await Promise.all(contacts.map(async (k) => {
       const contact = { id: k.id, baseId: k.base_id, nom: k.nom, personne: k.personne, champs: k.champs ?? {} }
       const fiche = await ficheIA(sb, contact, b.ia)
       const detail = [contact.champs.metier, contact.champs.secteur || contact.champs.zone].filter(Boolean).join(" · ")
       if (fichePauvre(b.ia, fiche)) return { contactRef: k.id, nom: k.nom, detail, texte: "", pauvre: true, cout: 0 }
-      const r = await genererTexteIA({ baseId: b.baseId, reglage: b.ia, campagneNom: b.campagneNom, objet: b.objet, corps: b.corps, fiche, offre })
+      const r = await genererTexteIA({ baseId: b.baseId, reglage: b.ia, campagneNom: b.campagneNom, objet: b.objet, corps: b.corps, fiche, offre, appels })
       return { contactRef: k.id, nom: k.nom, detail, texte: r.texte, pauvre: false, cout: r.cout }
     }))
     return json({ lignes, cout: lignes.reduce((s, l) => s + l.cout, 0) })
