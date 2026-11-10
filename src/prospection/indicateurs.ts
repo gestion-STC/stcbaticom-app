@@ -15,7 +15,7 @@ export type LigneEtape = {
   delivres: number; ouvreurs: number; cliqueurs: number; repondants: number; premiersClics: number; leads: number; gagnes: number
 }
 export type LigneVariante = { etapeId: string; varianteId: string; nom: string; objet: string; envoyes: number; ouvreurs: number; cliqueurs: number; repondants: number; tauxOuverture: number | null; tauxClic: number | null }
-export type LigneSegment = { valeur: string; entres: number; touches: number; cliqueurs: number; leads: number; gagnes: number }
+export type LigneSegment = { valeur: string; entres: number; touches: number; cliqueurs: number; repondants: number; leads: number; gagnes: number }
 export type LigneJour = { jour: string; entres: number; envoyes: number; erreurs: number; ouvreurs: number; cliqueurs: number; leads: number }
 
 export type Indicateurs = {
@@ -78,15 +78,16 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
     }
   }
 
-  const parSegment = base.champs.map((ch) => {
+  const parSegment = [...base.champs, ...(contacts.some((k) => k.champs.fichier) ? [{ cle: "fichier", libelle: "Fichier" }] : [])].map((ch) => {
     const lignes = new Map<string, LigneSegment>()
     for (const id of inscrits) {
       const val = parContact.get(id)?.champs[ch.cle] || "—"
       for (const v of val.split(" / ")) {
-        const l = lignes.get(v) ?? { valeur: v, entres: 0, touches: 0, cliqueurs: 0, leads: 0, gagnes: 0 }
+        const l = lignes.get(v) ?? { valeur: v, entres: 0, touches: 0, cliqueurs: 0, repondants: 0, leads: 0, gagnes: 0 }
         l.entres += 1
         if (touches.has(id)) l.touches += 1
         if (cliqueurs.has(id)) l.cliqueurs += 1
+        if (repondants.has(id)) l.repondants += 1
         if (lds.some((x) => x.contactId === id)) l.leads += 1
         if (gagnes.has(id)) l.gagnes += 1
         lignes.set(v, l)

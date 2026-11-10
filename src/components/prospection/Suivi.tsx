@@ -2,7 +2,7 @@
 // Mahdi : « il faut tous les indicateurs de la campagne, toutes les données, sinon ce sera compliqué de suivre
 // et d'avoir de bonnes analyses ». L'entonnoir, puis 8 vues : ensemble (analyse + d'où viennent les clics),
 // étapes, A/B, audience (par champ de la base), dans le temps, journal des envois, contacts, appels.
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Copy, Pause, Pencil, Play, Sparkles } from "lucide-react"
 import { Bandeau, Bouton, Pastille, Selecteur } from "../../ui"
 import { Bloc, Etiquette, Table } from "../demarchage/aujourdhui/courtier"
@@ -12,6 +12,7 @@ import { LIBELLE_ETAPE } from "../../prospection/modele"
 import { Barre, NomBase, Onglets, Titre } from "./morceaux"
 import { dateHeure, euros, fr, jourCourt, pct, useVue } from "./outils"
 import MesureAvis from "./moteur/MesureAvis"
+import { chargerFichiers, type Fichier } from "../../lib/fichiersDb"
 import TextesARelire from "./moteur/TextesARelire"
 import { estBaseAvis } from "../../prospection/avis"
 
@@ -24,6 +25,8 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   const depot = useDepot()
   const [vue, setVue] = useState<Vue>("ensemble")
   const [champ, setChamp] = useState("")
+  const [fichiers, setFichiers] = useState<Fichier[]>([])
+  useEffect(() => { chargerFichiers().then(setFichiers).catch(() => undefined) }, [])
   const [filtreEnvoi, setFiltreEnvoi] = useState("")
   const c = v.etat.campagnes.find((x) => x.id === id)
   const base = c ? v.base(c.baseId) : undefined
@@ -118,9 +121,9 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
       ) : vue === "audience" ? (
         <div className="space-y-4">
           <div className="w-64"><Selecteur value={seg?.champ ?? ""} onChange={(e) => setChamp(e.target.value)} aria-label="Ventiler par">{ind.parSegment.map((s) => <option key={s.champ} value={s.champ}>Par {s.libelle.toLowerCase()}</option>)}</Selecteur></div>
-          <Table colonnes={[{ titre: seg?.libelle ?? "" }, { titre: "Entrés", largeur: "80px", droite: true }, { titre: "Touchés", largeur: "80px", droite: true }, { titre: "Cliqueurs", largeur: "84px", droite: true }, { titre: "Taux clic", largeur: "84px", droite: true }, { titre: "Leads", largeur: "70px", droite: true }, { titre: "Lead / touché", largeur: "100px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }]}
+          <Table colonnes={[{ titre: seg?.libelle ?? "" }, { titre: "Entrés", largeur: "80px", droite: true }, { titre: "Touchés", largeur: "80px", droite: true }, { titre: "Cliqueurs", largeur: "84px", droite: true }, { titre: "Taux clic", largeur: "84px", droite: true }, { titre: "Réponses", largeur: "76px", droite: true }, { titre: "Leads", largeur: "70px", droite: true }, { titre: "Lead / touché", largeur: "100px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }]}
             vide="Personne n'est encore entré."
-            lignes={(seg?.lignes ?? []).map((l) => ({ cle: l.valeur, cellules: [<b className="font-medium">{l.valeur}</b>, fr(l.entres), fr(l.touches), fr(l.cliqueurs), pct(l.touches ? l.cliqueurs / l.touches : null), <span className={l.leads ? "text-ok" : ""}>{fr(l.leads)}</span>, pct(l.touches ? l.leads / l.touches : null), fr(l.gagnes)] }))} />
+            lignes={(seg?.lignes ?? []).map((l) => ({ cle: l.valeur, cellules: [<b className="font-medium">{seg?.champ === "fichier" ? fichiers.find((x) => x.id === l.valeur)?.nom ?? l.valeur : l.valeur}</b>, fr(l.entres), fr(l.touches), fr(l.cliqueurs), pct(l.touches ? l.cliqueurs / l.touches : null), fr(l.repondants), <span className={l.leads ? "text-ok" : ""}>{fr(l.leads)}</span>, pct(l.touches ? l.leads / l.touches : null), fr(l.gagnes)] }))} />
         </div>
       ) : vue === "temps" ? (
         <div className="space-y-6">
