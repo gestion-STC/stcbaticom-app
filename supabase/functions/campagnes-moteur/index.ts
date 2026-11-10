@@ -22,7 +22,7 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
-import { corpsAvecMentions, doitArreter, remplirContact } from "../_shared/campagnes/instantlyOutils.ts"
+import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
 import { estBaseAvis } from "../_shared/campagnes/avis.ts"
 
@@ -137,7 +137,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
-  texte = remplirContact(texte, k.personne); sujet = remplirContact(sujet, k.personne); remplacer("{{entreprise}}", k.nom)
+  const variables = valeursDe(k); texte = remplirVariables(texte, variables); sujet = remplirVariables(sujet, variables)
   // Les formulaires et les pages de la campagne : un lien personnel et signé.
   const creatifs = ((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? [])
   const lienDe = (id: string) => lienPublic(clePassage, String(c.id), id, k.id, test)

@@ -45,8 +45,25 @@ export function corpsAvecMentions(texte: string, desinscription?: string, suivi 
   return `${html}<br/><br/>${mentions}`
 }
 
-/** {{contact}} sans nom : « Bonjour {{contact}}, » devient « Bonjour, ». */
-export const remplirContact = (s: string, personne: string) => (personne.trim() ? s.split("{{contact}}").join(personne.trim()) : s.replace(/[ \u00a0]*\{\{contact\}\}/g, ""))
+/**
+ * Les variables d'un texte. {{secteur|votre secteur}} : la valeur de la fiche, sinon le repli écrit après la barre.
+ * Sans valeur ni repli, la variable disparaît avec son espace : « Bonjour {{prenom}}, » devient « Bonjour, ».
+ * Une variable inconnue (les liens) reste telle quelle.
+ */
+export function remplirVariables(s: string, valeurs: Record<string, string>): string {
+  return s.replace(/([ \u00a0]*)\{\{([a-z_]+)(?:\|([^}]*))?\}\}/g, (tout, espaces: string, cle: string, repli?: string) => {
+    if (!(cle in valeurs)) return tout
+    const v = valeurs[cle].trim() || (repli ?? "").trim()
+    return v ? `${espaces}${v}` : ""
+  })
+}
+export const remplirContact = (s: string, personne: string) => remplirVariables(s, { contact: personne })
+
+/** Les valeurs d'une fiche, pour ses variables. */
+export function valeursDe(k: { nom: string; personne: string; champs: Record<string, string> }): Record<string, string> {
+  const c = k.champs
+  return { contact: k.personne, prenom: c.prenom ?? "", entreprise: k.nom, agence: k.nom, secteur: c.secteur ?? "", enseigne: c.enseigne === "Indépendante" ? "" : c.enseigne ?? "", metier: c.metier ?? "", zone: c.zone ?? "" }
+}
 
 /** Ce qu'une série de boîtes peut envoyer par jour sans abîmer leur réputation. */
 export const MAILS_PAR_BOITE = 30

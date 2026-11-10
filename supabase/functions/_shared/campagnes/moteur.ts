@@ -53,7 +53,7 @@ export function passage(etat: Etat, maintenant: Date, nouvelId: () => Id): Ecrit
     const occupes = new Set(etat.inscriptions.filter((i) => i.statut === "en_cours" || i.campagneId === c.id).map((i) => i.contactId))
     const entresAujourdhui = etat.inscriptions.filter((i) => i.campagneId === c.id && jourDe(i.entreeLe) === jourDe(iso)).length
     const place = Math.max(0, c.rythme.parJour - entresAujourdhui)
-    const candidats = etat.contacts.filter((k) => !occupes.has(k.id) && k.statut === "libre" && estEligible(k, c)).slice(0, place)
+    const candidats = etat.contacts.filter((k) => !occupes.has(k.id) && k.statut === "libre" && estEligible(k, c, maintenant)).slice(0, place)
     for (const k of candidats) sortie.inscriptions.push({ id: nouvelId(), campagneId: c.id, contactId: k.id, entreeLe: iso, etapeIndex: 0, prochaineLe: iso, statut: "en_cours", sortieLe: null })
   }
 
