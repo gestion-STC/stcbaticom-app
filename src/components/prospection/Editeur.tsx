@@ -113,7 +113,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
               )}
           </div>
         </div>
-        <div className="min-w-0"><div className="sticky top-4"><Chemin cfg={cfg} /></div></div>
+        <div className="min-w-0"><div className="sticky top-4">{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
       </div>
     </div>
   )
