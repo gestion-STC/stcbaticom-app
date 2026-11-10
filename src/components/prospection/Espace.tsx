@@ -51,7 +51,7 @@ export default function Espace({ ecranDepart = "dashboard" }: { ecranDepart?: Ec
         {ecran === "dashboard" ? <Dashboard aller={setEcran} ouvrir={ouvrir} />
           : ecran === "campagnes" ? <Campagnes ouvrir={ouvrir} creer={() => { setCampagne(null); setEcran("editeur") }} />
           : ecran === "suivi" && campagne ? <Suivi id={campagne} modifier={() => setEcran("editeur")} aller={setEcran} />
-          : ecran === "editeur" ? <Editeur key={campagne ?? "neuve"} id={campagne} fini={ouvrir} />
+          : ecran === "editeur" ? <Editeur key={campagne ?? "neuve"} id={campagne} fini={ouvrir} annuler={() => setEcran("campagnes")} />
           : ecran === "leads" ? <Leads aller={setEcran} />
           : ecran === "session" ? <Session />
           : ecran === "bases" ? <Bases />

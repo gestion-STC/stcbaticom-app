@@ -13,9 +13,9 @@ export function ChoixFichiers({ baseId, valeurs, onChange }: { baseId: string; v
   const total = fichiers.filter((f) => valeurs.includes(f.id)).reduce((s, f) => s + f.mails, 0)
   return (
     <div className="space-y-1.5">
-      <p className="text-colonne text-encre-2">Fichiers</p>
-      <div className="flex flex-wrap gap-1.5">{fichiers.map((f) => { const on = valeurs.includes(f.id); return <button key={f.id} type="button" aria-pressed={on} onClick={() => onChange(on ? valeurs.filter((x) => x !== f.id) : [...valeurs, f.id])} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>{f.nom} · {f.mails.toLocaleString("fr-FR")}</button> })}</div>
-      <p className="text-colonne text-encre-2">{valeurs.length ? `${total.toLocaleString("fr-FR")} contacts avec un mail dans ces fichiers.` : "Aucun fichier choisi : toute la base est ciblée."}</p>
+      <p className="text-colonne text-encre-2">Dans quels fichiers ?</p>
+      <div className="flex flex-wrap gap-1.5"><button type="button" aria-pressed={!valeurs.length} onClick={() => onChange([])} className={`h-7 rounded-full px-3 text-colonne ${!valeurs.length ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>Toute la base</button>{fichiers.map((f) => { const on = valeurs.includes(f.id); return <button key={f.id} type="button" aria-pressed={on} onClick={() => onChange(on ? valeurs.filter((x) => x !== f.id) : [...valeurs, f.id])} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`}>{f.nom} · {f.mails.toLocaleString("fr-FR")}</button> })}</div>
+      {valeurs.length ? <p className="text-colonne text-encre-2">{total.toLocaleString("fr-FR")} contacts avec un mail dans ces fichiers.</p> : null}
     </div>
   )
 }
