@@ -16,6 +16,7 @@ import { ChoixFichiers } from "./moteur/ChoixFichiers"
 import { boitesDe, conseilsEnvoi, valeursDe } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
 import { listerComptes, type Compte } from "../../lib/comptes"
+import { compterTextesValides } from "../../lib/campagnesIa"
 import { GARDE_DEFAUT, ORIGINE_TRACABILITE, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
@@ -89,6 +90,9 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
     const autres = v.etat.campagnes.filter((x) => x.id !== c.id && x.statut === "active" && !estBaseAvis(x.baseId) && boitesDe(x.baseId, emails).some((e) => miennes.includes(e)))
     return conseilsEnvoi(boites.filter((b) => miennes.includes(b.email)), c.rythme.parJour + autres.reduce((n, x) => n + x.rythme.parJour, 0), v.etat.maintenant)
   }, [boites, c.baseId, c.id, c.rythme.parJour, v.etat.campagnes, v.etat.maintenant])
+  const [textesRelus, setTextesRelus] = useState(0)
+  const iaSansRelecture = cfg.creatifs.some((k) => k.ia?.actif && k.ia.relecture === "dix") && !textesRelus
+  useEffect(() => { if (confirmer) compterTextesValides(c.id).then(setTextesRelus).catch(() => undefined) }, [confirmer, c.id])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
   const nomValeur = (cle: string, val: string) => { if (cle !== "commercial") return val; const q = comptes.find((x) => x.id === val); return q ? q.nom || q.email : "Commercial" }
@@ -97,7 +101,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
 
   return (
     <div className="space-y-5">
-      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={c.modeTest ? "Cette campagne est en mode essai : les envois partiront vers l'adresse d'essai." : `${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${c.rythme.heureMin} h à ${c.rythme.heureMax} h, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3">{blocConseils}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
+      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={c.modeTest ? "Cette campagne est en mode essai : les envois partiront vers l'adresse d'essai." : `${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${c.rythme.heureMin} h à ${c.rythme.heureMax} h, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3">{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
       {baseVoulue ? <Dialogue titre="Changer de cible ?" description="Tes textes et ton parcours seront remplacés par ceux prévus pour cette cible." onFermer={() => setBaseVoulue(null)} pied={<><Bouton onClick={() => setBaseVoulue(null)}>Annuler</Bouton><Bouton variante="plein" onClick={() => appliquerBase(baseVoulue)}>Changer de cible</Bouton></>}><p className="text-legende text-encre-2">Ton audience et tes filtres sont aussi remis à zéro.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}
       <Titre titre={existante ? existante.nom : "Créer une campagne"} sous={tracabilite ? "Ce qui tourne aujourd'hui : les mails envoyés après les appels, avec leurs liens suivis. Cette campagne n'envoie rien toute seule." : existante?.statut === "active" ? "Campagne active : les changements valent pour les prochaines touches." : "Rien ne part tant qu'elle n'est pas lancée."}
@@ -126,7 +130,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                 </div></Bloc>
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} avis={avis} />
-              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={contactsBase[0] ? valeursDe(contactsBase[0]) : undefined} baseId={c.baseId} />
+              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={contactsBase[0] ? valeursDe(contactsBase[0]) : undefined} baseId={c.baseId} campagne={{ id: c.id, nom: c.nom }} />
               : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">

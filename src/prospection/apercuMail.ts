@@ -3,7 +3,7 @@
 import { corpsAvecMentions, remplirVariables } from "./instantlyOutils"
 
 const LIEN_EXEMPLE = "https://www.stcbatiment.fr"
-const EXEMPLES: Record<string, string> = { contact: "Claire Martin", prenom: "Claire", entreprise: "Agence Exemple", agence: "Agence Exemple", secteur: "Paris 12e", enseigne: "", metier: "Peinture", zone: "Paris" }
+const EXEMPLES: Record<string, string> = { contact: "Claire Martin", prenom: "Claire", entreprise: "Agence Exemple", agence: "Agence Exemple", secteur: "Paris 12e", enseigne: "", metier: "Peinture", zone: "Paris", accroche_ia: "[La phrase écrite par l'IA pour cette fiche.]" }
 
 export type ValeursEssai = Record<string, string>
 
