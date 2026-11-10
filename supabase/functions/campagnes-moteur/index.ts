@@ -6,6 +6,7 @@
 // par un test). Ici, l'exécution, avec les garde-fous de la machine sous-traitants (sequenceur-st) :
 //   · budget par jour et par canal (réglé dans la campagne), 25 envois au plus par passage, cadence entre deux envois ;
 //   · écart entre deux campagnes et exclusions de la campagne : valent pour les NOUVELLES entrées ;
+//   · PARE-FEU : une même personne (mail ou numéro, toutes bases confondues) n'est que dans une campagne à la fois ;
 //   · SMS seulement de 10 h à 17 h (heure de Paris), et seulement vers un mobile ;
 //   · juste avant d'envoyer, la base est relue : jamais deux fois la même étape au même contact ;
 //   · une erreur est rejouée après 15 min, 1 h, 4 h, puis abandonnée ; une limite de débit arrête le passage ;
@@ -22,6 +23,7 @@ import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_share
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
 import { boitesDe, capaciteJour, doitArreter } from "../_shared/campagnes/instantlyOutils.ts"
+import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -186,6 +188,9 @@ Deno.serve(async (req: Request) => {
   try {
     const ins = await preparerInstantly(sb, base, iso)
     const { data: actives } = await sb.from("cmp_campagnes").select("*").eq("statut", "active")
+    // Le pare-feu regarde toutes les bases, une fois par passage.
+    const annuaire = new Map((await tout<Coordonnees>((d, f) => sb.from("cmp_contacts").select("id, email, mobile, telephone").order("id").range(d, f))).map((k) => [k.id, k]))
+    const entresCePassage: Coordonnees[] = []
     let envoisPassage = 0
     for (const ligne of (actives ?? []) as Ligne[]) {
       bilan.campagnes = Number(bilan.campagnes) + 1
@@ -224,8 +229,11 @@ Deno.serve(async (req: Request) => {
       // 2. La décision, par le moteur pur.
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
       const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant)
-      const ecr = passage({ campagne: c, contacts: contacts.filter((k) => dejaDedans.has(k.id) || !bloques.has(k.id)), inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
+      const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
+      const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || !bloques.has(k.id)), dejaDedans, actifs)
+      const ecr = passage({ campagne: c, contacts: autorises, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
       const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
+      for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }
       const majs = new Map(ecr.majInscriptions.map((i) => [i.id, i]))
       const avant = new Map(inscriptions.map((i) => [i.id, i]))
       const reportees = new Set<string>()

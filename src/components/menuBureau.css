@@ -1,0 +1,69 @@
+/* LE MENU : copie des styles .mb-* du bureau de STC Bâtiment (src/index.css). Mêmes mesures, pour y être intégré. */
+.mb-racine { position: sticky; top: 0; height: 100vh; width: 256px; flex: none; display: flex; z-index: 30; background: #FFFFFF; font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif; font-size: 13px; line-height: 1.35; color: #111113; -webkit-font-smoothing: antialiased; }
+.mb-racine a { text-decoration: none; }
+.mb-rail { position: relative; z-index: 30; width: 60px; flex: none; display: flex; flex-direction: column; align-items: center; padding: 14px 0; box-sizing: border-box; background: #F4F4F6; border-right: .5px solid #E6E6EA; }
+.mb-carres { width: 38px; height: 38px; border-radius: 19px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; cursor: pointer; padding: 0; }
+.mb-carres:hover { background: #E9E9EC; }
+.mb-sec { margin: 2px 0; }
+.mb-sec-btn { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; transition: background-color .15s ease; }
+.mb-sec-btn:hover { background: #E9E9EC; }
+.mb-sec-btn[aria-current="page"] { background: #FFFFFF; box-shadow: 0 1px 2px rgba(17,17,19,.08); }
+.mb-theme { margin: 2px 0; border: 0; background: transparent; cursor: pointer; padding: 0; }
+.mb-fly { display: none; position: absolute; left: 60px; top: 0; bottom: 0; width: 196px; box-sizing: border-box; padding: 16px 10px 14px; overflow-y: auto; z-index: 40; background: #FFFFFF; border-right: .5px solid #E6E6EA; box-shadow: 8px 0 24px rgba(17,17,19,.06); }
+.mb-sec:hover .mb-fly, .mb-sec:has(:focus-visible) .mb-fly { display: block; animation: mb-glisse .12s ease-out; }
+@keyframes mb-glisse { from { opacity: 0; transform: translateX(-4px); } }
+.mb-panneau { flex: 1; min-width: 0; display: flex; flex-direction: column; box-sizing: border-box; padding: 16px 10px 14px; background: #FFFFFF; border-right: .5px solid #E6E6EA; }
+.mb-titre { font-size: 13px; font-weight: 600; color: #111113; padding: 0 8px; margin: 4px 0 14px; }
+.mb-cherche { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; box-sizing: border-box; margin: 0 0 14px; padding: 0 10px; border: 0; border-radius: 6px; background: #F2F2F4; font: inherit; font-size: 13px; color: #8E8E93; text-align: left; cursor: pointer; }
+.mb-cherche:hover { background: #ECECEF; }
+.mb-kbd { font-family: inherit; font-size: 11px; color: #A1A1A6; border: .5px solid #D4D4D8; border-radius: 4px; padding: 0 4px; }
+.mb-liste { flex: 1; min-height: 0; overflow-y: auto; }
+.mb-groupe { font-size: 11px; color: #8E8E93; padding: 12px 8px 4px; }
+.mb-lien { display: flex; align-items: center; height: 30px; padding: 0 8px; border-radius: 6px; color: #3C3C40; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background-color .15s ease; }
+.mb-lien:hover { background: #F4F4F6; color: #111113; }
+.mb-lien[aria-current="page"] { background: #EEEEF0; color: #111113; font-weight: 500; }
+.mb-enfants { margin: 2px 0 4px 16px; padding-left: 6px; border-left: .5px solid #E6E6EA; }
+.mb-enfants .mb-lien { height: 28px; }
+.mb-pied { position: relative; flex: none; padding-top: 10px; border-top: .5px solid #E6E6EA; }
+.mb-moi-ligne { display: flex; align-items: center; gap: 2px; }
+.mb-moi { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; padding: 7px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; color: #111113; text-align: left; cursor: pointer; }
+.mb-moi:hover { background: #F4F4F6; }
+.mb-avatar { width: 30px; height: 30px; flex: none; border-radius: 15px; background: #EAEAEC; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.mb-moi-txt { flex: 1; min-width: 0; display: block; }
+.mb-moi-nom { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mb-moi-role { display: block; font-size: 11px; color: #8E8E93; }
+.mb-pop { position: absolute; left: 0; bottom: 56px; width: 100%; box-sizing: border-box; padding: 6px; background: #FFFFFF; border: .5px solid #E6E6EA; border-radius: 10px; box-shadow: 0 10px 30px rgba(17,17,19,.10); animation: mb-fondu .12s ease-out; z-index: 50; }
+.mb-pop a, .mb-pop button { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; box-sizing: border-box; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 13px; color: #111113; cursor: pointer; }
+.mb-pop a:hover, .mb-pop button:hover { background: #F2F2F4; }
+.mb-pop-mail { font-size: 11px; color: #8E8E93; padding: 4px 8px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mb-pop-theme { display: flex; gap: 2px; margin: 4px 0; padding: 2px; background: #F2F2F4; border-radius: 14px; }
+.mb-pop .mb-pop-theme button { flex: 1; justify-content: center; height: 22px; padding: 0; border-radius: 11px; font-size: 11px; color: #6B6B70; }
+.mb-pop .mb-pop-theme button[aria-pressed="true"] { background: #FFFFFF; color: #111113; font-weight: 500; box-shadow: 0 1px 2px rgba(17,17,19,.08); }
+.mb-pop .mb-pop-sortie { color: #C9302C; }
+/* Les grands titres : à la première page de la session, par-dessus le rail et le panneau. */
+.mb-accueil { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; box-sizing: border-box; padding: 22px 10px 14px; background: #FFFFFF; border-right: .5px solid #E6E6EA; animation: mb-fondu .15s ease-out; }
+/* Sans le logo (18/10/2026), c'est le pied qui descend tout en bas du calque. */
+.mb-accueil .mb-pied { margin-top: auto; }
+.mb-grand { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; color: #3C3C40; font-size: 13px; }
+.mb-grand:hover { background: #F2F2F4; color: #111113; }
+.mb-grand[aria-current="page"] { background: #EEEEF0; color: #111113; font-weight: 500; }
+.mb-sep { height: .5px; background: #E6E6EA; margin: 8px; }
+/* La recherche ⌘K. */
+.mb-palette-fond { position: fixed; inset: 0; z-index: 80; display: flex; justify-content: center; align-items: flex-start; padding-top: 110px; background: rgba(17,17,19,.22); }
+.mb-palette { width: 560px; max-height: 460px; display: flex; flex-direction: column; overflow: hidden; background: #FFFFFF; border-radius: 14px; box-shadow: 0 24px 70px rgba(17,17,19,.22); animation: mb-fondu .14s ease-out; font-size: 13px; }
+.mb-palette input { height: 48px; flex: none; padding: 0 18px; border: 0; border-bottom: .5px solid #E6E6EA; font: inherit; font-size: 13px; color: #111113; outline: none; background: transparent; }
+.mb-palette-liste { overflow-y: auto; padding: 6px; }
+.mb-palette-liste button { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; color: #111113; text-align: left; cursor: pointer; }
+.mb-palette-liste button[aria-selected="true"] { background: #F2F2F4; }
+.mb-rub { margin-left: auto; font-size: 11px; color: #8E8E93; }
+.mb-palette-vide { padding: 14px 12px; font-size: 13px; color: #8E8E93; }
+.mb-palette-pied { flex: none; padding: 8px 18px; border-top: .5px solid #E6E6EA; font-size: 11px; color: #8E8E93; }
+@keyframes mb-fondu { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .mb-fly, .mb-pop, .mb-accueil, .mb-palette { animation: none !important; }
+}
+/* Ici, les liens sont des boutons, et la boîte de réception a sa pastille. */
+.mb-lien, .mb-grand { width: 100%; text-align: left; cursor: pointer; }
+.mb-sec-btn { cursor: pointer; }
+.mb-lien-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mb-badge { flex: none; min-width: 16px; padding: 0 5px; border-radius: 8px; background: #111113; color: #FFFFFF; font-size: 10px; font-weight: 500; line-height: 16px; text-align: center; }

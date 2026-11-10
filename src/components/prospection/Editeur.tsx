@@ -7,6 +7,7 @@ import { Bouton, Champ, Chargement, Onglets, Selecteur } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
+import { sansDejaSollicites } from "../../prospection/pareFeu"
 import { GARDE_DEFAUT, ORIGINE_TRACABILITE, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
@@ -40,6 +41,14 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
   const eligibles = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)).length, [contactsBase, compilee])
   const vide = messageVide(cfg)
+  // Le pare-feu, à l'écran : ceux qui sont déjà dans une campagne en cours attendront qu'elle soit finie.
+  const enAttente = useMemo(() => {
+    const ici = contactsBase.filter((x) => estEligible(x, compilee))
+    const parId = new Map(v.contacts.map((x) => [x.id, x]))
+    const dedans = new Set(v.etat.inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
+    const actifs = v.etat.inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => parId.get(i.contactId) ?? [])
+    return ici.length - sansDejaSollicites(ici, dedans, actifs).length
+  }, [contactsBase, compilee, v.contacts, v.etat.inscriptions, c.id])
   const valeurs = (cle: string) => [...new Set(contactsBase.flatMap((x) => (x.champs[cle] ?? "").split(" / ")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")).slice(0, 40)
   const basculerFiltre = (cle: string, val: string) => setC((x) => { const l = x.audience.filtres[cle] ?? []; return { ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, [cle]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } } } })
   const compter = c.baseId !== "artisans" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
@@ -60,6 +69,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                   <Libelle titre="Nom"><Champ value={c.nom} placeholder="Ex. Gestionnaires 92 · novembre" onChange={(e) => setC({ ...c, nom: e.target.value })} /></Libelle>
                   <Libelle titre="Base"><Selecteur value={c.baseId} disabled={Boolean(existante?.lanceeLe) || tracabilite} onChange={(e) => setC({ ...c, baseId: e.target.value, audience: { ...c.audience, filtres: {} } })}>{v.bases.map((b) => <option key={b.id} value={b.id}>{b.nom}</option>)}</Selecteur></Libelle>
                 </div></Bloc>
+                {enAttente > 0 ? <p className="text-colonne text-encre-2">Pare-feu : {fr(enAttente)} {base?.unite} déjà dans une campagne en cours, ou en double. Ils attendront qu'elle soit terminée.</p> : null}
                 <Bloc titre="Où" droite={<span className="chiffres text-colonne text-encre"><b className="font-medium">{fr(eligibles)}</b> {base?.unite} éligibles</span>}>
                   <div className="mt-3"><Suspense fallback={<Chargement texte="Lecture de la carte…" />}><Carte zones={cfg.zones} compter={compter} onChange={(z) => maj((x) => ({ ...x, zones: z }))} avertissement={c.baseId === "artisans" ? "La base ne connaît que Paris, petite et grande couronne : le ciblage se fait sur ces trois zones." : undefined} /></Suspense></div>
                 </Bloc>
