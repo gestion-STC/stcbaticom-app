@@ -22,8 +22,9 @@ import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
-import { boitesDe, capaciteJour, doitArreter } from "../_shared/campagnes/instantlyOutils.ts"
+import { boitesDe, capaciteJour, corpsAvecMentions, doitArreter } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees } from "../_shared/campagnes/pareFeu.ts"
+import { estBaseAvis } from "../_shared/campagnes/avis.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -138,6 +139,26 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   const leCreatif = creatifs.find((x) => x.variantes?.some((v) => v.id === varianteId))
   const cible = leCreatif?.versId ? creatifs.find((x) => x.id === leCreatif.versId) : undefined
   if (cible && canal !== "sms") texte = ajouterBouton(texte, await lienDe(cible.id), leCreatif?.video ? "Voir la vidéo" : cible.type === "formulaire" ? "Remplir le formulaire" : "En savoir plus")
+  // Une campagne d'avis : un lien personnel vers la page d'avis. Elle ne passe pas par les boîtes de prospection.
+  if (estBaseAvis(k.baseId)) {
+    const pageAvis = creatifs.find((x) => x.type === "avis")
+    if (!pageAvis) return { ok: false, saute: "pas de page d'avis" }
+    const lien = await lienDe(pageAvis.id), stopAvis = `${lien}&stop=1`
+    const sansLien = !corps.includes("{{lien_avis}}"), sansStop = !corps.includes("{{lien_desinscription}}")
+    remplacer("{{lien_avis}}", lien); remplacer("{{lien_desinscription}}", stopAvis)
+    if (canal === "sms") {
+      const to = test ? String(c.test_mobile ?? "") : k.mobile
+      if (!to) return { ok: false, saute: test ? "mode test sans mobile de test" : "pas de mobile" }
+      const message = `${test ? "[TEST] " : ""}${texte}${sansLien ? `\n${lien}` : ""}${sansStop ? `\nSTOP : ${stopAvis}` : ""}`
+      const r = await invoquer(base, service, "envoyer-sms", { to, message })
+      return r.ok ? { ok: true } : { ok: false, erreur: String(r.data?.error ?? "envoi SMS échoué"), saute: r.data?.code === "non_mobile" ? "numéro non mobile" : undefined }
+    }
+    const to = test ? String(c.test_email ?? "") : k.email
+    if (!to) return { ok: false, saute: test ? "mode test sans mail de test" : "pas de mail" }
+    const html = corpsAvecMentions(`${texte}${sansLien ? `\n\nDonner mon avis : ${lien}` : ""}`, sansStop ? stopAvis : undefined)
+    const r = await invoquer(base, service, "envoyer-email", { espace: "demarchage", to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
+    return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
+  }
   // Mode test : aucun lien ne doit agir sur la vraie fiche (désinscrire l'agence, poser un lead).
   if (test) { for (const m of new Set(`${texte}${sujet}`.match(/{{lien_[a-z_]+}}/g) ?? [])) remplacer(m, LIEN_NEUTRE) }
   let stop = ""
@@ -242,14 +263,15 @@ Deno.serve(async (req: Request) => {
       const debutJour = new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString()
       const { count: mailsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "mail").eq("statut", "envoye").gte("le", debutJour)
       const { count: smsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "sms").eq("statut", "envoye").gte("le", debutJour)
-      const plafondMail = Math.min(garde?.plafondMail ?? PLAFOND_JOUR.mail, capaciteJour(boitesDe(c.baseId, ins.pretes).length))
+      const avis = estBaseAvis(c.baseId)
+      const plafondMail = avis ? garde?.plafondMail ?? PLAFOND_JOUR.mail : Math.min(garde?.plafondMail ?? PLAFOND_JOUR.mail, capaciteJour(boitesDe(c.baseId, ins.pretes).length))
       const budget = { mail: plafondMail - (mailsJour ?? 0), sms: (garde?.plafondSms ?? PLAFOND_JOUR.sms) - (smsJour ?? 0) }
       const hSms = heureParis(maintenant) >= 10 && heureParis(maintenant) < 17
       let arret = false
       for (const e of ecr.envois) {
         const canal = e.canal === "sms" ? "sms" : "mail"
         // Boîtes Instantly pas prêtes : le mail attend, il n'est ni perdu ni envoyé par un autre chemin.
-        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || budget[canal] <= 0 || (canal === "sms" && !hSms) || (canal === "mail" && !ins.pretes.length)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
+        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || budget[canal] <= 0 || (canal === "sms" && !hSms) || (canal === "mail" && !avis && !ins.pretes.length)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
         const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null

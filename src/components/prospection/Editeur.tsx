@@ -8,6 +8,8 @@ import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
 import { sansDejaSollicites } from "../../prospection/pareFeu"
+import { estBaseAvis } from "../../prospection/avis"
+import MesureAvis from "./moteur/MesureAvis"
 import { GARDE_DEFAUT, ORIGINE_TRACABILITE, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
@@ -41,6 +43,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
   const eligibles = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)).length, [contactsBase, compilee])
   const vide = messageVide(cfg)
+  const avis = estBaseAvis(c.baseId)
   // Le pare-feu, à l'écran : ceux qui sont déjà dans une campagne en cours attendront qu'elle soit finie.
   const enAttente = useMemo(() => {
     const ici = contactsBase.filter((x) => estEligible(x, compilee))
@@ -61,7 +64,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
       {!existante ? <div><Etiquette>Partir de… (tout reste modifiable)</Etiquette><div className="mt-2 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))" }}>{MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId)).map((m) => <button key={m.id} type="button" onClick={() => { setC((x) => ({ ...x, baseId: m.baseId, nom: x.nom || m.titre, audience: { ...x.audience, filtres: {} } })); setCfg(m.creer()) }} className="rounded-4 border-[0.5px] border-trait p-3 text-left hover:bg-fond-2"><b className="block text-legende font-medium">{m.titre}</b><span className="text-colonne text-encre-2">{m.aide}</span></button>)}</div></div> : null}
       <div className="grid gap-10 @min-[1100px]:grid-cols-[minmax(0,1fr)_250px]">
         <div className="min-w-0">
-          <Onglets<Partie> valeur={partie} onChange={setPartie} options={[{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "qualification", label: "4 · Qualification" }, { id: "garde", label: "5 · Garde-fous" }, { id: "mesure", label: "6 · Mesure" }]} />
+          <Onglets<Partie> valeur={partie} onChange={setPartie} options={avis ? [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "garde", label: "4 · Garde-fous" }, { id: "mesure", label: "5 · Mesure" }] : [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "qualification", label: "4 · Qualification" }, { id: "garde", label: "5 · Garde-fous" }, { id: "mesure", label: "6 · Mesure" }]} />
           <div className="mt-6">
             {partie === "audience" ? (
               <div className="space-y-8">
@@ -70,9 +73,9 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                   <Libelle titre="Base"><Selecteur value={c.baseId} disabled={Boolean(existante?.lanceeLe) || tracabilite} onChange={(e) => setC({ ...c, baseId: e.target.value, audience: { ...c.audience, filtres: {} } })}>{v.bases.map((b) => <option key={b.id} value={b.id}>{b.nom}</option>)}</Selecteur></Libelle>
                 </div></Bloc>
                 {enAttente > 0 ? <p className="text-colonne text-encre-2">Pare-feu : {fr(enAttente)} {base?.unite} déjà dans une campagne en cours, ou en double. Ils attendront qu'elle soit terminée.</p> : null}
-                <Bloc titre="Où" droite={<span className="chiffres text-colonne text-encre"><b className="font-medium">{fr(eligibles)}</b> {base?.unite} éligibles</span>}>
+                {avis ? <p className="chiffres text-colonne text-encre"><b className="font-medium">{fr(eligibles)}</b> {base?.unite} éligibles</p> : <Bloc titre="Où" droite={<span className="chiffres text-colonne text-encre"><b className="font-medium">{fr(eligibles)}</b> {base?.unite} éligibles</span>}>
                   <div className="mt-3"><Suspense fallback={<Chargement texte="Lecture de la carte…" />}><Carte zones={cfg.zones} compter={compter} onChange={(z) => maj((x) => ({ ...x, zones: z }))} avertissement={c.baseId === "artisans" ? "La base ne connaît que Paris, petite et grande couronne : le ciblage se fait sur ces trois zones." : undefined} /></Suspense></div>
-                </Bloc>
+                </Bloc>}
                 <Bloc titre="Qui on touche"><div className="mt-3 space-y-4">
                   {base?.champs.filter((ch) => !CHAMPS_GEO.includes(ch.cle)).map((ch) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{val}</button> })}</div></div>)}
                   <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile"] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : "mobile (pour les SMS)"}</label>)}</div>
@@ -86,7 +89,7 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                 </div></Bloc>
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} />
-              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} />
+              : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} />
               : partie === "qualification" ? <Qualification cfg={cfg} maj={maj} baseId={c.baseId} />
               : partie === "garde" ? (
                 <div className="max-w-[720px] space-y-8">
@@ -105,12 +108,12 @@ export default function Editeur({ id, fini }: { id: string | null; fini: (id: st
                 </div>
               ) : (
                 <div className="max-w-[720px] space-y-8">
-                  <MesureCampagne campagne={c} cfg={cfg} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.etat.evenements} />
+                  {avis ? <MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /> : <MesureCampagne campagne={c} cfg={cfg} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.etat.evenements} />}
                 </div>
               )}
           </div>
         </div>
-        <div className="min-w-0"><div className="sticky top-4"><Chemin cfg={cfg} /></div></div>
+        <div className="min-w-0"><div className="sticky top-4">{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
       </div>
     </div>
   )

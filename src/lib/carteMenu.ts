@@ -11,6 +11,7 @@ import type { Espace } from "./messagesDb"
 export type PageId =
   | "aujourdhui"
   | "leads_tous"
+  | "avis"
   | "dashboard_st"
   | "leads_st"
   | "sessions_st"
@@ -42,6 +43,7 @@ export const MENU: GroupeMenu[] = [
     entrees: [
       { id: "campagnes", titre: "Campagnes", espace: null, admin: true },
       { id: "leads_tous", titre: "Tous les leads", espace: null, admin: true },
+      { id: "avis", titre: "Avis", espace: null, admin: true },
     ],
   },
   {

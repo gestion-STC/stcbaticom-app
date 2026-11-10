@@ -27,6 +27,9 @@ export const BASES: Base[] = [
     issues: [{ code: "va_deposer", libelle: "Va déposer son dossier" }, { code: "a_rappeler", libelle: "À rappeler le…" }, { code: "pas_interesse", libelle: "Pas intéressé" }, { code: "hors_cible", libelle: "Hors cible" }],
     gagne: "Dossier déposé", prospection: false, liens: [{ cle: "principal", libelle: "Candidature" }, { cle: "bareme", libelle: "Barème" }],
   },
+  { id: "locataires", nom: "Avis · Locataires", unite: "locataires", equipeId: "dev", champs: [], issues: [], gagne: "", prospection: false, liens: [] },
+  { id: "clients_gestionnaires", nom: "Avis · Gestionnaires clients", unite: "gestionnaires", equipeId: "dev", champs: [], issues: [], gagne: "", prospection: false, liens: [] },
+  { id: "sous_traitants_actifs", nom: "Avis · Sous-traitants actuels", unite: "sous-traitants", equipeId: "dev", champs: [], issues: [], gagne: "", prospection: false, liens: [] },
 ]
 
 type L = Record<string, unknown>

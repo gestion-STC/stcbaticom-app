@@ -11,7 +11,7 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 const MAX_REPONSE = 2000
 
 type Question = { id: string; libelle: string; type: string; requis: boolean; options?: string }
-type Creatif = { id: string; type: string; nom: string; variantes: { objet: string; corps: string }[]; video: boolean; videoUrl?: string; versId: string; remplirPar: string; questions: Question[] }
+type Creatif = { id: string; type: string; nom: string; variantes: { objet: string; corps: string }[]; video: boolean; videoUrl?: string; versId: string; remplirPar: string; questions: Question[]; lienGoogle?: string }
 
 async function clePassage(sb: SupabaseClient): Promise<string> {
   const { data } = await sb.from("parametres").select("valeur").eq("cle", "analyse_passage_cle").maybeSingle()
@@ -32,7 +32,37 @@ Deno.serve(async (req: Request) => {
     const { data: camp } = await sb.from("cmp_campagnes").select("id, base_id, config").eq("id", c).maybeSingle()
     const config = (camp as { config?: { creatifs?: Creatif[] } } | null)?.config
     const creatif = config?.creatifs?.find((x) => x.id === f)
-    if (!camp || !creatif || (creatif.type !== "formulaire" && creatif.type !== "page")) return json({ error: "Ce contenu n'existe plus." }, 404)
+    if (!camp || !creatif || (creatif.type !== "formulaire" && creatif.type !== "page" && creatif.type !== "avis")) return json({ error: "Ce contenu n'existe plus." }, 404)
+
+    const baseId = (camp as { base_id: string }).base_id
+    // Se désinscrire depuis un message d'avis : la personne n'est plus jamais sollicitée.
+    if (b.action === "desinscrire") {
+      if (!test) {
+        const le = new Date().toISOString()
+        if (baseId === "clients_gestionnaires") await sb.from("agences").update({ ne_plus_ecrire_le: le }).eq("id", k)
+        else {
+          await sb.from("avis_contacts").update({ desinscrit: true }).eq("id", k)
+          await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: le, desinscrit_canal: "avis" }).eq("id", k)
+        }
+        await sb.from("cmp_inscriptions").update({ statut: "desinscrit", sortie_le: le }).eq("campagne_id", c).eq("contact_ref", k).eq("statut", "en_cours")
+      }
+      return json({ ok: true })
+    }
+    if (creatif.type === "avis" && b.action === "lire") {
+      const { count } = test ? { count: 0 } : await sb.from("avis").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k)
+      return json({ type: "avis", titre: creatif.variantes?.[0]?.objet || creatif.nom, texte: creatif.variantes?.[0]?.corps ?? "", videoUrl: "", versId: "", questions: [], dejaRepondu: Boolean(count), lienGoogle: creatif.lienGoogle ?? "" })
+    }
+    if (b.action === "avis") {
+      if (creatif.type !== "avis") return json({ error: "Cette page ne reçoit pas d'avis." }, 400)
+      const a = b as { note?: unknown; commentaire?: unknown; nom?: unknown; autorise?: unknown }
+      const note = Number(a.note)
+      if (!Number.isInteger(note) || note < 1 || note > 5) return json({ error: "Merci de choisir une note." }, 400)
+      if (!test) {
+        const { error } = await sb.from("avis").upsert({ campagne_id: c, contact_ref: k, public: baseId, note, commentaire: String(a.commentaire ?? "").trim().slice(0, MAX_REPONSE), nom_affiche: String(a.nom ?? "").trim().slice(0, 80), autorise: a.autorise === true }, { onConflict: "campagne_id,contact_ref" })
+        if (error) throw new Error(error.message)
+      }
+      return json({ ok: true, lienGoogle: creatif.lienGoogle ?? "" })
+    }
 
     if (b.action === "lire") {
       if (!test) {
