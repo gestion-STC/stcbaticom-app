@@ -66,13 +66,13 @@ export async function preparerInstantly(sb: SupabaseClient, base: string, mainte
 }
 
 type Rythme = { jours: number[]; heureMin: number; heureMax: number }
-async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number }, cleVariante: string): Promise<{ id?: string; erreur?: string }> {
+async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean }, cleVariante: string): Promise<{ id?: string; erreur?: string }> {
   const cleCarte = `${c.id}:${cleVariante}`
   if (ins.carte[cleCarte]) return { id: ins.carte[cleCarte] }
   const cree = await appelInstantly(ins.cle, "/campaigns", { corps: {
     name: `Baticom · ${c.nom} · ${cleVariante.slice(0, 8)}`, campaign_schedule: horaireInstantly(c.rythme),
     sequences: [{ steps: [{ type: "email", delay: 0, variants: [{ subject: "{{bt_objet}}", body: "{{bt_corps}}" }] }] }],
-    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: false, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
+    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: c.suiviOuvertures, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
   } })
   const id = String(cree.data?.id ?? "")
   if (!cree.ok || !id) return { erreur: `création de campagne refusée (${cree.status}) ${String(cree.data?.message ?? "").slice(0, 120)}` }
@@ -84,7 +84,7 @@ async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, 
 }
 
 /** Confie un mail à Instantly. Il part dans la plage horaire de la campagne. */
-export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number }, k: { id: string; nom: string; personne: string }, to: string, objet: string, texte: string, varianteId: string, test: boolean, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string }> {
+export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean }, k: { id: string; nom: string; personne: string }, to: string, objet: string, texte: string, varianteId: string, test: boolean, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string }> {
   if (!ins.cle) return { ok: false, erreur: "Instantly n'est pas configuré" }
   const camp = await campagneDeLaVariante(sb, ins, c, varianteId)
   if (!camp.id) return { ok: false, erreur: camp.erreur }

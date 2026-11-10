@@ -32,19 +32,19 @@ function useTaches(contactRef?: string) {
   const [erreur, setErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
   const charger = useCallback(() => { chargerTachesCampagne(contactRef).then((l) => { setTaches(l); setErreur("") }).catch((e) => setErreur(message(e))) }, [contactRef])
-  useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
+  useEffect(() => { const t = setTimeout(charger, 0); const i = setInterval(charger, 60_000); return () => { clearTimeout(t); clearInterval(i) } }, [charger])
   const fait = (id: string) => { setOccupe(true); terminerTacheCampagne(id).then(charger).catch((e) => setErreur(message(e))).finally(() => setOccupe(false)) }
   return { taches, erreur, occupe, fait }
 }
 
 /** L'Agenda : ce que les campagnes demandent, selon la base et les agences du compte. */
-export function TachesCampagneAgenda({ moiId, admin, espaces, onAppelerAgence, onAppelerArtisan }: { moiId: string; admin: boolean; espaces: Espace[]; onAppelerAgence: (id: string) => void; onAppelerArtisan: (id: string) => void }) {
+export function TachesCampagneAgenda({ service, appelsSeulement, moiId, admin, espaces, onAppelerAgence, onAppelerArtisan }: { service: "gestionnaires" | "soustraitants"; appelsSeulement?: boolean; moiId: string; admin: boolean; espaces: Espace[]; onAppelerAgence: (id: string) => void; onAppelerArtisan: (id: string) => void }) {
   const { taches, erreur, occupe, fait } = useTaches()
-  const visibles = taches.filter((t) => tacheCampagnePourMoi(t, moiId, admin, espaces))
+  const visibles = taches.filter((t) => (service === "soustraitants") === (t.baseId === "artisans") && (!appelsSeulement || t.type === "appel") && tacheCampagnePourMoi(t, moiId, admin, espaces))
   if (!visibles.length && !erreur) return null
   return (
     <div className="mb-5">
-      <Bloc titre="À faire pour les campagnes" droite={String(visibles.length)}>
+      <Bloc titre={appelsSeulement ? "À appeler pour les campagnes" : "À faire pour les campagnes"} droite={String(visibles.length)}>
         {erreur ? <Bandeau role="alerte" className="mt-3">{erreur}</Bandeau> : null}
         <ul className="mt-1 divide-y-[0.5px] divide-trait">{visibles.map((t) => <Ligne key={t.id} t={t} occupe={occupe} onFait={() => fait(t.id)} ouvrir={() => (t.baseId === "agences" ? onAppelerAgence(t.contactRef) : onAppelerArtisan(t.contactRef))} />)}</ul>
       </Bloc>

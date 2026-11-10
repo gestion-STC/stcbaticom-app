@@ -14,7 +14,6 @@ import { nomContact, type Agence, type Contact } from "../../demarchage/modele"
 import { ajouterJours, composerDate, dateLongue, debutDeSemaine, debutDuJour, decomposerDate, estEnRetard, finDeSemaine, finDuJour, grouperParHeure, heureCourte, joursDeLaSemaine, libelleRelatif, libelleSemaine, majusculeInitiale, memeJour } from "../../demarchage/aujourdhuiOutils"
 import { useSession } from "../../lib/auth"
 import { TachesCampagneAgenda } from "../prospection/moteur/TachesCampagne"
-import type { Espace } from "../../lib/messagesDb"
 import { estAdmin, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, Etiquette, Ligne, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { aMoi } from "../../lib/perimetre"
@@ -36,11 +35,9 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const s = (n: number) => (n > 1 ? "s" : "")
 const titreDe = (t: TacheAgenda) => t.titre || (t.type === "rdv" ? "RDV" : "Tâche")
 
-export default function Agenda({ onOuvrirAgence, onOuvrirSession, espaces, onOuvrirArtisan }: {
+export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   onOuvrirAgence?: (agenceId: string) => void
   onOuvrirSession?: (agenceId: string) => void
-  espaces: Espace[]
-  onOuvrirArtisan: (id: string) => void
 }) {
   const session = useSession()
   const compteNom = nomAffiche(session)
@@ -176,7 +173,7 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession, espaces, onOuv
         </span>
       </div>
 
-      <TachesCampagneAgenda moiId={moiId} admin={admin} espaces={espaces} onAppelerAgence={(id) => onOuvrirSession?.(id)} onAppelerArtisan={onOuvrirArtisan} />
+      <TachesCampagneAgenda service="gestionnaires" moiId={moiId} admin={admin} espaces={["demarchage"]} onAppelerAgence={(id) => onOuvrirSession?.(id)} onAppelerArtisan={() => undefined} />
 
       {retards.length ? (
         <Carte className="mb-4 overflow-hidden">

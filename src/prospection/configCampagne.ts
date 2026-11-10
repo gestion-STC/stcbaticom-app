@@ -18,7 +18,7 @@ export type Regle = { id: string; evenement: string; fois: number; jours: number
 export type EtapeParcours = { id: string; nom: string; type: string; qui: string; validation: string; delai: number; formulaireId?: string }
 export type Qualite = { id: string; niveau: string; source: "question" | "etape" | "toujours"; questionId: string; operateur: string; valeur: string; etapeId: string }
 export type Qualification = { interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; /** « Une personne précise » : la première ; « Chacun son tour » : toutes. */ attributionIds?: string[]; delaiH: number; motifs: string[]; relanceMois: number }
-export type Garde = { ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number }
+export type Garde = { ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number; suiviOuvertures?: boolean }
 export type ConfigCampagne = { v: 1; creatifs: Creatif[]; actions: Action[]; zones: string[]; qualification: Qualification; garde: Garde }
 
 export const ORIGINE_TRACABILITE = "tracabilite"
@@ -30,7 +30,7 @@ export const VALIDATIONS = ["Toute seule", "À la main"]
 export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix unique", "Oui / Non", "Date"]
 export const OPERATEURS = ["est", "au moins", "au plus", "contient"]
 export const ATTRIBUTIONS = ["Le commercial attribué au contact", "Le commercial du secteur", "L'équipe de la base", "Chacun son tour", "Une personne précise"]
-export const GARDE_DEFAUT: Garde = { ecartCampagnes: 14, exclusions: ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"], plafondMail: 200, plafondSms: 40 }
+export const GARDE_DEFAUT: Garde = { ecartCampagnes: 14, exclusions: ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"], plafondMail: 200, plafondSms: 40, suiviOuvertures: true }
 export const MOTIFS_DEFAUT = ["Pas intéressé", "Hors cible", "Déjà équipé", "Injoignable"]
 
 const FRANCE = "pays:250"
