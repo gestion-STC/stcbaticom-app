@@ -28,6 +28,25 @@ export type ConfigCampagne = { v: 1; creatifs: Creatif[]; actions: Action[]; zon
 export const ORIGINE_TRACABILITE = "tracabilite"
 export const EVENEMENTS = ["A ouvert le mail", "A cliqué un lien", "A cliqué le lien principal", "A ouvert la plaquette", "A ouvert la page « Créer un compte »", "A cliqué le SMS", "A regardé la vidéo", "A répondu au mail"]
 export const TYPES_ETAPE = ["Intérêt détecté", "Appel : joint et intéressé", "Formulaire rempli par le prospect", "Formulaire rempli au téléphone", "Dossier et pièces reçus", "Contrats envoyés", "Contrats signés", "RDV", "Test de l'application", "Compte ouvert", "1er ordre de service", "Validation à la main"]
+/** Les événements proposés dans « Intérêt » : seulement ceux qui ont un effet pour cette campagne (Mahdi, 11/11/2026).
+ *  Une réponse est réglée dans « Quand il répond au mail » ; la page « Créer un compte », c'est le lien principal.
+ *  La campagne des gestionnaires (traçabilité) et les sous-traitants gardent leurs règles d'avant. */
+export function evenementsProposes(cfg: ConfigCampagne, baseId: string, tracabilite: boolean): string[] {
+  const sms = cfg.actions.some((a) => a.type === "sms"), video = cfg.creatifs.some((k) => k.video)
+  return EVENEMENTS.filter((e) => {
+    if (!tracabilite && baseId !== "artisans" && (e === "A répondu au mail" || e === "A ouvert la page « Créer un compte »")) return false
+    if (e === "A cliqué le SMS") return sms
+    if (e === "A regardé la vidéo") return video
+    return true
+  })
+}
+const ETAPES_ARTISANS = ["Dossier et pièces reçus", "Contrats envoyés", "Contrats signés"]
+/** Les types d'étape proposés : « Test de l'application » n'est jamais détecté seul (une validation à la main le remplace). */
+export function typesEtapeProposes(baseId: string): string[] {
+  return TYPES_ETAPE.filter((t) => t !== "Test de l'application" && (baseId === "artisans" ? t !== "1er ordre de service" : !ETAPES_ARTISANS.includes(t)))
+}
+/** Les motifs de perte d'une agence : ceux de sa fiche, partout (une seule liste). */
+export const MOTIFS_AGENCE = ["Déjà un prestataire", "Pas de besoin", "Hors zone", "Autre"]
 export const TYPES_FORMULAIRE = ["Formulaire rempli par le prospect", "Formulaire rempli au téléphone"]
 export const VALIDATIONS = ["Toute seule", "À la main"]
 export const TYPES_QUESTION = ["Texte court", "Texte long", "Nombre", "Choix unique", "Oui / Non", "Date"]
