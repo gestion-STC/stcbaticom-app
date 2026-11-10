@@ -15,7 +15,7 @@
 // exclue), sauf si c'est une réponse automatique d'absence.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { trierReponse } from "../_shared/campagnes/generationIA.ts";
+import { lireReponse } from "../_shared/campagnes/generationIA.ts";
 
 const DOMAINE_CRM = "@crm.stcbatiment.fr";
 const ADRESSES_RECRUTEMENT = ["recrutement@crm.stcbatiment.fr", "partenaires@crm.stcbatiment.fr"];
@@ -110,13 +110,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    const lu = espace === "demarchage" ? await lireReponse(objet, corpsText || corpsHtml.replace(/<[^>]+>/g, " ")) : { tri: null, detail: null };
     const { data: insere, error } = await admin.from("messages").insert({
       sens: "entrant", de, a: pourLeCrm.join(", "), objet,
       corps_text: corpsText, corps_html: corpsHtml,
       message_id: messageId, in_reply_to: d.in_reply_to ?? d.inReplyTo ?? null,
       sous_traitant_id: sousTraitantId, espace, lu: false, brut: payload, pieces_jointes: pieces,
       // Le tri de l'IA, comme pour les réponses venues d'Instantly : il décide lead ou dead (11/11/2026).
-      tri: espace === "demarchage" ? await trierReponse(objet, corpsText || corpsHtml.replace(/<[^>]+>/g, " ")) : null,
+      tri: lu.tri, tri_detail: lu.detail,
     }).select("agence_id").single();
     if (error) throw error;
     const agenceId: string | null = insere?.agence_id ?? null;

@@ -1,7 +1,7 @@
 // La génération des textes par l'IA, partagée par le moteur et par l'écran d'essai.
 import Anthropic from "npm:@anthropic-ai/sdk@0.137.0"
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { CONSIGNES_APPRIS, CONSIGNES_TRI, SCHEMA_APPRIS, SCHEMA_IA, SCHEMA_TRI, avecAppels, consignesIA, coutIA, messageAppris, messageIA, type AppelAnalyse, type ReglageIA } from "./ia.ts"
+import { CONSIGNES_APPRIS, CONSIGNES_TRI, SCHEMA_APPRIS, SCHEMA_IA, SCHEMA_TRI, avecAppels, consignesIA, coutIA, messageAppris, messageIA, type AppelAnalyse, type DetailTri, type ReglageIA } from "./ia.ts"
 import { valeursDe } from "./instantlyOutils.ts"
 
 export const MODELE_IA = "claude-opus-5-5"
@@ -80,15 +80,22 @@ export async function genererTexteIA(a: { baseId: string; reglage: ReglageIA; ca
 
 /** Le tri d'une réponse. En cas d'échec : null, et la règle simple prend le relais. */
 export async function trierReponse(objet: string, texte: string): Promise<string | null> {
+  return (await lireReponse(objet, texte)).tri
+}
+
+/** Le tri et ce que la réponse dit en plus : la date de retour d'un absent, le bon contact. */
+export async function lireReponse(objet: string, texte: string): Promise<{ tri: string | null; detail: DetailTri | null }> {
   try {
     const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") || "" })
     const reponse = await client.beta.messages.create({
       model: MODELE_IA, max_tokens: 2000, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
       output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA_TRI } },
       system: CONSIGNES_TRI,
-      messages: [{ role: "user", content: `Objet : ${objet.slice(0, 200)}\n\n${texte.slice(0, 2000)}` }],
+      messages: [{ role: "user", content: `Date du jour : ${new Date().toISOString().slice(0, 10)}\nObjet : ${objet.slice(0, 200)}\n\n${texte.slice(0, 2000)}` }],
     } as never) as { stop_reason?: string; content?: Array<{ type: string; text?: string }> }
-    if (reponse.stop_reason !== "end_turn") return null
-    return (JSON.parse((reponse.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("")) as { tri?: string }).tri ?? null
-  } catch (e) { console.error("[TRI-REPONSE]", e); return null }
+    if (reponse.stop_reason !== "end_turn") return { tri: null, detail: null }
+    const lu = JSON.parse((reponse.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("")) as Partial<DetailTri> & { tri?: string }
+    const detail: DetailTri = { retour: /^\d{4}-\d{2}-\d{2}$/.test(lu.retour ?? "") ? lu.retour! : "", contact_nom: (lu.contact_nom ?? "").trim(), contact_email: (lu.contact_email ?? "").trim(), contact_telephone: (lu.contact_telephone ?? "").trim() }
+    return { tri: lu.tri ?? null, detail: Object.values(detail).some(Boolean) ? detail : null }
+  } catch (e) { console.error("[TRI-REPONSE]", e); return { tri: null, detail: null } }
 }
