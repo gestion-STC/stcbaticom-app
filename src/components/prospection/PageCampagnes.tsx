@@ -37,7 +37,7 @@ export default function PageCampagnes({ base, onSession }: { base: "agences" | "
             {pret ? (
               vue.ecran === "liste" ? <Campagnes ouvrir={ouvrir} creer={() => setVue({ ecran: "editeur", id: null })} />
               : vue.ecran === "suivi" && vue.id ? <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => setVue({ ecran: "liste", id: null })}>← Toutes les campagnes</Bouton><Suivi id={vue.id} modifier={() => setVue({ ecran: "editeur", id: vue.id })} aller={() => onSession()} /></div>
-              : <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => (vue.id && depot.lire().campagnes.find((c) => c.id === vue.id)?.origine !== ORIGINE_TRACABILITE ? setVue({ ecran: "suivi", id: vue.id }) : setVue({ ecran: "liste", id: null }))}>← Retour</Bouton><Editeur key={vue.id ?? "neuve"} id={vue.id} fini={ouvrir} /></div>
+              : <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => (vue.id && depot.lire().campagnes.find((c) => c.id === vue.id)?.origine !== ORIGINE_TRACABILITE ? setVue({ ecran: "suivi", id: vue.id }) : setVue({ ecran: "liste", id: null }))}>← Retour</Bouton><Editeur key={vue.id ?? "neuve"} id={vue.id} fini={ouvrir} annuler={() => setVue({ ecran: "liste", id: null })} /></div>
             ) : null}
           </div>
         </ContexteBaseUnique.Provider>
