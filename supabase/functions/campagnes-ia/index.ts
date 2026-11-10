@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
 import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, lireAppris, lireReponse, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
+import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
 import { remplirVariables } from "../_shared/campagnes/instantlyOutils.ts"
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-passage-cle", "Access-Control-Allow-Methods": "POST, OPTIONS" }
@@ -31,6 +32,12 @@ Deno.serve(async (req: Request) => {
     // Ce qui marche au téléphone : la fiche lue, ou refaite à partir des appels analysés.
     if (entree.action === "appris") return json({ appris: await lireAppris(sb) })
     if (entree.action === "apprendre") return json({ appris: await apprendreDesAppels(sb) })
+    // Vérifier des adresses tout de suite (25 au plus par appel ; l'écran enchaîne les lots).
+    if (entree.action === "verifier") {
+      const emails = (Array.isArray(entree.emails) ? entree.emails : []).map(String).slice(0, 25)
+      const v = await verifierLesAdresses(sb, emails, Deno.env.get("INSTANTLY_API_KEY") ?? "", 25)
+      return json({ verdicts: [...v.values()] })
+    }
     if (entree.action === "trier") return json(await lireReponse(String(entree.objet ?? ""), String(entree.texte ?? "")))
     // Le test d'arrivée : le vrai mail, par les vraies boîtes, vers des adresses à soi. Rien n'est compté dans la campagne.
     if (entree.action === "arrivee") {

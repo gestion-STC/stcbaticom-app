@@ -18,7 +18,9 @@
 // exclu ou désinscrit : il est alors dans la session de call de son équipe.
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { passage, heureParis } from "../_shared/campagnes/moteur.ts"
+import { passage, heureParis, dansLaPlage } from "../_shared/campagnes/moteur.ts"
+import { estEligible } from "../_shared/campagnes/modele.ts"
+import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
@@ -97,6 +99,25 @@ const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
 /** Ceux que les garde-fous de la campagne empêchent d'entrer. Une campagne jamais enregistrée n'en a pas. */
+/** Avant un premier envoi : l'adresse est vérifiée (Mahdi, 11/11/2026). Seuls les nouveaux contacts dont l'adresse a passé
+ *  la vérification peuvent entrer ; ceux qui n'ont pas de mail (SMS seul) et ceux déjà dans la campagne ne changent pas. */
+async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: Contact[], dejaDedans: Set<string>, maintenant: Date, cle: string): Promise<{ contacts: Contact[]; refusees: number }> {
+  if (!dansLaPlage(c, maintenant)) return { contacts, refusees: 0 }
+  const nouveaux = contacts.filter((k) => !dejaDedans.has(k.id) && k.statut === "libre" && k.email && estEligible(k, c, maintenant))
+  if (!nouveaux.length) return { contacts, refusees: 0 }
+  const place = Math.max(1, c.rythme.parJour)
+  const lot = nouveaux.slice(0, place * 3)
+  const verdicts = await verifierLesAdresses(sb, lot.map((k) => k.email), cle, 40)
+  const ok = new Set<string>()
+  let refusees = 0
+  for (const k of lot) {
+    const v = verdicts.get(k.email.trim().toLowerCase())
+    if (v?.statut === "invalide") refusees++
+    if (v && (v.statut === "valide" || v.statut === "douteux")) { ok.add(k.id); if (ok.size >= place) break }
+  }
+  return { contacts: contacts.filter((k) => dejaDedans.has(k.id) || !k.email || ok.has(k.id)), refusees }
+}
+
 async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null): Promise<Set<string>> {
   const bloques = new Set<string>()
   if (!garde) return bloques
@@ -308,7 +329,9 @@ Deno.serve(async (req: Request) => {
       const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun)
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
       const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
-      const ecr = passage({ campagne: c, contacts: autorises, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
+      const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle)
+      bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
+      const ecr = passage({ campagne: c, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
       const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
       for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }
       const majs = new Map(ecr.majInscriptions.map((i) => [i.id, i]))
