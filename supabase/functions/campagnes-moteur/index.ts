@@ -21,6 +21,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { passage, heureParis, dansLaPlage } from "../_shared/campagnes/moteur.ts"
 import { estEligible } from "../_shared/campagnes/modele.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
+import { AB_DEPART, verdictAB, type MesureVariante, type ReglageAB } from "../_shared/campagnes/abTest.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
@@ -116,6 +117,29 @@ async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: 
     if (v && (v.statut === "valide" || v.statut === "douteux")) { ok.add(k.id); if (ok.size >= place) break }
   }
   return { contacts: contacts.filter((k) => dejaDedans.has(k.id) || !k.email || ok.has(k.id)), refusees }
+}
+
+/** Le test A/B (Mahdi, 11/11/2026) : une étape dont le créatif demande la bascule n'envoie plus que son gagnant, dès qu'il y en a un. */
+async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["config"], evenements: Evenement[], inscriptions: Inscription[], parContact: Map<string, Contact>): Promise<Campagne> {
+  const cfg = (config ?? {}) as { actions?: { id: string; creatifId?: string }[]; creatifs?: { id: string; ab?: ReglageAB }[] }
+  let etapes = c.etapes
+  for (const et of c.etapes) {
+    if (!("variantes" in et) || et.variantes.length < 2) continue
+    const r = cfg.creatifs?.find((k) => k.id === cfg.actions?.find((a) => a.id === et.id)?.creatifId)?.ab ?? AB_DEPART
+    if (!r.basculer) continue
+    const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
+    const leads = new Set(inscriptions.filter((i) => i.campagneId === c.id && i.statut === "lead").map((i) => i.contactId))
+    for (const [id, k] of parContact) if (k.statut === "lead" || k.statut === "gagne") leads.add(id)
+    const mesures: MesureVariante[] = et.variantes.map((v) => {
+      const ee = envoyes.filter((e) => e.variante_id === v.id), ids = new Set(ee.map((e) => e.id))
+      const ev = evenements.filter((e) => e.envoiId && ids.has(e.envoiId))
+      const qui = (t: string) => new Set(ev.filter((e) => e.type === t).map((e) => e.contactId)).size
+      return { varianteId: v.id, nom: v.nom, envoyes: ee.length, leads: new Set(ee.map((e) => e.contact_ref).filter((x) => leads.has(x))).size, repondants: qui("reponse"), cliqueurs: qui("clic"), ouvreurs: qui("ouvert") }
+    })
+    const g = verdictAB(mesures, r).gagnant
+    if (g) etapes = etapes.map((e) => (e.id === et.id && "variantes" in e ? { ...e, variantes: e.variantes.filter((v) => v.id === g) } : e))
+  }
+  return etapes === c.etapes ? c : { ...c, etapes }
 }
 
 async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null): Promise<Set<string>> {
@@ -331,7 +355,8 @@ Deno.serve(async (req: Request) => {
       const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
       const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle)
       bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
-      const ecr = passage({ campagne: c, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
+      const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, parContact)
+      const ecr = passage({ campagne: avecGagnant, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
       const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
       for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }
       const majs = new Map(ecr.majInscriptions.map((i) => [i.id, i]))

@@ -7,7 +7,9 @@ import { Copy, Pause, Pencil, Play, Sparkles } from "lucide-react"
 import { Bandeau, Bouton, Pastille, Selecteur } from "../../ui"
 import { Bloc, Etiquette, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
-import { constats, indicateurs, type Constat, meilleureVariante } from "../../prospection/indicateurs"
+import { constats, indicateurs, type Constat } from "../../prospection/indicateurs"
+import { verdictAB } from "../../prospection/abTest"
+import { configDe, reglageABDe } from "../../prospection/configCampagne"
 import { LIBELLE_ETAPE } from "../../prospection/modele"
 import { Barre, NomBase, Onglets, Titre } from "./morceaux"
 import { dateHeure, euros, fr, jourCourt, pct, useVue } from "./outils"
@@ -41,6 +43,8 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   const seg = ind.parSegment.find((s) => s.champ === (champ || base.champs[0]?.cle)) ?? ind.parSegment[0]
   const envois = v.etat.envois.filter((e) => e.campagneId === c.id && (!filtreEnvoi || e.statut === filtreEnvoi)).slice(-80).reverse()
   const inscs = v.etat.inscriptions.filter((i) => i.campagneId === c.id).slice(-80).reverse()
+  const cfgAb = configDe(c)
+  const verdicts = new Map([...new Set(ind.parVariante.map((x) => x.etapeId))].map((eid) => [eid, verdictAB(ind.parVariante.filter((x) => x.etapeId === eid), reglageABDe(cfgAb, eid))]))
   const nomEtape = (eid: string) => { const k = c.etapes.findIndex((e) => e.id === eid); return k >= 0 ? `${k + 1} · ${LIBELLE_ETAPE[c.etapes[k].type]}` : "—" }
   const maxJour = Math.max(1, ...ind.parJour.map((j) => j.envoyes + j.erreurs))
   const maxH = Math.max(1, ...ind.ouverturesParHeure)
@@ -114,10 +118,11 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
               : et.type === "appel" ? [<span className="text-colonne text-encre-2">{fr(v.etat.taches.filter((t) => t.etapeId === et.id).length)} à appeler</span>, "", "", "", "", "", "", "", "", "", "", ""] : ["", "", "", "", "", "", "", "", "", "", "", ""]),
           ] } })} />
       ) : vue === "ab" ? (
-        ind.parVariante.length ? (
-          <Table colonnes={[{ titre: "Étape", largeur: "110px" }, { titre: "Variante" }, { titre: "Envois", largeur: "80px", droite: true }, { titre: "Ouvreurs", largeur: "84px", droite: true }, { titre: "Taux ouv.", largeur: "84px", droite: true }, { titre: "Cliqueurs", largeur: "84px", droite: true }, { titre: "Taux clic", largeur: "84px", droite: true }, { titre: "Réponses", largeur: "84px", droite: true }]}
-            lignes={ind.parVariante.map((x) => ({ cle: x.varianteId, cellules: [nomEtape(x.etapeId), <span className="block truncate py-1.5"><b className="font-medium">{x.nom}</b>{meilleureVariante(ind.parVariante.filter((y) => y.etapeId === x.etapeId)) === x.varianteId ? <span className="ml-2 rounded-full bg-ok px-2 text-[10px] font-medium leading-4 text-white">Meilleure</span> : null}<span className="block truncate text-colonne text-encre-2">{x.objet}</span></span>, fr(x.envoyes), fr(x.ouvreurs), pct(x.tauxOuverture), fr(x.cliqueurs), <b className="font-medium">{pct(x.tauxClic)}</b>, fr(x.repondants)] }))} />
-        ) : <p className="text-legende text-encre-2">Aucune étape n'a deux variantes. Dans « Modifier », ajoute une variante B à un mail : la moitié des contacts reçoit A, l'autre B, toujours la même pour un même contact.</p>
+        ind.parVariante.length ? (<div className="space-y-4">
+          <ul className="space-y-1">{[...verdicts].map(([eid, v]) => <li key={eid} className="flex flex-wrap items-baseline gap-2 text-legende"><span className="text-encre-2">{nomEtape(eid)}</span><span className={v.gagnant ? "font-medium text-ok" : "text-encre"}>{v.message}</span></li>)}</ul>
+          <Table colonnes={[{ titre: "Étape", largeur: "110px" }, { titre: "Variante" }, { titre: "Envois", largeur: "80px", droite: true }, { titre: "Ouvreurs", largeur: "84px", droite: true }, { titre: "Taux ouv.", largeur: "84px", droite: true }, { titre: "Cliqueurs", largeur: "84px", droite: true }, { titre: "Taux clic", largeur: "84px", droite: true }, { titre: "Réponses", largeur: "84px", droite: true }, { titre: "Leads", largeur: "70px", droite: true }]}
+            lignes={ind.parVariante.map((x) => ({ cle: x.varianteId, cellules: [nomEtape(x.etapeId), <span className="block truncate py-1.5"><b className="font-medium">{x.nom}</b>{verdicts.get(x.etapeId)?.gagnant === x.varianteId ? <span className="ml-2 rounded-full bg-ok px-2 text-[10px] font-medium leading-4 text-white">Gagnant</span> : null}<span className="block truncate text-colonne text-encre-2">{x.objet}</span></span>, fr(x.envoyes), fr(x.ouvreurs), pct(x.tauxOuverture), fr(x.cliqueurs), <b className="font-medium">{pct(x.tauxClic)}</b>, fr(x.repondants), <b className={`font-medium ${x.leads ? "text-ok" : ""}`}>{fr(x.leads)}</b>] }))} />
+        </div>) : <p className="text-legende text-encre-2">Aucune étape n'a deux variantes. Dans « Modifier », ajoute une variante B à un mail : la moitié des contacts reçoit A, l'autre B, toujours la même pour un même contact.</p>
       ) : vue === "audience" ? (
         <div className="space-y-4">
           <div className="w-64"><Selecteur value={seg?.champ ?? ""} onChange={(e) => setChamp(e.target.value)} aria-label="Ventiler par">{ind.parSegment.map((s) => <option key={s.champ} value={s.champ}>Par {s.libelle.toLowerCase()}</option>)}</Selecteur></div>
