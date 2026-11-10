@@ -57,7 +57,10 @@ export async function preparerInstantly(sb: SupabaseClient, base: string, mainte
     await ecrireParametre(sb, CLE_ETAT, JSON.stringify({ le: maintenant, erreur: `Instantly a répondu ${r.status}`, detail: String(r.data?.message ?? "").slice(0, 200) }))
     return vide
   }
-  const boites = ((r.data.items ?? []) as Boite[]).map((b) => ({ email: b.email, status: b.status, warmup_status: b.warmup_status, setup_pending: Boolean(b.setup_pending), stat_warmup_score: b.stat_warmup_score ?? null }))
+  // Depuis quand chaque boîte chauffe : ce que dit Instantly, sinon la première fois qu'on l'a vue.
+  let anciennes: { email?: string; depuis?: string }[] = []
+  try { anciennes = (JSON.parse(await lireParametre(sb, CLE_ETAT) || "{}") as { boites?: { email?: string; depuis?: string }[] }).boites ?? [] } catch { anciennes = [] }
+  const boites = ((r.data.items ?? []) as (Boite & { timestamp_warmup_start?: string | null; timestamp_created?: string | null })[]).map((b) => ({ email: b.email, status: b.status, warmup_status: b.warmup_status, setup_pending: Boolean(b.setup_pending), stat_warmup_score: b.stat_warmup_score ?? null, depuis: b.timestamp_warmup_start ?? b.timestamp_created ?? anciennes.find((x) => x.email === b.email)?.depuis ?? maintenant }))
   const retours = await installerRetours(base, cle)
   await ecrireParametre(sb, CLE_ETAT, JSON.stringify({ le: maintenant, boites, retours }))
   let carte: Record<string, string> = {}

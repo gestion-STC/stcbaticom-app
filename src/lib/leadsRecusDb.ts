@@ -145,7 +145,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     if (!pos.estLead) return null
     return {
       id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
-      campagne: { id: camp.c.id, nom: camp.c.nom }, cible: b.cible, qualite: niveauDe(camp.q, pos.atteintes, Object.assign({}, ...Object.values(reponses))),
+      campagne: { id: camp.c.id, nom: camp.c.nom }, aTraiterSous: camp.q.delaiH, cible: b.cible, qualite: niveauDe(camp.q, pos.atteintes, Object.assign({}, ...Object.values(reponses))),
       parcours: { etapes: camp.q.etapes, leadA: camp.q.leadA, gagneA: camp.q.gagneA, atteintes: pos.atteintes, valides: [...valides], courante: pos.courante, formulaires: camp.formulaires, reponses },
     }
   }

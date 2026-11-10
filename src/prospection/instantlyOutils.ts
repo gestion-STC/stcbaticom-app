@@ -52,6 +52,18 @@ export const remplirContact = (s: string, personne: string) => (personne.trim() 
 export const MAILS_PAR_BOITE = 30
 export const capaciteJour = (boites: number) => boites * MAILS_PAR_BOITE
 
+/** Les conseils avant d'envoyer : jamais un blocage (Mahdi, 10/11/2026 : « des conseils »). */
+export const JOURS_CHAUFFE = 14
+export function conseilsEnvoi(boites: { depuis?: string | null }[], parJour: number, maintenant: string): string[] {
+  if (!boites.length) return ["Conseil : aucune boîte d'envoi n'est prête pour cette cible."]
+  const out: string[] = []
+  const capacite = capaciteJour(boites.length)
+  if (parJour > capacite) out.push(`Conseil : ${MAILS_PAR_BOITE} envois par boîte et par jour, soit ${capacite} pour cette cible. Tes campagnes en prévoient ${parJour}.`)
+  const jours = boites.flatMap((b) => (b.depuis ? [Math.floor((new Date(maintenant).getTime() - new Date(b.depuis).getTime()) / 86_400_000)] : []))
+  if (jours.length && Math.min(...jours) < JOURS_CHAUFFE) out.push(`Conseil : ces boîtes chauffent depuis ${Math.min(...jours)} jour${Math.min(...jours) > 1 ? "s" : ""}. Mieux vaut attendre ${JOURS_CHAUFFE} jours avant de lancer.`)
+  return out
+}
+
 /** Trop de rebonds : on arrête avant d'abîmer les boîtes. Pas de décision sur moins de 30 envois. */
 export const ENVOIS_MIN_ARRET = 30
 export const TAUX_REBONDS_ARRET = 0.03

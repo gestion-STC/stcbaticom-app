@@ -14,6 +14,7 @@ import type { PropositionIa } from "../../demarchage/appelsIa"
 import type { Destinataire } from "../../lib/destinataire"
 import MailDeSuivi from "./session/MailDeSuivi"
 import { useReglages } from "../../demarchage/reglages"
+import OptionsMotifs from "../prospection/moteur/OptionsMotifs"
 import { ISSUES, MOTIFS, RESULTATS, effetAnnonce, nomContact, type Agence, type Contact, type Issue, type Motif, type Resultat } from "../../demarchage/modele"
 import { TYPES_RDV, choixComplet, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
 import { Bouton, Etiquette, Champ, Selecteur } from "../../ui"
@@ -61,7 +62,7 @@ export default function BarreResultat({
   ia = null,
   destinataire = null,
 }: {
-  agence: Pick<Agence, "etape" | "tentatives">
+  agence: Pick<Agence, "id" | "etape" | "tentatives">
   contacts: Contact[]
   /** Le contact concerné (celui du numéro appelé), modifiable ici. null = le standard. */
   contactId: string | null
@@ -226,9 +227,7 @@ export default function BarreResultat({
               <Etiquette texte="Motif">
                 <Selecteur value={motif} onChange={(e) => setMotif(e.target.value as Motif | "")}>
                   <option value="">Choisir un motif…</option>
-                  {MOTIFS.map((m) => (
-                    <option key={m.code} value={m.code}>{m.libelle}</option>
-                  ))}
+                  <OptionsMotifs contactRef={agence.id} defaut={MOTIFS.map((m) => ({ valeur: m.code, libelle: m.libelle }))} />
                 </Selecteur>
               </Etiquette>
             </div>

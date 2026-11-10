@@ -10,7 +10,7 @@ import { Bandeau, Bouton, Chargement, Onglets, Panneau, Pastille } from "../ui"
 import { estAdmin } from "../lib/comptes"
 import type { Espace } from "../lib/messagesDb"
 import { NOM_BASE } from "../lib/perimetre"
-import { ETAPES_LEAD, leadsVisibles, sourceDe, sourcesDe, trierLeads, type EtapeLead, type LeadRecu, type Niveau } from "../lib/leadsRecus"
+import { enRetard, ETAPES_LEAD, leadsVisibles, sourceDe, sourcesDe, trierLeads, type EtapeLead, type LeadRecu, type Niveau } from "../lib/leadsRecus"
 import { chargerLeadsRecus, validerEtape } from "../lib/leadsRecusDb"
 import { nomAffiche } from "../lib/comptes"
 import FormulaireAppel from "./prospection/moteur/FormulaireAppel"
@@ -65,6 +65,7 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
   onOuvrirAgence: (agenceId: string) => void
   onSessionArtisans: () => void
 }) {
+  const [maintenant] = useState(() => Date.now())
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
   const [leads, setLeads] = useState<LeadRecu[] | null>(null)
@@ -139,7 +140,7 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
                 {lignes.slice(0, 300).map((l) => (
                   <tr key={l.id} onClick={() => setOuvert(l)} className="h-[52px] cursor-pointer border-t-[0.5px] border-trait text-legende hover:bg-fond-2">
                     <td className="truncate pr-4"><b className="block truncate font-medium text-encre">{l.nom}</b><span className="block truncate text-colonne text-encre-2">{[l.detail || NOM_BASE[l.espace], l.etat?.texte].filter(Boolean).join(" · ")}</span></td>
-                    <td className="pr-4"><span className="flex min-w-0 items-center gap-2"><span className="shrink-0"><Pastille role={NIVEAU[l.niveau].role} point>{NIVEAU[l.niveau].libelle}</Pastille></span><span className="truncate text-encre-2">{l.signal}</span>{l.qualite ? <span className="chiffres shrink-0 rounded-full bg-fond-4 px-1.5 text-[10px] font-medium leading-4 text-encre">{l.qualite}</span> : null}</span></td>
+                    <td className="pr-4"><span className="flex min-w-0 items-center gap-2"><span className="shrink-0"><Pastille role={NIVEAU[l.niveau].role} point>{NIVEAU[l.niveau].libelle}</Pastille></span>{enRetard(l, maintenant) ? <span className="shrink-0"><Pastille role="probleme">En retard</Pastille></span> : null}<span className="truncate text-encre-2">{l.signal}</span>{l.qualite ? <span className="chiffres shrink-0 rounded-full bg-fond-4 px-1.5 text-[10px] font-medium leading-4 text-encre">{l.qualite}</span> : null}</span></td>
                     {tousColonne ? <td className="truncate pr-4 text-encre-2">{nomSource(l)}</td> : null}
                     <td className="chiffres text-right text-encre-2">{quandCourt(l.quand)}</td>
                   </tr>

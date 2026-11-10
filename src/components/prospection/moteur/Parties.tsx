@@ -9,11 +9,11 @@ import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, M
 import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { LIBELLE_CONDITION, LIBELLE_ETAPE, type Condition } from "../../../prospection/modele"
-import { ATTRIBUTIONS, EVENEMENTS, OPERATEURS, QUI, TYPES_ETAPE, TYPES_FORMULAIRE, TYPES_QUESTION, VALIDATIONS, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
+import { ATTRIBUTIONS, EVENEMENTS, OPERATEURS, TYPES_ETAPE, TYPES_FORMULAIRE, TYPES_QUESTION, VALIDATIONS, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
 
 export type MajConfig = (f: (c: ConfigCampagne) => ConfigCampagne) => void
 const ICONE: Record<TypeAction, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, newsletter: Newspaper, appel: Phone, attendre: Clock, si: GitBranch, fin: Square }
-const AIDE: Record<Exclude<TypeAction, "fin">, string> = { mail: "Envoie un créatif mail", sms: "Envoie un créatif SMS", linkedin: "Une tâche pour le commercial", newsletter: "Un envoi unique à toute l'audience", appel: "Le contact arrive en session de call", attendre: "Un délai en jours", si: "Si oui on continue, sinon on saute" }
+const AIDE: Record<Exclude<TypeAction, "fin">, string> = { mail: "Envoie un créatif mail", sms: "Envoie un créatif SMS", linkedin: "Une tâche pour le commercial", newsletter: "Un mail unique, envoyé au rythme de la campagne", appel: "Le contact arrive en session de call", attendre: "Un délai en jours", si: "Si oui on continue, sinon on saute" }
 const ICONE_CREATIF: Record<TypeCreatif, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, page: LayoutTemplate, formulaire: FileText, avis: Star }
 const LIB_CREATIF: Record<TypeCreatif, string> = { mail: "Mail", sms: "SMS", linkedin: "LinkedIn", page: "Page", formulaire: "Formulaire", avis: "Page d'avis" }
 const creatifPour = (t: TypeAction): TypeCreatif | null => (t === "mail" || t === "newsletter" ? "mail" : t === "sms" ? "sms" : t === "linkedin" ? "linkedin" : null)
@@ -23,7 +23,7 @@ export const Libelle = ({ titre, children, className = "" }: { titre: string; ch
 const IconeBtn = ({ icone, label, onClick, off }: { icone: ReactNode; label: string; onClick: () => void; off?: boolean }) => <Bouton taille="icone" variante="discret" icone={icone} aria-label={label} disabled={off} onClick={onClick} />
 
 // ── Actions et séquence ──
-export function Sequence({ cfg, maj, allerCreatifs }: { cfg: ConfigCampagne; maj: MajConfig; allerCreatifs: () => void }) {
+export function Sequence({ cfg, maj, allerCreatifs, avis }: { cfg: ConfigCampagne; maj: MajConfig; allerCreatifs: () => void; avis: boolean }) {
   const [palette, setPalette] = useState(false)
   const majA = (id: string, p: Partial<Action>) => maj((x) => ({ ...x, actions: x.actions.map((a) => (a.id === id ? { ...a, ...p } : a)) }))
   const ajouter = (type: TypeAction) => {
@@ -59,7 +59,7 @@ export function Sequence({ cfg, maj, allerCreatifs }: { cfg: ConfigCampagne; maj
       </ol>
       <div className="relative mt-3">
         <Bouton icone={<Plus />} onClick={() => setPalette((x) => !x)}>Ajouter une action</Bouton>
-        {palette ? <div className="absolute left-0 top-[calc(100%+6px)] z-20 grid w-[520px] grid-cols-2 gap-1 rounded-4 border-[0.5px] border-trait bg-fond p-2 shadow-flottante">{(Object.keys(AIDE) as Exclude<TypeAction, "fin">[]).map((t) => { const I = ICONE[t]; return <button key={t} type="button" onClick={() => ajouter(t)} className="flex items-start gap-2 rounded-3 px-2 py-2 text-left hover:bg-fond-3"><I size={14} className="mt-0.5 shrink-0" /><span><span className="block text-legende font-medium">{LIBELLE_ETAPE[t]}</span><span className="block text-colonne text-encre-2">{AIDE[t]}</span></span></button> })}</div> : null}
+        {palette ? <div className="absolute left-0 top-[calc(100%+6px)] z-20 grid w-[520px] grid-cols-2 gap-1 rounded-4 border-[0.5px] border-trait bg-fond p-2 shadow-flottante">{(Object.keys(AIDE) as Exclude<TypeAction, "fin">[]).filter((t) => !avis || ["mail", "sms", "attendre", "si"].includes(t)).map((t) => { const I = ICONE[t]; return <button key={t} type="button" onClick={() => ajouter(t)} className="flex items-start gap-2 rounded-3 px-2 py-2 text-left hover:bg-fond-3"><I size={14} className="mt-0.5 shrink-0" /><span><span className="block text-legende font-medium">{LIBELLE_ETAPE[t]}</span><span className="block text-colonne text-encre-2">{AIDE[t]}</span></span></button> })}</div> : null}
       </div>
     </Bloc>
   )
@@ -94,7 +94,7 @@ export function Creatifs({ cfg, maj, avis, exemple }: { cfg: ConfigCampagne; maj
       <div className="grid gap-8 @min-[760px]:grid-cols-[170px_minmax(0,1fr)_minmax(0,0.75fr)]">
         <div className="space-y-1">
           {cfg.creatifs.map((x) => { const I = ICONE_CREATIF[x.type]; return <button key={x.id} type="button" onClick={() => setId(x.id)} className={`flex w-full items-center gap-2 rounded-4 px-2 py-1.5 text-left text-legende ${k?.id === x.id ? "bg-fond-4 font-medium" : "hover:bg-fond-3"}`}><I size={14} className="shrink-0 text-encre-2" /><span className="min-w-0 flex-1 truncate">{x.nom}</span></button> })}
-          <div className="flex flex-wrap gap-1 pt-3">{((avis ? ["mail", "sms"] : ["mail", "sms", "page", "formulaire"]) as TypeCreatif[]).map((t) => <Bouton key={t} taille="sm" icone={<Plus />} onClick={() => ajouter(t)}>{LIB_CREATIF[t]}</Bouton>)}</div>
+          <div className="flex flex-wrap gap-1 pt-3">{((avis ? ["mail", "sms", ...(cfg.creatifs.some((x) => x.type === "avis") ? [] : ["avis"])] : ["mail", "sms", "linkedin", "page", "formulaire"]) as TypeCreatif[]).map((t) => <Bouton key={t} taille="sm" icone={<Plus />} onClick={() => ajouter(t)}>{LIB_CREATIF[t]}</Bouton>)}</div>
         </div>
         {k ? (
           <div className="min-w-0 space-y-4">
@@ -117,14 +117,14 @@ export function Creatifs({ cfg, maj, avis, exemple }: { cfg: ConfigCampagne; maj
               {k.questions.map((q, i) => { const mq = (p: Partial<typeof q>) => majK({ questions: k.questions.map((y) => (y.id === q.id ? { ...y, ...p } : y)) }); return (
                 <div key={q.id} className="space-y-2 rounded-4 border-[0.5px] border-trait p-3">
                   <div className="flex items-center gap-2"><Champ value={q.libelle} placeholder="La question" aria-label="La question" onChange={(e) => mq({ libelle: e.target.value })} /><IconeBtn icone={<ArrowUp />} label="Monter" onClick={() => majK({ questions: deplacer(k.questions, i, -1) })} /><IconeBtn icone={<Trash2 />} label="Supprimer" onClick={() => majK({ questions: k.questions.filter((y) => y.id !== q.id) })} /></div>
-                  <div className="flex flex-wrap items-center gap-3 text-legende"><span className="w-40"><Selecteur value={q.type} aria-label="Type de réponse" onChange={(e) => mq({ type: e.target.value })}>{TYPES_QUESTION.map((t) => <option key={t}>{t}</option>)}</Selecteur></span><label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[var(--color-action)]" checked={q.requis} onChange={(e) => mq({ requis: e.target.checked })} />Obligatoire</label><label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[var(--color-action)]" checked={q.qualifiante} onChange={(e) => mq({ qualifiante: e.target.checked })} />Question qui qualifie</label>{q.qualifiante ? <span className="w-40"><Champ value={q.attendu} placeholder="Réponse attendue" aria-label="Réponse attendue" onChange={(e) => mq({ attendu: e.target.value })} /></span> : null}</div>
+                  <div className="flex flex-wrap items-center gap-3 text-legende"><span className="w-40"><Selecteur value={q.type} aria-label="Type de réponse" onChange={(e) => mq({ type: e.target.value })}>{TYPES_QUESTION.map((t) => <option key={t}>{t}</option>)}</Selecteur></span><label className="flex items-center gap-1.5"><input type="checkbox" className="accent-[var(--color-action)]" checked={q.requis} onChange={(e) => mq({ requis: e.target.checked })} />Obligatoire</label></div>
                   {q.type === "Choix unique" ? <Champ value={q.options ?? ""} placeholder="Les réponses, séparées par des virgules" aria-label="Les réponses possibles" onChange={(e) => mq({ options: e.target.value })} /> : null}
                 </div>) })}
               <Bouton taille="sm" icone={<Plus />} onClick={() => majK({ questions: [...k.questions, questionVide()] })}>Ajouter une question</Bouton>
             </div> : null}
             <Bouton taille="sm" variante="discret" icone={<Trash2 />} onClick={() => { maj((x) => ({ ...x, creatifs: x.creatifs.filter((y) => y.id !== k.id) })); setId("") }}>Supprimer ce créatif</Bouton>
           </div>
-        ) : <p className="text-legende text-encre-2">Crée un mail, un SMS, une page ou un formulaire.</p>}
+        ) : <p className="text-legende text-encre-2">Crée un mail, un SMS, un message LinkedIn, une page ou un formulaire.</p>}
         {k ? <div className="min-w-0"><Etiquette>Ce que voit le prospect</Etiquette><div className="mt-2 rounded-6 border-[0.5px] border-trait p-4"><Apercu k={k} cfg={cfg} /></div>{k.type === "mail" || k.type === "sms" ? <EssaiCreatif key={k.id} k={k} cfg={cfg} exemple={exemple} /> : null}</div> : null}
       </div>
     </div>
@@ -189,11 +189,9 @@ export function Qualification({ cfg, maj, baseId }: { cfg: ConfigCampagne; maj: 
                 <button type="button" onClick={() => majQ({ gagneA: e.id })} className={`h-7 rounded-full px-3 text-colonne ${q.gagneA === e.id ? "bg-ok font-medium text-white" : "border-[0.5px] border-trait text-encre-2 hover:bg-fond-2"}`}>Gagné ici</button>
                 <IconeBtn icone={<ArrowUp />} label="Monter" onClick={() => majQ({ etapes: deplacer(q.etapes, i, -1) })} /><IconeBtn icone={<ArrowDown />} label="Descendre" onClick={() => majQ({ etapes: deplacer(q.etapes, i, 1) })} /><IconeBtn icone={<Trash2 />} label="Supprimer" onClick={() => majQ({ etapes: q.etapes.filter((y) => y.id !== e.id) })} />
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 pl-6 @min-[700px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_90px]">
+              <div className="mt-2 grid grid-cols-2 gap-2 pl-6 @min-[700px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
                 <Libelle titre="Type"><Selecteur value={e.type} onChange={(v) => majE(e.id, { type: v.target.value })}>{TYPES_ETAPE.map((t) => <option key={t}>{t}</option>)}</Selecteur></Libelle>
-                <Libelle titre="Qui la fait"><Selecteur value={e.qui} onChange={(v) => majE(e.id, { qui: v.target.value })}>{QUI.map((t) => <option key={t}>{t}</option>)}</Selecteur></Libelle>
                 <Libelle titre="Se valide"><Selecteur value={e.validation} onChange={(v) => majE(e.id, { validation: v.target.value })}>{VALIDATIONS.map((t) => <option key={t}>{t}</option>)}</Selecteur></Libelle>
-                <Libelle titre="Délai (j)"><Champ type="number" min={0} value={e.delai} onChange={(v) => majE(e.id, { delai: Number(v.target.value) || 0 })} /></Libelle>
                 {TYPES_FORMULAIRE.includes(e.type) ? <Libelle titre="Quel formulaire" className="col-span-2"><Selecteur value={e.formulaireId ?? ""} onChange={(v) => majE(e.id, { formulaireId: v.target.value })}><option value="">Choisir…</option>{formulaires.map((k) => <option key={k.id} value={k.id}>{k.nom}</option>)}</Selecteur></Libelle> : null}
               </div>
             </div>) })}
@@ -241,7 +239,7 @@ export function Chemin({ cfg }: { cfg: ConfigCampagne }) {
         {q.interet.length ? <><Boite titre="Intérêt" sous={`Va en session de call · ${q.interet.length} règle${q.interet.length > 1 ? "s" : ""}`} /><Fleche /></> : null}
         {q.etapes.slice(0, Math.max(iL, 0)).filter((e) => e.type !== "Intérêt détecté").map((e) => <div key={e.id}><Boite titre={e.nom} sous="Avant le lead" /><Fleche /></div>)}
         <Boite titre={`LEAD · ${q.etapes[iL]?.nom ?? "à choisir"}`} sous="Tombe dans Leads reçus" ton="border-signature/60 bg-signature/5" /><Fleche />
-        {q.etapes.slice(iL + 1, iG).map((e) => <div key={e.id}><Boite titre={e.nom} sous={`Qualifié · ${e.qui.toLowerCase()}`} /><Fleche /></div>)}
+        {q.etapes.slice(iL + 1, iG).map((e) => <div key={e.id}><Boite titre={e.nom} sous="Qualifié" /><Fleche /></div>)}
         <Boite titre={`GAGNÉ · ${q.etapes[iG]?.nom ?? "à choisir"}`} ton="border-ok/50" />
         <p className="mt-2 text-colonne text-encre-2">Perdu à tout moment : {q.motifs.length} motif{q.motifs.length > 1 ? "s" : ""}{q.relanceMois ? `, relance après ${q.relanceMois} mois` : ""}.</p>
       </div>

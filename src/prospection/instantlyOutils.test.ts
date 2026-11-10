@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, remplirContact } from "./instantlyOutils"
+import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, remplirContact } from "./instantlyOutils"
 import ecran from "./instantlyOutils.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/instantlyOutils.ts?raw"
 
@@ -49,6 +49,12 @@ describe("instantlyOutils", () => {
   it("retire le nom quand la fiche n'en a pas", () => {
     expect(remplirContact("Bonjour {{contact}},", "")).toBe("Bonjour,")
     expect(remplirContact("Bonjour {{contact}},", "Claire")).toBe("Bonjour Claire,")
+  })
+  it("conseille sans bloquer", () => {
+    expect(conseilsEnvoi([], 10, "2026-11-20T00:00:00Z")[0]).toContain("aucune boîte")
+    expect(conseilsEnvoi([{ depuis: "2026-11-01T00:00:00Z" }], 20, "2026-11-20T00:00:00Z")).toEqual([])
+    expect(conseilsEnvoi([{ depuis: "2026-11-01T00:00:00Z" }], 40, "2026-11-20T00:00:00Z")[0]).toContain("30 pour cette cible")
+    expect(conseilsEnvoi([{ depuis: "2026-11-18T00:00:00Z" }], 20, "2026-11-20T00:00:00Z")[0]).toContain("depuis 2 jours")
   })
   it("limite le volume selon le nombre de boîtes", () => expect(capaciteJour(3)).toBe(90))
   it("s'arrête au-delà de 3 % de rebonds, jamais sur un petit nombre", () => {
