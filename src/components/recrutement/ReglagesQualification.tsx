@@ -56,7 +56,7 @@ function Regles() {
     {erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : null}
     <Bloc titre="Pour réussir" droite={info}><div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">{nombre("Questions par essai", "questions")}{nombre("Score à atteindre", "seuil", "%")}{nombre("Essais", "essais")}{nombre("Attente entre essais", "attente", "h")}</div></Bloc>
     <Bloc titre="Contre la triche"><div className="mt-1 divide-y-[0.5px] divide-trait">{ligne("Toujours des questions inédites", "Une question déjà vue ne revient que si toutes les autres sont passées.", "inedites")}{ligne("Réponses dans le désordre", "La bonne réponse change de place à chaque fois.", "desordre")}</div></Bloc>
-    <Bloc titre="Dans la qualification"><div className="mt-1 divide-y-[0.5px] divide-trait">{ligne("Obligatoire pour accepter", "« Accepté » reste impossible tant que la formation n'est pas réussie. À activer quand les exercices sur l'application seront prêts.", "bloque")}{ligne("Autoriser une dérogation", "Un administrateur peut accepter quand même, avec un motif.", "derogation")}</div></Bloc>
+    <Bloc titre="Dans la qualification"><div className="mt-1 divide-y-[0.5px] divide-trait">{ligne("Obligatoire pour accepter", "« Accepté » reste impossible tant que la formation n'est pas réussie. La mission d'entraînement et les questions doivent être réussies.", "bloque")}{ligne("Autoriser une dérogation", "Un administrateur peut accepter quand même, avec un motif.", "derogation")}</div></Bloc>
   </div>
 }
 
