@@ -9,6 +9,7 @@
 // Secrets côté Baticom : STC_BATIMENT_URL, STC_BATIMENT_ANON, PASSERELLE_CLE.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { candidats, type AgenceRef, type Candidat, type GestionnaireRef } from "./rapprochement.ts"
+import { synchroAvis } from "./avis.ts"
 
 type LigneGestionnaire = {
   gestionnaire_id: string; societe: string; nom: string; email: string; telephone: string; telephone_fixe: string; telephone_portable: string
@@ -91,7 +92,9 @@ Deno.serve(async (req: Request) => {
       if (dejaClient) dejaClients++
       else nouvelles++
     }
-    return json({ ok: true, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
+    // 3) La passerelle des avis : locataires et sous-traitants actifs (11/11/2026).
+    const avis = await synchroAvis(sb, urlBatiment, anonBatiment, cle)
+    return json({ ok: true, ...avis, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
   } catch (e) {
     console.error("[SYNCHRO-CLIENTS]", e)
     return json({ error: String(e) }, 500)
