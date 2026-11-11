@@ -6,28 +6,40 @@
 // e-mail dont aucun destinataire n'est @crm.stcbatiment.fr (voir la note
 // « resend compte partagé »).
 //
-// DEUX ESPACES (08/10/2026) : chaque message reçu est rangé dans son espace,
-//   · « recrutement » si l'adresse de recrutement est destinataire, ou si
-//     l'expéditeur est un artisan de la base de recrutement ;
+// DEUX ESPACES (08/10/2026, renforcé le 11/11/2026) : chaque message reçu est rangé dans son espace,
+//   · « recrutement » si l'adresse de recrutement est destinataire, si l'expéditeur est un artisan
+//     de la base de recrutement, s'il répond à un de nos mails du recrutement, ou si son texte dit
+//     clairement qu'un artisan propose ses services (la règle : _shared/boitesMail.ts, testée) ;
 //   · « démarchage » sinon (les prospects commerciaux).
+// UNE ADRESSE PAR COMMERCIAL (11/11/2026) : prenom@crm.stcbatiment.fr est gardée comme toute adresse
+// du domaine ; c'est la BASE qui donne le mail à son propriétaire (déclencheur messages_vers_proprietaire :
+// l'adresse dédiée parmi les destinataires, sinon le commercial de l'agence, sinon personne = administrateurs).
 // Et une réponse d'artisan qui dit « stop », « désinscription », « ne plus me
 // contacter »… DÉSINSCRIT la fiche à l'instant (séquence arrêtée, adresse
 // exclue), sauf si c'est une réponse automatique d'absence.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { lireReponse } from "../_shared/campagnes/generationIA.ts";
+import { adresseSeule, espaceDuMailRecu, estDuDomaine, estUneReponse, identifiantsCites, repondAUnSujet } from "../_shared/boitesMail.ts";
 
-const DOMAINE_CRM = "@crm.stcbatiment.fr";
-const ADRESSES_RECRUTEMENT = ["recrutement@crm.stcbatiment.fr", "partenaires@crm.stcbatiment.fr"];
 const MAX_PJ_OCTETS = 15 * 1024 * 1024;
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } });
 
-const adresse = (raw: unknown): string => {
-  const s = String(raw ?? "").trim();
-  const m = s.match(/<([^>]+)>/);
-  return (m ? m[1] : s).toLowerCase().trim();
-};
+const adresse = adresseSeule;
+
+/** Un en-tête lu chez Resend, qu'il vienne en objet ({ nom: valeur }) ou en liste ([{ name, value }]). */
+function entete(headers: unknown, nom: string): string {
+  const n = nom.toLowerCase();
+  if (Array.isArray(headers)) {
+    const h = headers.find((x) => String((x as { name?: string })?.name ?? (x as { key?: string })?.key ?? "").toLowerCase() === n) as { value?: unknown } | undefined;
+    return String(h?.value ?? "");
+  }
+  if (headers && typeof headers === "object") {
+    for (const [k, v] of Object.entries(headers as Record<string, unknown>)) if (k.toLowerCase() === n) return String(Array.isArray(v) ? v.join(" ") : v ?? "");
+  }
+  return "";
+}
 const nomSur = (n: string) => (n || "fichier").replace(/[^\w.\-éèêàçùïöüâîôû ]+/gi, "_").slice(0, 120);
 
 /** Une demande d'arrêt, dans l'objet ou le début du corps. */
@@ -52,7 +64,7 @@ Deno.serve(async (req: Request) => {
     const v = (vrai?.data ?? vrai) as Record<string, unknown> | null;
     if (!v || (v.id && String(v.id) !== idResend)) return json({ error: "mail inconnu" }, 401);
     const d: Record<string, any> = { ...recu };
-    for (const k of ["from", "to", "cc", "subject", "message_id", "text", "html", "attachments", "in_reply_to"]) if (v[k] !== undefined && v[k] !== null) d[k] = v[k];
+    for (const k of ["from", "to", "cc", "subject", "message_id", "text", "html", "attachments", "in_reply_to", "headers", "received_for"]) if (v[k] !== undefined && v[k] !== null) d[k] = v[k];
     d.email_id = idResend;
     {
       const { count } = await createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).from("messages").select("id", { count: "exact", head: true }).eq("brut->data->>email_id", idResend);
@@ -60,12 +72,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const de = adresse(d.from?.address ?? d.from);
-    const tous = [
+    // « received_for » : les vrais destinataires (une adresse dédiée en copie cachée n'est que là).
+    const tous = [...new Set([
       ...(Array.isArray(d.to) ? d.to : [d.to]),
       ...(Array.isArray(d.cc) ? d.cc : []),
-    ].map((t: unknown) => adresse((t as { address?: string })?.address ?? t)).filter(Boolean);
+      ...(Array.isArray(d.received_for) ? d.received_for : []),
+    ].map((t: unknown) => adresse((t as { address?: string })?.address ?? t)).filter(Boolean))];
 
-    const pourLeCrm = tous.filter((a) => a.endsWith(DOMAINE_CRM));
+    const pourLeCrm = tous.filter(estDuDomaine);
     if (pourLeCrm.length === 0) return json({ ok: true, ignore: "hors domaine crm" });
 
     const objet = String(d.subject ?? "");
@@ -89,7 +103,7 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // ── L'ESPACE : recrutement si l'adresse de recrutement est visée ou si l'expéditeur est un artisan de la base ──
+    // ── L'ESPACE (11/11/2026) : la règle pure de _shared/boitesMail.ts ──
     let sousTraitantId: string | null = null;
     let statutSt: string | null = null;
     if (de) {
@@ -97,7 +111,24 @@ Deno.serve(async (req: Request) => {
       sousTraitantId = st?.id ?? null;
       statutSt = st?.statut ?? null;
     }
-    const espace = pourLeCrm.some((a) => ADRESSES_RECRUTEMENT.includes(a)) || sousTraitantId ? "recrutement" : "demarchage";
+    // Répond-il à un de nos mails du recrutement ? Par les en-têtes (In-Reply-To, References), sinon par
+    // le sujet (« Re: » + un sujet que le recrutement a envoyé à cette adresse).
+    const inReplyTo: string | null = String(d.in_reply_to ?? d.inReplyTo ?? entete(d.headers, "in-reply-to")).trim() || null;
+    let repondAuRecrutement = false;
+    const cites = identifiantsCites(inReplyTo, entete(d.headers, "references"));
+    if (cites.length) {
+      const { count } = await admin.from("messages").select("id", { count: "exact", head: true }).eq("espace", "recrutement").in("message_id", cites.slice(0, 50));
+      repondAuRecrutement = (count ?? 0) > 0;
+    }
+    if (!repondAuRecrutement && de && estUneReponse(objet)) {
+      const { data: envoyes } = await admin.from("messages").select("objet").eq("espace", "recrutement").eq("sens", "sortant")
+        .ilike("a", `%${de.replace(/[%_\\]/g, "")}%`).order("created_at", { ascending: false }).limit(30);
+      repondAuRecrutement = repondAUnSujet(objet, ((envoyes ?? []) as { objet: string | null }[]).map((m) => m.objet ?? ""));
+    }
+    const { espace, raison } = espaceDuMailRecu({
+      destinataires: pourLeCrm, expediteurEstArtisan: !!sousTraitantId, repondAuRecrutement,
+      objet, corps: corpsText || corpsHtml.replace(/<[^>]+>/g, " "),
+    });
 
     // L'agence : la base range le mail sur sa fiche (déclencheur messages_rattacher_agence, par
     // l'adresse du contact puis celle de l'agence). L'ancienne table « prospects » n'est plus lue (14/10).
@@ -129,7 +160,7 @@ Deno.serve(async (req: Request) => {
     const { data: insere, error } = await admin.from("messages").insert({
       sens: "entrant", de, a: pourLeCrm.join(", "), objet,
       corps_text: corpsText, corps_html: corpsHtml,
-      message_id: messageId, in_reply_to: d.in_reply_to ?? d.inReplyTo ?? null,
+      message_id: messageId, in_reply_to: inReplyTo,
       sous_traitant_id: sousTraitantId, espace, lu: false, brut: payload, pieces_jointes: pieces,
       // Le tri de l'IA, comme pour les réponses venues d'Instantly : il décide lead ou dead (11/11/2026).
       tri: lu.tri, tri_detail: lu.detail,
@@ -146,8 +177,8 @@ Deno.serve(async (req: Request) => {
       desinscrit = true;
     }
 
-    console.log(`[RECEVOIR-EMAIL] de=${de} espace=${espace} corps=${corpsText.length}t/${corpsHtml.length}h pj=${pieces.length}/${attachs.length}${desinscrit ? " DÉSINSCRIT" : ""}`);
-    return json({ ok: true, espace, agence_id: agenceId, sous_traitant_id: sousTraitantId, desinscrit, corps: corpsText.length + corpsHtml.length, pieces_jointes: pieces.length });
+    console.log(`[RECEVOIR-EMAIL] de=${de} espace=${espace} (${raison}) corps=${corpsText.length}t/${corpsHtml.length}h pj=${pieces.length}/${attachs.length}${desinscrit ? " DÉSINSCRIT" : ""}`);
+    return json({ ok: true, espace, raison, agence_id: agenceId, sous_traitant_id: sousTraitantId, desinscrit, corps: corpsText.length + corpsHtml.length, pieces_jointes: pieces.length });
   } catch (e) {
     console.error("[RECEVOIR-EMAIL] erreur:", e);
     return json({ error: "Erreur de traitement" }, 500);

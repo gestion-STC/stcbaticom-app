@@ -19,6 +19,13 @@
 // L'ancienne copie du dépôt (contrat A seul) ne correspondait plus à la prod.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { estServeur, jetonDe, membre } from "../_shared/acces.ts";
+import { ADRESSE_GENERALE, compteQuiEnvoie, expediteurDemarchage, signatureAvecAdresse } from "../_shared/boitesMail.ts";
+//  11/11/2026 — UNE ADRESSE PAR COMMERCIAL (comme STC Bâtiment) : un mail du démarchage part de l'adresse
+//  dédiée de la personne qui envoie (table equipe, colonne email_reception) : « Prénom Nom — STC Bâtiment
+//  <prenom@crm.stcbatiment.fr> », réponses à la même adresse, et la signature la montre. La personne qui
+//  envoie : le compte connecté (le jeton) ; un envoi du serveur sans compte : le commercial de l'agence
+//  (agences.commercial_id), ou le `compte_id` que le serveur donne. Sans adresse dédiée : contact@, inchangé.
+//  Le recrutement garde son adresse commune. Le journal porte le propriétaire (messages.compte_id).
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +63,7 @@ const tailleTotale = (...listes: unknown[]) => listes.flatMap((l) => (Array.isAr
 // « commercial », sinon « L'équipe STC ». Le fixe toujours, jamais de mobile.
 const F = "-apple-system,'Segoe UI',Helvetica,Arial,sans-serif";
 const prenomDe = (nom: string) => nom.trim().split(/\s+/)[0] || "";
-function signatureStc(nomBrut: string): string {
+function signatureStc(nomBrut: string, email = ADRESSE_GENERALE): string {
   const nom = nomBrut.trim() || "L'équipe STC";
   return `
 <div style="margin-top:30px;border-top:1px solid #ececec;padding-top:16px;font-family:${F};">
@@ -64,7 +71,7 @@ function signatureStc(nomBrut: string): string {
   <p style="margin:0;font-size:13.5px;color:#1a1a1a;font-weight:600;font-family:${F};">${nom} <span style="font-weight:400;color:#b0b0b0;">&middot;</span> <span style="font-weight:400;color:#6b6b6b;">Gestion</span></p>
   <p style="margin:4px 0 0;font-size:12.5px;color:#444;line-height:1.7;font-family:${F};">
     <a href="tel:+33184806128" style="color:#444;text-decoration:none;">01 84 80 61 28</a><br>
-    <a href="mailto:contact@crm.stcbatiment.fr" style="color:#444;text-decoration:none;">contact@crm.stcbatiment.fr</a>
+    <a href="mailto:${email}" style="color:#444;text-decoration:none;">${email}</a>
     &nbsp;&middot;&nbsp;
     <a href="https://stcbatiment.fr" style="color:#D32F2F;text-decoration:none;">stcbatiment.fr</a>
   </p>
@@ -77,7 +84,9 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405);
   // Sécurité (11/11/2026) : seuls un membre de l'équipe ou le serveur envoient un mail depuis notre domaine.
   const jetonAppel = jetonDe(req);
-  if (!(await estServeur(jetonAppel)) && !(await membre(jetonAppel))) return json({ error: "non autorisé" }, 401);
+  const serveur = await estServeur(jetonAppel);
+  const appelant = serveur ? null : await membre(jetonAppel);
+  if (!serveur && !appelant) return json({ error: "non autorisé" }, 401);
   try {
     const cle = Deno.env.get("RESEND_API_KEY");
     if (!cle) return json({ error: "Clé Resend non configurée (secret RESEND_API_KEY)." }, 500);
@@ -85,7 +94,7 @@ Deno.serve(async (req: Request) => {
     // DEUX ESPACES (08/10/2026) : le recrutement écrit depuis SA propre adresse,
     // sur le même domaine ; les réponses lui reviennent dans sa propre boîte.
     const espace: "demarchage" | "recrutement" = corps?.espace === "recrutement" ? "recrutement" : "demarchage";
-    const from = espace === "recrutement"
+    const fromParDefaut = espace === "recrutement"
       ? (Deno.env.get("RESEND_FROM_RECRUTEMENT") || "STC Bâtiment <recrutement@crm.stcbatiment.fr>")
       : (Deno.env.get("RESEND_FROM") || "STC Bâtiment <contact@crm.stcbatiment.fr>");
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -94,6 +103,28 @@ Deno.serve(async (req: Request) => {
     let joints: Array<{ filename: string; path: string }> = [];
     // L'agence de la fiche d'où part le mail (démarchage) : le message est rangé sur elle.
     const agenceId: string | null = typeof corps?.agence_id === "string" && corps.agence_id ? corps.agence_id : null;
+
+    // ── QUI ENVOIE (démarchage, 11/11/2026) : son adresse dédiée, son nom ──
+    let compteExpediteur: string | null = null;
+    let nomExpediteur = "";
+    let exp = { from: fromParDefaut, replyTo: null as string | null, adresseSignature: ADRESSE_GENERALE };
+    if (espace === "demarchage") {
+      let commercialAgence: string | null = null;
+      if (!appelant && agenceId) {
+        const { data: g } = await admin.from("agences").select("commercial_id").eq("id", agenceId).maybeSingle();
+        commercialAgence = (g as { commercial_id?: string | null } | null)?.commercial_id ?? null;
+      }
+      const demande = serveur && typeof corps?.compte_id === "string" && corps.compte_id ? String(corps.compte_id) : null;
+      compteExpediteur = compteQuiEnvoie({ appelantId: appelant?.id ?? demande, commercialAgence });
+      if (compteExpediteur) {
+        const { data: eq, error: errEq } = await admin.from("equipe").select("email_reception").eq("compte_id", compteExpediteur).maybeSingle();
+        if (errEq) console.warn(`[ENVOYER-EMAIL] adresse dédiée illisible : ${errEq.message}`);
+        const { data: u } = await admin.auth.admin.getUserById(compteExpediteur);
+        nomExpediteur = String(u?.user?.user_metadata?.nom ?? "").trim();
+        exp = expediteurDemarchage({ adresseDediee: (eq as { email_reception?: string | null } | null)?.email_reception ?? null, nom: nomExpediteur, parDefaut: fromParDefaut });
+      }
+    }
+    const from = exp.from;
     let sousTraitantIdPourMessage: string | null = null;
     let objetFinal = "", corpsTextFinal = "", corpsHtmlFinal = "", destinataire = "", aPourMessage = "";
 
@@ -102,7 +133,8 @@ Deno.serve(async (req: Request) => {
       const to = corps?.to;
       if (!to || (Array.isArray(to) && to.length === 0)) return json({ error: "Destinataire (to) manquant." }, 400);
       objetFinal = String(corps.subject ?? "");
-      corpsHtmlFinal = String(corps.html ?? "");
+      // La signature STC composée par l'écran porte contact@ : elle prend l'adresse dédiée de qui envoie.
+      corpsHtmlFinal = signatureAvecAdresse(String(corps.html ?? ""), exp.adresseSignature);
       if (!objetFinal && !corpsHtmlFinal) return json({ error: "Email vide (ni objet ni contenu)." }, 400);
       // PLUSIEURS DESTINATAIRES (08/10/2026) : un seul e-mail, tous en « À »,
       // journalisé une fois avec toutes les adresses.
@@ -118,6 +150,7 @@ Deno.serve(async (req: Request) => {
       joints = attachments;
       payload = { from, to: tous, subject: objetFinal, html: corpsHtmlFinal, ...(cc.length ? { cc } : {}), ...(bcc.length ? { bcc } : {}), ...(attachments.length ? { attachments } : {}) };
       if (typeof corps?.reply_to === "string" && corps.reply_to) payload.reply_to = corps.reply_to;
+      else if (exp.replyTo) payload.reply_to = exp.replyTo;
       // En-têtes (désinscription en un clic) et étiquettes, posés par le moteur de recrutement.
       if (corps?.headers && typeof corps.headers === "object") payload.headers = corps.headers;
       if (Array.isArray(corps?.tags)) payload.tags = corps.tags;
@@ -153,9 +186,10 @@ Deno.serve(async (req: Request) => {
       // Le compte connecté l'emporte (boîte de réception : signature_html + commercial).
       // Sans lui (moteur de règles) : la signature STC Bâtiment au nom du paramètre
       // « commercial ». Le HTML collé « signature » n'est plus lu (07/10/2026).
-      const nomAuto = String(param("commercial")).trim();
+      // Un envoi du serveur pour un commercial connu (11/11/2026) : signé de SON nom.
+      const nomAuto = nomExpediteur || String(param("commercial")).trim();
       const prenomCommercial = typeof commercial === "string" && commercial.trim() ? commercial.trim() : prenomDe(nomAuto);
-      const signature = typeof signature_html === "string" && signature_html.trim() ? signature_html : signatureStc(nomAuto);
+      const signature = signatureAvecAdresse(typeof signature_html === "string" && signature_html.trim() ? signature_html : signatureStc(nomAuto, exp.adresseSignature), exp.adresseSignature);
       const subst = (s: string) => s
         .split("{{contact}}").join(fiche?.contact || "")
         .split("{{entreprise}}").join(fiche?.entreprise || "")
@@ -170,7 +204,7 @@ Deno.serve(async (req: Request) => {
       if (tailleTotale(modele?.pieces_jointes, corps?.pieces) > PLAFOND_PIECES) return json({ error: "Pièces jointes trop lourdes (35 Mo au total au maximum)." }, 400);
       const attachments = enPiecesJointes(modele?.pieces_jointes, corps?.pieces);
       joints = attachments;
-      payload = { from, to: [destinataire], subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(attachments.length ? { attachments } : {}), ...(in_reply_to ? { headers: { "In-Reply-To": in_reply_to, References: in_reply_to } } : {}) };
+      payload = { from, to: [destinataire], subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(attachments.length ? { attachments } : {}), ...(exp.replyTo ? { reply_to: exp.replyTo } : {}), ...(in_reply_to ? { headers: { "In-Reply-To": in_reply_to, References: in_reply_to } } : {}) };
     }
 
     const r = await fetch("https://api.resend.com/emails", {
@@ -197,6 +231,8 @@ Deno.serve(async (req: Request) => {
       // Les pièces envoyées, visibles dans le fil (le « chemin » d'un envoi est l'adresse publique du fichier).
       ...(joints.length ? { pieces_jointes: joints.map((j) => ({ nom: j.filename, chemin: j.path, taille: 0, type: "" })) } : {}),
       espace, sous_traitant_id: sousTraitantIdPourMessage, ...(agenceId && espace === "demarchage" ? { agence_id: agenceId } : {}),
+      // Le propriétaire du message (la boîte de qui) ; sans lui, la base le déduit (déclencheur messages_vers_proprietaire).
+      ...(compteExpediteur && espace === "demarchage" ? { compte_id: compteExpediteur } : {}),
     });
     if (errJournal) console.error(`[ENVOYER-EMAIL] journal: ${errJournal.message}`);
 

@@ -13,7 +13,11 @@ describe("la sécurité", () => {
     expect(sql).toContain("revoke execute on function %s from public, anon")
   })
   it("un compte sans rôle n'est pas un membre", () => expect(acces).toContain('ROLES_MEMBRES = ["admin", "telepro"]'))
-  it("envoyer un mail : membre ou serveur", () => expect(envoyer).toContain("!(await estServeur(jetonAppel)) && !(await membre(jetonAppel))"))
+  it("envoyer un mail : membre ou serveur", () => {
+    expect(envoyer).toContain("const serveur = await estServeur(jetonAppel);")
+    expect(envoyer).toContain("const appelant = serveur ? null : await membre(jetonAppel);")
+    expect(envoyer).toContain('if (!serveur && !appelant) return json({ error: "non autorisé" }, 401);')
+  })
   it("un mail reçu doit exister chez Resend", () => expect(recevoir).toContain("api.resend.com/emails/receiving/"))
   it("la synchro : serveur ou clé interne", () => expect(synchro).toContain("estServeur(jetonDe(req))"))
 })

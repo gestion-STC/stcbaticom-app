@@ -21,6 +21,8 @@ export type Message = {
   messageId: string | null
   inReplyTo: string | null
   agenceId: string | null
+  /** Le propriétaire du mail au démarchage (11/11/2026) : le compte du commercial ; null = adresse générale. */
+  compteId?: string | null
   lu: boolean
   date: string
   piecesJointes: PieceRecue[]
@@ -45,6 +47,7 @@ type Ligne = {
   message_id: string | null
   in_reply_to: string | null
   agence_id: string | null
+  compte_id?: string | null
   lu: boolean
   created_at: string
   pieces_jointes: PieceRecue[] | null
@@ -66,6 +69,7 @@ function vers(l: Ligne): Message {
     messageId: l.message_id,
     inReplyTo: l.in_reply_to,
     agenceId: l.agence_id,
+    compteId: l.compte_id ?? null,
     lu: l.lu,
     date: l.created_at,
     piecesJointes: Array.isArray(l.pieces_jointes) ? l.pieces_jointes : [],
@@ -73,7 +77,7 @@ function vers(l: Ligne): Message {
 }
 
 const COLONNES =
-  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, lu, created_at, pieces_jointes, tri, tri_detail"
+  "id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, compte_id, lu, created_at, pieces_jointes, tri, tri_detail"
 
 // Sans `espace`, on lit tout (ancien comportement).
 export async function chargerMessages(espace?: Espace): Promise<Message[]> {

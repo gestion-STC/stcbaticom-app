@@ -29,8 +29,9 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
   // a réglé dans Paramétrage › Emails › Mes signatures (Mahdi, 19/10/2026 :
   // « laisse-moi choisir la signature que je vais utiliser »).
   const session = useSession()
-  const { noms: signataires, nom: nomSignataire, choisir: choisirSignataire } = useSignataires(session)
-  const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
+  // L'adresse dédiée du compte (11/11/2026) : le mail part d'elle (serveur), la signature la montre.
+  const { noms: signataires, nom: nomSignataire, choisir: choisirSignataire, adresse } = useSignataires(session)
+  const signature = useMemo(() => signatureStc({ nom: nomSignataire, email: adresse ?? undefined }), [nomSignataire, adresse])
   const prenomCommercial = prenomDe(nomSignataire)
   const [modeleId, setModeleId] = useState("")
   const [aTexte, setATexte] = useState(() => joindreAdresses(decouperAdresses(destinataire.email || "")))
