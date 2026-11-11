@@ -8,7 +8,7 @@ import { bascule } from "../agenda/dessinBureau"
 import { compter, depuisLeDebut, fortEtFaible, periodes, versCsv, type Pas, type Periode, type Portee } from "../../lib/annee"
 import { chargerAnnee, type DonneesAnnee } from "../../lib/croissanceDb"
 
-type Serie = { nom: string; v: (number | null)[]; euros?: boolean; aide?: string }
+type Serie = { nom: string; court: string; v: (number | null)[]; euros?: boolean; aide?: string }
 const RECRUTEMENT = new Set(["artisans"])
 const euros = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`
 const valeur = (s: Serie, n: number) => (s.euros ? euros(n) : fr(Math.round(n * 10) / 10))
@@ -53,79 +53,81 @@ function Carte({ s, ps, unite }: { s: Serie; ps: Periode[]; unite: string }) {
 }
 
 export default function Annee({ ca }: { ca: { mois: string[]; v: number[] } | null }) {
-  const [pas, setPas] = useState<Pas>("mois")
+  // Mahdi (11/11) : par mois seulement, « ça enlèvera du volume et ça sera plus clair ».
+  const pas: Pas = "mois"
   const [portee, setPortee] = useState<Portee>("12mois")
   const [d, setD] = useState<DonneesAnnee | null>(null)
   const [erreur, setErreur] = useState("")
   const maintenant = useMemo(() => new Date(), [])
   useEffect(() => {
-    // 13 mois en arrière couvrent toutes les vues (12 mois, depuis janvier, 52 semaines).
+    // 13 mois en arrière couvrent les deux vues (12 derniers mois, depuis janvier).
     chargerAnnee(new Date(maintenant.getFullYear(), maintenant.getMonth() - 13, 1)).then(setD).catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
   }, [maintenant])
   const ps = useMemo(() => periodes(maintenant, pas, portee), [maintenant, pas, portee])
   const series = useMemo(() => {
     if (!d) return null
     const de = (base: "demarchage" | "recrutement", l: { le: string; campagne_id: string }[]) => l.filter((x) => (RECRUTEMENT.has(d.bases[x.campagne_id] ?? "") ? "recrutement" : "demarchage") === base).map((x) => x.le)
-    const caSerie: Serie | null = ca && pas === "mois" ? { nom: "Chiffre d'affaires facturé", euros: true, aide: "Facturé HT par mois dans STC Bâtiment, agences et particuliers (les 6 derniers mois complets)", v: ps.map((p) => { const i = ca.mois.indexOf(p.cle); return i >= 0 ? ca.v[i] : null }) } : null
+    const caSerie: Serie | null = ca && pas === "mois" ? { court: "CA facturé", nom: "Chiffre d'affaires facturé", euros: true, aide: "Facturé HT par mois dans STC Bâtiment, agences et particuliers (les 6 derniers mois complets)", v: ps.map((p) => { const i = ca.mois.indexOf(p.cle); return i >= 0 ? ca.v[i] : null }) } : null
     const demarchage: Serie[] = [
-      { nom: "Appels aux agences", v: compter(d.appels.map((a) => a.date), ps) },
-      { nom: "Gestionnaires joints", v: compter(d.appels.filter((a) => a.resultat === "joint").map((a) => a.date), ps) },
-      { nom: "Intéressés", v: compter(d.appels.filter((a) => a.issue === "interesse" || a.issue === "rdv").map((a) => a.date), ps), aide: "Appels qui finissent « intéressé » ou en rendez-vous" },
-      { nom: "Rendez-vous pris", v: compter(d.rdv, ps) },
-      { nom: "Leads reçus", v: compter(d.leads, ps) },
-      { nom: "Nouveaux clients", v: compter(d.clients, ps), aide: "Agences qui ont envoyé leur premier ordre de service" },
-      { nom: "Mails de campagne envoyés", v: compter(de("demarchage", d.envois), ps) },
-      { nom: "Réponses aux campagnes", v: compter(de("demarchage", d.reponses), ps) },
+      { court: "Appels", nom: "Appels aux agences", v: compter(d.appels.map((a) => a.date), ps) },
+      { court: "Joints", nom: "Gestionnaires joints", v: compter(d.appels.filter((a) => a.resultat === "joint").map((a) => a.date), ps) },
+      { court: "Intéressés", nom: "Intéressés", v: compter(d.appels.filter((a) => a.issue === "interesse" || a.issue === "rdv").map((a) => a.date), ps), aide: "Appels qui finissent « intéressé » ou en rendez-vous" },
+      { court: "RDV", nom: "Rendez-vous pris", v: compter(d.rdv, ps) },
+      { court: "Leads", nom: "Leads reçus", v: compter(d.leads, ps) },
+      { court: "Clients", nom: "Nouveaux clients", v: compter(d.clients, ps), aide: "Agences qui ont envoyé leur premier ordre de service" },
+      { court: "Mails", nom: "Mails de campagne envoyés", v: compter(de("demarchage", d.envois), ps) },
+      { court: "Réponses", nom: "Réponses aux campagnes", v: compter(de("demarchage", d.reponses), ps) },
       ...(caSerie ? [caSerie] : []),
     ]
     const recrutement: Serie[] = [
-      { nom: "Artisans appelés", v: compter(d.appelsSt, ps) },
-      { nom: "Dossiers déposés", v: compter(d.dossiers, ps) },
-      { nom: "Contrats signés", v: compter(d.contrats, ps) },
-      { nom: "Mails de campagne envoyés", v: compter(de("recrutement", d.envois), ps) },
-      { nom: "Réponses aux campagnes", v: compter(de("recrutement", d.reponses), ps) },
+      { court: "Appels", nom: "Artisans appelés", v: compter(d.appelsSt, ps) },
+      { court: "Dossiers", nom: "Dossiers déposés", v: compter(d.dossiers, ps) },
+      { court: "Contrats", nom: "Contrats signés", v: compter(d.contrats, ps) },
+      { court: "Mails", nom: "Mails de campagne envoyés", v: compter(de("recrutement", d.envois), ps) },
+      { court: "Réponses", nom: "Réponses aux campagnes", v: compter(de("recrutement", d.reponses), ps) },
     ]
     // Avant la première valeur, l'outil ne suivait pas encore ce chiffre : « pas de donnée », pas « zéro ».
     const net = (l: Serie[]) => l.map((x) => (x.euros ? x : { ...x, v: depuisLeDebut(x.v) }))
     return { demarchage: net(demarchage), recrutement: net(recrutement) }
-  }, [d, ps, ca, pas])
-  const unite = pas === "mois" ? "mois" : "semaine"
-  const exporter = () => {
-    if (!series) return
-    const csv = versCsv(ps, [...series.demarchage.map((s) => ({ ...s, nom: `Agences · ${s.nom}` })), ...series.recrutement.map((s) => ({ ...s, nom: `Sous-traitants · ${s.nom}` }))])
+  }, [d, ps, ca])
+  const unite = "mois"
+  const exporter = (quoi: "agences" | "sous-traitants", l: Serie[]) => {
     const lien = document.createElement("a")
-    lien.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }))
-    lien.download = `baticom-annee-${pas}-${maintenant.toISOString().slice(0, 10)}.csv`
+    lien.href = URL.createObjectURL(new Blob(["﻿" + versCsv(ps, l)], { type: "text/csv;charset=utf-8" }))
+    lien.download = `baticom-${quoi}-mois-par-mois-${maintenant.toISOString().slice(0, 10)}.csv`
     lien.click()
     URL.revokeObjectURL(lien.href)
   }
+  // Un tableau par activité, jamais mélangés : les agences d'un côté, les sous-traitants de l'autre.
+  const tableau = (quoi: "agences" | "sous-traitants", titre: string, l: Serie[]) => (
+    <Bloc titre={titre} droite={<button type="button" className="text-[12px] text-[#6B6B70] underline underline-offset-2 hover:text-encre" onClick={() => exporter(quoi, l)}>Exporter pour Excel</button>}>
+      <div className="overflow-x-auto">
+        <Table colonnes={[{ titre: "Mois" }, ...l.map((x) => ({ titre: x.court, largeur: x.euros ? "120px" : "92px", droite: true }))]}
+          lignes={[...ps].reverse().map((p) => { const i = ps.indexOf(p); return { cle: p.cle, cellules: [<span className={p.enCours ? "text-encre-2" : "font-medium"}>{p.libelle}{p.enCours ? " · en cours" : ""}</span>, ...l.map((x) => (x.v[i] === null ? <span className="text-encre-2">—</span> : x.euros ? euros(x.v[i] as number) : fr(x.v[i] as number)))] } })} />
+      </div>
+    </Bloc>
+  )
   return (
     <Chapitre id="annee" titre="L'année" sous="Le démarchage des agences et le recrutement des sous-traitants sur douze mois : les courbes, les moments forts et les moments faibles."
       droite={
         <span className="flex flex-wrap items-center gap-1.5">
           {([["12mois", "12 derniers mois"], ["annee", "Depuis janvier"]] as [Portee, string][]).map(([id, l]) => <button key={id} type="button" aria-pressed={portee === id} className={bascule(portee === id)} onClick={() => setPortee(id)}>{l}</button>)}
-          <span className="mx-1 h-4 w-px bg-[#E4E4E7]" aria-hidden="true" />
-          {([["mois", "Par mois"], ["semaine", "Par semaine"]] as [Pas, string][]).map(([id, l]) => <button key={id} type="button" aria-pressed={pas === id} className={bascule(pas === id)} onClick={() => setPas(id)}>{l}</button>)}
         </span>
       }>
       {erreur ? <p className="text-colonne text-alerte">{erreur}</p> : !series ? <p className="text-colonne text-encre-2">Lecture de l'année…</p> : <>
         <p className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[#6B6B70]">
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[2px] bg-[#111113]" />moment fort</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[2px] bg-[#E8A29C]" />moment faible</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[2px] bg-[#E1E8F7]" />{pas === "mois" ? "mois" : "semaine"} en cours (pas fini, jamais compté comme faible)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[2px] bg-[#E1E8F7]" />mois en cours (pas fini, jamais compté comme faible)</span>
         </p>
-        <Bloc titre="Démarchage des agences" droite={`${ps[0].libelle} → ${ps[ps.length - 1].libelle}`}>
+        <Bloc titre="Les agences · démarchage" droite={`${ps[0].libelle} → ${ps[ps.length - 1].libelle}`}>
           <div className="grid gap-3 pt-4 @min-[800px]:grid-cols-2 @min-[1200px]:grid-cols-3">{series.demarchage.map((s) => <Carte key={s.nom} s={s} ps={ps} unite={unite} />)}</div>
         </Bloc>
-        <Bloc titre="Recrutement des sous-traitants" droite={`${ps[0].libelle} → ${ps[ps.length - 1].libelle}`}>
+        <Bloc titre="Les sous-traitants · recrutement" droite={`${ps[0].libelle} → ${ps[ps.length - 1].libelle}`}>
           <div className="grid gap-3 pt-4 @min-[800px]:grid-cols-2 @min-[1200px]:grid-cols-3">{series.recrutement.map((s) => <Carte key={s.nom} s={s} ps={ps} unite={unite} />)}</div>
         </Bloc>
-        <Bloc titre={pas === "mois" ? "Mois par mois" : "Semaine par semaine"} droite={<button type="button" className="text-[12px] text-[#6B6B70] underline underline-offset-2 hover:text-encre" onClick={exporter}>Exporter pour Excel</button>}>
-          <div className="overflow-x-auto">
-            <Table colonnes={[{ titre: "" }, ...series.demarchage.slice(0, 6).map((s) => ({ titre: s.nom, largeur: "96px", droite: true })), ...series.recrutement.slice(0, 3).map((s) => ({ titre: s.nom, largeur: "96px", droite: true }))]}
-              lignes={[...ps].reverse().map((p) => { const i = ps.indexOf(p); return { cle: p.cle, cellules: [<span className={p.enCours ? "text-encre-2" : ""}>{p.libelle}{p.enCours ? " · en cours" : ""}</span>, ...series.demarchage.slice(0, 6).map((s) => (s.v[i] === null ? "—" : fr(s.v[i] as number))), ...series.recrutement.slice(0, 3).map((s) => (s.v[i] === null ? "—" : fr(s.v[i] as number)))] } })} />
-          </div>
-        </Bloc>
+        {tableau("agences", "Les agences, mois par mois", series.demarchage)}
+        {tableau("sous-traitants", "Les sous-traitants, mois par mois", series.recrutement)}
       </>}
     </Chapitre>
   )
