@@ -103,3 +103,25 @@ export function Chapitre({ id, titre, sous, droite, children }: { id: string; ti
   )
 }
 
+
+/** Un entonnoir (Mahdi, 11/11/2026) : chaque marche en barre, à l'échelle de la première, avec le taux de passage
+ *  depuis la marche d'avant et, si on la donne, la variation sur la période précédente. */
+export function Entonnoir({ marches }: { marches: { libelle: string; valeur: number; avant?: number }[] }) {
+  const max = Math.max(1, marches[0]?.valeur ?? 0)
+  return (
+    <div className="divide-y-[0.5px] divide-trait">
+      {marches.map((m, i) => {
+        const prec = i ? marches[i - 1].valeur : 0
+        const taux = i && prec > 0 ? Math.round((m.valeur / prec) * 100) : null
+        return (
+          <div key={m.libelle} className="grid h-9 grid-cols-[minmax(0,150px)_minmax(0,1fr)_64px_72px] items-center gap-3 text-legende">
+            <span className="truncate text-encre">{m.libelle}</span>
+            <span className="h-2 rounded-full bg-fond-3"><span className="block h-2 rounded-full bg-info" style={{ width: `${Math.max(m.valeur ? 2 : 0, (m.valeur / max) * 100)}%` }} /></span>
+            <span className="chiffres text-right font-semibold">{fr(m.valeur)}</span>
+            <span className="chiffres text-right text-colonne text-encre-2">{m.avant !== undefined ? <Variation n={m.valeur} avant={m.avant} /> : taux !== null ? `${taux} %` : ""}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}

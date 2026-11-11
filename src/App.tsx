@@ -19,6 +19,7 @@ import Connexion from "./components/Connexion"
 import { useSession } from "./lib/auth"
 import { roleDeSession } from "./lib/comptes"
 import RecrutementTableau from "./components/demarchage/RecrutementTableau"
+import Croissance from "./components/prospection/Croissance"
 import AgendaST from "./components/recrutement/AgendaST"
 import QualificationsST from "./components/recrutement/QualificationsST"
 import { suivreVersion, veillerVersion, versionPerimee } from "./lib/versionEnLigne"
@@ -125,7 +126,8 @@ function App() {
           {vue === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
           {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
           {vue === "agenda_st" && <AgendaST session={session} onAppeler={(id) => { naviguer("sessions_st"); setArtisanPourSession(id) }} />}
-          {vue === "dashboard_st" && <div className="page"><RecrutementTableau /></div>}
+          {vue === "croissance" && <Croissance />}
+          {vue === "dashboard_st" && <div className="page @container"><RecrutementTableau onDemarrer={() => naviguer("sessions_st")} /></div>}
           {vue === "qualification_st" && <QualificationsST />}
           {vue === "avis" && <BibliothequeAvis />}
           {vue === "fichiers" && <Fichiers session={session} />}

@@ -11,22 +11,22 @@
 // Calculs : src/demarchage/aujourdhuiOutils.ts et tableauOutils.ts ; lectures : db.ts.
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { ArrowUpRight, CalendarClock, Check, Pencil, Phone, Sparkles, Trophy } from "lucide-react"
+import { Pencil, Phone, Sparkles, Trophy } from "lucide-react"
 import { useReglages } from "../../demarchage/reglages"
 import {
   appelsSortants, bilanMails, chargerLeads, chargerTachesDuJour, compterPiles, deplacerTache, derniersSignaux, etapesDeLaBase, leadsBilanLignes, leadsTraites, premiersOsListe,
-  resultatsAppelsDepuis, santeDemarchage, statsAppels, terminerTache, type EcartSante, type Lead, type LeadTraite, type StatsCompte, type TacheAgenda,
+  resultatsAppelsDepuis, santeDemarchage, statsAppels, type EcartSante, type Lead, type LeadTraite, type StatsCompte, type TacheAgenda,
 } from "../../demarchage/db"
 import { dureeLisible, libelleEtape, type Agence, type File } from "../../demarchage/modele"
 import { appelsIaPeriode } from "../../demarchage/appelsIa"
 import { statsArguments, statsObjections } from "../../demarchage/analyseOutils"
 import { attenteCourte, minutesDepuis } from "../../demarchage/leadsOutils"
 import {
-  bilanLeads, bilanProspection, joursDeRetard, joursOuvresRecents, rangsEntre, regrouperSignaux, rythmeObjectif, serieParJour, sommeJours, tauxJointParHeure, victoiresDepuis,
+  bilanLeads, bilanProspection, joursOuvresRecents, rangsEntre, regrouperSignaux, rythmeObjectif, serieParJour, sommeJours, tauxJointParHeure, victoiresDepuis,
   type AppelLu, type GroupeSignal, type Jour6, type LeadBilan, type LigneHeure,
 } from "../../demarchage/tableauOutils"
 import {
-  compterAgencesJamaisJointes, compterReveils, composerDate, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, decomposerDate, finDeSemaine, finDuMois,
+  compterAgencesJamaisJointes, compterReveils, composerDate, dansNJoursA, dateLongue, debutDeSemaine, debutDuMois, finDeSemaine, finDuMois,
   heureCourte, libelleRelatif, lireObjectif, bornesPeriode, classer, majusculeInitiale, dansLaBase, libelleBase, tauxConversionInteresses, baseConversion,
 } from "../../demarchage/aujourdhuiOutils"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
@@ -36,7 +36,9 @@ import { CLE_CHOIX_TABLEAU, CLE_NON_ATTRIBUEES, choixParDefautPourRegarder, nonA
 import { chargerFonctions, estAuClassement } from "../../lib/fonctionsComptes"
 import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement, Dialogue, Etiquette as EtiquetteChamp, Onglets, Selecteur } from "../../ui"
 import ClientsAConfirmer from "./ClientsAConfirmer"
-import { Bandeau, Bloc, Chapitre, Courbe, Etiquette, Table, Variation } from "./aujourdhui/courtier"
+import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Etiquette, Table, Variation } from "./aujourdhui/courtier"
+import { chargerTachesCampagne } from "../../lib/tachesCampagne"
+import { tacheCampagnePourMoi } from "../../lib/perimetre"
 import { fr, pct, pctTxt } from "./aujourdhui/outils"
 
 const RAFRAICHIR_MS = 60_000
@@ -164,6 +166,15 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     return () => { enVie.current = false; clearTimeout(premier); clearInterval(t); document.removeEventListener("visibilitychange", surVisible) }
   }, [charger])
 
+  // Les appels demandés par les campagnes, comptés comme dans la session de call (« À appeler aujourd'hui »).
+  const [nbCampagne, setNbCampagne] = useState(0)
+  useEffect(() => {
+    let vivant = true
+    const moi = session?.user?.id ?? "", adm = estAdmin(session)
+    chargerTachesCampagne().then((l) => { if (vivant) setNbCampagne(new Set(l.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moi, adm, ["demarchage"])).map((t) => t.contactRef)).size) }).catch(() => undefined)
+    return () => { vivant = false }
+  }, [session])
+
   // L'analyse (heures, signaux, mails, IA) : lue une fois, puis toutes les 10 min ; elle ne bouge pas à la minute.
   const extraLu = useRef(0)
   useEffect(() => {
@@ -198,13 +209,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     catch (e) { setErreur(message(e)); await charger(); setErreur(message(e)) }
     finally { setOccupe(false) }
   }
-  const terminer = (t: TacheAgenda) => agir(async () => { setD((x) => (x ? { ...x, taches: x.taches.filter((y) => y.id !== t.id) } : x)); await terminerTache(t.id) })
   const reporterA = (t: TacheAgenda, date: Date) => agir(async () => { setD((x) => (x ? { ...x, taches: x.taches.filter((y) => y.id !== t.id) } : x)); setReport(null); await deplacerTache(t.id, date.toISOString()) })
-  const ouvrirReport = (t: TacheAgenda) => {
-    if (heureRelance === null) return
-    const { jour, heure } = decomposerDate(dansNJoursA(new Date(), 1, heureRelance).toISOString())
-    setReport({ tache: t, jour, heure })
-  }
   const validerReportLibre = (e: FormEvent) => {
     e.preventDefault()
     if (!report) return
@@ -248,7 +253,6 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
 
   const rappels = [...d.taches].sort((a, b) => (a.echeance ?? "").localeCompare(b.echeance ?? ""))
   const enRetard = rappels.filter((t) => t.echeance && new Date(t.echeance) < maintenant).length
-  const plusVieux = rappels.length ? joursDeRetard(rappels[0].echeance, maintenant) : 0
   const bb = bilanProspection(d.etapes)
   const bl = bilanLeads(d.leadsBilan)
   const rythme = rythmeObjectif(d.osMois.length, d.objectif, debutDuMois(maintenant), finDuMois(maintenant), maintenant)
@@ -291,42 +295,37 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
             { libelle: "Appels aujourd'hui", valeur: fr(calc.auj.appels), variation: <Variation n={calc.auj.appels} avant={calc.memeJour.appels} />, title: "Comparé au même jour la semaine dernière" },
             { libelle: "Joints aujourd'hui", valeur: fr(calc.auj.joints), variation: <Variation n={calc.auj.joints} avant={calc.memeJour.joints} />, title: "Comparé au même jour la semaine dernière" },
             { libelle: "Taux de joint (semaine)", valeur: pctTxt(tauxSem, 1), variation: <Variation unite="pts" n={tauxSem ?? 0} avant={tauxSemAvant ?? 0} /> },
-            { libelle: "Leads à traiter", valeur: d.leads.length, ton: d.leads.length ? "text-signature" : "text-encre", onClick: () => onNaviguer?.("sessions") },
-            { libelle: "À rappeler aujourd'hui", valeur: rappels.length, ton: enRetard ? "text-alerte" : "text-encre", variation: enRetard ? <span className="text-colonne text-alerte">{enRetard} en retard</span> : undefined },
+            { libelle: "À appeler aujourd'hui", valeur: d.leads.length + nbCampagne + rappels.length, ton: d.leads.length ? "text-signature" : "text-encre", variation: enRetard ? <span className="text-colonne text-alerte">{enRetard} en retard</span> : undefined, onClick: () => onNaviguer?.("sessions"), title: "Les leads, les appels demandés par les campagnes et les rappels du jour : la session de call" },
             { libelle: "Clients signés", valeur: bb.clients, ton: "text-ok", variation: <span className="chiffres text-colonne text-encre-2">{pctTxt(bb.tauxSignature, 1)}</span>, title: "Taux de signature : clients ÷ agences travaillées" },
           ]} />
 
           <div className="grid gap-x-10 gap-y-10 @min-[1100px]:grid-cols-2">
-            <Bloc titre="Leads à traiter" compte={d.leads.length} droite="le plus ancien d'abord · objectif : 1 h">
-              <Table vide="Aucun lead à traiter. Le prochain apparaîtra dès qu'une agence se manifeste."
-                colonnes={[{ titre: "Agence" }, { titre: "Signal", largeur: "38%" }, { titre: "Attente", largeur: "76px", droite: true }, { titre: "", largeur: "108px", droite: true }]}
-                lignes={d.leads.map(({ agence, lead }) => ({ cle: lead.id, cellules: [
-                  <button type="button" className="flex min-w-0 items-center gap-2 hover:underline" onClick={() => onOuvrirAgence?.(agence.id)}><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-signature" /><span className="truncate">{agence.nom}</span></button>,
-                  <span className="text-encre-2">{lead.signal}</span>,
-                  <span className={minutesDepuis(lead.creeLe, maintenant) > 60 ? "text-alerte" : "text-ok"}>{attenteCourte(minutesDepuis(lead.creeLe, maintenant))}</span>,
-                  <Bouton taille="sm" icone={<Phone />} onClick={() => onOuvrirSession?.(agence.id)}>Appeler</Bouton>,
-                ] }))} />
-            </Bloc>
-            <Bloc titre="À rappeler aujourd'hui" compte={rappels.length} droite={enRetard ? <span className="text-alerte">{enRetard} en retard · le plus ancien : {plusVieux} j</span> : rappels.length ? "à jour" : ""}>
-              <div className="max-h-[396px] overflow-y-auto">
-                <Table vide="Rien à rappeler aujourd'hui."
-                  colonnes={[{ titre: "Dû le", largeur: "64px" }, { titre: "Retard", largeur: "60px", droite: true }, { titre: "Agence" }, { titre: "Tâche", largeur: "24%" }, { titre: "", largeur: "176px", droite: true }]}
-                  lignes={rappels.map((t) => {
-                    const r = joursDeRetard(t.echeance, maintenant)
-                    return { cle: t.id, cellules: [
-                      <span className="chiffres text-encre-2">{t.echeance ? new Date(t.echeance).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "—"}</span>,
-                      r ? <span className="font-medium text-alerte">{r} j</span> : <span className="text-encre-2">{t.echeance ? heureCourte(t.echeance) : "auj."}</span>,
-                      <button type="button" className="truncate hover:underline" title={t.agenceNom} onClick={() => onOuvrirAgence?.(t.agenceId)}>{t.agenceNom || "Agence inconnue"}</button>,
-                      <span className="text-encre-2" title={t.note || undefined}>{t.titre || (t.type === "rdv" ? "RDV" : "Tâche")}</span>,
-                      <span className="flex justify-end gap-0.5">
-                        <Bouton taille="icone" variante="discret" icone={<Check />} aria-label="Fait" title="Fait" disabled={occupe} onClick={() => terminer(t)} />
-                        <Bouton taille="icone" variante="discret" icone={<CalendarClock />} aria-label="Reporter" title="Reporter" disabled={occupe} onClick={() => ouvrirReport(t)} />
-                        <Bouton taille="icone" variante="discret" icone={<ArrowUpRight />} aria-label="Ouvrir la fiche" title="Ouvrir la fiche" onClick={() => onOuvrirAgence?.(t.agenceId)} />
-                        <Bouton taille="sm" icone={<Phone />} disabled={occupe} onClick={() => onOuvrirSession?.(t.agenceId)}>Appeler</Bouton>
-                      </span>,
-                    ] }
-                  })} />
+            <Bloc titre="À appeler aujourd'hui" compte={d.leads.length + nbCampagne + rappels.length} droite="la session de call les enchaîne dans cet ordre">
+              <div className="grid grid-cols-3 border-b-[0.5px] border-trait">
+                {[
+                  { libelle: "Leads", n: d.leads.length, ton: "text-signature", detail: d.leads.length ? `le plus ancien : ${attenteCourte(Math.max(...d.leads.map(({ lead }) => minutesDepuis(lead.creeLe, maintenant))))}` : "aucun" },
+                  { libelle: "Demandés par les campagnes", n: nbCampagne, ton: "text-attention", detail: nbCampagne ? "étape Appel d'une séquence" : "aucun" },
+                  { libelle: "Rappels du jour", n: rappels.length, ton: enRetard ? "text-alerte" : "text-encre", detail: enRetard ? `dont ${enRetard} en retard` : rappels.length ? "à jour" : "aucun" },
+                ].map((x, i) => (
+                  <div key={x.libelle} className={`min-w-0 px-4 py-3 ${i ? "border-l-[0.5px] border-trait" : "pl-0"}`}>
+                    <Etiquette className="block truncate">{x.libelle}</Etiquette>
+                    <span className={`chiffres mt-1 block text-[22px] font-semibold leading-7 ${x.ton}`}>{fr(x.n)}</span>
+                    <span className="block truncate text-colonne text-encre-2">{x.detail}</span>
+                  </div>
+                ))}
               </div>
+              <div className="flex items-center justify-between gap-3 pt-3">
+                <span className="text-colonne text-encre-2">Les leads d'abord, puis les campagnes, puis les rappels.</span>
+                <Bouton variante="plein" icone={<Phone />} onClick={() => onNaviguer?.("sessions")}>Démarrer la session</Bouton>
+              </div>
+            </Bloc>
+            <Bloc titre="Ma semaine" droite="du lundi à aujourd'hui · évolution vs la semaine dernière">
+              <Entonnoir marches={[
+                { libelle: "Appels", valeur: calc.sMoi.appels, avant: calc.sMoiAvant.appels },
+                { libelle: "Gestionnaires joints", valeur: calc.sMoi.joints, avant: calc.sMoiAvant.joints },
+                { libelle: "Intéressés", valeur: calc.sMoi.interesses, avant: calc.sMoiAvant.interesses },
+                { libelle: "RDV", valeur: calc.sMoi.rdv, avant: calc.sMoiAvant.rdv },
+              ]} />
             </Bloc>
           </div>
 

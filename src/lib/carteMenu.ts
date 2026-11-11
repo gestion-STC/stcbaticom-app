@@ -10,6 +10,7 @@ import type { Espace } from "./messagesDb"
 // ne s'importent pas l'un l'autre (boucle refusée par la CI, 06/11/2026).
 export type PageId =
   | "aujourdhui"
+  | "croissance"
   | "leads_tous"
   | "avis"
   | "fichiers"
@@ -42,6 +43,7 @@ export const MENU: GroupeMenu[] = [
   {
     titre: "Campagnes",
     entrees: [
+      { id: "croissance", titre: "Dashboard", espace: null, admin: true },
       { id: "campagnes", titre: "Campagnes", espace: null, admin: true },
       { id: "leads_tous", titre: "Tous les leads", espace: null, admin: true },
       { id: "avis", titre: "Avis", espace: null, admin: true },
