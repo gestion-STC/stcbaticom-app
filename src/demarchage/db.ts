@@ -34,7 +34,7 @@ type LigneAgence = {
   nb_appels: number | null; dernier_appel_le: string | null; dernier_resultat: string | null
   dernier_signal?: string | null; dernier_signal_le?: string | null; compte_ouvert_le?: string | null; compte_email?: string | null // signaux du site (table agences, absents de la vue)
 }
-type LigneContact = { id: string; agence_id: string; prenom: string; nom: string; role: Contact["role"]; ligne_directe: string; mobile: string; email: string; principal: boolean; parti: boolean; note: string; cree_le: string }
+type LigneContact = { id: string; agence_id: string; prenom: string; nom: string; role: Contact["role"]; ligne_directe: string; mobile: string; email: string; principal: boolean; parti: boolean; note: string; cree_le: string; linkedin?: string | null }
 type LigneActivite = {
   id: string; agence_id: string; contact_id: string | null; type: Activite["type"]; date: string; echeance: string | null; fait_le: string | null; compte_id: string | null; compte_nom: string
   titre: string; note: string; resultat: string; issue: string; motif: string; numero_utilise: string; duree_s: number | null; call_id: string; sens: "sortant" | "entrant"; rdv_type: string
@@ -42,7 +42,7 @@ type LigneActivite = {
 }
 
 const COLONNES_AGENCE = "id, nom, enseigne, type, secteur, secteur_libelle, adresse, telephone, email, site, nb_lots, logo_url, etape, etape_depuis, commercial_id, tentatives, joint_fois, reveil_le, motif, premier_os_le, numero_emission, derniere_activite_le, cree_le, nb_contacts, contact_principal, contact_ligne, prochaine_echeance, prochaine_tache, nb_appels, dernier_appel_le, dernier_resultat"
-const COLONNES_CONTACT = "id, agence_id, prenom, nom, role, ligne_directe, mobile, email, principal, parti, note, cree_le"
+const COLONNES_CONTACT = "id, agence_id, prenom, nom, role, ligne_directe, mobile, email, principal, parti, note, cree_le, linkedin"
 const COLONNES_ACTIVITE = "id, agence_id, contact_id, type, date, echeance, fait_le, compte_id, compte_nom, titre, note, resultat, issue, motif, numero_utilise, duree_s, call_id, sens, rdv_type, message_id, etape_de, etape_vers, source"
 
 function versAgence(l: LigneAgence): Agence {
@@ -57,7 +57,7 @@ function versAgence(l: LigneAgence): Agence {
   }
 }
 function versContact(l: LigneContact): Contact {
-  return { id: l.id, agenceId: l.agence_id, prenom: l.prenom ?? "", nom: l.nom ?? "", role: l.role ?? "gestionnaire", ligneDirecte: l.ligne_directe ?? "", mobile: l.mobile ?? "", email: l.email ?? "", principal: !!l.principal, parti: !!l.parti, note: l.note ?? "", creeLe: l.cree_le }
+  return { id: l.id, agenceId: l.agence_id, prenom: l.prenom ?? "", nom: l.nom ?? "", role: l.role ?? "gestionnaire", ligneDirecte: l.ligne_directe ?? "", mobile: l.mobile ?? "", email: l.email ?? "", principal: !!l.principal, parti: !!l.parti, note: l.note ?? "", creeLe: l.cree_le, linkedin: l.linkedin ?? "" }
 }
 function versActivite(l: LigneActivite): Activite {
   return {
@@ -362,7 +362,7 @@ export async function fusionnerAgences(cibleId: string, sourceId: string): Promi
 }
 
 // ── Contacts ──
-export type ChampsContact = Partial<Pick<Contact, "prenom" | "nom" | "role" | "ligneDirecte" | "mobile" | "email" | "principal" | "parti" | "note">>
+export type ChampsContact = Partial<Pick<Contact, "prenom" | "nom" | "role" | "ligneDirecte" | "mobile" | "email" | "principal" | "parti" | "note" | "linkedin">>
 function versLigneContact(c: ChampsContact): Record<string, unknown> {
   const l: Record<string, unknown> = {}
   if (c.prenom !== undefined) l.prenom = c.prenom.trim()
@@ -374,6 +374,7 @@ function versLigneContact(c: ChampsContact): Record<string, unknown> {
   if (c.principal !== undefined) l.principal = c.principal
   if (c.parti !== undefined) l.parti = c.parti
   if (c.note !== undefined) l.note = c.note
+  if (c.linkedin !== undefined) l.linkedin = c.linkedin.trim() || null
   return l
 }
 export async function creerContact(agenceId: string, c: ChampsContact): Promise<Contact> {

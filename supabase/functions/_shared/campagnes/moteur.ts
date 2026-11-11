@@ -52,6 +52,7 @@ function conditionVraie(cond: Extract<Etape, { type: "si" }>["condition"], conta
     case "a_repondu": return evenements.some((e) => e.type === "reponse")
     case "a_mobile": return Boolean(contact.mobile)
     case "a_email": return Boolean(contact.email)
+    case "a_accepte": return evenements.some((e) => e.type === "connexion")
   }
 }
 
@@ -103,6 +104,14 @@ export function passage(etat: Etat, maintenant: Date, nouvelId: () => Id): Ecrit
       // Une étape qui envoie : dans la plage horaire, et 48 h après la touche précédente.
       if (touche || !ouvert) break
       if (derniereTouche && maintenant.getTime() - new Date(derniereTouche).getTime() < c.rythme.ecartMinH * 3_600_000) break
+      // LinkedIn automatique (11/11/2026) : un envoi par le compte branché, vers le profil de la fiche.
+      if (e.type === "linkedin" && (e.linkedin === "invitation" || e.linkedin === "message")) {
+        const v = varianteDe(e, contact.id), profil = contact.champs.linkedin ?? ""
+        sortie.envois.push({ id: nouvelId(), campagneId: c.id, inscriptionId: insc.id, contactId: contact.id, etapeId: e.id, varianteId: v?.id ?? null, canal: "linkedin", le: iso, statut: profil ? "envoye" : "saute", cause: profil ? "" : "pas de profil LinkedIn" })
+        i += 1
+        touche = true
+        continue
+      }
       if (e.type === "linkedin") {
         sortie.taches.push({ id: nouvelId(), contactId: contact.id, campagneId: c.id, etapeId: e.id, type: "linkedin", consigne: e.variantes[0]?.corps ?? "", creeLe: iso, faiteLe: null })
         i += 1

@@ -10,6 +10,7 @@
 import type { Campagne, Condition, Etape, Signal, Variante } from "./modele"
 import type { ReglageIA } from "./ia"
 import type { ReglageAvis } from "./avis"
+import type { ModeLinkedIn } from "./linkedin"
 import type { ReglageArret } from "./instantlyOutils"
 import { AB_DEPART, type ReglageAB } from "./abTest"
 import { MONTEE_DEFAUT, type AlerteOuverture, type Montee } from "./montee"
@@ -18,7 +19,7 @@ export type TypeCreatif = "mail" | "sms" | "linkedin" | "page" | "formulaire" | 
 export type Question = { id: string; libelle: string; type: string; requis: boolean; qualifiante: boolean; attendu: string; /** Pour un choix unique : les réponses, séparées par des virgules. */ options?: string }
 export type Creatif = { /** Le test A/B de ce créatif (Mahdi, 11/11/2026). */ ab?: ReglageAB; id: string; type: TypeCreatif; nom: string; variantes: Variante[]; video: boolean; videoUrl?: string; versId: string; remplirPar: "prospect" | "commercial"; questions: Question[]; /** Page d'avis : le lien Google proposé à tout le monde après l'avis. */ lienGoogle?: string; /** Un mail personnalisé par l'IA. */ ia?: ReglageIA; /** false : la relance part en nouveau mail plutôt que dans le fil. */ memeFil?: boolean }
 export type TypeAction = Etape["type"]
-export type Action = { id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string; cible?: "standard" | "contact" }
+export type Action = { /** Étape LinkedIn : tâche, invitation ou message automatiques. */ linkedin?: ModeLinkedIn; id: string; type: TypeAction; creatifId?: string; jours?: number; condition?: Condition; sinonVers?: string | null; consigne?: string; cible?: "standard" | "contact" }
 export type Regle = { id: string; evenement: string; fois: number; jours: number }
 export type EtapeParcours = { id: string; nom: string; type: string; qui: string; validation: string; delai: number; formulaireId?: string }
 export type Qualite = { id: string; niveau: string; source: "question" | "etape" | "toujours"; questionId: string; operateur: string; valeur: string; etapeId: string }
@@ -26,7 +27,7 @@ export type Qualite = { id: string; niveau: string; source: "question" | "etape"
 export type ActionReponse = "lead" | "dead" | "rien"
 export type Qualification = { /** Absent : le réglage par défaut. */ reponses?: Partial<Record<string, ActionReponse>>; interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; /** « Une personne précise » : la première ; « Chacun son tour » : toutes. */ attributionIds?: string[]; delaiH: number; motifs: string[]; relanceMois: number }
 export type Garde = { /** Heures des SMS (10 h-17 h par défaut). */ smsDe?: number; smsA?: number; /** Pause automatique sur les rebonds. */ arret?: ReglageArret; /** Absent sans date de retour : reprise après N jours (7). */ pauseAbsentJours?: number; signature?: string; libelleLien?: string; ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
-export type ConfigCampagne = { /** Campagne d'avis : quand demander. */ avis?: ReglageAvis; v: 1; creatifs: Creatif[]; actions: Action[]; zones: string[]; qualification: Qualification; garde: Garde }
+export type ConfigCampagne = { /** Le compte LinkedIn qui envoie (Unipile) ; vide : le premier branché. */ linkedinCompte?: string; /** Campagne d'avis : quand demander. */ avis?: ReglageAvis; v: 1; creatifs: Creatif[]; actions: Action[]; zones: string[]; qualification: Qualification; garde: Garde }
 
 export const ORIGINE_TRACABILITE = "tracabilite"
 export const EVENEMENTS = ["A ouvert le mail", "A cliqué un lien", "A cliqué le lien principal", "A ouvert la plaquette", "A ouvert la page « Créer un compte »", "A cliqué le SMS", "A regardé la vidéo", "A répondu au mail"]
@@ -112,7 +113,7 @@ export function configDe(c: Campagne): ConfigCampagne {
       const type: TypeCreatif = e.type === "sms" ? "sms" : e.type === "linkedin" ? "linkedin" : "mail"
       const k: Creatif = { id: "c-" + e.id, type, nom: e.variantes[0]?.nom || `${type === "sms" ? "SMS" : type === "linkedin" ? "LinkedIn" : "Mail"} ${creatifs.length + 1}`, variantes: e.variantes, video: false, versId: "", remplirPar: "prospect", questions: [] }
       creatifs.push(k)
-      return { id: e.id, type: e.type, creatifId: k.id }
+      return { id: e.id, type: e.type, creatifId: k.id, ...(e.linkedin ? { linkedin: e.linkedin } : {}) }
     }
     if (e.type === "attendre") return { id: e.id, type: e.type, jours: e.jours }
     if (e.type === "si") return { id: e.id, type: e.type, condition: e.condition, sinonVers: e.sinonVers }
@@ -130,7 +131,7 @@ export function versEtapes(cfg: ConfigCampagne): Etape[] {
     if (a.type === "si") return { id: a.id, type: a.type, condition: a.condition ?? "a_clique", sinonVers: a.sinonVers ?? null }
     if (a.type === "appel") return { id: a.id, type: a.type, consigne: a.consigne ?? "", ...(a.cible ? { cible: a.cible } : {}) }
     if (a.type === "fin") return { id: a.id, type: a.type }
-    return { id: a.id, type: a.type, variantes: cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? [] }
+    return { id: a.id, type: a.type, variantes: cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? [], ...(a.type === "linkedin" && a.linkedin && a.linkedin !== "tache" ? { linkedin: a.linkedin } : {}) }
   })
 }
 
@@ -165,6 +166,9 @@ export function compiler(c: Campagne, cfg: ConfigCampagne): Campagne {
   const reglage: ConfigCampagne = { ...cfg, garde: { ...cfg.garde, plafondMail: c.rythme.parJour } }
   return { ...c, audience: { ...c.audience, filtres }, etapes: versEtapes(cfg), signaux: versSignaux(cfg.qualification.interet), config: reglage as unknown as Record<string, unknown> }
 }
+
+/** Les étapes LinkedIn automatiques d'une campagne : il faut un compte LinkedIn branché pour la lancer. */
+export const avecLinkedInAuto = (cfg: ConfigCampagne) => cfg.actions.some((a) => a.type === "linkedin" && (a.linkedin === "invitation" || a.linkedin === "message"))
 
 /** Un envoi sans texte empêche de lancer. */
 export function messageVide(cfg: ConfigCampagne): boolean {

@@ -19,7 +19,7 @@ import { creerAgence, creerContact } from "./db"
 import { enseigneDe, nomCle, secteurDepuis, type TypeAgence } from "./modele"
 import { assurerSecteurs } from "./secteursOutils"
 
-export type ContactImport = { nom: string; email: string; ligne: string }
+export type ContactImport = { nom: string; email: string; ligne: string; linkedin?: string }
 export type LigneImport = {
   numero: number // le numéro de la ligne dans le fichier, pour en parler à l'humain
   apercu: string // les premières cellules, pour montrer une ligne sans nom
@@ -33,11 +33,12 @@ export type LigneImport = {
   contactNom: string
   contactEmail: string
   contactLigne: string
+  contactLinkedin?: string
   // Les contacts des lignes en double dans le fichier (une ligne par gestionnaire).
   autresContacts: ContactImport[]
 }
 export type Ignoree = { ligne: LigneImport; raison: string }
-export type DejaLa = { ligne: LigneImport; agenceId: string; contactsAAjouter: ContactImport[] }
+export type DejaLa = { ligne: LigneImport; agenceId: string; contactsAAjouter: ContactImport[]; /** Contacts déjà là dont le fichier donne le profil LinkedIn. */ liens?: ContactImport[] }
 export type Analyse = {
   aCreer: LigneImport[]
   dejaLa: DejaLa[]
@@ -89,7 +90,7 @@ const estEmail = (c: string) => new RegExp(RE_EMAIL.source, "i").test(c)
 const estTel = (c: string) => trouverTelephones([c]).length > 0 && chiffres(c).length === c.replace(/[\s.\-()+]/g, "").length
 
 // ── Les colonnes, quand le fichier a une ligne d'en-tête ──
-type Colonnes = Partial<Record<"nom" | "telephone" | "email" | "adresse" | "secteur" | "contactNom" | "contactEmail" | "contactLigne" | "type" | "note", number>>
+type Colonnes = Partial<Record<"nom" | "telephone" | "email" | "adresse" | "secteur" | "contactNom" | "contactPrenom" | "contactEmail" | "contactLigne" | "contactLinkedin" | "type" | "note", number>>
 const MOTS_ENTETE = ["agence", "entreprise", "societe", "nom", "tel", "telephone", "email", "mail", "adresse", "ville", "contact", "gestionnaire", "code postal", "secteur", "type", "note", "commentaire"]
 
 export function estEntete(cellules: string[]): boolean {
@@ -104,7 +105,9 @@ export function repererColonnes(entete: string[]): Colonnes {
     const h = norm(cel)
     if (!h) return
     const contact = /contact|gestionnaire|interlocuteur|responsable|personne/.test(h)
-    if (/ligne directe|direct|portable|mobile|gsm/.test(h)) poser("contactLigne", i)
+    if (/linkedin/.test(h)) poser("contactLinkedin", i)
+    else if (/^prenom du contact|^first ?name/.test(h)) poser("contactPrenom", i)
+    else if (/ligne directe|direct|portable|mobile|gsm/.test(h)) poser("contactLigne", i)
     else if (contact && /mail|courriel/.test(h)) poser("contactEmail", i)
     else if (/mail|courriel/.test(h)) poser("email", i)
     else if (contact || /prenom/.test(h)) poser("contactNom", i)
@@ -177,12 +180,14 @@ export function lireLigne(cellules: string[], numero: number, cols: Colonnes): L
   // Le contact : la colonne nommée telle quelle (c'est déjà un nom), sinon ce qu'on lit dans la note,
   // une fois les numéros et e-mails retirés (« Mme Martin 06 11 22 33 44 » → « Mme Martin »).
   const sansCoordonnees = (t: string) => t.replace(new RegExp(RE_TEL.source, "g"), " ").replace(new RegExp(RE_EMAIL.source, "gi"), " ")
-  const brutContact = lire("contactNom")
+  const brutContact = [lire("contactPrenom"), lire("contactNom")].map((x) => x.trim()).filter(Boolean).join(" ")
   const contactNom = brutContact ? (/nom\s*:|mail\s*:/i.test(brutContact) ? extraireNom(sansCoordonnees(brutContact)) : propre(brutContact)) : extraireNom(sansCoordonnees(note))
 
   const type = cols.type !== undefined ? typeDepuis(lire("type"), false) : typeDepuis(cel.join(" | "), true)
 
-  return { numero, apercu, nom, telephone, email, adresse, secteur, enseigne: enseigneDe(nom), type, contactNom, contactEmail, contactLigne, autresContacts: [] }
+  // Le profil LinkedIn : la colonne nommée, sinon une adresse linkedin.com trouvée dans la ligne.
+  const contactLinkedin = (lire("contactLinkedin") || cel.find((x) => /linkedin\.com\/(in|sales)\//i.test(x)) || "").trim()
+  return { numero, apercu, nom, telephone, email, adresse, secteur, enseigne: enseigneDe(nom), type, contactNom, contactEmail, contactLigne, contactLinkedin, autresContacts: [] }
 }
 
 // Les lignes brutes → les lignes d'import, sans les inutilisables, sans les doublons du fichier.
@@ -224,7 +229,7 @@ export function preparerLignes(brutes: string[][]): { lignes: LigneImport[]; ign
 
 // Le contact d'une ligne, ou null si elle n'en nomme pas.
 export function contactDe(l: LigneImport): ContactImport | null {
-  return l.contactNom ? { nom: l.contactNom, email: l.contactEmail, ligne: l.contactLigne } : null
+  return l.contactNom ? { nom: l.contactNom, email: l.contactEmail, ligne: l.contactLigne, ...(l.contactLinkedin ? { linkedin: l.contactLinkedin } : {}) } : null
 }
 // Tous les contacts d'une ligne (le sien, puis ceux des lignes en double).
 export function contactsDe(l: LigneImport): ContactImport[] {
@@ -252,13 +257,14 @@ export function rapprocher(lignes: LigneImport[], connues: AgenceConnue[], conta
     if (!a) { aCreer.push(l); continue }
     const connus = (contactsParAgence.get(a.id) ?? []).map(nomCle)
     const contactsAAjouter: ContactImport[] = []
+    const liens: ContactImport[] = []
     for (const c of contactsDe(l)) {
       const k = nomCle(c.nom)
-      if (connus.includes(k)) continue
+      if (connus.includes(k)) { if (c.linkedin) liens.push(c); continue }
       connus.push(k)
       contactsAAjouter.push(c)
     }
-    dejaLa.push({ ligne: l, agenceId: a.id, contactsAAjouter })
+    dejaLa.push({ ligne: l, agenceId: a.id, contactsAAjouter, ...(liens.length ? { liens } : {}) })
   }
   return { aCreer, dejaLa }
 }
@@ -374,7 +380,7 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
       // La trace d'origine : créée par un import, pas à la main.
       await sb().from("agences").update({ source: origine?.source || "import", fichier_id: origine?.fichierId ?? null }).eq("id", id)
       for (const c of contactsDe(l)) {
-        await creerContact(id, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: l.type === "apporteur" ? "apporteur" : "gestionnaire" })
+        await creerContact(id, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: l.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
         bilan.contactsAjoutes++
       }
     } catch (e) {
@@ -386,13 +392,23 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
     onProgres({ fait, total, enCours: d.ligne.nom })
     try {
       for (const c of d.contactsAAjouter) {
-        await creerContact(d.agenceId, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: d.ligne.type === "apporteur" ? "apporteur" : "gestionnaire" })
+        await creerContact(d.agenceId, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: d.ligne.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
         bilan.contactsAjoutes++
       }
     } catch (e) {
       bilan.erreurs.push({ ligne: d.ligne, message: message(e) })
     }
     fait++
+  }
+  // Les contacts déjà là : on pose leur profil LinkedIn s'ils n'en ont pas.
+  for (const d of analyse.dejaLa.filter((x) => x.liens?.length)) {
+    try {
+      const { data } = await sb().from("contacts").select("id, prenom, nom, linkedin").eq("agence_id", d.agenceId)
+      for (const c of d.liens ?? []) {
+        const fiche = ((data ?? []) as { id: string; prenom: string | null; nom: string | null; linkedin: string | null }[]).find((x) => !x.linkedin && nomCle(`${x.prenom ?? ""} ${x.nom ?? ""}`) === nomCle(c.nom))
+        if (fiche) await sb().from("contacts").update({ linkedin: c.linkedin }).eq("id", fiche.id)
+      }
+    } catch (e) { bilan.erreurs.push({ ligne: d.ligne, message: message(e) }) }
   }
   onProgres({ fait, total, enCours: "" })
   return bilan

@@ -12,12 +12,12 @@ import { creerContact, majContact, supprimerContact } from "../../demarchage/db"
 import { messageErreur } from "../../demarchage/agencesOutils"
 import { Bandeau, Bouton, Case, Champ, Dialogue, Etiquette, Selecteur, Zone } from "../../ui"
 
-type Formulaire = { prenom: string; nom: string; role: RoleContact; ligneDirecte: string; mobile: string; email: string; principal: boolean; parti: boolean; note: string }
+type Formulaire = { prenom: string; nom: string; role: RoleContact; ligneDirecte: string; mobile: string; email: string; principal: boolean; parti: boolean; note: string; linkedin: string }
 
 export default function ContactFormulaire({ agenceId, contact, onFermer, onEnregistre }: { agenceId: string; contact?: Contact; onFermer: () => void; onEnregistre: () => void }) {
   const [f, setF] = useState<Formulaire>({
     prenom: contact?.prenom ?? "", nom: contact?.nom ?? "", role: contact?.role ?? "gestionnaire", ligneDirecte: contact?.ligneDirecte ?? "", mobile: contact?.mobile ?? "",
-    email: contact?.email ?? "", principal: contact?.principal ?? false, parti: contact?.parti ?? false, note: contact?.note ?? "",
+    email: contact?.email ?? "", principal: contact?.principal ?? false, parti: contact?.parti ?? false, note: contact?.note ?? "", linkedin: contact?.linkedin ?? "",
   })
   const [erreur, setErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
@@ -97,6 +97,7 @@ export default function ContactFormulaire({ agenceId, contact, onFermer, onEnreg
         <Etiquette texte="Ligne directe"><Champ type="tel" value={f.ligneDirecte} onChange={set("ligneDirecte")} placeholder="01 43 00 00 10" /></Etiquette>
         <Etiquette texte="Mobile"><Champ type="tel" value={f.mobile} onChange={set("mobile")} placeholder="06 12 34 56 78" /></Etiquette>
         <Etiquette texte="E-mail" className="sm:col-span-2"><Champ type="email" value={f.email} onChange={set("email")} /></Etiquette>
+        <Etiquette texte="Profil LinkedIn" className="sm:col-span-2"><Champ value={f.linkedin} onChange={set("linkedin")} placeholder="https://www.linkedin.com/in/…" /></Etiquette>
         <Etiquette texte="Note" className="sm:col-span-2"><Zone value={f.note} onChange={set("note")} placeholder="Ce qu'il faut savoir avant de l'appeler" /></Etiquette>
         <div className="flex flex-wrap gap-4 sm:col-span-2">
           <Case texte="Contact principal (appelé en premier)" checked={f.principal} onChange={(e) => setF((p) => ({ ...p, principal: e.target.checked }))} />

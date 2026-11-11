@@ -147,7 +147,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
             lignes={envois.map((e) => { const k = v.contact(e.contactId); const evs = v.evenements.filter((x) => x.envoiId === e.id).map((x) => x.type); const et = c.etapes.find((x) => x.id === e.etapeId); return { cle: e.id, cellules: [
               <span className="chiffres text-encre-2">{dateHeure(e.le)}</span>, <span className="truncate">{k?.nom}</span>, nomEtape(e.etapeId), <span className="truncate text-encre-2">{et && "variantes" in et ? et.variantes.find((x) => x.id === e.varianteId)?.nom ?? "—" : "—"}</span>,
               <Pastille role={e.statut === "envoye" ? "fait" : e.statut === "erreur" ? "probleme" : "inerte"}>{e.statut === "envoye" ? "Parti" : e.statut === "erreur" ? "Erreur" : "Sauté"}</Pastille>,
-              <span className="truncate text-colonne text-encre-2">{e.cause || [...new Set(evs)].map((x) => ({ delivre: "délivré", ouvert: "ouvert", clic: "cliqué", reponse: "a répondu", desinscription: "désinscrit", rebond: "rebond" })[x]).join(" · ") || "—"}</span>,
+              <span className="truncate text-colonne text-encre-2">{e.cause || [...new Set(evs)].map((x) => ({ delivre: "délivré", ouvert: "ouvert", clic: "cliqué", reponse: "a répondu", desinscription: "désinscrit", rebond: "rebond", connexion: "a accepté sur LinkedIn" })[x]).join(" · ") || "—"}</span>,
             ] } })} />
           <p className="text-colonne text-encre-3">Les 80 derniers.</p>
         </div>

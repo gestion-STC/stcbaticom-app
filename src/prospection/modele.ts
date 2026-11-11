@@ -42,10 +42,10 @@ export type Compte = { id: Id; nom: string; role: "gerant" | "commercial" }
 
 // ── La séquence : des blocs ──
 export type Canal = "mail" | "sms" | "linkedin" | "newsletter"
-export type Condition = "a_ouvert" | "a_clique" | "a_repondu" | "a_mobile" | "a_email"
+export type Condition = "a_ouvert" | "a_clique" | "a_repondu" | "a_mobile" | "a_email" | "a_accepte"
 export type Variante = { id: Id; nom: string; objet: string; corps: string }
 export type Etape =
-  | { id: Id; type: Canal; variantes: Variante[] }
+  | { id: Id; type: Canal; variantes: Variante[]; /** LinkedIn : tâche (défaut), invitation ou message automatiques (11/11/2026). */ linkedin?: "tache" | "invitation" | "message" }
   | { id: Id; type: "attendre"; jours: number }
   | { id: Id; type: "si"; condition: Condition; /** Si NON : on saute à cette étape (sinon on continue). */ sinonVers: Id | null }
   | { id: Id; type: "appel"; consigne: string; /** Le standard de l'entreprise, ou le contact en direct. */ cible?: "standard" | "contact" }
@@ -63,7 +63,7 @@ export type Audience = {
   /** Champ → valeurs retenues (vide : toutes). */
   filtres: Record<string, string[]>
   /** Mahdi, 07/11 : « on n'attaque que les contacts complets » → mail ET téléphone par défaut. */
-  doitAvoir: ("email" | "mobile" | "telephone")[]
+  doitAvoir: ("email" | "mobile" | "telephone" | "linkedin")[]
   /** Seulement ceux sans contact depuis ce nombre de jours (vide : tous). */
   pasContacteDepuis?: number
 }
@@ -95,7 +95,7 @@ export type Envoi = {
   id: Id; campagneId: Id; inscriptionId: Id; contactId: Id; etapeId: Id; varianteId: Id | null
   canal: Canal; le: string; statut: "en_cours" | "envoye" | "erreur" | "saute"; cause: string
 }
-export type TypeEvenement = "delivre" | "ouvert" | "clic" | "reponse" | "desinscription" | "rebond"
+export type TypeEvenement = "delivre" | "ouvert" | "clic" | "reponse" | "desinscription" | "rebond" | "connexion"
 export type Evenement = { id: Id; campagneId: Id; envoiId: Id | null; contactId: Id; type: TypeEvenement; le: string; lien?: string }
 export type Lead = {
   id: Id; contactId: Id; baseId: Id; campagneId: Id | null; signal: string; creeLe: string
@@ -134,6 +134,7 @@ export function estEligible(c: Contact, camp: Campagne, maintenant: Date = new D
   if (camp.audience.doitAvoir.includes("email") && !c.email) return false
   if (camp.audience.doitAvoir.includes("mobile") && !c.mobile) return false
   if (camp.audience.doitAvoir.includes("telephone") && !c.telephone && !c.mobile) return false
+  if (camp.audience.doitAvoir.includes("linkedin") && !c.champs.linkedin) return false
   return true
 }
 
@@ -141,5 +142,5 @@ export const LIBELLE_ETAPE: Record<Etape["type"], string> = {
   mail: "Mail", sms: "SMS", linkedin: "LinkedIn", newsletter: "Newsletter", attendre: "Attendre", si: "Si…", appel: "Appel", fin: "Sortir",
 }
 export const LIBELLE_CONDITION: Record<Condition, string> = {
-  a_ouvert: "a ouvert un mail", a_clique: "a cliqué", a_repondu: "a répondu", a_mobile: "a un mobile", a_email: "a un mail",
+  a_ouvert: "a ouvert un mail", a_clique: "a cliqué", a_repondu: "a répondu", a_mobile: "a un mobile", a_email: "a un mail", a_accepte: "a accepté l'invitation LinkedIn",
 }
