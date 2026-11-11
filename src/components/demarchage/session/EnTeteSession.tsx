@@ -13,7 +13,9 @@ import { Bouton, Champ, Etiquette, Interrupteur, Selecteur } from "../../../ui"
 type Sourcage = "" | "sourcees" | "non_sourcees"
 
 /** Les quatre piles de la prospection, en texte : la pile ouverte en noir, son compte à côté. */
-export function PilesSession({ file, setFile, etapeFiltre, chargementFile, nbFile, compteurs, bloque }: {
+export function PilesSession({ file, setFile, etapeFiltre, chargementFile, nbFile, compteurs, bloque, sans = [] }: {
+  /** Les piles qui ont leur propre onglet (« À rappeler », 11/11/2026). */
+  sans?: File[]
   file: File
   setFile: (f: File) => void
   etapeFiltre: string
@@ -24,7 +26,7 @@ export function PilesSession({ file, setFile, etapeFiltre, chargementFile, nbFil
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-legende">
-      {FILES.map((f) => {
+      {FILES.filter((f) => !sans.includes(f.code)).map((f) => {
         const choisi = f.code === file && !etapeFiltre
         // La pile affichée compte SA liste (Mahdi, 13/10 : la pastille = ce qu'on voit) ; les
         // autres, la base. Un comptage en échec affiche « — », jamais un faux chiffre.
