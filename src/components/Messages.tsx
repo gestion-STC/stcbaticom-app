@@ -62,7 +62,9 @@ import {
   type Conversation,
   type Dossier,
   messageDeProspection,
+  messageLinkedIn,
 } from "../lib/conversations"
+import { repondreLinkedIn } from "../lib/linkedinDb"
 import { formatTaille } from "../lib/stockage"
 import { piecesAEnvoyer, piecesTropLourdes } from "../lib/envoiEmail"
 import type { PieceJointe } from "../emails"
@@ -467,6 +469,10 @@ export default function Messages({ espace }: { espace: Espace | null }) {
       if (nouveau) {
         await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml, commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
         setEnvoiOk(`Message envoyé à ${compoTo.trim()}.`)
+      } else if (ouvert && mode === "repondre" && messageLinkedIn(ouvert.messages)) {
+        if (pieces?.length) throw new Error("Pas de pièce jointe sur LinkedIn : mets plutôt un lien.")
+        await repondreLinkedIn(messageLinkedIn(ouvert.messages)!.id, compoCorps.trim())
+        setEnvoiOk(`Réponse envoyée sur LinkedIn à ${nomDe(ouvert)}.`)
       } else if (ouvert && mode === "repondre" && messageDeProspection(ouvert.messages)) {
         if (pieces?.length) throw new Error("Pas de pièce jointe sur une réponse à un prospect : mets plutôt un lien.")
         await repondreParInstantly({ message: messageDeProspection(ouvert.messages)!.id, objet: objetReponse(ouvert.dernier.objet), corps: compoCorps.trim(), signatureHtml })

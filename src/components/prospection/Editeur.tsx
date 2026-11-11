@@ -15,13 +15,15 @@ import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
 import VerificationAdresses from "./moteur/VerificationAdresses"
 import TestSpam from "./moteur/TestSpam"
+import LinkedInReglage from "./moteur/LinkedInReglage"
+import { nombreComptesLinkedIn } from "../../lib/linkedinDb"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
 import { ARRET_DEPART, BOITES_DEPART, PHRASE_SUIVI, SIGNATURE_PROSPECTION, LIBELLE_LIEN, boitesDe, conseilsEnvoi, corpsAvecMentions, valeursDe, type ReglageBoites } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
 import { listerComptes, type Compte } from "../../lib/comptes"
 import { compterTextesValides } from "../../lib/campagnesIa"
 import { ALERTE_DEFAUT, MONTEE_DEFAUT, envoisDuJour, type AlerteOuverture, type Montee } from "../../prospection/montee"
-import { GARDE_DEFAUT, ORIGINE_TRACABILITE, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
+import { GARDE_DEFAUT, ORIGINE_TRACABILITE, avecLinkedInAuto, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
 import { Titre } from "./morceaux"
@@ -83,6 +85,9 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   useEffect(() => { lireParametre("cmp_reglage_boites").then((x) => { try { const o = JSON.parse(x || "{}") as Partial<ReglageBoites>; setReglageBoites({ ...BOITES_DEPART, ...o }) } catch { /* par défaut */ } }).catch(() => undefined) }, [])
   const majBoites = (p: Partial<ReglageBoites>) => setReglageBoites((r) => { const n = { ...r, ...p }; void ecrireParametre("cmp_reglage_boites", JSON.stringify(n)); return n })
   const arret = cfg.garde.arret ?? ARRET_DEPART
+  // LinkedIn : combien de comptes branchés (pour le récapitulatif avant de lancer).
+  const [comptesLi, setComptesLi] = useState(0)
+  useEffect(() => { nombreComptesLinkedIn().then(setComptesLi).catch(() => undefined) }, [])
   const majDomaines = (l: string[]) => { setDomaines(l); void ecrireParametre("domaines_bloques", JSON.stringify(l)) }
   const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId && !domaineBloque(x.email, domaines)), [v.contacts, c.baseId, domaines])
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
@@ -117,6 +122,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const mailsDeLaSuite = cfg.actions.filter((a) => a.type === "mail" || a.type === "newsletter").flatMap((a) => cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? [])
   const avecPhrase = mailsDeLaSuite.every((x) => corpsAvecMentions(x.corps, "https://x", true).includes(PHRASE_SUIVI))
   const recapitulatif: [string, boolean][] = [
+    ...(avecLinkedInAuto(cfg) ? [["Un compte LinkedIn est branché", comptesLi > 0] as [string, boolean]] : []),
     [`${fr(eligibles)} ${base?.unite ?? "contacts"} dans l'audience`, eligibles > 0],
     [[nbActions("mail") + nbActions("newsletter") ? `${nbActions("mail") + nbActions("newsletter")} mail(s)` : "", nbActions("sms") ? `${nbActions("sms")} SMS` : "", nbActions("appel") ? `${nbActions("appel")} appel(s)` : ""].filter(Boolean).join(", ") || "Aucune action", cfg.actions.length > 0],
     ["Tous les textes sont remplis", !vide],
@@ -157,7 +163,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                 <Bloc titre={avis ? "Qui on touche" : "4 · Qui on touche"}><div className="mt-3 space-y-4">
                   {base?.champs.filter((ch) => !CHAMPS_GEO.includes(ch.cle)).map(champFiltre)}
                   <Libelle titre="Sans contact depuis (jours)" className="max-w-[220px]"><Champ type="number" min={0} placeholder="Tous" value={c.audience.pasContacteDepuis || ""} onChange={(e) => setC({ ...c, audience: { ...c.audience, pasContacteDepuis: Number(e.target.value) || undefined } })} /></Libelle>
-                  <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile"] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : "mobile (pour les SMS)"}</label>)}</div>
+                  <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile", ...(c.baseId === "artisans" ? [] : ["linkedin" as const])] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : x === "linkedin" ? "profil LinkedIn" : "mobile (pour les SMS)"}</label>)}</div>
                 </div></Bloc>
                 {c.baseId === "locataires" ? <Bloc titre="Quand demander l'avis"><div className="mt-3 space-y-2">
                   <div className="flex flex-wrap items-center gap-2 text-legende">Envoyer <Champ type="number" min={0} className="!w-20" aria-label="Jours après la fin du chantier" value={(cfg.avis ?? AVIS_DEPART).delaiJours} onChange={(e) => maj((x) => ({ ...x, avis: { ...(x.avis ?? AVIS_DEPART), delaiJours: Math.max(0, Number(e.target.value) || 0) } }))} /> jours après la fin du chantier, et pas pour un chantier fini depuis plus de <Champ type="number" min={1} max={365} className="!w-20" aria-label="Jours au plus" value={(cfg.avis ?? AVIS_DEPART).fenetreJours} onChange={(e) => maj((x) => ({ ...x, avis: { ...(x.avis ?? AVIS_DEPART), fenetreJours: Math.min(365, Math.max(1, Number(e.target.value) || 120)) } }))} /> jours</div>
@@ -187,6 +193,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                   <Bloc titre="Arrêt automatique"><div className="mt-3 space-y-1"><div className="flex flex-wrap items-center gap-2 text-legende">Mettre la campagne en pause si plus de <Champ type="number" min={0.5} step={0.5} className="!w-20" aria-label="Taux de rebonds (%)" value={arret.tauxPct} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, arret: { ...(x.garde.arret ?? ARRET_DEPART), tauxPct: Math.max(0.5, Number(e.target.value) || ARRET_DEPART.tauxPct) } } }))} /> % des mails rebondissent, à partir de <Champ type="number" min={10} className="!w-20" aria-label="Envois avant de juger" value={arret.apresEnvois} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, arret: { ...(x.garde.arret ?? ARRET_DEPART), apresEnvois: Math.max(10, Number(e.target.value) || ARRET_DEPART.apresEnvois) } } }))} /> envois</div><p className="text-colonne text-encre-2">Trop de rebonds abîment les boîtes d'envoi. La pause s'affiche à l'écran ; on relance à la main.</p></div></Bloc>
                   {cfg.actions.some((a) => a.type === "sms") ? <Bloc titre="Heures des SMS"><div className="mt-3 flex flex-wrap items-center gap-2 text-legende">Envoyer les SMS de <Champ type="number" min={0} max={23} className="!w-20" aria-label="Heure de début des SMS" value={cfg.garde.smsDe ?? 10} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, smsDe: Math.min(23, Math.max(0, Number(e.target.value) || 0)) } }))} /> h à <Champ type="number" min={1} max={24} className="!w-20" aria-label="Heure de fin des SMS" value={cfg.garde.smsA ?? 17} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, smsA: Math.min(24, Math.max(1, Number(e.target.value) || 17)) } }))} /> h, les jours d'envoi de la campagne</div></Bloc> : null}
                   {!avis ? <Bloc titre="Absent sans date de retour"><div className="mt-3 space-y-1"><div className="flex flex-wrap items-center gap-2 text-legende">Reprendre la séquence <Champ type="number" min={1} max={60} className="!w-20" aria-label="Jours de pause" value={cfg.garde.pauseAbsentJours ?? 7} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, pauseAbsentJours: Math.min(60, Math.max(1, Number(e.target.value) || 7)) } }))} /> jours plus tard</div><p className="text-colonne text-encre-2">Quand la réponse automatique donne une date, la séquence reprend le lendemain du retour, à 9 h.</p></div></Bloc> : null}
+                  {avecLinkedInAuto(cfg) ? <LinkedInReglage cfg={cfg} maj={maj} /> : null}
                   <Bloc titre="Signature et liens"><div className="mt-3 grid grid-cols-[minmax(0,1fr)_200px] gap-4">
                     <Libelle titre="Signature, en bas de chaque mail" className="!flex flex-col justify-between"><Zone rows={3} value={cfg.garde.signature ?? SIGNATURE_PROSPECTION} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, signature: e.target.value } }))} /></Libelle>
                     <Libelle titre="Texte d'un lien sans libellé" className="!flex flex-col justify-between"><Champ value={cfg.garde.libelleLien ?? LIBELLE_LIEN} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, libelleLien: e.target.value } }))} /></Libelle>

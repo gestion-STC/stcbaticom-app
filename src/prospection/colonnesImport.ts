@@ -2,13 +2,17 @@
 // avec les noms que les imports savent lire ; le reste de l'import ne change pas. Fichier PUR.
 
 export const IGNORER = "Ignorer"
-export const CHAMPS_GESTIONNAIRES = ["Agence", "Type", "Adresse", "Code postal", "Téléphone", "E-mail", "Contact", "E-mail du contact", "Ligne directe", "Note"]
+export const CHAMPS_GESTIONNAIRES = ["Agence", "Type", "Adresse", "Code postal", "Téléphone", "E-mail", "Prénom du contact", "Contact", "E-mail du contact", "Ligne directe", "LinkedIn", "Note"]
 export const CHAMPS_ARTISANS = ["Entreprise", "Contact", "E-mail", "Téléphone", "Métier", "Zone", "Source"]
 export const champsDe = (baseId: string) => (baseId === "artisans" ? CHAMPS_ARTISANS : CHAMPS_GESTIONNAIRES)
 
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim()
 
 function devinerGestionnaire(h: string): string {
+  if (/linkedin|profile url|url du profil|profil url/.test(h)) return "LinkedIn"
+  if (/^first ?name|^prenom$|prenom du contact/.test(h)) return "Prénom du contact"
+  if (/^last ?name|^nom de famille/.test(h)) return "Contact"
+  if (/^company|^account name|^societe|^entreprise/.test(h)) return "Agence"
   const contact = /contact|gestionnaire|interlocuteur|responsable|personne|prenom/.test(h)
   if (/ligne directe|direct|portable|mobile|gsm/.test(h)) return "Ligne directe"
   if (contact && /mail|courriel/.test(h)) return "E-mail du contact"

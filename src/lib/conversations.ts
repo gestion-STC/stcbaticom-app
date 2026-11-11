@@ -44,6 +44,11 @@ export function messageDeProspection<M extends { sens: string; a: string }>(mess
   return [...messages].reverse().find((m) => m.sens === "entrant" && DOMAINES_PROSPECTION.some((d) => m.a.toLowerCase().endsWith(`@${d}`))) ?? null
 }
 
+/** Le dernier message reçu de LinkedIn : la réponse repart dans la conversation LinkedIn (11/11/2026). */
+export function messageLinkedIn<M extends { sens: string; a: string }>(messages: M[]): M | null {
+  return [...messages].reverse().find((m) => m.sens === "entrant" && m.a === "LinkedIn") ?? null
+}
+
 export function grouperEnConversations<M extends MessageConv>(messages: M[]): Conversation<M>[] {
   const convs = new Map<string, Conversation<M>>()
   for (const m of messages) {

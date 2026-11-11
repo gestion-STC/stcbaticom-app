@@ -159,6 +159,8 @@ export type Contact = {
   parti: boolean
   note: string
   creeLe: string
+  /** Le profil LinkedIn (11/11/2026). */
+  linkedin?: string
 }
 export function nomContact(c: Pick<Contact, "prenom" | "nom">): string {
   return `${c.prenom} ${c.nom}`.trim() || "(sans nom)"
