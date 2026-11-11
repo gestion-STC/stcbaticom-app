@@ -24,7 +24,9 @@ export function Section({ titre, droite, children }: { titre: string; droite?: R
 
 // Une ligne de la marge (dessin du 06/11/2026, thème A2) : le nom, puis une ligne grise ; pour un
 // LEAD, son signal et depuis quand il attend (vert, orange, rouge), avec un point violet.
-export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick, lead }: { agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void; lead?: Lead }) {
+/** Pourquoi une agence est dans « À appeler aujourd'hui » (Mahdi, 11/11/2026) : un lead, une demande de campagne, un rappel. */
+export type MotifAppel = { groupe: "lead" | "campagne" | "rappel"; texte: string }
+export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick, lead, motif }: { motif?: MotifAppel; agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void; lead?: Lead }) {
   const attente = lead ? minutesDepuis(lead.creeLe, maintenant) : 0
   return (
     <button
@@ -36,11 +38,12 @@ export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, o
       className={"block w-full rounded-4 px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed " + (courante ? "bg-fond-4" : "hover:bg-fond-2 disabled:hover:bg-transparent")}
     >
       <div className="flex items-baseline gap-2">
-        {lead ? <span className="h-1.5 w-1.5 shrink-0 -translate-y-px rounded-full bg-signature" /> : null}
+        {lead ? <span className="h-1.5 w-1.5 shrink-0 -translate-y-px rounded-full bg-signature" /> : motif?.groupe === "campagne" ? <span className="h-1.5 w-1.5 shrink-0 -translate-y-px rounded-full bg-attention" /> : null}
         <span className={"min-w-0 flex-1 truncate text-legende " + (courante ? "font-medium text-encre" : "text-encre")}>{a.nom}</span>
-        {lead ? <span className={"chiffres shrink-0 text-colonne " + couleurAttente(attente)}>{attenteCourte(attente)}</span> : null}
+        {lead ? <span className={"chiffres shrink-0 text-colonne " + couleurAttente(attente)}>{attenteCourte(attente)}</span> : motif?.groupe === "rappel" && a.prochaineEcheance ? (new Date(a.prochaineEcheance) < maintenant && new Date(a.prochaineEcheance).toDateString() !== maintenant.toDateString() ? <span className="chiffres shrink-0 text-colonne text-alerte">en retard</span> : <span className="chiffres shrink-0 text-colonne text-encre">{new Date(a.prochaineEcheance).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>) : null}
         {appelee ? <Check size={14} className="shrink-0 text-ok" aria-label="Appelée aujourd'hui" /> : null}
       </div>
+      {motif && motif.groupe === "campagne" ? <div className="mt-0.5 truncate text-colonne text-attention">{motif.texte}</div> : null}
       {lead ? <div className="mt-0.5 truncate text-colonne text-encre-2">{lead.signal}{lead.tentatives ? ` · ${lead.tentatives} essai${lead.tentatives > 1 ? "s" : ""}` : ""}</div> : null}
       <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-colonne text-encre-2">
         <Pastille role={pastilleEtape(a.etape)}>{libelleEtape(a.etape)}</Pastille>

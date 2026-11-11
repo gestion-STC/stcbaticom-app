@@ -1,3 +1,4 @@
+import { Fragment } from "react"
 // ── 1. La file, en marge (dessin du 06/11/2026, thème A2) ──
 // L'appel direct (recherche), Précédente / Suivante, la case des déjà appelées, la liste.
 // Plus de carte : une marge au trait, les lignes au fond gris pour celle en cours.
@@ -7,7 +8,7 @@ import { formaterTelephone } from "../../../lib/telephone"
 import { FILES, type Agence, type File } from "../../../demarchage/modele"
 import type { Lead } from "../../../demarchage/db"
 import { Bouton, Case, Champ, Chargement, Vide } from "../../../ui"
-import { LigneFile } from "./morceaux"
+import { LigneFile , type MotifAppel } from "./morceaux"
 
 export default function ColonneFile({
   index,
@@ -31,7 +32,10 @@ export default function ColonneFile({
   appelees,
   dateMaintenant,
   allerA,
+  motifs,
 }: {
+  /** « À appeler aujourd'hui » : le groupe de chaque agence (leads, campagnes, rappels), dans l'ordre de la file. */
+  motifs?: Map<string, MotifAppel>
   index: number
   fileAgences: Agence[]
   file: File
@@ -77,14 +81,14 @@ export default function ColonneFile({
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="text-colonne text-encre-2">{leads ? "À traiter, le plus ancien d'abord" : "Dans la file"}</span>
+        <span className="text-colonne text-encre-2">{motifs ? "À appeler aujourd'hui, par priorité" : leads ? "À traiter, le plus ancien d'abord" : "Dans la file"}</span>
         <span className="chiffres text-colonne text-encre-2">{Math.min(index + 1, fileAgences.length)} / {fileAgences.length}</span>
       </div>
       <div className="mt-1.5 flex items-center gap-1">
         <Bouton taille="sm" variante="discret" icone={<ChevronLeft />} onClick={reculer} disabled={barreVisible || (index === 0 && !directeId)}>Précédente</Bouton>
         <Bouton taille="sm" variante="discret" icone={<ChevronRight />} onClick={avancer} disabled={barreVisible || fileTerminee || !fileAgences.length}>Suivante</Bouton>
       </div>
-      {leads ? null : (
+      {leads || motifs ? null : (
         <div className="mt-1 px-0.5">
           <Case texte={`inclure les agences appelées ces ${reposJours ?? "…"} derniers jours (jamais celles d'aujourd'hui)`} checked={inclureDejaAppelees} onChange={(e) => setInclureDejaAppelees(e.target.checked)} disabled={enCours || barreVisible} />
         </div>
@@ -94,10 +98,16 @@ export default function ColonneFile({
         {chargementFile ? (
           <Chargement texte="Lecture de la file…" />
         ) : fileAgences.length === 0 ? (
-          leads ? <Vide titre="Aucun lead à traiter" texte="Un lead apparaît ici dès qu'une agence se manifeste." /> : <Vide titre="Rien à appeler dans cette file" texte={FILES.find((f) => f.code === file)?.aide} />
+          motifs ? <Vide titre="Rien à appeler aujourd'hui" texte="Ni lead, ni demande de campagne, ni rappel du jour." /> : leads ? <Vide titre="Aucun lead à traiter" texte="Un lead apparaît ici dès qu'une agence se manifeste." /> : <Vide titre="Rien à appeler dans cette file" texte={FILES.find((f) => f.code === file)?.aide} />
         ) : (
           fileAgences.map((a, i) => (
-            <LigneFile key={a.id} agence={a} lead={leads?.get(a.id)} courante={!directeId && i === index} appelee={appelees.has(a.id)} maintenant={dateMaintenant} bloquee={barreVisible && !(i === index && !directeId)} onClick={() => allerA(i)} />
+            <Fragment key={a.id}>
+            {motifs && motifs.get(a.id)?.groupe !== motifs.get(fileAgences[i - 1]?.id ?? "")?.groupe ? (() => {
+              const g = motifs.get(a.id)?.groupe ?? "rappel", n = fileAgences.filter((x) => motifs.get(x.id)?.groupe === g).length
+              return <div className={`flex items-baseline justify-between px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] ${g === "lead" ? "text-signature" : g === "campagne" ? "text-attention" : "text-encre-2"}`}><span>{g === "lead" ? "Leads" : g === "campagne" ? "Demandés par les campagnes" : "Rappels du jour"}</span><span className="chiffres font-medium text-encre-2">{n}</span></div>
+            })() : null}
+            <LigneFile motif={motifs?.get(a.id)} agence={a} lead={leads?.get(a.id)} courante={!directeId && i === index} appelee={appelees.has(a.id)} maintenant={dateMaintenant} bloquee={barreVisible && !(i === index && !directeId)} onClick={() => allerA(i)} />
+            </Fragment>
           ))
         )}
       </div>
