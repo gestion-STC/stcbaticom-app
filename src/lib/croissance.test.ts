@@ -1,6 +1,6 @@
 // Le dashboard Croissance (Mahdi, 11/11/2026) : la cadence, les entonnoirs, la réserve.
 import { describe, expect, it } from "vitest"
-import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
+import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
 
 const maintenant = new Date(2026, 10, 11, 12)
 
@@ -57,5 +57,29 @@ describe("le cockpit de la croissance", () => {
     expect(p.leviers[1].ilFaut).toBe(Math.ceil((65 / (6 * 52 / 12)) / 0.05))
     expect(p.global).toBe("retard")
     expect(p.premiersOsParMois).toBe(Math.ceil((65 / (6 * 52 / 12)) * (52 / 12)))
+  })
+})
+
+describe("le cockpit sur les vrais chiffres de STC Bâtiment", () => {
+  const brut = JSON.stringify({
+    calcule_le: "2026-11-11T15:00:00Z", fenetre_jours: 90, agences_actives: 2,
+    mois: [{ mois: "2026-08", ca_agences: 3_000, ca_particuliers: 9_000 }, { mois: "2026-09", ca_agences: 3_000, ca_particuliers: 9_000 }, { mois: "2026-10", ca_agences: 3_000, ca_particuliers: 9_000 }],
+    agences: [{ nom: "A", os_90j: 10, dernier_os_le: "2026-11-10", ca_3_mois: 6_000 }, { nom: "B", os_90j: 2, dernier_os_le: "2026-10-01", ca_3_mois: 0 }],
+  })
+  it("lit les moyennes : chiffre d'affaires réel, part des particuliers, chiffre d'affaires d'une agence active", () => {
+    const r = lireReelStc(brut)!
+    expect(r.agencesActives).toBe(2)
+    expect(r.caMensuel).toBe(12_000)
+    expect(r.caParticuliersMensuel).toBe(9_000)
+    expect(r.caParAgence).toBe(1_000) // 6 000 € en 3 mois, 2 agences actives
+    expect(lireReelStc(null)).toBeNull()
+    expect(lireReelStc("{pas du json")).toBeNull()
+  })
+  it("les agences portent l'objectif moins les particuliers ; le chiffre d'affaires estimé est le réel", () => {
+    const r = lireReelStc(brut)!
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 109_000, caParClient: 4_000 }, { clientsActuels: 2, artisansActifs: 0, tauxClient: null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, r)
+    expect(p.caParClient).toBe(1_000)
+    expect(p.clientsNecessaires).toBe(100) // (109 000 − 9 000) ÷ 1 000
+    expect(p.caEstime).toBe(12_000)
   })
 })

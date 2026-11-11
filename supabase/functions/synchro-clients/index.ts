@@ -10,6 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { candidats, type AgenceRef, type Candidat, type GestionnaireRef } from "./rapprochement.ts"
 import { synchroAvis } from "./avis.ts"
+import { synchroChiffres } from "./chiffres.ts"
 import { estServeur, jetonDe } from "../_shared/acces.ts"
 
 type LigneGestionnaire = {
@@ -102,7 +103,9 @@ Deno.serve(async (req: Request) => {
     }
     // 3) La passerelle des avis : locataires et sous-traitants actifs (11/11/2026).
     const avis = await synchroAvis(sb, urlBatiment, anonBatiment, cle)
-    return json({ ok: true, ...avis, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
+    // 4) Les vrais chiffres du cockpit : agences actives et chiffre d affaires facturé (11/11/2026).
+    const chiffres = await synchroChiffres(sb, urlBatiment, anonBatiment, cle)
+    return json({ ok: true, ...avis, ...chiffres, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
   } catch (e) {
     console.error("[SYNCHRO-CLIENTS]", e)
     return json({ error: String(e) }, 500)
