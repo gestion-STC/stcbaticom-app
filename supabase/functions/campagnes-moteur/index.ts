@@ -28,7 +28,7 @@ import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type Contexte
 import { ETAPE_ALERTE, aAppelerSurOuverture, boitesSaines, envoisDuJour, type AlerteOuverture, type Montee } from "../_shared/campagnes/montee.ts"
 import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
 import { ceQuiMarche, ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
-import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
+import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe, type Mentions, type ReglageArret } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/campagnes/pareFeu.ts"
 import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
 
@@ -95,7 +95,7 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
   return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
 }
 
-type GardeConfig = { ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
+type GardeConfig = { smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
@@ -206,6 +206,7 @@ function ajouterBouton(texte: string, url: string, libelle: string): string {
 async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
+  const gc = (c.config as { garde?: GardeConfig } | null)?.garde, mentions: Mentions = { signature: gc?.signature, libelleLien: gc?.libelleLien }
   const creatifIA = canal === "sms" ? undefined : (((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? []).find((x) => x.variantes?.some((v) => v.id === varianteId)))
   if (creatifIA?.ia?.actif && varianteId && concerneIA(creatifIA.ia, k)) {
     const r = await texteIA(sb, c, creatifIA, creatifIA.ia, varianteId, objet, corps, k)
@@ -240,7 +241,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     }
     const to = test ? String(c.test_email ?? "") : k.email
     if (!to) return { ok: false, saute: test ? "mode test sans mail de test" : "pas de mail" }
-    const html = corpsAvecMentions(`${texte}${sansLien ? `\n\n[Donner mon avis](${lien})` : ""}`, sansStop ? stopAvis : undefined)
+    const html = corpsAvecMentions(`${texte}${sansLien ? `\n\n[Donner mon avis](${lien})` : ""}`, sansStop ? stopAvis : undefined, false, mentions)
     const r = await invoquer(base, service, "envoyer-email", { espace: "demarchage", to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
     return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
   }
@@ -278,10 +279,10 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   if (!varianteId) return { ok: false, saute: "mail sans texte" }
   // Une relance part dans le fil du mail précédent, sauf si le créatif demande un nouveau mail.
   if (leCreatif?.memeFil !== false && !test) {
-    const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId }, k.id, to, sujet, texte, desinscription)
+    const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription)
     if (fil) return fil
   }
-  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: (c.config as { garde?: GardeConfig } | null)?.garde?.suiviOuvertures !== false }, k, to, sujet, texte, varianteId, test, desinscription)
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions }, k, to, sujet, texte, varianteId, test, desinscription)
 }
 
 Deno.serve(async (req: Request) => {
@@ -328,7 +329,7 @@ Deno.serve(async (req: Request) => {
       const depuisArret = Math.max(maintenant.getTime() - 14 * JOUR_MS, arretConfig?.le ? new Date(arretConfig.le).getTime() : 0)
       const nbEnvoyes = envois.filter((e) => e.statut === "envoye" && new Date(e.le).getTime() > depuisArret).length
       const nbRebonds = evenements.filter((e) => e.type === "rebond" && new Date(e.le).getTime() > depuisArret).length
-      if (!ligne.mode_test && doitArreter(nbEnvoyes, nbRebonds)) {
+      if (!ligne.mode_test && doitArreter(nbEnvoyes, nbRebonds, garde?.arret)) {
         await sb.from("cmp_campagnes").update({ statut: "pause", config: { ...((ligne.config as Ligne | null) ?? {}), arret: { le: iso, envois: nbEnvoyes, rebonds: nbRebonds } } }).eq("id", c.id)
         console.warn("[CAMPAGNES-MOTEUR] mise en pause, rebonds", c.nom, nbRebonds, "/", nbEnvoyes)
         continue
@@ -377,7 +378,7 @@ Deno.serve(async (req: Request) => {
       const avis = estBaseAvis(c.baseId)
       const plafondMail = avecMontee ? c.rythme.parJour : garde?.plafondMail ?? PLAFOND_JOUR.mail
       const budget = { mail: plafondMail - (mailsJour ?? 0), sms: (garde?.plafondSms ?? PLAFOND_JOUR.sms) - (smsJour ?? 0) }
-      const hSms = heureParis(maintenant) >= 10 && heureParis(maintenant) < 17
+      const hSms = heureParis(maintenant) >= (garde?.smsDe ?? 10) && heureParis(maintenant) < (garde?.smsA ?? 17)
       let arret = false
       for (const e of ecr.envois) {
         const canal = e.canal === "sms" ? "sms" : "mail"

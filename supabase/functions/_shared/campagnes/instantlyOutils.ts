@@ -33,14 +33,17 @@ const IMAGE = /(<a\b[^>]*>\s*<img\b[^>]*>\s*<\/a>|<img\b[^>]*>)/i
 const estHtml = (s: string) => /<(html|body|table|div|p|a|br)\b/i.test(s.replace(new RegExp(IMAGE.source, "gi"), ""))
 /** Un lien se lit en mots : [Mon texte](adresse), sinon « Cliquez ici ». L'adresse technique ne s'affiche jamais. */
 export const LIBELLE_LIEN = "Cliquez ici"
-const liens = (s: string) => echapper(s).replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/g, (_tout, texte: string | undefined, url: string | undefined, nu: string | undefined) => (url ? `<a href="${url}">${texte}</a>` : `<a href="${nu}">${LIBELLE_LIEN}</a>`))
+const liens = (s: string, libelle: string) => echapper(s).replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/g, (_tout, texte: string | undefined, url: string | undefined, nu: string | undefined) => (url ? `<a href="${url}">${texte}</a>` : `<a href="${nu}">${libelle}</a>`))
 // Une image ajoutée dans le texte reste une image ; tout le reste est du texte.
-const texteEnHtml = (s: string) => s.split(IMAGE).map((morceau, i) => (i % 2 ? morceau : liens(morceau))).join("").replace(/\n/g, "<br/>")
+const texteEnHtml = (s: string, libelle: string) => s.split(IMAGE).map((morceau, i) => (i % 2 ? morceau : liens(morceau, libelle))).join("").replace(/\n/g, "<br/>")
 
 /** Le corps prêt à partir : en HTML, avec la signature, l'adresse postale de STC et le lien de désinscription, jamais en double. */
-export function corpsAvecMentions(texte: string, desinscription?: string, suivi = false): string {
-  const html = estHtml(texte) ? texte : texteEnHtml(texte)
-  const mentions = [suivi && !texte.includes(PHRASE_SUIVI) ? PHRASE_SUIVI : "", texte.includes("78280") ? "" : SIGNATURE_PROSPECTION.replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
+/** La signature et le texte des liens, réglés dans chaque campagne (Mahdi, 11/11/2026). Vides : ceux par défaut. */
+export type Mentions = { signature?: string; libelleLien?: string }
+export function corpsAvecMentions(texte: string, desinscription?: string, suivi = false, m: Mentions = {}): string {
+  const signature = (m.signature ?? "").trim() || SIGNATURE_PROSPECTION, libelle = (m.libelleLien ?? "").trim() || LIBELLE_LIEN
+  const html = estHtml(texte) ? texte : texteEnHtml(texte, libelle)
+  const mentions = [suivi && !texte.includes(PHRASE_SUIVI) ? PHRASE_SUIVI : "", texte.includes("78280") || texte.includes(signature) ? "" : echapper(signature).replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
   if (!mentions) return html
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${mentions}</p></body>`)
   return `${html}<br/><br/>${mentions}`
@@ -68,14 +71,18 @@ export function valeursDe(k: { nom: string; personne: string; champs: Record<str
 
 /** Ce qu'une série de boîtes peut envoyer par jour sans abîmer leur réputation. */
 export const MAILS_PAR_BOITE = 30
-export const capaciteJour = (boites: number) => boites * MAILS_PAR_BOITE
+export const capaciteJour = (boites: number, parBoite = MAILS_PAR_BOITE) => boites * parBoite
 
 /** Les conseils avant d'envoyer : jamais un blocage (Mahdi, 10/11/2026 : « des conseils »). */
 export const JOURS_CHAUFFE = 14
-export function conseilsEnvoi(boites: { email?: string; depuis?: string | null; limite?: number | null }[], parJour: number, maintenant: string): string[] {
+/** Réglables, pour toutes les campagnes (Mahdi, 11/11/2026). */
+export type ReglageBoites = { mailsParBoite: number; joursChauffe: number }
+export const BOITES_DEPART: ReglageBoites = { mailsParBoite: MAILS_PAR_BOITE, joursChauffe: JOURS_CHAUFFE }
+export function conseilsEnvoi(boites: { email?: string; depuis?: string | null; limite?: number | null }[], parJour: number, maintenant: string, r: ReglageBoites = BOITES_DEPART): string[] {
+  const MAILS_PAR_BOITE = r.mailsParBoite, JOURS_CHAUFFE = r.joursChauffe
   if (!boites.length) return ["Conseil : aucune boîte d'envoi n'est prête pour cette cible."]
   const out: string[] = []
-  const capacite = capaciteJour(boites.length)
+  const capacite = capaciteJour(boites.length, MAILS_PAR_BOITE)
   if (parJour > capacite) out.push(`Conseil : ${MAILS_PAR_BOITE} envois par boîte et par jour, soit ${capacite} pour cette cible. Tes campagnes en prévoient ${parJour}.`)
   // La limite d'Instantly vaut pour toutes les campagnes : au-delà de 30 par jour, la boîte s'abîme.
   for (const b of boites) if ((b.limite ?? 0) > MAILS_PAR_BOITE) out.push(`Conseil : dans Instantly, la boîte ${b.email ?? ""} peut envoyer ${b.limite} mails par jour. Règle-la à ${MAILS_PAR_BOITE}.`)
@@ -87,6 +94,9 @@ export function conseilsEnvoi(boites: { email?: string; depuis?: string | null; 
 /** Trop de rebonds : on arrête avant d'abîmer les boîtes. Pas de décision sur moins de 30 envois. */
 export const ENVOIS_MIN_ARRET = 30
 export const TAUX_REBONDS_ARRET = 0.03
-export function doitArreter(envoyes: number, rebonds: number): boolean {
-  return envoyes >= ENVOIS_MIN_ARRET && rebonds / envoyes > TAUX_REBONDS_ARRET
+/** Réglable dans chaque campagne (Mahdi, 11/11/2026). */
+export type ReglageArret = { tauxPct: number; apresEnvois: number }
+export const ARRET_DEPART: ReglageArret = { tauxPct: TAUX_REBONDS_ARRET * 100, apresEnvois: ENVOIS_MIN_ARRET }
+export function doitArreter(envoyes: number, rebonds: number, r: ReglageArret = ARRET_DEPART): boolean {
+  return envoyes >= Math.max(1, r.apresEnvois) && rebonds / envoyes > r.tauxPct / 100
 }

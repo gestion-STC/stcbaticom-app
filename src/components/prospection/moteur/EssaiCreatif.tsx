@@ -32,7 +32,7 @@ export default function EssaiCreatif({ k, cfg, exemple, baseId, campagneNom, cam
         else {
           let corps = v.corps
           if (k.ia?.actif) { const x = await essayerIA({ baseId, campagneNom: campagneNom || "Campagne", objet: v.objet, corps: v.corps, ia: k.ia, nombre: 1 }); corps = appliquerIA(v.corps, k.ia.mode, x.lignes[0]?.texte ?? "") }
-          const m = essaiMail(v.objet, corps, marque, bouton, prospection, exemple); await envoyerEssaiMail(adresse.trim(), m.objet, m.html)
+          const m = essaiMail(v.objet, corps, marque, bouton, prospection, exemple, { signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien }); await envoyerEssaiMail(adresse.trim(), m.objet, m.html)
         }
       }
       setEtat(`Envoyé à ${adresse.trim()}${k.variantes.length > 1 ? ` (${k.variantes.length} versions)` : ""}.`)

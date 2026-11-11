@@ -12,7 +12,7 @@ import { Bandeau, Bouton, Champ, Selecteur, Zone } from "../../../ui"
 import { Bloc, Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { LIBELLE_CONDITION, LIBELLE_ETAPE, type Condition } from "../../../prospection/modele"
 import { MOTIFS_AGENCE, evenementsProposes, typesEtapeProposes, ACTIONS_REPONSE, ATTRIBUTIONS, EVENEMENTS, REPONSES_REGLABLES, actionReponse, type ActionReponse, OPERATEURS, TYPES_FORMULAIRE, TYPES_QUESTION, creatifVide, nid, questionVide, type Action, type ConfigCampagne, type Creatif, type EtapeParcours, type Qualite, type TypeAction, type TypeCreatif } from "../../../prospection/configCampagne"
-import { AB_DEPART, LIBELLE_CRITERE, type CritereAB } from "../../../prospection/abTest"
+import { AB_DEPART, LIBELLE_CRITERE, RESULTATS_MIN, type CritereAB } from "../../../prospection/abTest"
 
 export type MajConfig = (f: (c: ConfigCampagne) => ConfigCampagne) => void
 const ICONE: Record<TypeAction, LucideIcon> = { mail: Mail, sms: MessageSquare, linkedin: UserRoundPlus, newsletter: Newspaper, appel: Phone, attendre: Clock, si: GitBranch, fin: Square }
@@ -77,7 +77,7 @@ function Apercu({ k, cfg }: { k: Creatif; cfg: ConfigCampagne }) {
   if (k.type === "formulaire") return <div className="space-y-3">{k.remplirPar === "commercial" ? <p className="text-colonne text-encre-2">S'affichera sur la fiche, dans la session de call.</p> : null}{k.questions.map((q) => <div key={q.id} className="space-y-1"><p className="text-legende font-medium">{q.libelle || "Question"}{q.requis ? " *" : ""}</p>{q.type === "Oui / Non" ? <div className="flex gap-2"><span className="rounded-full border-[0.5px] border-trait px-3 py-1 text-colonne">Oui</span><span className="rounded-full border-[0.5px] border-trait px-3 py-1 text-colonne">Non</span></div> : <div className={`rounded-4 bg-fond-3 ${q.type === "Texte long" ? "h-14" : "h-8"}`} />}</div>)}<div className="inline-block rounded-full bg-action px-4 py-1.5 text-legende text-white">Envoyer</div></div>
   if (k.type === "avis") return <div className="space-y-3"><h3 className="text-sous-titre font-semibold">{v?.objet || "Titre de la page"}</h3><p className="whitespace-pre-line text-legende">{v?.corps}</p><div className="flex gap-1.5">{[1, 2, 3, 4, 5].map((n) => <span key={n} className="flex h-8 w-8 items-center justify-center rounded-full border-[0.5px] border-trait text-legende">{n}</span>)}</div><p className="text-colonne text-encre-2">Note, commentaire, nom à afficher et autorisation de réutiliser. Après l'envoi, le lien Google est proposé à tout le monde.</p></div>
   if (k.type === "mail") {
-    const a = apercuMail(v?.objet ?? "", v?.corps ?? "", vers ? (k.video ? "Voir la vidéo" : vers.type === "formulaire" ? "Remplir le formulaire" : "En savoir plus") : "", !cfg.creatifs.some((x) => x.type === "avis"))
+    const a = apercuMail(v?.objet ?? "", v?.corps ?? "", vers ? (k.video ? "Voir la vidéo" : vers.type === "formulaire" ? "Remplir le formulaire" : "En savoir plus") : "", !cfg.creatifs.some((x) => x.type === "avis"), undefined, { signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien })
     return <div className="space-y-2"><p className="border-b-[0.5px] border-trait pb-2 text-legende font-medium">{a.objet || "Objet du mail"}</p><iframe title="Aperçu du mail" sandbox="" srcDoc={a.document} className="h-[420px] w-full rounded-4 border-[0.5px] border-trait" /><p className="text-colonne text-encre-2">Tel qu'il arrive, avec des valeurs d'exemple.</p></div>
   }
   const html = (v?.corps ?? "").trimStart().startsWith("<")
@@ -132,10 +132,11 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
             {k.type === "mail" || k.type === "sms" ? <Bouton taille="sm" icone={<Plus />} onClick={() => majK({ variantes: [...k.variantes, { id: nid(), nom: String.fromCharCode(65 + k.variantes.length), objet: "", corps: "" }] })}>Variante (test A/B)</Bouton> : null}
             {(k.type === "mail" || k.type === "sms") && k.variantes.length > 1 ? <div className="space-y-3 rounded-4 border-[0.5px] border-trait p-3">
               <p className="text-legende font-medium">Le test A/B</p>
-              <p className="text-colonne text-encre-2">Chaque contact reçoit toujours la même variante. Le gagnant n'est désigné qu'avec assez d'envois, et si l'écart est net (pas dû au hasard).</p>
-              <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-3">
+              <p className="text-colonne text-encre-2">Chaque contact reçoit toujours la même variante. Le gagnant n'est désigné qu'avec au moins 100 envois par variante, assez de résultats (leads, réponses ou clics), et un écart net (pas dû au hasard).</p>
+              <div className="grid grid-cols-[minmax(0,1fr)_140px_140px] gap-3">
                 <Libelle titre="Ce qui désigne le gagnant" className="!flex flex-col justify-between"><Selecteur value={(k.ab ?? AB_DEPART).critere} onChange={(e) => majK({ ab: { ...(k.ab ?? AB_DEPART), critere: e.target.value as CritereAB } })}>{(Object.keys(LIBELLE_CRITERE) as CritereAB[]).map((x) => <option key={x} value={x}>{LIBELLE_CRITERE[x]}</option>)}</Selecteur></Libelle>
-                <Libelle titre="Envois par variante, au moins" className="!flex flex-col justify-between"><Champ type="number" min={20} value={(k.ab ?? AB_DEPART).minEnvois} onChange={(e) => majK({ ab: { ...(k.ab ?? AB_DEPART), minEnvois: Math.max(20, Number(e.target.value) || 100) } })} /></Libelle>
+                <Libelle titre="Envois par variante, au moins" className="!flex flex-col justify-between"><Champ type="number" min={100} value={(k.ab ?? AB_DEPART).minEnvois} onChange={(e) => majK({ ab: { ...(k.ab ?? AB_DEPART), minEnvois: Math.max(100, Number(e.target.value) || 100) } })} /></Libelle>
+                <Libelle titre="Résultats en tout, au moins" className="!flex flex-col justify-between"><Champ type="number" min={5} value={(k.ab ?? AB_DEPART).minResultats ?? RESULTATS_MIN} onChange={(e) => majK({ ab: { ...(k.ab ?? AB_DEPART), minResultats: Math.max(5, Number(e.target.value) || RESULTATS_MIN) } })} /></Libelle>
               </div>
               <label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(k.ab?.basculer)} onChange={(e) => majK({ ab: { ...(k.ab ?? AB_DEPART), basculer: e.target.checked } })} />Dès qu'il y a un gagnant, tous les envois suivants partent avec lui</label>
             </div> : null}

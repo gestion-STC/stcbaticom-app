@@ -15,7 +15,8 @@ export function pretPourAvis(finLe: string | null | undefined, r: ReglageAvis, m
 }
 
 /** Une note basse remonte à l'équipe, pour rappeler la personne. */
-export const aRappeler = (note: number) => note <= 3
+export const NOTE_RAPPEL_DEPART = 3
+export const aRappeler = (note: number, seuil = NOTE_RAPPEL_DEPART) => note <= seuil
 
 /** Un avis cité dans une campagne : toujours avec sa date, jamais modifié. */
 export function citationAvis(a: { commentaire: string; nomAffiche: string; note: number; creeLe: string }): string {

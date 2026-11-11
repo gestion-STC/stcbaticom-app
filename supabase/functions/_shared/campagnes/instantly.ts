@@ -5,7 +5,7 @@
 // la première fois. Ajouter un contact à cette campagne, c'est demander l'envoi. Le texte, déjà personnalisé par le
 // moteur (liens signés), voyage dans les variables du contact. Baticom reste le seul à décider qui reçoit quoi et quand.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { boitePrete, boitesDe, corpsAvecMentions, horaireInstantly } from "./instantlyOutils.ts"
+import { boitePrete, boitesDe, corpsAvecMentions, horaireInstantly, type Mentions } from "./instantlyOutils.ts"
 
 const API = "https://api.instantly.ai/api/v2"
 const CLE_CARTE = "instantly_campagnes"
@@ -69,7 +69,7 @@ export async function preparerInstantly(sb: SupabaseClient, base: string, mainte
 }
 
 type Rythme = { jours: number[]; heureMin: number; heureMax: number }
-async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean }, cleVariante: string): Promise<{ id?: string; erreur?: string }> {
+async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean; mentions?: Mentions }, cleVariante: string): Promise<{ id?: string; erreur?: string }> {
   const cleCarte = `${c.id}:${cleVariante}`
   if (ins.carte[cleCarte]) return { id: ins.carte[cleCarte] }
   const cree = await appelInstantly(ins.cle, "/campaigns", { corps: {
@@ -87,20 +87,20 @@ async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, 
 }
 
 /** Confie un mail à Instantly. Il part dans la plage horaire de la campagne. */
-export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean }, k: { id: string; nom: string; personne: string }, to: string, objet: string, texte: string, varianteId: string, test: boolean, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string }> {
+export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean; mentions?: Mentions }, k: { id: string; nom: string; personne: string }, to: string, objet: string, texte: string, varianteId: string, test: boolean, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string }> {
   if (!ins.cle) return { ok: false, erreur: "Instantly n'est pas configuré" }
   const camp = await campagneDeLaVariante(sb, ins, c, varianteId)
   if (!camp.id) return { ok: false, erreur: camp.erreur }
   const r = await appelInstantly(ins.cle, "/leads", { corps: {
     campaign: camp.id, email: to, first_name: k.personne || null, company_name: k.nom || null, skip_if_in_campaign: !test, verify_leads_on_import: false, // l'adresse est déjà vérifiée par Baticom (verification.ts)
-    custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription, true), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
+    custom_variables: { bt_objet: objet, bt_corps: corpsAvecMentions(texte, desinscription, true, c.mentions), bt_contact: k.id, bt_campagne: c.id, bt_base: c.baseId, bt_test: test ? "1" : "0" },
   } })
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé le contact (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
   return { ok: true, fournisseurId: String(r.data?.id ?? "") }
 }
 
 /** Une relance : une réponse au dernier mail envoyé à ce contact, dans le même fil. Rien à quoi répondre : null, et le mail part normalement. */
-export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; baseId: string }, contact: string, to: string, objet: string, texte: string, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string } | null> {
+export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; baseId: string; mentions?: Mentions }, contact: string, to: string, objet: string, texte: string, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string } | null> {
   if (!ins.cle) return null
   const { data: envois } = await sb.from("cmp_envois").select("fournisseur_id").eq("campagne_id", c.id).eq("contact_ref", contact).eq("statut", "envoye").eq("test", false).not("fournisseur_id", "is", null).order("le", { ascending: false }).limit(1)
   const id = (envois?.[0] as { fournisseur_id?: string } | undefined)?.fournisseur_id
@@ -109,7 +109,7 @@ export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantl
   const m = mail as { de?: string; objet?: string } | null
   if (!m?.de) return null
   const sujet = m.objet ? (/^re\s*:/i.test(m.objet) ? m.objet : `Re: ${m.objet}`) : objet
-  const html = corpsAvecMentions(texte, desinscription, true)
+  const html = corpsAvecMentions(texte, desinscription, true, c.mentions)
   const r = await appelInstantly(ins.cle, "/emails/reply", { corps: { reply_to_uuid: id, eaccount: m.de, subject: sujet, body: { html, text: texte } } })
   if (!r.ok) return { ok: false, erreur: `Instantly a refusé la relance (${r.status}) ${String(r.data?.message ?? "").slice(0, 120)}` }
   const nouveau = String(r.data?.id ?? "")
