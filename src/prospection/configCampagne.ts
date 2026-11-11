@@ -10,6 +10,7 @@
 import type { Campagne, Condition, Etape, Signal, Variante } from "./modele"
 import type { ReglageIA } from "./ia"
 import type { ReglageAvis } from "./avis"
+import type { ReglageArret } from "./instantlyOutils"
 import { AB_DEPART, type ReglageAB } from "./abTest"
 import { MONTEE_DEFAUT, type AlerteOuverture, type Montee } from "./montee"
 
@@ -24,7 +25,7 @@ export type Qualite = { id: string; niveau: string; source: "question" | "etape"
 /** Ce que fait une réponse au mail, selon le tri de l'IA (Mahdi, 11/11/2026). */
 export type ActionReponse = "lead" | "dead" | "rien"
 export type Qualification = { /** Absent : le réglage par défaut. */ reponses?: Partial<Record<string, ActionReponse>>; interet: Regle[]; etapes: EtapeParcours[]; leadA: string; gagneA: string; qualites: Qualite[]; attribution: string; /** « Une personne précise » : la première ; « Chacun son tour » : toutes. */ attributionIds?: string[]; delaiH: number; motifs: string[]; relanceMois: number }
-export type Garde = { ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
+export type Garde = { /** Heures des SMS (10 h-17 h par défaut). */ smsDe?: number; smsA?: number; /** Pause automatique sur les rebonds. */ arret?: ReglageArret; /** Absent sans date de retour : reprise après N jours (7). */ pauseAbsentJours?: number; signature?: string; libelleLien?: string; ecartCampagnes: number; exclusions: string[]; plafondMail: number; plafondSms: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 export type ConfigCampagne = { /** Campagne d'avis : quand demander. */ avis?: ReglageAvis; v: 1; creatifs: Creatif[]; actions: Action[]; zones: string[]; qualification: Qualification; garde: Garde }
 
 export const ORIGINE_TRACABILITE = "tracabilite"
