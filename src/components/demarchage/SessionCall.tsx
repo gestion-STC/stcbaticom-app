@@ -63,6 +63,7 @@ import BlocNumeros from "./session/BlocNumeros"
 import ColonneFil from "./session/ColonneFil"
 import ColonneFile from "./session/ColonneFile"
 import EnTeteSession, { PilesSession } from "./session/EnTeteSession"
+import type { MotifAppel } from "./session/morceaux"
 import FicheEnCours from "./session/FicheEnCours"
 import ScriptAppel from "./session/ScriptAppel"
 import { CONTACT_VIDE, appelNonNote, horsDeLaPile, messageDe, type AppelEnCours, type Dictee } from "./session/outils"
@@ -79,10 +80,11 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
 
   // ── Les deux bases (Mahdi, 06/11/2026) : les LEADS (ils se sont manifestés, à appeler dans l'heure)
   // et la PROSPECTION (c'est nous qui allons vers eux, par piles). Une seule session, deux files.
-  // Trois onglets, dans l'ordre de priorité (Mahdi, 11/11/2026) : Leads, À rappeler (rappels du jour ET appels
-  // demandés par les campagnes), Prospection.
-  const [mode, setMode] = useState<"leads" | "rappels" | "prospection">("prospection")
+  // Deux onglets (Mahdi, 11/11/2026) : « À appeler aujourd'hui » (les leads, puis les appels demandés par les
+  // campagnes, puis les rappels du jour, dans une seule file) et « Prospection ».
+  const [mode, setMode] = useState<"aujourdhui" | "prospection">("prospection")
   const [nbCampagne, setNbCampagne] = useState(0)
+  const [motifs, setMotifs] = useState<Map<string, MotifAppel>>(() => new Map())
   const [leadsParAgence, setLeadsParAgence] = useState<Map<string, Lead>>(() => new Map())
   const [nbLeads, setNbLeads] = useState<number | null>(null)
   const modeRef = useRef(mode)
@@ -312,8 +314,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     // Le matin (Mahdi, 10/10) : d'abord les leads s'il y en a (06/11), puis « À rappeler aujourd'hui », puis « À prospecter ».
     if (premierReperes.current) {
       premierReperes.current = false
-      if (nl && nl > 0) setMode("leads")
-      else if (cpt && cpt.rappels > 0) setMode("rappels")
+      if ((nl && nl > 0) || (cpt && cpt.rappels > 0)) setMode("aujourdhui")
     }
     setAppelees(app)
     setCompteursNumero(parNumero)
@@ -348,19 +349,28 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // déjà appelées. LA BASE la calcule (pile_demarchage : l'ordre, le repos, un numéro = un appel
   // par jour, la base de chacun) ; l'écran l'affiche telle quelle. Une étape choisie = TOUTES les
   // agences de cette étape, quelle que soit la pile (Mahdi, 09/10 : « je ne vois pas mes intéressés »).
-  // « À rappeler » : d'abord les appels demandés par les campagnes (un contact chaud), puis les rappels du jour.
-  const fileARappeler = useCallback(async (): Promise<{ agence: Agence; lead: Lead | null }[]> => {
-    const [pile, taches] = await Promise.all([
+  // « À appeler aujourd'hui » : les leads (le plus ancien d'abord), puis les appels demandés par les campagnes, puis
+  // les rappels datés d'aujourd'hui ou en retard. Une agence n'y est qu'une fois, dans son groupe le plus urgent.
+  const fileAujourdhui = useCallback(async (): Promise<{ agence: Agence; lead: Lead | null }[]> => {
+    const [leads, pile, taches] = await Promise.all([
+      chargerLeads(proprietaireLeads),
       chargerPile("rappels", { proprietaire, etape: "", secteur: null, sourcage, inclureAppelees: inclureDejaAppelees }),
       chargerTachesCampagne().catch(() => [] as TacheCampagne[]),
     ])
-    const demandes = [...new Set(taches.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moiId, admin, ["demarchage"])).map((t) => t.contactRef))]
-    setNbCampagne(demandes.length)
+    const demandesTaches = taches.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moiId, admin, ["demarchage"]))
+    const vus = new Set(leads.map((l) => l.agence.id))
+    const demandes = [...new Set(demandesTaches.map((t) => t.contactRef))].filter((id) => !vus.has(id))
     const parId = new Map(pile.map((a) => [a.id, a]))
-    const enTete = (await Promise.all(demandes.map((id) => parId.get(id) ?? chargerAgence(id).then((c) => c.agence).catch(() => null)))).filter((a): a is Agence => Boolean(a))
-    const vus = new Set(enTete.map((a) => a.id))
-    return [...enTete, ...pile.filter((a) => !vus.has(a.id))].map((agence) => ({ agence, lead: null }))
-  }, [proprietaire, sourcage, inclureDejaAppelees, moiId, admin])
+    const campagnes = (await Promise.all(demandes.map((id) => parId.get(id) ?? chargerAgence(id).then((c) => c.agence).catch(() => null)))).filter((a): a is Agence => Boolean(a))
+    for (const a of campagnes) vus.add(a.id)
+    const rappels = pile.filter((a) => !vus.has(a.id))
+    const m = new Map<string, MotifAppel>()
+    for (const l of leads) m.set(l.agence.id, { groupe: "lead", texte: l.lead.signal })
+    for (const a of campagnes) { const t = demandesTaches.find((x) => x.contactRef === a.id); m.set(a.id, { groupe: "campagne", texte: [`Campagne « ${t?.campagneNom ?? ""} »`, t?.consigne, t?.appelStandard ? "appeler le standard" : ""].filter(Boolean).join(" · ") }) }
+    for (const a of rappels) m.set(a.id, { groupe: "rappel", texte: "" })
+    setMotifs(m); setNbCampagne(campagnes.length); setNbLeads(leads.length)
+    return [...leads.map((l) => ({ agence: l.agence, lead: l.lead as Lead | null })), ...campagnes.map((agence) => ({ agence, lead: null })), ...rappels.map((agence) => ({ agence, lead: null }))]
+  }, [proprietaire, proprietaireLeads, sourcage, inclureDejaAppelees, moiId, admin])
 
   const chargerLaFile = useCallback(async () => {
     if (!moiId) return // la base n'est connue qu'avec le compte
@@ -369,10 +379,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     try {
       // Mode Leads : la file des leads ouverts de la base choisie, le plus ancien d'abord (la base les ordonne).
       const [lus, app] = await Promise.all([
-        mode === "leads"
-          ? chargerLeads(proprietaireLeads)
-          : mode === "rappels"
-          ? fileARappeler()
+        mode === "aujourdhui"
+          ? fileAujourdhui()
           : (fichierSession ? contactsEnCampagne().then((x) => chargerAgencesDuFichier(fichierSession, x)) : chargerPile(file, { proprietaire, etape: etapeFiltre as Agence["etape"] | "", secteur: secteurDuJour || null, sourcage, inclureAppelees: inclureDejaAppelees })).then((l) => l.map((agence) => ({ agence, lead: null as Lead | null }))),
         agencesAppeleesAujourdHui(new Date()),
       ])
@@ -380,14 +388,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       setAppelees(app)
       setFileAgences(lus.map((x) => x.agence))
       setLeadsParAgence(new Map(lus.flatMap((x) => (x.lead ? [[x.agence.id, x.lead] as const] : []))))
-      if (mode === "leads") setNbLeads(lus.length)
       setIndex(0)
     } catch (e) {
       if (enVie.current) setErreur(`Lecture de la file : ${messageDe(e)}`)
     } finally {
       if (enVie.current && jeton === jetonFile.current) setChargementFile(false)
     }
-  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, proprietaireLeads, moiId, fichierSession, fileARappeler])
+  }, [mode, file, secteurDuJour, etapeFiltre, sourcage, inclureDejaAppelees, proprietaire, moiId, fichierSession, fileAujourdhui])
 
   useEffect(() => {
     enVie.current = true
@@ -522,7 +529,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       const i = arr.findIndex((x) => x.id === c.agence.id)
       if (i < 0) return
       // En mode Leads, la base ferme le lead elle-même : la file des leads se relit après le résultat.
-      if (modeRef.current === "leads" || !horsDeLaPile(c.agence, pileRef.current, etapeFiltreRef.current)) {
+      if (modeRef.current !== "prospection" || !horsDeLaPile(c.agence, pileRef.current, etapeFiltreRef.current)) {
         setFileAgences(arr.map((x) => (x.id === c.agence.id ? { ...x, ...c.agence, numeroEmission: c.agence.numeroEmission || x.numeroEmission } : x)))
         return
       }
@@ -1111,7 +1118,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   }
 
   // Changer de base (Leads ↔ Prospection) : jamais pendant une session ou un résultat à noter.
-  const changerMode = (m: "leads" | "rappels" | "prospection") => {
+  const changerMode = (m: "aujourdhui" | "prospection") => {
     if (m === mode) return
     if (enCours || barreVisible || bloquantRef.current) { setErreur("Arrête la session et note le résultat en cours avant de changer de file."); return }
     setDirecteId(null)
@@ -1139,7 +1146,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           index={index}
           fileAgences={fileAgences}
           file={file}
-          leads={mode === "leads" ? leadsParAgence : null}
+          leads={mode === "aujourdhui" ? leadsParAgence : null}
+          motifs={mode === "aujourdhui" ? motifs : undefined}
           recherche={recherche}
           setRecherche={setRecherche}
           resultats={resultats}
@@ -1176,20 +1184,19 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           valeur={mode}
           onChange={changerMode}
           options={[
-            { id: "leads", label: "Leads", badge: nbLeads ?? undefined },
-            { id: "rappels", label: "À rappeler", badge: compteurs ? (mode === "rappels" && !chargementFile ? fileAgences.length : compteurs.rappels + nbCampagne) : undefined },
+            { id: "aujourdhui", label: "À appeler aujourd'hui", badge: mode === "aujourdhui" && !chargementFile ? fileAgences.length : (nbLeads ?? 0) + (compteurs?.rappels ?? 0) + nbCampagne || undefined },
             { id: "prospection", label: "Prospection", badge: compteurs?.a_prospecter },
           ]}
         />
         <span className="chiffres pb-2.5 text-colonne text-encre-2">
-          {enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : mode === "leads" ? "Ils se sont manifestés : à appeler dans l'heure" : mode === "rappels" ? "Les appels demandés par les campagnes, puis les rappels du jour" : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile` : "C'est nous qui allons vers eux"}
+          {enCours ? `Session en cours · ${Math.min(index + 1, fileAgences.length)} / ${fileAgences.length}${auto ? " · mode automatique" : ""}` : mode === "aujourdhui" ? "Tout ce qui doit être appelé aujourd'hui, par priorité" : etapeFiltre ? `Étape « ${libelleEtape(etapeFiltre)} » : toutes les agences de cette étape, quelle que soit la pile` : "C'est nous qui allons vers eux"}
         </span>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         {mode === "prospection" ? (
           <PilesSession sans={["rappels"]} file={file} setFile={setFile} etapeFiltre={etapeFiltre} chargementFile={chargementFile} nbFile={fileAgences.length} compteurs={compteurs} bloque={enCours || barreVisible} />
         ) : (
-          <span className="text-legende text-encre-2">{mode === "rappels" ? "Campagnes d'abord, puis les rappels datés d'aujourd'hui ou en retard" : "Le plus ancien d'abord · objectif : moins d'une heure"}</span>
+          <span className="text-legende text-encre-2">{"Les leads d'abord (moins d'une heure), puis les campagnes, puis les rappels du jour"}</span>
         )}
         <div className="flex flex-wrap items-center gap-2">
           {mode === "prospection" ? <ChoixFichierSession espace="demarchage" moiId={moiId} admin={admin} valeur={fichierSession} onChange={setFichierSession} /> : null}
@@ -1251,10 +1258,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           {!agenceCouranteId ? (
             <div className="py-16">
               {fileTerminee ? (
-                mode === "rappels" ? (
-                  <Vide titre="Plus rien à rappeler" texte="Les appels des campagnes et les rappels du jour sont faits." action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
-                ) : mode === "leads" ? (
-                  <Vide titre="Plus aucun lead à traiter" texte="Le prochain apparaîtra ici dès qu'une agence se manifeste." action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
+                mode === "aujourdhui" ? (
+                  <Vide titre="Tout est appelé pour aujourd'hui" texte="Les leads, les demandes des campagnes et les rappels du jour sont faits." action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
                 ) : (
                   <Vide
                     titre="Pile terminée"
@@ -1267,10 +1272,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                     }
                   />
                 )
-              ) : mode === "rappels" && !chargementFile && fileAgences.length === 0 ? (
-                <Vide titre="Rien à rappeler" texte="Aucun rappel daté d'aujourd'hui ou en retard, et aucun appel demandé par une campagne." action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
-              ) : mode === "leads" && !chargementFile && fileAgences.length === 0 ? (
-                <Vide titre={nbLeads === null ? "Les leads ne sont pas encore installés" : "Aucun lead à traiter"} texte={nbLeads === null ? "La base des leads n'est pas encore en place : la prospection marche comme avant." : "Le prochain apparaîtra ici dès qu'une agence se manifeste (compte, page « Créer un compte », réponse à un mail, plaquette ouverte 2 fois)."} action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
+              ) : mode === "aujourdhui" && !chargementFile && fileAgences.length === 0 ? (
+                <Vide titre="Rien à appeler aujourd'hui" texte="Ni lead, ni demande de campagne, ni rappel du jour." action={<Bouton variante="plein" icone={<ChevronRight />} onClick={() => changerMode("prospection")}>Passer à la prospection</Bouton>} />
               ) : (
                 <Vide titre="Aucune agence en cours" texte={chargementFile ? "La file se charge…" : "Choisis une file, ou cherche une agence pour l'appeler directement."} />
               )}
@@ -1284,7 +1287,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
               <div className="flex justify-end"><BoutonNePlusContacter key={fiche.agence.id} action={() => nePlusContacterAgence(fiche.agence.id)} onFait={() => { setDirecteId(null); void chargerLaFile() }} /></div>
               <FicheEnCours
                 fiche={fiche}
-                lead={mode === "leads" ? leadsParAgence.get(fiche.agence.id) : undefined}
+                lead={mode === "aujourdhui" ? leadsParAgence.get(fiche.agence.id) : undefined}
                 maintenant={dateMaintenant}
                 ouvrirAgence={ouvrirAgence}
                 directeId={directeId}
@@ -1379,7 +1382,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         <div className="fixed inset-0 z-40 flex bg-encre/20" onClick={() => setTiroir(false)}>
           <div className="h-full w-[300px] max-w-[85vw] bg-fond p-4 shadow-flottante" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <b className="text-legende font-medium text-encre">{mode === "leads" ? "Leads à traiter" : mode === "rappels" ? "À rappeler" : "La file"}</b>
+              <b className="text-legende font-medium text-encre">{mode === "aujourdhui" ? "À appeler aujourd'hui" : "La file"}</b>
               <Bouton taille="icone" variante="discret" icone={<X />} aria-label="Fermer" onClick={() => setTiroir(false)} />
             </div>
             <div className="h-[calc(100%-44px)]">{laFile}</div>
