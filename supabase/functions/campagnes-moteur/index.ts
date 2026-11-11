@@ -209,7 +209,7 @@ function ajouterBouton(texte: string, url: string, libelle: string): string {
 async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: string, texte: string, test: boolean): Promise<Resultat> {
   if (test) return { ok: false, saute: "mode essai : rien ne part sur LinkedIn" }
   if (!unipileBranche()) return { ok: false, reporte: true }
-  const comptes = await comptesLinkedIn(sb)
+  const comptes = await comptesLinkedIn()
   const choisi = (c.config as { linkedinCompte?: string } | null)?.linkedinCompte
   const compte = comptes.find((x) => x.id === choisi) ?? comptes[0]
   if (!compte) return { ok: false, reporte: true }
@@ -221,16 +221,16 @@ async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: s
   const propre = texte.replace(/<[^>]+>/g, " ").replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 : $2").replace(/[ \t]+\n/g, "\n").trim()
   if (mode === "invitation") {
     if (p.enRelation) return { ok: false, saute: "déjà en relation sur LinkedIn", connexion: true }
-    const r = await appelUnipile("/api/v1/users/invite", { json: { provider_id: p.providerId, account_id: compte.id, ...(propre ? { message: noteInvitation(propre) } : {}) } })
-    if (r.ok) return { ok: true, fournisseurId: `${p.providerId}|${String(r.data.invitation_id ?? "")}` }
-    if (/already_connected/.test(r.type)) return { ok: false, saute: "déjà en relation sur LinkedIn", connexion: true }
+    const r = await appelUnipile(`/${encodeURIComponent(compte.id)}/users/me/relation-requests`, { json: { user_id: p.providerId, ...(propre ? { message: noteInvitation(propre) } : {}) } })
+    if (r.ok) return { ok: true, fournisseurId: `${p.providerId}|${String(r.data.id ?? "")}` }
+    if (/already_connected|already_related|existing_relation/.test(r.type)) return { ok: false, saute: "déjà en relation sur LinkedIn", connexion: true }
     if (estAttenteLinkedIn(r.status, r.type)) return { ok: false, reporte: true }
     if (estSautLinkedIn(r.type)) return { ok: false, saute: /already_invited/.test(r.type) ? "déjà invité récemment" : "invitation impossible (refusée ou profil fermé)" }
     return { ok: false, erreur: `LinkedIn (${r.status}) ${r.type}` }
   }
   if (!p.enRelation) return { ok: false, saute: "pas en relation sur LinkedIn" }
   if (!propre) return { ok: false, saute: "message LinkedIn vide" }
-  const r = await appelUnipile("/api/v1/chats", { form: { account_id: compte.id, attendees_ids: p.providerId, text: propre } })
+  const r = await appelUnipile(`/${encodeURIComponent(compte.id)}/chats/send`, { json: { users_ids: p.providerId, text: propre } })
   if (r.ok) return { ok: true, fournisseurId: `${p.providerId}|${String(r.data.chat_id ?? "")}` }
   if (estAttenteLinkedIn(r.status, r.type)) return { ok: false, reporte: true }
   return { ok: false, erreur: `LinkedIn (${r.status}) ${r.type}` }
