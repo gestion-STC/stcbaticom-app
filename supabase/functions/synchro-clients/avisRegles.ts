@@ -2,9 +2,8 @@
 // Fichier PUR, testé par vitest.
 
 export type LigneAvisStc = { ref: string; public: "locataires" | "sous_traitants_actifs"; nom: string; personne: string; email: string; telephone: string; fin_le: string | null; detail: string }
-/** Un locataire est sollicité quelques jours après la fin de son chantier, et pas pour un chantier trop ancien. */
-export const DELAI_APRES_FIN_JOURS = 3
-export const FENETRE_JOURS = 120
+/** La synchro ramène les chantiers finis depuis moins d'un an, dès la fin ; le délai se règle dans chaque campagne d'avis. */
+export const FENETRE_JOURS = 365
 const JOUR = 86_400_000
 
 export function aSolliciter(lignes: LigneAvisStc[], maintenant: Date): LigneAvisStc[] {
@@ -13,7 +12,7 @@ export function aSolliciter(lignes: LigneAvisStc[], maintenant: Date): LigneAvis
     if (l.public === "sous_traitants_actifs") return true
     if (!l.fin_le) return false
     const age = (maintenant.getTime() - new Date(l.fin_le).getTime()) / JOUR
-    return age >= DELAI_APRES_FIN_JOURS && age <= FENETRE_JOURS
+    return age >= 0 && age <= FENETRE_JOURS
   })
 }
 

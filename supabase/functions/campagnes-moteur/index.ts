@@ -30,7 +30,7 @@ import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared
 import { ceQuiMarche, ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/campagnes/pareFeu.ts"
-import { estBaseAvis } from "../_shared/campagnes/avis.ts"
+import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -352,7 +352,14 @@ Deno.serve(async (req: Request) => {
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
       const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun)
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
-      const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
+      // Campagne d'avis des locataires : chacun entre au moment réglé après la fin de son chantier.
+      const pasPrets = new Set<string>()
+      if (c.baseId === "locataires") {
+        const r = (ligne.config as { avis?: ReglageAvis } | null)?.avis ?? AVIS_DEPART
+        const fins = await tout<{ id: string; fin_le: string | null }>((d, f) => sb.from("avis_contacts").select("id, fin_le").eq("public", "locataires").order("id").range(d, f))
+        for (const x of fins) if (!pretPourAvis(x.fin_le, r, maintenant)) pasPrets.add(String(x.id))
+      }
+      const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !pasPrets.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
       const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle)
       bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
       const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, parContact)

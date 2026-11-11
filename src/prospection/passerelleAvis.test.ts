@@ -7,10 +7,10 @@ const jours = (n: number) => new Date(maintenant.getTime() - n * 86_400_000).toI
 const l = (p: Partial<LigneAvisStc>): LigneAvisStc => ({ ref: "os:1", public: "locataires", nom: "Claire Dubois", personne: "Claire Dubois", email: "claire@exemple.fr", telephone: "", fin_le: jours(5), detail: "", ...p })
 
 describe("à qui demander un avis", () => {
-  it("un locataire : quelques jours après la fin du chantier, et pas pour un chantier trop ancien", () => {
-    expect(aSolliciter([l({ fin_le: jours(1) })], maintenant)).toHaveLength(0)
-    expect(aSolliciter([l({ fin_le: jours(5) })], maintenant)).toHaveLength(1)
-    expect(aSolliciter([l({ fin_le: jours(200) })], maintenant)).toHaveLength(0)
+  it("un locataire : dès la fin du chantier (la campagne choisit quand), pas au-delà d'un an", () => {
+    expect(aSolliciter([l({ fin_le: jours(0) })], maintenant)).toHaveLength(1)
+    expect(aSolliciter([l({ fin_le: jours(200) })], maintenant)).toHaveLength(1)
+    expect(aSolliciter([l({ fin_le: jours(400) })], maintenant)).toHaveLength(0)
     expect(aSolliciter([l({ fin_le: null })], maintenant)).toHaveLength(0)
   })
   it("sans mail ni téléphone, personne ; un téléphone seul suffit (SMS)", () => {

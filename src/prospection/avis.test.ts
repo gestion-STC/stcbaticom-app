@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { aRappeler, citationAvis, estBaseAvis } from "./avis"
+import { AVIS_DEPART, aRappeler, citationAvis, estBaseAvis, pretPourAvis } from "./avis"
 import ecran from "./avis.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/avis.ts?raw"
 
@@ -7,6 +7,14 @@ describe("les avis", () => {
   it("le serveur a la même copie que l'écran", () => {
     const n = (s: string) => s.replace(/\r\n/g, "\n")
     expect(n(serveur)).toBe(n(ecran))
+  })
+  it("le délai après la fin du chantier se règle", () => {
+    const m = new Date("2026-11-11T10:00:00Z"), il = (j: number) => new Date(m.getTime() - j * 86_400_000).toISOString()
+    expect(pretPourAvis(il(1), AVIS_DEPART, m)).toBe(false)
+    expect(pretPourAvis(il(4), AVIS_DEPART, m)).toBe(true)
+    expect(pretPourAvis(il(150), AVIS_DEPART, m)).toBe(false)
+    expect(pretPourAvis(il(0.1), { delaiJours: 0, fenetreJours: 120 }, m)).toBe(true)
+    expect(pretPourAvis(null, AVIS_DEPART, m)).toBe(true)
   })
   it("reconnaît les bases d'avis", () => {
     expect(estBaseAvis("locataires")).toBe(true)
