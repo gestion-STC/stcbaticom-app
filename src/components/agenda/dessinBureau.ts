@@ -34,3 +34,11 @@ export function couleurDePersonne(id?: string | null): string {
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
   return PALETTE[h % PALETTE.length]
 }
+
+// La boîte de réception de STC Bâtiment (src/pages/admin/AdminOrdresServicePage.tsx, 11/11/2026) :
+// le rond d'outil, le menu « ⋯ », le filtre en pilule grise et la bascule noire quand elle est allumée.
+export const OUTIL = "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#3C3C40] hover:bg-[#F2F2F4] disabled:opacity-50"
+export const MENU = "rounded-[10px] border-[0.5px] border-[#E6E6EA] bg-white p-1 shadow-[0_8px_24px_rgba(17,17,19,.08)]"
+export const FILTRE = "h-7 w-full gap-1.5 rounded-full border-0 bg-[#F2F2F4] px-2.5 text-[13px] shadow-none outline-none"
+/** Un filtre du quotidien, en pilule : noir quand il est allumé. */
+export const bascule = (on: boolean) => `h-[26px] whitespace-nowrap rounded-full border-[0.5px] px-3 text-[13px] ${on ? "border-[#111113] bg-[#111113] text-white" : "border-[#E4E4E7] bg-white text-[#111113] hover:bg-[#FAFAFB]"}`
