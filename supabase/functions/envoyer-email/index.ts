@@ -18,6 +18,7 @@
 // ⚠ Ce fichier est LA version déployée (v4 du 09/07/2026 + le point ci-dessus).
 // L'ancienne copie du dépôt (contrat A seul) ne correspondait plus à la prod.
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { estServeur, jetonDe, membre } from "../_shared/acces.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -74,6 +75,9 @@ function signatureStc(nomBrut: string): string {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405);
+  // Sécurité (11/11/2026) : seuls un membre de l'équipe ou le serveur envoient un mail depuis notre domaine.
+  const jetonAppel = jetonDe(req);
+  if (!(await estServeur(jetonAppel)) && !(await membre(jetonAppel))) return json({ error: "non autorisé" }, 401);
   try {
     const cle = Deno.env.get("RESEND_API_KEY");
     if (!cle) return json({ error: "Clé Resend non configurée (secret RESEND_API_KEY)." }, 500);

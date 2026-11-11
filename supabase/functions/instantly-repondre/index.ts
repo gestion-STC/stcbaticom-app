@@ -13,7 +13,7 @@ Deno.serve(async (req: Request) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   const jeton = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "")
   const { data: u } = await sb.auth.getUser(jeton)
-  if (!u?.user) return json({ error: "Connexion requise." }, 401)
+  if (!u?.user || !["admin", "telepro"].includes(String(u.user.app_metadata?.role ?? ""))) return json({ error: "Connexion requise." }, 401)
   const cle = Deno.env.get("INSTANTLY_API_KEY") ?? ""
   if (!cle) return json({ error: "Instantly n'est pas configuré." }, 500)
   try {
