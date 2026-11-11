@@ -56,6 +56,6 @@ export function peutAgirLinkedIn(r: ReglageLinkedIn, faitsAujourdhui: number, fa
 }
 
 /** Les réponses d'Unipile qui veulent dire « on réessaiera plus tard » (plafond LinkedIn, trop de demandes). */
-export const estAttenteLinkedIn = (statut: number, type: string) => statut === 429 || /cannot_resend_yet|limit_exceeded|connection_limit_reached|too_many_requests|no_client_session|network_down|service_unavailable|request_timeout/.test(type)
+export const estAttenteLinkedIn = (statut: number, type: string) => statut === 429 || statut === 503 || statut === 504 || /cannot_resend_yet|limit|too_many_requests|no_client_session|network_down|service_unavailable|request_timeout|retry/.test(type)
 /** Celles qui veulent dire « inutile, on passe » (déjà en relation, invitation refusée, profil introuvable). */
-export const estSautLinkedIn = (type: string) => /already_connected|already_invited_recently|cannot_invite_attendee|invalid_recipient|resource_not_found|invalid_resource_identifier/.test(type)
+export const estSautLinkedIn = (type: string) => /already|cannot_invite|invalid_recipient|not_found|invalid_resource_identifier|user_not_found/.test(type)

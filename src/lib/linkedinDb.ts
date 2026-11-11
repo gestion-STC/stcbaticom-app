@@ -15,7 +15,7 @@ async function appeler<T>(body: Record<string, unknown>): Promise<T> {
   return data as T
 }
 
-/** Les comptes branchés, avec leur état chez Unipile (OK, CREDENTIALS = à reconnecter…). */
+/** Les comptes branchés, avec leur état chez Unipile (running = branché, disconnected = à reconnecter…). */
 export const etatLinkedIn = () => appeler<{ branche: boolean; comptes: CompteLinkedIn[] }>({ action: "etat" })
 /** La page Unipile où le titulaire du compte se connecte lui-même à LinkedIn. */
 export const lienConnexionLinkedIn = async () => (await appeler<{ url: string }>({ action: "lien" })).url
