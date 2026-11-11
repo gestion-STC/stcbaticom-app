@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { Bandeau as BandeauAlerte, Champ, Chargement } from "../../ui"
 import { FENETRE, PIED_FENETRE, PILULE_CLAIRE, PILULE_NOIRE } from "../agenda/dessinBureau"
 import EnDirect from "./EnDirect"
+import Annee from "./Annee"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Table, Variation } from "../demarchage/aujourdhui/courtier"
 import { fr } from "../demarchage/aujourdhui/outils"
@@ -215,6 +216,9 @@ export default function Croissance() {
               ) : null}
             </Chapitre>
           ) : null}
+
+          {/* ═══ L ANNÉE ═══ */}
+          <Annee ca={reel ? { mois: reel.mois, v: reel.caParMois } : null} />
 
           {/* ═══ LE MOIS ═══ */}
           <Chapitre id="mois" titre="Le mois" sous="Où en est le démarchage des gestionnaires et le recrutement des artisans, ce mois-ci comparé au mois dernier.">

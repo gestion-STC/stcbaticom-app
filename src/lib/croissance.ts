@@ -119,6 +119,8 @@ export type ReelStc = {
   caParAgence: number; moisActifs: number
   /** Facturé HT réel par mois, moyenne des 3 derniers mois complets ; part des particuliers (moyenne des 6 mois). */
   caMensuel: number; caParticuliersMensuel: number
+  /** Le facturé HT de chaque mois lu (agences et particuliers), pour les courbes de l'année. */
+  caParMois: number[]
 }
 /** Lit parametres.chiffres_stc et applique les règles ; null si la passerelle n'a encore rien déposé (ou ancien format). */
 export function lireReelStc(valeur: string | null, s: SeuilsActive = SEUILS_DEPART): ReelStc | null {
@@ -137,6 +139,7 @@ export function lireReelStc(valeur: string | null, s: SeuilsActive = SEUILS_DEPA
       agencesActives: agences.filter((a) => a.active).length,
       caParAgence: tourne.length ? somme(tourne) / tourne.length : 0, moisActifs: tourne.length,
       caMensuel: caTrois / trois, caParticuliersMensuel: somme(c.particuliers) / c.particuliers.length,
+      caParMois: c.mois.map((_, i) => Number(c.particuliers[i] || 0) + agences.reduce((x, a) => x + Number(a.mois[i] || 0), 0)),
     }
   } catch { return null }
 }
