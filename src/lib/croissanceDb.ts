@@ -2,7 +2,7 @@
 // les entonnoirs. Lecture seule.
 import { supabase } from "./supabase"
 import { lireParLots } from "./pagination"
-import type { AgenceCroissance, ArtisanCroissance } from "./croissance"
+import type { AgenceCroissance, AppelDirect, AppelStDirect, ArtisanCroissance } from "./croissance"
 
 type Lot<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>
 const sb = () => { if (!supabase) throw new Error("Supabase n'est pas configuré."); return supabase }
@@ -35,4 +35,15 @@ export async function chargerCroissance(depuis: Date): Promise<DonneesCroissance
     lireParLots<{ campagne_id: string; statut: string }>((de, a) => sb().from("cmp_inscriptions").select("campagne_id, statut").order("id").range(de, a) as unknown as Lot<{ campagne_id: string; statut: string }>),
   ])
   return { agences, artisans, leads, rdv, appels, dossiers, envois, reponses, campagnes, inscriptions }
+}
+
+/** En direct : les appels (agences et artisans) et les rendez-vous pris depuis lundi. Lecture seule. */
+export async function chargerDirect(lundi: Date): Promise<{ appels: AppelDirect[]; appelsSt: AppelStDirect[]; rdv: { cree_le: string; compte_id: string | null; compte_nom: string | null }[] }> {
+  const d = lundi.toISOString()
+  const [appels, appelsSt, rdv] = await Promise.all([
+    lireParLots<AppelDirect>((de, a) => sb().from("activites").select("date, compte_id, compte_nom, resultat, issue").eq("type", "appel").gte("date", d).order("id").range(de, a) as unknown as Lot<AppelDirect>),
+    lireParLots<AppelStDirect>((de, a) => sb().from("st_appels").select("date, compte_id, compte_nom, resultat").gte("date", d).order("id").range(de, a) as unknown as Lot<AppelStDirect>),
+    lireParLots<{ cree_le: string; compte_id: string | null; compte_nom: string | null }>((de, a) => sb().from("activites").select("cree_le, compte_id, compte_nom").eq("type", "rdv").gte("cree_le", d).order("id").range(de, a) as unknown as Lot<{ cree_le: string; compte_id: string | null; compte_nom: string | null }>),
+  ])
+  return { appels, appelsSt, rdv }
 }

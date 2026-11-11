@@ -169,3 +169,40 @@ export function planCroissance(r: ReglageCockpit, etat: {
   const global = ordre.find((t) => leviers.some((l) => l.trajectoire === t)) ?? "inconnue"
   return { clientsNecessaires, artisansNecessaires, caEstime: reel ? reel.caMensuel : etat.clientsActuels * r.caParClient, caParClient, premiersOsParMois: Math.ceil(clientsSemaine * SEMAINES_PAR_MOIS), leviers, global: global === "inconnue" && leviers.every((l) => l.trajectoire !== "inconnue") ? "bonne" : global }
 }
+
+// ── EN DIRECT (Mahdi, 11/11/2026) : « voir combien il y a de calls journaliers et par semaine, en direct, sans aller
+// consulter les données ». Aujourd'hui et la semaine (depuis lundi), heure par heure, et par personne. ──
+export type AppelDirect = { date: string; compte_id: string | null; compte_nom: string | null; resultat: string | null; issue: string | null }
+export type AppelStDirect = { date: string; compte_id: string | null; compte_nom: string | null; resultat: string | null }
+export type CompteurDirect = { appels: number; joints: number; interesses: number; rdv: number; artisans: number }
+export type PersonneDirect = { cle: string; nom: string; jour: CompteurDirect; semaine: CompteurDirect }
+export type Direct = { jour: CompteurDirect; semaine: CompteurDirect; parHeure: { heure: number; appels: number }[]; parPersonne: PersonneDirect[] }
+
+export const HEURES_DIRECT = Array.from({ length: 13 }, (_, i) => 8 + i) // de 8 h à 20 h
+const zero = (): CompteurDirect => ({ appels: 0, joints: 0, interesses: 0, rdv: 0, artisans: 0 })
+export const lundiDe = (d: Date) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x }
+
+/** Les compteurs du jour et de la semaine. Joint = gestionnaire eu au téléphone ; intéressé = intéressé ou rendez-vous. */
+export function calculerDirect(d: { appels: AppelDirect[]; appelsSt: AppelStDirect[]; rdv: { cree_le: string; compte_id: string | null; compte_nom: string | null }[] }, maintenant: Date): Direct {
+  const debutJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).getTime()
+  const debutSemaine = lundiDe(maintenant).getTime()
+  const jour = zero(), semaine = zero(), personnes = new Map<string, PersonneDirect>()
+  const parHeure = HEURES_DIRECT.map((heure) => ({ heure, appels: 0 }))
+  const compter = (quand: string, id: string | null, nom: string | null, f: (c: CompteurDirect) => void, heure = false) => {
+    const t = new Date(quand).getTime()
+    if (!(t >= debutSemaine) || t > maintenant.getTime()) return
+    const cle = id || nom || "?"
+    const p = personnes.get(cle) ?? { cle, nom: nom || "Sans nom", jour: zero(), semaine: zero() }
+    personnes.set(cle, p)
+    f(semaine); f(p.semaine)
+    if (t >= debutJour) {
+      f(jour); f(p.jour)
+      if (heure) { const h = parHeure.find((x) => x.heure === new Date(t).getHours()); if (h) h.appels++ }
+    }
+  }
+  for (const a of d.appels) compter(a.date, a.compte_id, a.compte_nom, (c) => { c.appels++; if (a.resultat === "joint") c.joints++; if (a.issue === "interesse" || a.issue === "rdv") c.interesses++ }, true)
+  for (const a of d.appelsSt) compter(a.date, a.compte_id, a.compte_nom, (c) => { c.artisans++ }, true)
+  for (const r of d.rdv) compter(r.cree_le, r.compte_id, r.compte_nom, (c) => { c.rdv++ })
+  const parPersonne = [...personnes.values()].sort((a, b) => b.jour.appels + b.jour.artisans - (a.jour.appels + a.jour.artisans) || b.semaine.appels - a.semaine.appels)
+  return { jour, semaine, parHeure, parPersonne }
+}

@@ -2,9 +2,11 @@
 // sous-traitant, pour voir à quelle cadence on avance ; plus tard, connecté au logiciel, le suivi de notre croissance ».
 // Même dessin que les autres dashboards (style courtier). Pour les administrateurs. Calculs : lib/croissance.ts.
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement } from "../../ui"
+import { Bandeau as BandeauAlerte, Champ, Chargement } from "../../ui"
+import { FENETRE, PIED_FENETRE, PILULE_CLAIRE, PILULE_NOIRE } from "../agenda/dessinBureau"
+import EnDirect from "./EnDirect"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
-import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Etiquette, Table, Variation } from "../demarchage/aujourdhui/courtier"
+import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Table, Variation } from "../demarchage/aujourdhui/courtier"
 import { fr } from "../demarchage/aujourdhui/outils"
 import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, lireReelStc, planCroissance, semainesRestantes, type ReglageCockpit, type Trajectoire } from "../../lib/croissance"
 import { chargerCroissance, type DonneesCroissance } from "../../lib/croissanceDb"
@@ -33,6 +35,8 @@ export default function Croissance() {
   const [reglage, setReglage] = useState<ReglageCockpit>(COCKPIT_DEPART)
   const [saisie, setSaisie] = useState<Record<keyof ReglageCockpit, string>>(() => versSaisie(COCKPIT_DEPART))
   const [enregistre, setEnregistre] = useState("")
+  const [fenetre, setFenetre] = useState<"objectif" | "calcul" | null>(null)
+  const ouvrir = (f: "objectif" | "calcul") => { setSaisie(versSaisie(reglage)); setEnregistre(""); setFenetre(f) }
   // Les vrais chiffres de STC Bâtiment (bruts, par agence), déposés par la synchro horaire ; les règles s'appliquent ici.
   const [brut, setBrut] = useState<string | null>(null)
   useEffect(() => { lireParametre("chiffres_stc").then(setBrut).catch(() => undefined) }, [])
@@ -102,9 +106,15 @@ export default function Croissance() {
         const p = planCroissance(r, { clientsActuels: reelR ? reelR.agencesActives : c.demarchage[5].valeur, artisansActifs: c.recrutement[4].valeur, tauxClient: c.demarchage[1].valeur ? c.demarchage[5].valeur / c.demarchage[1].valeur : null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, reelR)
         if (p.premiersOsParMois > 0) await ecrireParametre("objectif_os_mensuel", String(p.premiersOsParMois))
       }
-      setEnregistre("Enregistré : l'objectif du mois des gestionnaires est mis à jour.")
+      setEnregistre("Enregistré : l'objectif du mois des gestionnaires est mis à jour."); setFenetre(null)
     } catch (x) { setErreur(x instanceof Error ? x.message : String(x)) }
   }
+  const pct = plan && reglage.objectifMensuel ? Math.round((plan.caEstime / reglage.objectifMensuel) * 100) : 0
+  const jauges = plan && c ? [
+    { libelle: "Agences actives", n: reel ? reel.agencesActives : c.demarchage[5].valeur, valeur: fr(reel ? reel.agencesActives : c.demarchage[5].valeur), sur: plan.clientsNecessaires as number | undefined, detail: `${euros(plan.caParClient)} par agence active${reel ? " · réel" : ""}`, title: reel ? `Il en faut ${plan.clientsNecessaires} : l'objectif moins la part des particuliers (${euros(reel.caParticuliersMensuel)} par mois), divisé par ce que rapporte une agence active` : undefined },
+    { libelle: "Sous-traitants actifs", n: c.recrutement[4].valeur, valeur: fr(c.recrutement[4].valeur), sur: plan.artisansNecessaires as number | undefined, detail: `${euros(reglage.caParArtisan)} par sous-traitant actif`, title: undefined },
+    { libelle: "Premiers OS à viser", n: plan.premiersOsParMois, valeur: fr(plan.premiersOsParMois), sur: undefined as number | undefined, detail: "par mois · l'objectif des gestionnaires", title: "Devient l'objectif du mois des gestionnaires à l'enregistrement" },
+  ] : []
   const debutSemaines = lundis[0].toLocaleDateString("fr-FR", { day: "numeric", month: "long" })
   return (
     <div className="@container w-full">
@@ -113,45 +123,82 @@ export default function Croissance() {
         {erreur ? <div className="pt-6"><BandeauAlerte role="alerte">{erreur}</BandeauAlerte></div> : null}
         {!c && !erreur ? <div className="pt-6"><Chargement texte="Lecture de la croissance…" /></div> : null}
         {c ? <>
+          {/* ═══ EN DIRECT ═══ */}
+          <EnDirect />
+
           {/* ═══ LE COCKPIT ═══ */}
           {plan ? (
             <Chapitre id="cockpit" titre="Le cockpit" sous="Ton objectif de chiffre d'affaires, ce qu'il demande chaque semaine, et si on est sur la bonne trajectoire."
               droite={<span className={`text-sous-titre font-semibold ${TRAJ[plan.global].ton}`}>{TRAJ[plan.global].texte}</span>}>
-              <form onSubmit={enregistrer} className="flex flex-wrap items-end gap-4">
-                {([["objectifMensuel", "Objectif de chiffre d'affaires", "€ par mois"], ["moisPourYArriver", "Pour y arriver d'ici", "mois"], ["caParClient", "Chiffre d'affaires moyen d'une agence cliente", "€ par mois"], ["caParArtisan", "Chiffre d'affaires moyen d'un sous-traitant actif", "€ par mois"]] as [keyof ReglageCockpit, string, string][]).filter(([cle]) => !(reel && cle === "caParClient")).map(([cle, titre, unite]) => (
-                  <label key={cle} className="flex min-w-[170px] flex-1 flex-col gap-1">
-                    <Etiquette>{titre}</Etiquette>
-                    <span className="flex items-center gap-2"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /><span className="shrink-0 text-colonne text-encre-2">{unite}</span></span>
-                  </label>
-                ))}
-                {reel ? (
-                  <div className="flex min-w-[170px] flex-1 flex-col gap-1" title={`Moyenne du facturé des mois où une agence tourne (au moins ${euros(reglage.factureMin)} dans le mois), de ${periode(reel.mois)} : ${reel.moisActifs} mois, toutes agences confondues`}>
-                    <Etiquette>Ce que rapporte une agence active</Etiquette>
-                    <span className="flex h-9 items-center gap-2"><b className="chiffres text-corps font-semibold text-encre">{euros(reel.caParAgence)}</b><span className="text-colonne text-encre-2">par mois · réel</span></span>
+              {/* L'objectif, dessiné comme « Mon portefeuille » de STC Bâtiment : la carte noire et les jauges ; on règle dans une fenêtre. */}
+              <section aria-label="L'objectif" className="flex flex-wrap gap-3">
+                <div className="min-w-0 flex-[1_1_340px] rounded-lg bg-[#111113] px-[22px] pb-[18px] pt-5 text-white">
+                  <div className="text-[13px] text-[#C7C7CC]">{reel ? `Chiffre d'affaires réel · facturé HT par mois, ${periode(reel.mois.slice(-3))}` : "Chiffre d'affaires estimé · par mois"}</div>
+                  <div className="mt-0.5 text-[30px] font-medium tabular-nums tracking-[-0.02em]">{euros(plan.caEstime)}</div>
+                  <div className="mt-1 text-[13px] text-[#C7C7CC]">
+                    Objectif <b className="font-medium text-white">{euros(reglage.objectifMensuel)} par mois d'ici {fr(reglage.moisPourYArriver)} mois · {pct} % atteint</b>
+                    <button type="button" className="ml-1.5 text-[12px] text-[#C7C7CC] underline underline-offset-2 hover:text-white" onClick={() => ouvrir("objectif")}>Modifier</button>
                   </div>
-                ) : null}
-                <Bouton variante="plein" type="submit">Enregistrer</Bouton>
-                {reel ? (
-                  <div className="flex w-full flex-wrap items-end gap-4 border-t-[0.5px] border-trait pt-4">
-                    <span className="self-center text-colonne font-medium text-encre">Une agence est active si, sur les 30 derniers jours :</span>
-                    {([["factureMin", "Facturé au moins", "€"], ["osMin", "OS envoyés au moins", "OS"], ["chutePct", "Et au moins, des OS du mois d'avant", "%"]] as [keyof ReglageCockpit, string, string][]).map(([cle, titre, unite]) => (
-                      <label key={cle} className="flex w-[190px] flex-col gap-1">
-                        <Etiquette>{titre}</Etiquette>
-                        <span className="flex items-center gap-2"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /><span className="shrink-0 text-colonne text-encre-2">{unite}</span></span>
-                      </label>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15" aria-hidden="true"><div className="h-full rounded-full bg-white" style={{ width: `${Math.min(100, pct)}%` }} /></div>
+                </div>
+                <div className="flex min-w-0 flex-[2_1_520px] flex-col gap-3 rounded-lg bg-[#F7F7F9] px-[22px] pb-4 pt-5">
+                  <div className="grid gap-6 @min-[700px]:grid-cols-3">
+                    {jauges.map((j) => (
+                      <div key={j.libelle} className="min-w-0" title={j.title}>
+                        <div className="text-[13px] text-[#6B6B70]">{j.libelle}</div>
+                        <div className="mt-0.5 text-[24px] font-medium tabular-nums tracking-[-0.02em]">{j.valeur}{j.sur !== undefined ? <span className="text-[15px] font-normal text-[#8E8E93]"> / {fr(j.sur)}</span> : null}</div>
+                        {j.sur !== undefined ? <div className="mt-2 h-1 overflow-hidden rounded-full bg-[#E4E4E7]" aria-hidden="true"><div className="h-full rounded-full bg-[#111113]" style={{ width: `${j.sur ? Math.min(100, Math.round((j.n / j.sur) * 100)) : 100}%` }} /></div> : null}
+                        <div className="mt-1.5 text-[12px] text-[#6B6B70]">{j.detail}</div>
+                      </div>
                     ))}
                   </div>
-                ) : null}
-              </form>
-              {enregistre ? <p className="-mt-6 text-colonne text-ok">{enregistre}</p> : <p className="-mt-6 text-colonne text-encre-2">{reel
-                ? `Vrais chiffres de STC Bâtiment (facturé HT, avoirs déduits, brouillons exclus). Ce que rapporte une agence active = moyenne des mois où elle tourne (au moins ${euros(reglage.factureMin)} facturés dans le mois), de ${periode(reel.mois)}, même pour celles qui ne sont plus actives. La règle « en chute » ne juge que les agences qui avaient envoyé au moins 4 OS le mois d'avant. Mis à jour le ${reel.calculeLe.toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}. Le chiffre d'affaires moyen d'un sous-traitant reste à régler.`
-                : "Les chiffres d'affaires moyens sont à régler en attendant les vrais chiffres de STC Bâtiment (la passerelle n'a encore rien déposé)."}</p>}
-              <Bandeau cases={[
-                { libelle: "Agences clientes nécessaires", valeur: fr(plan.clientsNecessaires), variation: <span className="chiffres text-colonne text-encre-2">{reel ? <>vous en avez {fr(reel.agencesActives)} actives sur le logiciel</> : <>vous en avez {fr(c.demarchage[5].valeur)}</>}</span>, title: reel ? `Objectif moins la part des particuliers (${euros(reel.caParticuliersMensuel)} par mois), divisé par le chiffre d'affaires d'une agence active` : undefined },
-                { libelle: "Sous-traitants actifs nécessaires", valeur: fr(plan.artisansNecessaires), variation: <span className="chiffres text-colonne text-encre-2">vous en avez {fr(c.recrutement[4].valeur)}</span> },
-                { libelle: reel ? "Chiffre d'affaires réel" : "Chiffre d'affaires estimé", valeur: euros(plan.caEstime), ton: plan.caEstime >= reglage.objectifMensuel ? "text-ok" : "text-encre", variation: <span className="chiffres text-colonne text-encre-2">{reglage.objectifMensuel ? Math.round((plan.caEstime / reglage.objectifMensuel) * 100) : 0} % de l'objectif</span>, title: reel ? `Facturé HT par mois, agences et particuliers, moyenne des 3 derniers mois complets (${periode(reel.mois.slice(-3))})` : "Agences clientes × chiffre d'affaires moyen d'une agence" },
-                { libelle: "Premiers OS à viser", valeur: fr(plan.premiersOsParMois), variation: <span className="chiffres text-colonne text-encre-2">par mois</span>, title: "Devient l'objectif du mois des gestionnaires à l'enregistrement" },
-              ]} />
+                  <div className="flex justify-end"><button type="button" className="text-[12px] text-[#6B6B70] underline underline-offset-2 hover:text-[#111113]" onClick={() => ouvrir("calcul")}>Réglages du calcul</button></div>
+                </div>
+              </section>
+              {enregistre ? <p className="-mt-6 text-colonne text-ok">{enregistre}</p> : null}
+              {fenetre ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#111113]/25 p-4" onClick={() => setFenetre(null)}>
+                  <form role="dialog" aria-label={fenetre === "objectif" ? "Mon objectif" : "Réglages du calcul"} onSubmit={enregistrer} onClick={(e) => e.stopPropagation()} className={`${FENETRE} w-full max-w-[480px] overflow-hidden`}>
+                    <div className="px-[22px] pb-1 pt-5 text-[15px] font-semibold">{fenetre === "objectif" ? "Mon objectif" : "Réglages du calcul"}</div>
+                    <div className="flex flex-col gap-3 px-[22px] pb-5 pt-2">
+                      {fenetre === "objectif" ? <>
+                        <div className="text-[13px] text-[#6B6B70]">Le chiffre d'affaires que tu vises chaque mois, et d'ici quand. Le cockpit en déduit les agences, les sous-traitants et les objectifs de la semaine.</div>
+                        {([["objectifMensuel", "Chiffre d'affaires visé", "€ par mois"], ["moisPourYArriver", "Pour y arriver d'ici", "mois"]] as [keyof ReglageCockpit, string, string][]).map(([cle, titre, unite]) => (
+                    <label key={cle} className="flex items-center gap-3">
+                      <span className="flex-1 text-[13px]">{titre}</span>
+                      <span className="w-[130px]"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /></span>
+                      <span className="w-[70px] text-[13px] text-[#6B6B70]">{unite}</span>
+                    </label>
+                  ))}
+                      </> : <>
+                        <div className="text-[13px] text-[#6B6B70]">{reel ? `Vrais chiffres de STC Bâtiment (facturé HT, avoirs déduits, brouillons exclus), mis à jour le ${reel.calculeLe.toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}. Ce que rapporte une agence active = moyenne des mois où elle tourne, de ${periode(reel.mois)}.` : "La passerelle de STC Bâtiment n'a encore rien déposé : le chiffre d'affaires d'une agence est à régler."}</div>
+                        {([...(reel ? [] : [["caParClient", "Chiffre d'affaires d'une agence cliente", "€ par mois"]]), ["caParArtisan", "Chiffre d'affaires d'un sous-traitant actif", "€ par mois"]] as [keyof ReglageCockpit, string, string][]).map(([cle, titre, unite]) => (
+                    <label key={cle} className="flex items-center gap-3">
+                      <span className="flex-1 text-[13px]">{titre}</span>
+                      <span className="w-[130px]"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /></span>
+                      <span className="w-[70px] text-[13px] text-[#6B6B70]">{unite}</span>
+                    </label>
+                  ))}
+                        {reel ? <>
+                          <div className="mt-2 border-t-[0.5px] border-[#E6E6EA] pt-3 text-[13px] font-medium">Une agence est active si, sur les 30 derniers jours :</div>
+                          {([["factureMin", "Facturé au moins", "€"], ["osMin", "OS envoyés au moins", "OS"], ["chutePct", "Et au moins, des OS du mois d'avant", "%"]] as [keyof ReglageCockpit, string, string][]).map(([cle, titre, unite]) => (
+                    <label key={cle} className="flex items-center gap-3">
+                      <span className="flex-1 text-[13px]">{titre}</span>
+                      <span className="w-[130px]"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /></span>
+                      <span className="w-[70px] text-[13px] text-[#6B6B70]">{unite}</span>
+                    </label>
+                  ))}
+                          <div className="text-[12px] text-[#8E8E93]">La chute n'est jugée que pour les agences qui avaient envoyé au moins 4 OS le mois d'avant.</div>
+                        </> : null}
+                      </>}
+                    </div>
+                    <div className={PIED_FENETRE}>
+                      <button type="button" className={PILULE_CLAIRE} onClick={() => setFenetre(null)}>Annuler</button>
+                      <button type="submit" className={PILULE_NOIRE}>Enregistrer</button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
               <Bloc titre="Ce qu'il faut chaque semaine" droite={`pour ${euros(reglage.objectifMensuel)} par mois d'ici ${fr(reglage.moisPourYArriver)} mois · comparé aux 4 dernières semaines`}>
                 <Table colonnes={[{ titre: "Levier" }, { titre: "Il faut", largeur: "110px", droite: true }, { titre: "Vous faites", largeur: "110px", droite: true }, { titre: "", largeur: "100px" }, { titre: "Trajectoire", largeur: "190px" }]}
                   lignes={plan.leviers.map((l) => ({ cle: l.libelle, cellules: [l.libelle, <b className="font-semibold">{l.ilFaut > 0 && l.ilFaut < 0.1 ? "moins de 0,1" : l.ilFaut.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</b>, l.onFait === null ? "—" : l.onFait.toLocaleString("fr-FR", { maximumFractionDigits: 1 }), <span className="text-encre-2">{l.unite}</span>, <span className={`font-medium ${TRAJ[l.trajectoire].ton}`}>{TRAJ[l.trajectoire].texte}</span>] }))} />
