@@ -6,7 +6,7 @@ import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement } from "../../ui"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Etiquette, Table, Variation } from "../demarchage/aujourdhui/courtier"
 import { fr } from "../demarchage/aujourdhui/outils"
-import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, lireReelStc, planCroissance, semainesRestantes, type ReelStc, type ReglageCockpit, type Trajectoire } from "../../lib/croissance"
+import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, lireReelStc, planCroissance, semainesRestantes, type ReglageCockpit, type Trajectoire } from "../../lib/croissance"
 import { chargerCroissance, type DonneesCroissance } from "../../lib/croissanceDb"
 
 const CANAUX: { id: string; nom: string }[] = [{ id: "mail", nom: "Mails" }, { id: "sms", nom: "SMS" }, { id: "linkedin", nom: "LinkedIn" }, { id: "newsletter", nom: "Newsletters" }]
@@ -19,7 +19,9 @@ const TRAJ: Record<Trajectoire, { texte: string; ton: string }> = {
 }
 const euros = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`
 const moisLong = (m: string) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1).toLocaleDateString("fr-FR", { month: "long" })
-const periode = (r: ReelStc) => r.mois.length > 1 ? `${moisLong(r.mois[0])} à ${moisLong(r.mois[r.mois.length - 1])}` : moisLong(r.mois[0])
+const periode = (mois: string[]) => mois.length > 1 ? `${moisLong(mois[0])} à ${moisLong(mois[mois.length - 1])}` : moisLong(mois[0] ?? "")
+const versSaisie = (r: ReglageCockpit) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, String(v)])) as Record<keyof ReglageCockpit, string>
+const seuils = (r: ReglageCockpit) => ({ factureMin: r.factureMin, osMin: r.osMin, chutePct: r.chutePct })
 const moyenne4 = (v: number[]) => v.slice(-5, -1).reduce((a, b) => a + b, 0) / 4
 const BASE: Record<string, string> = { agences: "Gestionnaires", apporteurs: "Apporteurs", artisans: "Artisans", locataires: "Locataires", clients_gestionnaires: "Clients", sous_traitants_actifs: "Sous-traitants actifs" }
 
@@ -29,14 +31,15 @@ export default function Croissance() {
   const [d, setD] = useState<DonneesCroissance | null>(null)
   const [erreur, setErreur] = useState("")
   const [reglage, setReglage] = useState<ReglageCockpit>(COCKPIT_DEPART)
-  const [saisie, setSaisie] = useState<Record<keyof ReglageCockpit, string>>(() => ({ objectifMensuel: String(COCKPIT_DEPART.objectifMensuel), moisPourYArriver: String(COCKPIT_DEPART.moisPourYArriver), caParClient: String(COCKPIT_DEPART.caParClient), caParArtisan: String(COCKPIT_DEPART.caParArtisan) }))
+  const [saisie, setSaisie] = useState<Record<keyof ReglageCockpit, string>>(() => versSaisie(COCKPIT_DEPART))
   const [enregistre, setEnregistre] = useState("")
-  // Les vrais chiffres de STC Bâtiment (agences actives, chiffre d'affaires facturé), déposés par la synchro horaire.
-  const [reel, setReel] = useState<ReelStc | null>(null)
-  useEffect(() => { lireParametre("chiffres_stc").then((x) => setReel(lireReelStc(x))).catch(() => undefined) }, [])
+  // Les vrais chiffres de STC Bâtiment (bruts, par agence), déposés par la synchro horaire ; les règles s'appliquent ici.
+  const [brut, setBrut] = useState<string | null>(null)
+  useEffect(() => { lireParametre("chiffres_stc").then(setBrut).catch(() => undefined) }, [])
+  const reel = useMemo(() => lireReelStc(brut, seuils(reglage)), [brut, reglage])
   useEffect(() => {
     lireParametre("cockpit_croissance").then((x) => {
-      try { const r = { ...COCKPIT_DEPART, ...JSON.parse(x || "{}") } as ReglageCockpit; setReglage(r); setSaisie({ objectifMensuel: String(r.objectifMensuel), moisPourYArriver: String(r.moisPourYArriver), caParClient: String(r.caParClient), caParArtisan: String(r.caParArtisan) }) } catch { /* réglage par défaut */ }
+      try { const r = { ...COCKPIT_DEPART, ...JSON.parse(x || "{}") } as ReglageCockpit; setReglage(r); setSaisie(versSaisie(r)) } catch { /* réglage par défaut */ }
     }).catch(() => undefined)
   }, [])
   useEffect(() => {
@@ -89,13 +92,14 @@ export default function Croissance() {
   const nombre = (x: string) => Math.max(0, Number(x.replace(/\s/g, "").replace(",", ".")) || 0)
   const enregistrer = async (e: FormEvent) => {
     e.preventDefault()
-    const r: ReglageCockpit = { objectifMensuel: nombre(saisie.objectifMensuel), moisPourYArriver: Math.max(1, nombre(saisie.moisPourYArriver)), caParClient: nombre(saisie.caParClient), caParArtisan: nombre(saisie.caParArtisan) }
+    const r: ReglageCockpit = { objectifMensuel: nombre(saisie.objectifMensuel), moisPourYArriver: Math.max(1, nombre(saisie.moisPourYArriver)), caParClient: nombre(saisie.caParClient), caParArtisan: nombre(saisie.caParArtisan), factureMin: nombre(saisie.factureMin), osMin: nombre(saisie.osMin), chutePct: Math.min(100, nombre(saisie.chutePct)) }
+    const reelR = lireReelStc(brut, seuils(r))
     setReglage(r); setEnregistre("")
     try {
       await ecrireParametre("cockpit_croissance", JSON.stringify(r))
       // L'objectif du mois des gestionnaires (premiers OS) suit le cockpit : tout se met à jour.
       if (c) {
-        const p = planCroissance(r, { clientsActuels: reel ? reel.agencesActives : c.demarchage[5].valeur, artisansActifs: c.recrutement[4].valeur, tauxClient: c.demarchage[1].valeur ? c.demarchage[5].valeur / c.demarchage[1].valeur : null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, reel)
+        const p = planCroissance(r, { clientsActuels: reelR ? reelR.agencesActives : c.demarchage[5].valeur, artisansActifs: c.recrutement[4].valeur, tauxClient: c.demarchage[1].valeur ? c.demarchage[5].valeur / c.demarchage[1].valeur : null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, reelR)
         if (p.premiersOsParMois > 0) await ecrireParametre("objectif_os_mensuel", String(p.premiersOsParMois))
       }
       setEnregistre("Enregistré : l'objectif du mois des gestionnaires est mis à jour.")
@@ -121,20 +125,31 @@ export default function Croissance() {
                   </label>
                 ))}
                 {reel ? (
-                  <div className="flex min-w-[170px] flex-1 flex-col gap-1" title={`Ce que les ${reel.agencesActives} agences actives ont facturé de ${periode(reel)}, divisé par le nombre de mois et d'agences`}>
-                    <Etiquette>Chiffre d'affaires moyen d'une agence active</Etiquette>
+                  <div className="flex min-w-[170px] flex-1 flex-col gap-1" title={`Moyenne du facturé des mois où une agence tourne (au moins ${euros(reglage.factureMin)} dans le mois), de ${periode(reel.mois)} : ${reel.moisActifs} mois, toutes agences confondues`}>
+                    <Etiquette>Ce que rapporte une agence active</Etiquette>
                     <span className="flex h-9 items-center gap-2"><b className="chiffres text-corps font-semibold text-encre">{euros(reel.caParAgence)}</b><span className="text-colonne text-encre-2">par mois · réel</span></span>
                   </div>
                 ) : null}
                 <Bouton variante="plein" type="submit">Enregistrer</Bouton>
+                {reel ? (
+                  <div className="flex w-full flex-wrap items-end gap-4 border-t-[0.5px] border-trait pt-4">
+                    <span className="self-center text-colonne font-medium text-encre">Une agence est active si, sur les 30 derniers jours :</span>
+                    {([["factureMin", "Facturé au moins", "€"], ["osMin", "OS envoyés au moins", "OS"], ["chutePct", "Et au moins, des OS du mois d'avant", "%"]] as [keyof ReglageCockpit, string, string][]).map(([cle, titre, unite]) => (
+                      <label key={cle} className="flex w-[190px] flex-col gap-1">
+                        <Etiquette>{titre}</Etiquette>
+                        <span className="flex items-center gap-2"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /><span className="shrink-0 text-colonne text-encre-2">{unite}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
               </form>
               {enregistre ? <p className="-mt-6 text-colonne text-ok">{enregistre}</p> : <p className="-mt-6 text-colonne text-encre-2">{reel
-                ? `Vrais chiffres de STC Bâtiment : chiffre d'affaires facturé HT de ${periode(reel)} (avoirs déduits, brouillons exclus), agences actives = au moins un OS dans les ${reel.fenetreJours} derniers jours. Mis à jour le ${reel.calculeLe.toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}. Le chiffre d'affaires moyen d'un sous-traitant reste à régler.`
+                ? `Vrais chiffres de STC Bâtiment (facturé HT, avoirs déduits, brouillons exclus). Ce que rapporte une agence active = moyenne des mois où elle tourne (au moins ${euros(reglage.factureMin)} facturés dans le mois), de ${periode(reel.mois)}, même pour celles qui ne sont plus actives. La règle « en chute » ne juge que les agences qui avaient envoyé au moins 4 OS le mois d'avant. Mis à jour le ${reel.calculeLe.toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}. Le chiffre d'affaires moyen d'un sous-traitant reste à régler.`
                 : "Les chiffres d'affaires moyens sont à régler en attendant les vrais chiffres de STC Bâtiment (la passerelle n'a encore rien déposé)."}</p>}
               <Bandeau cases={[
                 { libelle: "Agences clientes nécessaires", valeur: fr(plan.clientsNecessaires), variation: <span className="chiffres text-colonne text-encre-2">{reel ? <>vous en avez {fr(reel.agencesActives)} actives sur le logiciel</> : <>vous en avez {fr(c.demarchage[5].valeur)}</>}</span>, title: reel ? `Objectif moins la part des particuliers (${euros(reel.caParticuliersMensuel)} par mois), divisé par le chiffre d'affaires d'une agence active` : undefined },
                 { libelle: "Sous-traitants actifs nécessaires", valeur: fr(plan.artisansNecessaires), variation: <span className="chiffres text-colonne text-encre-2">vous en avez {fr(c.recrutement[4].valeur)}</span> },
-                { libelle: reel ? "Chiffre d'affaires réel" : "Chiffre d'affaires estimé", valeur: euros(plan.caEstime), ton: plan.caEstime >= reglage.objectifMensuel ? "text-ok" : "text-encre", variation: <span className="chiffres text-colonne text-encre-2">{reglage.objectifMensuel ? Math.round((plan.caEstime / reglage.objectifMensuel) * 100) : 0} % de l'objectif</span>, title: reel ? `Facturé HT par mois, moyenne de ${periode(reel)} : ${euros(reel.caAgencesMensuel)} agences + ${euros(reel.caParticuliersMensuel)} particuliers` : "Agences clientes × chiffre d'affaires moyen d'une agence" },
+                { libelle: reel ? "Chiffre d'affaires réel" : "Chiffre d'affaires estimé", valeur: euros(plan.caEstime), ton: plan.caEstime >= reglage.objectifMensuel ? "text-ok" : "text-encre", variation: <span className="chiffres text-colonne text-encre-2">{reglage.objectifMensuel ? Math.round((plan.caEstime / reglage.objectifMensuel) * 100) : 0} % de l'objectif</span>, title: reel ? `Facturé HT par mois, agences et particuliers, moyenne des 3 derniers mois complets (${periode(reel.mois.slice(-3))})` : "Agences clientes × chiffre d'affaires moyen d'une agence" },
                 { libelle: "Premiers OS à viser", valeur: fr(plan.premiersOsParMois), variation: <span className="chiffres text-colonne text-encre-2">par mois</span>, title: "Devient l'objectif du mois des gestionnaires à l'enregistrement" },
               ]} />
               <Bloc titre="Ce qu'il faut chaque semaine" droite={`pour ${euros(reglage.objectifMensuel)} par mois d'ici ${fr(reglage.moisPourYArriver)} mois · comparé aux 4 dernières semaines`}>
@@ -142,9 +157,13 @@ export default function Croissance() {
                   lignes={plan.leviers.map((l) => ({ cle: l.libelle, cellules: [l.libelle, <b className="font-semibold">{l.ilFaut > 0 && l.ilFaut < 0.1 ? "moins de 0,1" : l.ilFaut.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</b>, l.onFait === null ? "—" : l.onFait.toLocaleString("fr-FR", { maximumFractionDigits: 1 }), <span className="text-encre-2">{l.unite}</span>, <span className={`font-medium ${TRAJ[l.trajectoire].ton}`}>{TRAJ[l.trajectoire].texte}</span>] }))} />
               </Bloc>
               {reel ? (
-                <Bloc titre="Les agences actives sur le logiciel" droite={`au moins un OS dans les ${reel.fenetreJours} derniers jours · facturé de ${periode(reel)}`}>
-                  <Table colonnes={[{ titre: "Agence" }, { titre: "OS reçus (90 j)", largeur: "130px", droite: true }, { titre: "Facturé", largeur: "130px", droite: true }, { titre: "Par mois", largeur: "120px", droite: true }, { titre: "Dernier OS", largeur: "130px", droite: true }]}
-                    lignes={reel.agences.map((a) => ({ cle: a.nom, cellules: [a.nom, fr(a.os_90j), euros(a.ca_3_mois), euros(a.ca_3_mois / Math.max(1, reel.mois.length)), new Date(a.dernier_os_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })] }))} />
+                <Bloc titre="Les agences sur le logiciel" droite={`${fr(reel.agencesActives)} actives sur ${fr(reel.agences.length)} · 30 derniers jours, et les mois de ${periode(reel.mois)}`}>
+                  <Table colonnes={[{ titre: "Agence" }, { titre: "OS (30 j)", largeur: "90px", droite: true }, { titre: "Facturé (30 j)", largeur: "120px", droite: true }, { titre: "Mois où elle tourne", largeur: "150px", droite: true }, { titre: "Quand elle tourne", largeur: "140px", droite: true }, { titre: "Statut", largeur: "300px" }]}
+                    lignes={[...reel.agences].sort((a, b) => Number(b.active) - Number(a.active) || b.facture_30 - a.facture_30).map((a) => ({ cle: a.nom, cellules: [
+                      a.nom, fr(a.os_30), euros(a.facture_30), `${a.moisActifs} sur ${reel.mois.length}`,
+                      a.moyenneQuandElleTourne === null ? "—" : `${euros(a.moyenneQuandElleTourne)} / mois`,
+                      a.active ? <span className="font-medium text-ok">Active</span> : <span className="text-encre-2">{a.raison}</span>,
+                    ] }))} />
                 </Bloc>
               ) : null}
             </Chapitre>

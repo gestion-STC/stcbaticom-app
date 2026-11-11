@@ -72,8 +72,8 @@ export const tauxPassage = (de: number, a: number): number | null => (de > 0 ? a
 
 // ── LE COCKPIT (Mahdi, 11/11/2026) : « je veux faire 200 000 ou 300 000 € par mois, qu'il me dise combien d'agences,
 // combien de sous-traitants, l'objectif par semaine, et si on est sur la bonne croissance ». ──
-export type ReglageCockpit = { objectifMensuel: number; moisPourYArriver: number; caParClient: number; caParArtisan: number }
-export const COCKPIT_DEPART: ReglageCockpit = { objectifMensuel: 200_000, moisPourYArriver: 12, caParClient: 4_000, caParArtisan: 12_000 }
+export type ReglageCockpit = { objectifMensuel: number; moisPourYArriver: number; caParClient: number; caParArtisan: number; factureMin: number; osMin: number; chutePct: number }
+export const COCKPIT_DEPART: ReglageCockpit = { objectifMensuel: 200_000, moisPourYArriver: 12, caParClient: 4_000, caParArtisan: 12_000, factureMin: 1_000, osMin: 2, chutePct: 50 }
 export type Trajectoire = "bonne" | "juste" | "retard" | "inconnue"
 export type LevierCockpit = { libelle: string; ilFaut: number; onFait: number | null; unite: string; trajectoire: Trajectoire }
 
@@ -86,34 +86,57 @@ export function trajectoire(onFait: number | null, ilFaut: number): Trajectoire 
   return r >= 1 ? "bonne" : r >= 0.7 ? "juste" : "retard"
 }
 
-// ── LES VRAIS CHIFFRES (Mahdi, 11/11/2026) : « compter seulement les agences actives sur le logiciel, et le vrai chiffre
-// d'affaires ». Lus dans STC Bâtiment (chiffres_pour_baticom) par la synchro horaire, rangés dans parametres.chiffres_stc. ──
-export type ChiffresStc = {
-  calcule_le: string; fenetre_jours: number; agences_actives: number
-  mois: { mois: string; ca_agences: number; ca_particuliers: number }[]
-  agences: { nom: string; os_90j: number; dernier_os_le: string; ca_3_mois: number }[]
+// ── LES VRAIS CHIFFRES (Mahdi, 11/11/2026, algorithme validé) : lus dans STC Bâtiment (chiffres_pour_baticom, chiffres
+// BRUTS de chaque agence) par la synchro horaire, rangés dans parametres.chiffres_stc. Les règles sont ici :
+//   1. ACTIVE aujourd'hui = sur les 30 derniers jours, au moins 1 000 € facturés ET au moins 2 OS, ET pas en chute
+//      (au moins la moitié des OS des 30 jours d'avant, jugé seulement si elle en avait envoyé au moins 4) ;
+//   2. CE QUE RAPPORTE une agence active = moyenne du facturé des « mois où elle tourne » (au moins 1 000 € dans le mois),
+//      sur les 6 derniers mois complets, toutes agences confondues, même celles qui ne sont plus actives. ──
+export type AgenceStc = { nom: string; os_30: number; os_30_60: number; facture_30: number; dernier_os_le: string | null; mois: number[] }
+export type ChiffresStc = { version: 2; calcule_le: string; mois: string[]; particuliers: number[]; agences: AgenceStc[] }
+export type SeuilsActive = { factureMin: number; osMin: number; chutePct: number }
+export const SEUILS_DEPART: SeuilsActive = { factureMin: 1_000, osMin: 2, chutePct: 50 }
+/** En dessous de ce nombre d'OS le mois d'avant, on ne juge pas la chute (une petite agence varie de 1 à 2 OS). */
+export const CHUTE_JUGEE_DES = 4
+
+export type StatutAgence = { active: boolean; raison: string; moisActifs: number; moyenneQuandElleTourne: number | null }
+/** Active ou pas, et pourquoi, en une phrase courte. */
+export function statutAgence(a: AgenceStc, s: SeuilsActive): StatutAgence {
+  const tourne = a.mois.filter((m) => m >= s.factureMin)
+  const moy = tourne.length ? tourne.reduce((x, y) => x + y, 0) / tourne.length : null
+  const enChute = a.os_30_60 >= CHUTE_JUGEE_DES && a.os_30 < a.os_30_60 * (s.chutePct / 100)
+  const raison = a.facture_30 < s.factureMin ? `moins de ${s.factureMin.toLocaleString("fr-FR")} € facturés sur 30 jours`
+    : a.os_30 < s.osMin ? `moins de ${s.osMin} OS sur 30 jours`
+    : enChute ? `en chute : ${a.os_30} OS contre ${a.os_30_60} le mois d'avant` : ""
+  return { active: !raison, raison, moisActifs: tourne.length, moyenneQuandElleTourne: moy }
 }
+
 export type ReelStc = {
-  agencesActives: number; fenetreJours: number; calculeLe: Date; mois: string[]
-  /** Moyennes mensuelles du facturé HT net, sur les mois complets lus. */
-  caMensuel: number; caAgencesMensuel: number; caParticuliersMensuel: number
-  /** Le chiffre d'affaires mensuel moyen d'une agence active (ce qu'elles ont facturé ÷ mois ÷ nombre d'agences actives). */
-  caParAgence: number
-  agences: ChiffresStc["agences"]
+  calculeLe: Date; mois: string[]
+  agences: (AgenceStc & StatutAgence)[]
+  agencesActives: number
+  /** Ce que rapporte une agence active : moyenne des mois où elle tourne (règle 2) ; et sur combien de mois. */
+  caParAgence: number; moisActifs: number
+  /** Facturé HT réel par mois, moyenne des 3 derniers mois complets ; part des particuliers (moyenne des 6 mois). */
+  caMensuel: number; caParticuliersMensuel: number
 }
-/** Lit parametres.chiffres_stc ; null si la passerelle n'a encore rien déposé. */
-export function lireReelStc(valeur: string | null): ReelStc | null {
+/** Lit parametres.chiffres_stc et applique les règles ; null si la passerelle n'a encore rien déposé (ou ancien format). */
+export function lireReelStc(valeur: string | null, s: SeuilsActive = SEUILS_DEPART): ReelStc | null {
   if (!valeur) return null
   try {
     const c = JSON.parse(valeur) as ChiffresStc
-    if (typeof c.agences_actives !== "number" || !Array.isArray(c.mois) || !c.mois.length) return null
-    const n = c.mois.length, somme = (f: (m: ChiffresStc["mois"][number]) => number) => c.mois.reduce((a, m) => a + Number(f(m) || 0), 0) / n
-    const agences = Array.isArray(c.agences) ? c.agences : []
-    const caActives = agences.reduce((a, x) => a + Number(x.ca_3_mois || 0), 0)
+    if (c.version !== 2 || !Array.isArray(c.agences) || !Array.isArray(c.mois) || !c.mois.length) return null
+    const agences = c.agences.map((a) => ({ ...a, mois: a.mois.map(Number), ...statutAgence({ ...a, mois: a.mois.map(Number) }, s) }))
+    const tourne = agences.flatMap((a) => a.mois.filter((m) => m >= s.factureMin))
+    const somme = (l: number[]) => l.reduce((x, y) => x + Number(y || 0), 0)
+    const trois = c.mois.length >= 3 ? 3 : c.mois.length
+    const derniers = (l: number[]) => l.slice(-trois)
+    const caTrois = somme(derniers(c.particuliers)) + somme(agences.flatMap((a) => derniers(a.mois)))
     return {
-      agencesActives: c.agences_actives, fenetreJours: c.fenetre_jours || 90, calculeLe: new Date(c.calcule_le), mois: c.mois.map((m) => m.mois),
-      caMensuel: somme((m) => m.ca_agences + m.ca_particuliers), caAgencesMensuel: somme((m) => m.ca_agences), caParticuliersMensuel: somme((m) => m.ca_particuliers),
-      caParAgence: c.agences_actives > 0 ? caActives / n / c.agences_actives : 0, agences,
+      calculeLe: new Date(c.calcule_le), mois: c.mois, agences,
+      agencesActives: agences.filter((a) => a.active).length,
+      caParAgence: tourne.length ? somme(tourne) / tourne.length : 0, moisActifs: tourne.length,
+      caMensuel: caTrois / trois, caParticuliersMensuel: somme(c.particuliers) / c.particuliers.length,
     }
   } catch { return null }
 }
