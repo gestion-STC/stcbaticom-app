@@ -14,6 +14,7 @@ import MesureAvis from "./moteur/MesureAvis"
 import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
 import VerificationAdresses from "./moteur/VerificationAdresses"
+import TestSpam from "./moteur/TestSpam"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
 import { ARRET_DEPART, BOITES_DEPART, PHRASE_SUIVI, SIGNATURE_PROSPECTION, LIBELLE_LIEN, boitesDe, conseilsEnvoi, corpsAvecMentions, valeursDe, type ReglageBoites } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
@@ -203,7 +204,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
               )}
           </div>
         </div>
-        <div className="min-w-0"><div className="sticky top-4 space-y-6"><TailleAudience total={eligibles} mails={contactsBase.filter((x) => x.email && estEligible(x, compilee)).length} mobiles={contactsBase.filter((x) => x.mobile && estEligible(x, compilee)).length} enAttente={enAttente} parJour={c.rythme.parJour} unite={base?.unite ?? "contacts"} cible={[base?.nom ?? "", avis ? "" : (c.audience.filtres.fichier?.length ? `${c.audience.filtres.fichier.length} fichier${c.audience.filtres.fichier.length > 1 ? "s" : ""}` : "toute la base"), cfg.zones.length ? `${cfg.zones.length} zone${cfg.zones.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")} /><VerificationAdresses emails={emailsCible} />{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
+        <div className="min-w-0"><div className="sticky top-4 space-y-6"><TailleAudience total={eligibles} mails={contactsBase.filter((x) => x.email && estEligible(x, compilee)).length} mobiles={contactsBase.filter((x) => x.mobile && estEligible(x, compilee)).length} enAttente={enAttente} parJour={c.rythme.parJour} unite={base?.unite ?? "contacts"} cible={[base?.nom ?? "", avis ? "" : (c.audience.filtres.fichier?.length ? `${c.audience.filtres.fichier.length} fichier${c.audience.filtres.fichier.length > 1 ? "s" : ""}` : "toute la base"), cfg.zones.length ? `${cfg.zones.length} zone${cfg.zones.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")} /><VerificationAdresses emails={emailsCible} />{!avis ? <TestSpam campagneId={existante ? c.id : ""} campagneNom={c.nom} baseId={c.baseId} mentions={{ signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien }} suivi={cfg.garde.suiviOuvertures !== false} mails={cfg.actions.filter((a) => a.type === "mail").flatMap((a, i) => (cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? []).filter((x) => x.corps.trim()).map((x) => ({ id: `${a.id}:${x.id}`, libelle: `Mail ${i + 1} · ${x.nom}`, objet: x.objet, corps: x.corps })))} /> : null}{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
       </div>
     </div>
   )
