@@ -10,6 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { candidats, type AgenceRef, type Candidat, type GestionnaireRef } from "./rapprochement.ts"
 import { synchroAvis } from "./avis.ts"
+import { estServeur, jetonDe } from "../_shared/acces.ts"
 
 type LigneGestionnaire = {
   gestionnaire_id: string; societe: string; nom: string; email: string; telephone: string; telephone_fixe: string; telephone_portable: string
@@ -21,6 +22,13 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST" && req.method !== "GET") return json({ error: "POST attendu" }, 405)
   const base = Deno.env.get("SUPABASE_URL")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  // Sécurité (11/11/2026) : la tâche planifiée (clé de service) ou la clé interne ; personne d'autre.
+  if (!(await estServeur(jetonDe(req)))) {
+    const passage = req.headers.get("x-passage-cle") ?? ""
+    const { data } = await createClient(base, service).from("parametres").select("valeur").eq("cle", "analyse_passage_cle").maybeSingle()
+    const attendue = String((data as { valeur?: string } | null)?.valeur ?? "")
+    if (!(attendue.length >= 20 && passage === attendue)) return json({ error: "non autorisé" }, 401)
+  }
   const urlBatiment = Deno.env.get("STC_BATIMENT_URL") || ""
   const anonBatiment = Deno.env.get("STC_BATIMENT_ANON") || ""
   const cle = Deno.env.get("PASSERELLE_CLE") || ""

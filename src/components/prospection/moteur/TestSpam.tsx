@@ -28,7 +28,7 @@ export default function TestSpam({ campagneId, campagneNom, baseId, mails, menti
   return (
     <div className="space-y-2 rounded-4 border-[0.5px] border-trait p-3">
       <div className="flex items-center gap-2"><Inbox size={14} className="shrink-0 text-encre-2" /><b className="text-legende font-medium">Boîte de réception ou spam ?</b></div>
-      <p className="text-colonne text-encre-2">Le vrai mail part de tes boîtes vers des boîtes de test Gmail et Outlook. Aucun contact n'est touché.</p>
+      <p className="text-colonne text-encre-2">Le vrai mail part de tes boîtes vers environ 90 boîtes de test Gmail et Outlook (cela compte dans leurs envois du jour). Aucun contact n'est touché.</p>
       {!campagneId ? <p className="text-colonne text-encre-2">Enregistre la campagne pour pouvoir la tester.</p> : <>
         {mails.length > 1 ? <Selecteur aria-label="Mail à tester" value={mail?.id ?? ""} onChange={(e) => setChoix(e.target.value)}>{mails.map((m) => <option key={m.id} value={m.id}>{m.libelle}</option>)}</Selecteur> : null}
         <div className="flex flex-wrap gap-2"><Bouton taille="sm" chargement={occupe} onClick={() => void lancer()}>Tester {mails.length > 1 ? "ce mail" : "le mail"}</Bouton>{tests?.length ? <Bouton taille="sm" variante="discret" onClick={lire}>Actualiser</Bouton> : null}</div>

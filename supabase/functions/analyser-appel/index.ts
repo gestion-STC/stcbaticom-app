@@ -370,7 +370,8 @@ async function compteConnecte(req: Request): Promise<boolean> {
   const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/auth/v1/user`, { headers: { apikey: Deno.env.get("SUPABASE_ANON_KEY") || "", Authorization: `Bearer ${jeton}` } })
   if (!r.ok) return false
   const u = await r.json().catch(() => null)
-  return Boolean(u?.id)
+  // Sécurité (11/11/2026) : un membre de l'équipe seulement.
+  return Boolean(u?.id) && ["admin", "telepro"].includes(String(u?.app_metadata?.role ?? ""))
 }
 
 Deno.serve(async (req: Request) => {

@@ -41,8 +41,23 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405);
   try {
     const payload = await req.json();
-    const d = payload?.data ?? payload ?? {};
+    const recu = payload?.data ?? payload ?? {};
     if (payload?.type && payload.type !== "email.received") return json({ ok: true, ignore: payload.type });
+    // Sécurité (11/11/2026) : le mail doit exister chez Resend (identifiant impossible à deviner). L'expéditeur, les
+    // destinataires, l'objet et le corps sont relus chez Resend : un faux appel ne peut rien inventer.
+    const idResend = String(recu.email_id ?? "");
+    const cleVerif = Deno.env.get("RESEND_API_KEY");
+    if (!idResend || !cleVerif) return json({ error: "non autorisé" }, 401);
+    const vrai = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(idResend)}`, { headers: { Authorization: "Bearer " + cleVerif } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const v = (vrai?.data ?? vrai) as Record<string, unknown> | null;
+    if (!v || (v.id && String(v.id) !== idResend)) return json({ error: "mail inconnu" }, 401);
+    const d: Record<string, any> = { ...recu };
+    for (const k of ["from", "to", "cc", "subject", "message_id", "text", "html", "attachments", "in_reply_to"]) if (v[k] !== undefined && v[k] !== null) d[k] = v[k];
+    d.email_id = idResend;
+    {
+      const { count } = await createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).from("messages").select("id", { count: "exact", head: true }).eq("brut->data->>email_id", idResend);
+      if ((count ?? 0) > 0) return json({ ok: true, ignore: "déjà reçu" });
+    }
 
     const de = adresse(d.from?.address ?? d.from);
     const tous = [
