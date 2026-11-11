@@ -86,16 +86,52 @@ export function trajectoire(onFait: number | null, ilFaut: number): Trajectoire 
   return r >= 1 ? "bonne" : r >= 0.7 ? "juste" : "retard"
 }
 
-/** De l'objectif de chiffre d'affaires mensuel à ce qu'il faut sortir chaque semaine. Les taux viennent des entonnoirs. */
+// ── LES VRAIS CHIFFRES (Mahdi, 11/11/2026) : « compter seulement les agences actives sur le logiciel, et le vrai chiffre
+// d'affaires ». Lus dans STC Bâtiment (chiffres_pour_baticom) par la synchro horaire, rangés dans parametres.chiffres_stc. ──
+export type ChiffresStc = {
+  calcule_le: string; fenetre_jours: number; agences_actives: number
+  mois: { mois: string; ca_agences: number; ca_particuliers: number }[]
+  agences: { nom: string; os_90j: number; dernier_os_le: string; ca_3_mois: number }[]
+}
+export type ReelStc = {
+  agencesActives: number; fenetreJours: number; calculeLe: Date; mois: string[]
+  /** Moyennes mensuelles du facturé HT net, sur les mois complets lus. */
+  caMensuel: number; caAgencesMensuel: number; caParticuliersMensuel: number
+  /** Le chiffre d'affaires mensuel moyen d'une agence active (ce qu'elles ont facturé ÷ mois ÷ nombre d'agences actives). */
+  caParAgence: number
+  agences: ChiffresStc["agences"]
+}
+/** Lit parametres.chiffres_stc ; null si la passerelle n'a encore rien déposé. */
+export function lireReelStc(valeur: string | null): ReelStc | null {
+  if (!valeur) return null
+  try {
+    const c = JSON.parse(valeur) as ChiffresStc
+    if (typeof c.agences_actives !== "number" || !Array.isArray(c.mois) || !c.mois.length) return null
+    const n = c.mois.length, somme = (f: (m: ChiffresStc["mois"][number]) => number) => c.mois.reduce((a, m) => a + Number(f(m) || 0), 0) / n
+    const agences = Array.isArray(c.agences) ? c.agences : []
+    const caActives = agences.reduce((a, x) => a + Number(x.ca_3_mois || 0), 0)
+    return {
+      agencesActives: c.agences_actives, fenetreJours: c.fenetre_jours || 90, calculeLe: new Date(c.calcule_le), mois: c.mois.map((m) => m.mois),
+      caMensuel: somme((m) => m.ca_agences + m.ca_particuliers), caAgencesMensuel: somme((m) => m.ca_agences), caParticuliersMensuel: somme((m) => m.ca_particuliers),
+      caParAgence: c.agences_actives > 0 ? caActives / n / c.agences_actives : 0, agences,
+    }
+  } catch { return null }
+}
+
+/** De l'objectif de chiffre d'affaires mensuel à ce qu'il faut sortir chaque semaine. Les taux viennent des entonnoirs.
+ *  Avec les vrais chiffres : le chiffre d'affaires moyen d'une agence est le vrai, celui des particuliers est supposé
+ *  constant (les agences portent le reste de l'objectif), et le chiffre d'affaires estimé est le facturé réel. */
 export function planCroissance(r: ReglageCockpit, etat: {
   clientsActuels: number; artisansActifs: number
   /** Agences contactées → clients ; artisans contactés → actifs (0 à 1). */
   tauxClient: number | null; tauxArtisan: number | null
   /** Ce qu'on fait aujourd'hui, en moyenne par semaine (4 dernières semaines). */
   clientsParSemaine: number; artisansParSemaine: number; agencesAppeleesParSemaine: number
-}): { clientsNecessaires: number; artisansNecessaires: number; caEstime: number; premiersOsParMois: number; leviers: LevierCockpit[]; global: Trajectoire } {
+}, reel?: ReelStc | null): { clientsNecessaires: number; artisansNecessaires: number; caEstime: number; caParClient: number; premiersOsParMois: number; leviers: LevierCockpit[]; global: Trajectoire } {
   const semaines = Math.max(1, r.moisPourYArriver * SEMAINES_PAR_MOIS)
-  const clientsNecessaires = r.caParClient > 0 ? Math.ceil(r.objectifMensuel / r.caParClient) : 0
+  const caParClient = reel ? reel.caParAgence : r.caParClient
+  const aPorter = reel ? Math.max(0, r.objectifMensuel - reel.caParticuliersMensuel) : r.objectifMensuel
+  const clientsNecessaires = caParClient > 0 ? Math.ceil(aPorter / caParClient) : 0
   const artisansNecessaires = r.caParArtisan > 0 ? Math.ceil(r.objectifMensuel / r.caParArtisan) : 0
   const clientsSemaine = Math.max(0, clientsNecessaires - etat.clientsActuels) / semaines
   const artisansSemaine = Math.max(0, artisansNecessaires - etat.artisansActifs) / semaines
@@ -108,5 +144,5 @@ export function planCroissance(r: ReglageCockpit, etat: {
   ]
   const ordre: Trajectoire[] = ["retard", "juste", "bonne", "inconnue"]
   const global = ordre.find((t) => leviers.some((l) => l.trajectoire === t)) ?? "inconnue"
-  return { clientsNecessaires, artisansNecessaires, caEstime: etat.clientsActuels * r.caParClient, premiersOsParMois: Math.ceil(clientsSemaine * SEMAINES_PAR_MOIS), leviers, global: global === "inconnue" && leviers.every((l) => l.trajectoire !== "inconnue") ? "bonne" : global }
+  return { clientsNecessaires, artisansNecessaires, caEstime: reel ? reel.caMensuel : etat.clientsActuels * r.caParClient, caParClient, premiersOsParMois: Math.ceil(clientsSemaine * SEMAINES_PAR_MOIS), leviers, global: global === "inconnue" && leviers.every((l) => l.trajectoire !== "inconnue") ? "bonne" : global }
 }
