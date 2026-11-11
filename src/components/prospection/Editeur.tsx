@@ -9,7 +9,7 @@ import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
 import { domaineBloque, sansDejaSollicites } from "../../prospection/pareFeu"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
-import { estBaseAvis } from "../../prospection/avis"
+import { AVIS_DEPART, estBaseAvis } from "../../prospection/avis"
 import MesureAvis from "./moteur/MesureAvis"
 import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
@@ -153,6 +153,10 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                   <Libelle titre="Sans contact depuis (jours)" className="max-w-[220px]"><Champ type="number" min={0} placeholder="Tous" value={c.audience.pasContacteDepuis || ""} onChange={(e) => setC({ ...c, audience: { ...c.audience, pasContacteDepuis: Number(e.target.value) || undefined } })} /></Libelle>
                   <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile"] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : "mobile (pour les SMS)"}</label>)}</div>
                 </div></Bloc>
+                {c.baseId === "locataires" ? <Bloc titre="Quand demander l'avis"><div className="mt-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-legende">Envoyer <Champ type="number" min={0} className="!w-20" aria-label="Jours après la fin du chantier" value={(cfg.avis ?? AVIS_DEPART).delaiJours} onChange={(e) => maj((x) => ({ ...x, avis: { ...(x.avis ?? AVIS_DEPART), delaiJours: Math.max(0, Number(e.target.value) || 0) } }))} /> jours après la fin du chantier, et pas pour un chantier fini depuis plus de <Champ type="number" min={1} max={365} className="!w-20" aria-label="Jours au plus" value={(cfg.avis ?? AVIS_DEPART).fenetreJours} onChange={(e) => maj((x) => ({ ...x, avis: { ...(x.avis ?? AVIS_DEPART), fenetreJours: Math.min(365, Math.max(1, Number(e.target.value) || 120)) } }))} /> jours</div>
+                  <p className="text-colonne text-encre-2">0 jour : dès que le chantier passe à « Fin de chantier » ou « Livré » dans STC Bâtiment (la synchro passe chaque heure), pendant les heures d'envoi. La campagne tourne en continu : chaque nouveau chantier fini y entre tout seul.</p>
+                </div></Bloc> : null}
               </div>
             ) : partie === "sequence" ? <Sequence cfg={cfg} maj={maj} allerCreatifs={() => setPartie("creatifs")} avis={avis} />
               : partie === "creatifs" ? <Creatifs cfg={cfg} maj={maj} avis={avis} exemple={contactsBase[0] ? valeursDe(contactsBase[0]) : undefined} baseId={c.baseId} campagne={{ id: c.id, nom: c.nom, rythme: c.rythme }} />

@@ -4,6 +4,16 @@
 export const BASES_AVIS = ["locataires", "clients_gestionnaires", "sous_traitants_actifs"]
 export const estBaseAvis = (baseId: string) => BASES_AVIS.includes(baseId)
 
+/** Quand demander l'avis d'un locataire : réglé dans chaque campagne (Mahdi, 11/11/2026). 0 jour = dès la fin du chantier. */
+export type ReglageAvis = { delaiJours: number; fenetreJours: number }
+export const AVIS_DEPART: ReglageAvis = { delaiJours: 3, fenetreJours: 120 }
+/** Un contact sans date de fin (ajouté à la main) est toujours prêt. */
+export function pretPourAvis(finLe: string | null | undefined, r: ReglageAvis, maintenant: Date): boolean {
+  if (!finLe) return true
+  const age = (maintenant.getTime() - new Date(finLe).getTime()) / 86_400_000
+  return age >= r.delaiJours && age <= r.fenetreJours
+}
+
 /** Une note basse remonte à l'équipe, pour rappeler la personne. */
 export const aRappeler = (note: number) => note <= 3
 
