@@ -100,3 +100,14 @@ export const ARRET_DEPART: ReglageArret = { tauxPct: TAUX_REBONDS_ARRET * 100, a
 export function doitArreter(envoyes: number, rebonds: number, r: ReglageArret = ARRET_DEPART): boolean {
   return envoyes >= Math.max(1, r.apresEnvois) && rebonds / envoyes > r.tauxPct / 100
 }
+
+/** Le test « boîte de réception ou spam » d'Instantly (Mahdi, 11/11/2026) : la lecture d'un résultat. */
+export type PlacementMesure = { count: number; inbox_percent: number; spam_percent: number; category_percent: number }
+export function lectureSpam(m: PlacementMesure | null | undefined): { niveau: "attente" | "bon" | "moyen" | "mauvais"; texte: string } {
+  if (!m || !m.count) return { niveau: "attente", texte: "En cours : les résultats arrivent en quelques minutes." }
+  const r = (x: number) => Math.round(x)
+  const detail = `${r(m.inbox_percent)} % en boîte de réception, ${r(m.category_percent)} % en onglet (Promotions…), ${r(m.spam_percent)} % en spam`
+  if (m.spam_percent >= 20) return { niveau: "mauvais", texte: `Trop de spam : ${detail}.` }
+  if (m.inbox_percent + m.category_percent >= 80 && m.spam_percent < 10) return { niveau: "bon", texte: `Bon : ${detail}.` }
+  return { niveau: "moyen", texte: `À surveiller : ${detail}.` }
+}

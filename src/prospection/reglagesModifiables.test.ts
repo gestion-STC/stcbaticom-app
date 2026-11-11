@@ -3,7 +3,7 @@ import sql from "../../supabase/maj-2026-11-11-pause-absent-reglable.sql?raw"
 import { describe, expect, it } from "vitest"
 import { AB_DEPART, verdictAB, type MesureVariante } from "./abTest"
 import { aRappeler } from "./avis"
-import { SIGNATURE_PROSPECTION, conseilsEnvoi, corpsAvecMentions, doitArreter } from "./instantlyOutils"
+import { SIGNATURE_PROSPECTION, conseilsEnvoi, corpsAvecMentions, doitArreter, lectureSpam } from "./instantlyOutils"
 
 const v = (nom: string, envoyes: number, repondants: number): MesureVariante => ({ varianteId: nom, nom, envoyes, leads: 0, repondants, cliqueurs: 0, ouvreurs: 0 })
 
@@ -38,5 +38,15 @@ describe("les réglages modifiables", () => {
     expect(sql).toContain("'{garde,pauseAbsentJours}'")
     expect(sql).toContain(", 7), 1), 60)")
     expect(sql).toContain("MAUVAIS PROJET")
+  })
+})
+
+describe("le test boîte de réception ou spam", () => {
+  it("lit un résultat", () => {
+    expect(lectureSpam(null).niveau).toBe("attente")
+    expect(lectureSpam({ count: 0, inbox_percent: 0, spam_percent: 0, category_percent: 0 }).niveau).toBe("attente")
+    expect(lectureSpam({ count: 40, inbox_percent: 70, spam_percent: 5, category_percent: 25 }).niveau).toBe("bon")
+    expect(lectureSpam({ count: 40, inbox_percent: 60, spam_percent: 15, category_percent: 25 }).niveau).toBe("moyen")
+    expect(lectureSpam({ count: 40, inbox_percent: 50, spam_percent: 30, category_percent: 20 }).texte).toContain("30 % en spam")
   })
 })

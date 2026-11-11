@@ -3,9 +3,9 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
 import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, lireAppris, lireReponse, offreSTC } from "../_shared/campagnes/generationIA.ts"
-import { envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
+import { appelInstantly, envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
-import { remplirVariables } from "../_shared/campagnes/instantlyOutils.ts"
+import { boitesDe, corpsAvecMentions, remplirVariables, type Mentions } from "../_shared/campagnes/instantlyOutils.ts"
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-passage-cle", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
@@ -37,6 +37,37 @@ Deno.serve(async (req: Request) => {
       const emails = (Array.isArray(entree.emails) ? entree.emails : []).map(String).slice(0, 25)
       const v = await verifierLesAdresses(sb, emails, Deno.env.get("INSTANTLY_API_KEY") ?? "", 25)
       return json({ verdicts: [...v.values()] })
+    }
+    // Le test « boîte de réception ou spam » (Mahdi, 11/11/2026) : le vrai mail, par les vraies boîtes, vers les boîtes de test d'Instantly.
+    if (entree.action === "spam_lancer" || entree.action === "spam_resultats") {
+      const cle = Deno.env.get("INSTANTLY_API_KEY") ?? ""
+      if (!cle) return json({ error: "Instantly n'est pas branché." }, 400)
+      const a = entree as unknown as { campagneId: string; baseId: string; nom: string; objet: string; corps: string; mentions?: Mentions; suivi?: boolean }
+      const marque = `baticom:${a.campagneId}`
+      if (entree.action === "spam_lancer") {
+        const ins = await preparerInstantly(sb, Deno.env.get("SUPABASE_URL")!, new Date().toISOString())
+        const boites = boitesDe(a.baseId, ins.pretes)
+        if (!boites.length) return json({ error: "Aucune boîte d'envoi n'est prête pour cette cible." }, 400)
+        const options = await appelInstantly(cle, "/inbox-placement-tests/email-service-provider-options")
+        const labels = Array.isArray(options.data) ? options.data : []
+        const valeurs = { contact: "Claire Martin", prenom: "Claire", entreprise: "Agence Exemple", agence: "Agence Exemple", secteur: "Paris 12e", enseigne: "", metier: "Peinture", zone: "Paris", accroche_ia: "" }
+        const propre = (x: string) => remplirVariables(x, valeurs).replace(/\{\{lien_[a-z_]+\}\}/g, "https://www.stcbatiment.fr")
+        const r = await appelInstantly(cle, "/inbox-placement-tests", { corps: {
+          name: String(a.nom || "Test").slice(0, 120), description: marque, type: 1, sending_method: 1, delivery_mode: 2,
+          email_subject: propre(a.objet), email_body: corpsAvecMentions(propre(a.corps), "https://www.stcbatiment.fr", true, a.mentions ?? {}),
+          emails: boites, recipients_labels: labels, text_only: a.suivi === false, run_immediately: true,
+        } })
+        if (!r.ok) return json({ error: `Instantly a refusé le test (${r.status}) ${String(r.data?.message ?? "").slice(0, 160)}` }, 502)
+        return json({ id: String(r.data?.id ?? "") })
+      }
+      const l = await appelInstantly(cle, "/inbox-placement-tests?limit=100")
+      const tous = ((l.data?.items ?? []) as { id: string; name: string; description?: string | null; timestamp_created: string; status?: number | null }[])
+      const tests = tous.filter((t) => t.description === marque).sort((x, y) => y.timestamp_created.localeCompare(x.timestamp_created)).slice(0, 6)
+      if (!tests.length) return json({ tests: [] })
+      const ids = tests.map((t) => t.id)
+      const stats = async (esp?: number) => { const r = await appelInstantly(cle, "/inbox-placement-analytics/stats-by-test-id", { corps: { test_ids: ids, ...(esp ? { recipient_esp: [esp] } : {}) } }); return new Map(((Array.isArray(r.data) ? r.data : []) as { test_id: string }[]).map((x) => [x.test_id, x])) }
+      const [tout, google, outlook] = await Promise.all([stats(), stats(1), stats(2)])
+      return json({ tests: tests.map((t) => ({ id: t.id, nom: t.name, le: t.timestamp_created, statut: t.status ?? null, tout: tout.get(t.id) ?? null, google: google.get(t.id) ?? null, outlook: outlook.get(t.id) ?? null })) })
     }
     if (entree.action === "trier") return json(await lireReponse(String(entree.objet ?? ""), String(entree.texte ?? "")))
     // Le test d'arrivée : le vrai mail, par les vraies boîtes, vers des adresses à soi. Rien n'est compté dans la campagne.
