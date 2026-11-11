@@ -1,47 +1,27 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LA BOÎTE DE RÉCEPTION, façon Gmail (08/10/2026).
+// LA BOÎTE DE RÉCEPTION, dessinée comme celle de STC Bâtiment (11/11/2026).
 //
-// Mahdi : « une boîte de réception, ça ne doit pas être différent de Gmail ».
-// Donc, comme Gmail : un rail à gauche (Nouveau message, Boîte de réception,
-// Non lus, Envoyés, Tous), une recherche en haut, une liste de CONVERSATIONS
-// (une ligne = un échange, les non lues en gras sur fond blanc, les lues sur
-// fond gris), « 1–50 sur N » à droite ; on clique, la conversation remplace la
-// liste (flèche retour, Échap), les anciens messages repliés sur une ligne, le
-// dernier déplié, Répondre / Transférer sous le dernier message, et la fenêtre
-// « Nouveau message » en bas à droite.
+// Mahdi : « tu me fais un copier-coller de ce qui existe sur STC Bâtiment, je veux exactement la même
+// chose — vu que c'est le même logiciel, il faut que les interfaces soient les mêmes ».
+// Donc, comme STC (src/pages/admin/AdminOrdresServicePage.tsx et OSMessagesTabV2.tsx) : le titre
+// « Boîte de réception », le comptage, UNE pilule noire « Nouveau message » ; une recherche et les
+// filtres du quotidien en pilules (Non lus, Envoyés), le reste dans le « ⋯ » ; la liste pleine largeur
+// en rangées fines (Contact, Source, Objet, Date), les non-lus sur fond bleu très léger. On clique, la
+// conversation remplace la liste (flèche retour, Échap) : la barre du haut, le bandeau gris des
+// décisions (lead / dead, bon contact cité, absent), puis le fil façon client mail (rond « STC » noir
+// pour nos envois), Répondre / Transférer collés en bas, et le « Nouveau message » flottant en bas à droite.
 //
 // DEUX BOÎTES : la même interface sert au démarchage et au recrutement, mais
 // chacune ne voit que les messages de son espace et répond depuis l'adresse
 // de son espace. Chaque conversation de démarchage porte le nom de son agence.
-// (14/10 : l'ancien dossier « Campagnes », figé depuis le 08/10, est retiré ; son historique reste archivé.)
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
-import {
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  Forward,
-  Inbox,
-  Layers,
-  Loader2,
-  Mail,
-  MailOpen,
-  Paperclip,
-  Pencil,
-  RefreshCw,
-  Reply,
-  Search,
-  Send,
-  Trash2,
-  UserRound,
-  X,
-} from "lucide-react"
+import { ArrowLeft, ChevronLeft, ChevronRight, Forward, Loader2, Mail, RefreshCw, Reply, Search, Send, Trash2, X } from "lucide-react"
 import { deciderReponse } from "../lib/messagesDb"
 import { creerContact } from "../demarchage/db"
 import {
   chargerMessages,
   type Espace,
-  lienPieceJointe,
   marquerLus,
   marquerNonLus,
   repondreMessage,
@@ -51,8 +31,7 @@ import {
 import { useSession } from "../lib/auth"
 import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
-import { LIBELLE_TRI } from "../prospection/ia"
-import { apercuTexte, dateCourte, nomCorrespondant, objetReponse, objetTransfert } from "../lib/messagesUtils"
+import { objetReponse, objetTransfert } from "../lib/messagesUtils"
 import {
   compterNonLues,
   etiquetteDe,
@@ -65,19 +44,26 @@ import {
   messageLinkedIn,
 } from "../lib/conversations"
 import { repondreLinkedIn } from "../lib/linkedinDb"
-import { formatTaille } from "../lib/stockage"
 import { piecesAEnvoyer, piecesTropLourdes } from "../lib/envoiEmail"
 import type { PieceJointe } from "../emails"
 import PiecesCompo from "./PiecesCompo"
 import { supabase } from "../lib/supabase"
-import { Bandeau, Bouton, Champ, Chargement, Pastille, Selecteur, Vide, Zone } from "../ui"
 import FicheArtisan from "./recrutement/FicheArtisan"
+import { OUTIL, PETITE, PILULE_CLAIRE, PILULE_NOIRE, SOUS_TITRE, TITRE_PAGE, bascule } from "./agenda/dessinBureau"
+import { ElementMenu, MenuPoints, SeparateurMenu } from "./boite/MenuPoints"
+import LigneBoite, { EnTeteColonnes } from "./boite/LigneBoite"
+import MessageDuFil from "./boite/MessageDuFil"
+import { etiquetteTri } from "./boite/outils"
 
 type Conv = Conversation<Message>
 type Vue = Dossier
 type Mode = "repondre" | "transferer" | null
 
 const ADRESSE_VALIDE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Le bandeau gris de STC, au-dessus du fil.
+const BANDEAU = "mt-3 flex flex-wrap items-center gap-3 rounded-[10px] bg-[#F6F6F7] px-3.5 py-2.5"
+// Une ligne « À / Objet » du composeur, soulignée d'un filet (STC).
+const LIGNE_COMPO = "flex min-h-[38px] items-center gap-2.5 border-b-[0.5px] border-[#E6E6EA]"
 
 // Corps pré-rempli pour un transfert : cite le message d'origine.
 function corpsTransfert(m: Message): string {
@@ -91,161 +77,10 @@ function corpsTransfert(m: Message): string {
   )
 }
 
-// L'initiale du correspondant dans un rond, teinte stable par initiale ;
-// anthracite pour nos propres messages.
-const TEINTES = [
-  "bg-signature-doux text-signature",
-  "bg-info-fond text-info",
-  "bg-ok-fond text-ok",
-  "bg-attention-fond text-attention",
-  "bg-fond-3 text-encre",
-]
-function Avatar({ nom, sortant }: { nom: string; sortant: boolean }) {
-  const initiale = (nom.trim()[0] || "?").toUpperCase()
-  const teinte = sortant ? "bg-action text-white" : TEINTES[initiale.charCodeAt(0) % TEINTES.length]
+function LigneCompo({ libelle, children }: { libelle: string; children: ReactNode }) {
   return (
-    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-legende font-semibold ${teinte}`}>
-      {initiale}
-    </span>
-  )
-}
-
-// ── Un message de la conversation ──
-// Replié = une ligne (avatar, expéditeur, aperçu, date). Déplié = l'en-tête
-// complet (de, à, date) + le corps + les pièces jointes.
-function MessageCard({ m, ouvert, onToggle }: { m: Message; ouvert: boolean; onToggle: () => void }) {
-  const [pjEnCours, setPjEnCours] = useState("")
-  const entrant = m.sens === "entrant"
-  const nom = nomCorrespondant(m.de)
-
-  async function ouvrirPiece(chemin: string) {
-    setPjEnCours(chemin)
-    try {
-      const url = await lienPieceJointe(chemin)
-      window.open(url, "_blank", "noopener")
-    } catch (e) {
-      alert("Téléchargement impossible : " + (e instanceof Error ? e.message : e))
-    } finally {
-      setPjEnCours("")
-    }
-  }
-
-  return (
-    <article className="border-b border-fond-4 last:border-b-0">
-      <button type="button" onClick={onToggle} className="flex w-full items-start gap-3 px-10 py-4 text-left hover:bg-fond-2">
-        <Avatar nom={nom} sortant={!entrant} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="truncate text-corps font-semibold text-encre">
-              {nom}
-              {!entrant && <span className="font-normal text-encre-3"> (moi)</span>}
-            </span>
-            <span className="shrink-0 text-legende text-encre-3">
-              {new Date(m.date).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
-            </span>
-          </div>
-          {ouvert ? (
-            <div className="truncate text-legende text-encre-2">
-              {m.de}
-              {m.a && <> · À {m.a}</>}
-            </div>
-          ) : (
-            <div className="truncate text-corps text-encre-2">{apercuTexte(m.corpsText || m.objet)}</div>
-          )}
-        </div>
-      </button>
-
-      {ouvert && (
-        <div className="pb-5 pl-[5.5rem] pr-10">
-          {m.corpsText ? (
-            <pre className="whitespace-pre-wrap font-sans text-corps leading-relaxed text-encre">{m.corpsText}</pre>
-          ) : m.corpsHtml ? (
-            <iframe
-              title="Contenu du message"
-              // allow-same-origin (SANS allow-scripts) : aucun script ne s'exécute,
-              // mais on peut mesurer la hauteur du contenu pour tout afficher.
-              sandbox="allow-same-origin"
-              srcDoc={m.corpsHtml}
-              onLoad={(e) => {
-                const f = e.currentTarget
-                try {
-                  const h = f.contentWindow?.document.body?.scrollHeight
-                  if (h) f.style.height = h + 24 + "px"
-                } catch {
-                  /* mesure impossible : on garde la hauteur par défaut */
-                }
-              }}
-              style={{ height: "300px" }}
-              className="w-full border-0 bg-fond"
-            />
-          ) : (
-            <p className="text-corps italic text-encre-3">(message vide)</p>
-          )}
-
-          {m.piecesJointes.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {m.piecesJointes.map((pj) => (
-                <Bouton
-                  key={pj.chemin}
-                  taille="sm"
-                  icone={pjEnCours === pj.chemin ? <Loader2 className="animate-spin" /> : <Paperclip />}
-                  disabled={pjEnCours === pj.chemin}
-                  onClick={() => ouvrirPiece(pj.chemin)}
-                >
-                  {pj.nom}
-                  {pj.taille > 0 && <span className="text-encre-3">({formatTaille(pj.taille)})</span>}
-                </Bouton>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </article>
-  )
-}
-
-// ── Une ligne de la liste ── une conversation. Non lue : fond blanc, en gras.
-// Lue : fond gris doux. Au survol, l'action « lu / non lu » remplace la date.
-function LigneConversation({ c, nom, onOuvrir, onBasculerLu }: { c: Conv; nom: string; onOuvrir: () => void; onBasculerLu: () => void }) {
-  const nonLu = c.nonLus > 0
-  const apercu = apercuTexte(c.dernier.corpsText || "", 110)
-  const tri = c.messages.find((x) => x.tri)?.tri ?? null
-  return (
-    <div className={`group relative flex items-center border-b border-fond-4 last:border-b-0 ${nonLu ? "bg-fond" : "bg-fond-2"} hover:z-10 hover:shadow-[0_1px_3px_rgba(0,0,0,0.18)]`}>
-      <button type="button" onClick={onOuvrir} className="flex h-11 min-w-0 flex-1 items-center gap-3 px-10 text-left">
-        <span className={`w-[230px] shrink-0 truncate text-corps ${nonLu ? "font-semibold text-encre" : "text-encre"}`}>
-          {c.aRecu ? nom : `À : ${nom}`}
-          {c.messages.length > 1 && <span className="chiffres font-normal text-encre-3"> {c.messages.length}</span>}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-corps">
-          <span className={nonLu ? "font-semibold text-encre" : "text-encre"}>{c.objet || "(sans objet)"}</span>{tri ? <span className={`ml-2 inline-block rounded-full px-2 text-[10px] font-medium leading-4 ${tri === "interesse" ? "bg-ok text-white" : "bg-fond-4 text-encre-2"}`}>{LIBELLE_TRI[tri]}</span> : null}
-          {apercu && <span className="text-encre-3"> — {apercu}</span>}
-        </span>
-        {c.piecesJointes > 0 && <Paperclip size={14} className="shrink-0 text-encre-3" />}
-        <span className={`w-16 shrink-0 text-right text-legende ${nonLu ? "font-semibold text-encre" : "text-encre-3"} ${c.aRecu ? "group-hover:invisible" : ""}`}>
-          {dateCourte(c.dernier.date)}
-        </span>
-      </button>
-      {c.aRecu && (
-        <button
-          type="button"
-          title={nonLu ? "Marquer comme lu" : "Marquer comme non lu"}
-          aria-label={nonLu ? "Marquer comme lu" : "Marquer comme non lu"}
-          onClick={onBasculerLu}
-          className="absolute right-9 top-1/2 hidden -translate-y-1/2 rounded-4 p-1.5 text-encre-2 hover:bg-fond-4 hover:text-encre group-hover:block"
-        >
-          {nonLu ? <MailOpen size={16} /> : <Mail size={16} />}
-        </button>
-      )}
-    </div>
-  )
-}
-
-// Un champ de la fenêtre « Nouveau message » : une ligne, un trait dessous, comme Gmail.
-function ChampCompo({ libelle, children }: { libelle: string; children: ReactNode }) {
-  return (
-    <label className="flex h-10 items-center gap-3 border-b border-fond-4 text-corps">
-      <span className="w-14 shrink-0 text-encre-2">{libelle}</span>
+    <label className={LIGNE_COMPO}>
+      <span className="w-12 shrink-0 text-[#8E8E93]">{libelle}</span>
       {children}
     </label>
   )
@@ -253,16 +88,17 @@ function ChampCompo({ libelle, children }: { libelle: string; children: ReactNod
 
 // Qui signe (19/10/2026) : visible seulement quand le compte a plusieurs noms
 // (Paramétrage › Emails › Mes signatures). Le choix vaut pour les réponses,
-// les transferts et les nouveaux messages.
+// les transferts et les nouveaux messages. Dessiné comme le sélecteur gris de STC.
 function SigneParCompo({ noms, nom, onChange }: { noms: string[]; nom: string; onChange: (n: string) => void }) {
   return (
-    <label className="ml-auto flex min-w-0 items-center gap-2 text-legende text-encre-2">
+    <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-[#8E8E93]">
       <span className="shrink-0">Signé par</span>
-      <Selecteur value={nom} onChange={(e) => onChange(e.target.value)} aria-label="Signé par" className="w-48">
+      <select value={nom} onChange={(e) => onChange(e.target.value)} aria-label="Signé par"
+        className="h-[26px] w-44 min-w-0 rounded-full border-0 bg-[#F2F2F4] px-2.5 text-[11px] text-[#111113] outline-none">
         {noms.map((n) => (
           <option key={n} value={n}>{n}</option>
         ))}
-      </Selecteur>
+      </select>
     </label>
   )
 }
@@ -518,278 +354,326 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     }
   }
 
-  const dossiers: { id: Vue; label: string; icone: typeof Inbox; badge?: number }[] = [
-    { id: "reception", label: "Boîte de réception", icone: Inbox, badge: nbNonLues },
-    { id: "nonlus", label: "Non lus", icone: MailOpen },
-    { id: "envoyes", label: "Envoyés", icone: Send },
-    { id: "tous", label: "Tous les messages", icone: Layers },
-  ]
-  const libelleVue = dossiers.find((d) => d.id === vue)?.label ?? ""
   const pages = pagination
+  const libelleBoite = espace === "recrutement" ? "Sous-traitants" : espace === "demarchage" ? "Gestionnaires" : "Les deux boîtes"
+  const triOuvert = etiquetteTri(reponseATrancher)
+  const linkedIn = ouvert ? messageLinkedIn(ouvert.messages) : null
+  const toutDeplie = ouvert ? depiles.length >= ouvert.messages.length : false
+
+  // Le bandeau « envoyé » ou l'erreur : le gris de STC, un point de couleur, et « Fermer ».
+  const bandeaux = (
+    <>
+      {envoiOk && (
+        <div className={BANDEAU}>
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#1F8A4C]" />
+          <span className="min-w-0 flex-1 text-[#3C3C40]">{envoiOk}</span>
+          <button type="button" className={`${PILULE_CLAIRE} ${PETITE}`} onClick={() => setEnvoiOk("")}>Fermer</button>
+        </div>
+      )}
+      {erreur && (
+        <div className={BANDEAU}>
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#C9302C]" />
+          <span className="min-w-0 flex-1 text-[#C9302C]">{erreur}</span>
+        </div>
+      )}
+    </>
+  )
 
   return (
-    <div className="page">
-      {/* ── La barre du haut, comme Gmail (Mahdi, 06/11/2026) : « Nouveau message », les dossiers
-          (réception, non lus, envoyés, tous) et la recherche. La liste et le message prennent
-          toute la largeur de la page : plus de colonne à gauche. Mail ouvert : cette barre disparaît,
-          celle du mail prend sa place (Mahdi, 06/11/2026). ── */}
-      {!enLecture && (
-      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Bouton variante="plein" icone={<Pencil />} onClick={ouvrirNouveau}>
-          Nouveau message
-        </Bouton>
-        <nav className="flex flex-wrap items-center gap-1" aria-label="Dossiers">
-          {dossiers.map((d) => {
-            const Icone = d.icone
-            const actif = vue === d.id
-            return (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => changerVue(d.id)}
-                aria-current={actif ? "page" : undefined}
-                className={`flex h-[30px] items-center gap-2 rounded-full px-3 text-legende transition-colors ${actif ? "bg-fond-4 font-medium text-encre" : "text-encre-2 hover:bg-fond-3 hover:text-encre"}`}
-              >
-                <Icone size={14} className="shrink-0" />
-                <span className="whitespace-nowrap">{d.label}</span>
-                {d.badge ? <span className="chiffres rounded-full bg-encre px-1.5 text-[10px] font-medium leading-4 text-white">{d.badge}</span> : null}
-              </button>
-            )
-          })}
-        </nav>
-        {!enLecture && (
-          <div className="relative ml-auto w-full min-w-[220px] sm:w-[360px]">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-encre-3" />
-            <Champ
-              value={recherche}
-              onChange={(e) => {
-                setRecherche(e.target.value)
-                setPageListe(1)
-              }}
-              placeholder="Rechercher dans les messages"
-              aria-label="Rechercher dans les messages"
-              className="pl-9"
-            />
+    <div className="page text-[13px] text-[#111113]">
+      {!ouvert ? (
+        /* ══ LA LISTE ══ */
+        <>
+          {/* En-tête : « Boîte de réception », le comptage, et UNE action noire (STC). */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className={TITRE_PAGE}>Boîte de réception</h1>
+              <p className={SOUS_TITRE}>
+                {libelleBoite} · <span className="tabular-nums">{visibles.length}</span> conversation{visibles.length > 1 ? "s" : ""}
+                {nbNonLues > 0 && <> · <span className="tabular-nums">{nbNonLues}</span> non lue{nbNonLues > 1 ? "s" : ""}</>}
+              </p>
+            </div>
+            <button type="button" onClick={ouvrirNouveau} className={PILULE_NOIRE}>Nouveau message</button>
           </div>
-        )}
-      </div>
-      )}
 
-      {/* ── La liste ou la conversation, sur toute la largeur ── */}
-      <section className="min-w-0">
-        {envoiOk && !enLecture && (
-          <Bandeau role="ok" className="mb-4" action={<Bouton variante="discret" taille="sm" onClick={() => setEnvoiOk("")}>Fermer</Bouton>}>
-            {envoiOk}
-          </Bandeau>
-        )}
-
-        {/* Pleine page (Mahdi, 06/11/2026 : « la ligne du mail prend toute la page ») : plus de cadre,
-            les lignes vont d'un bord à l'autre ; leur texte reste aligné sur la barre du haut (40 px). */}
-        <div className={`-mx-10 border-t-[0.5px] border-trait ${enLecture ? "-mb-10 -mt-7 border-t-0" : ""}`}>
-          {ouvert ? (
-            /* ── Une conversation ── */
-            <>
-              {/* La barre du mail reste en haut pendant qu'on fait défiler le mail, comme dans Gmail. */}
-              <div className="sticky top-0 z-20 flex h-12 items-center gap-1 border-b border-trait bg-fond px-8">
-                <Bouton variante="discret" taille="icone" onClick={retourListe} aria-label="Retour à la liste" title="Retour (Échap)">
-                  <ArrowLeft />
-                </Bouton>
-                {ouvert.aRecu && (
-                  <Bouton variante="discret" taille="sm" icone={<Mail />} onClick={marquerOuverteNonLue}>
-                    Marquer comme non lu
-                  </Bouton>
-                )}
-                {ouvert.sousTraitantId && (
-                  <Bouton variante="discret" taille="sm" icone={<UserRound />} onClick={() => setFiche(ouvert.sousTraitantId)}>
-                    Ouvrir la fiche
-                  </Bouton>
-                )}
-                {reponseATrancher ? <span className="ml-auto flex items-center gap-1">
-                  {reponseATrancher.tri ? <Pastille role={reponseATrancher.tri === "interesse" ? "actif" : "inerte"}>{LIBELLE_TRI[reponseATrancher.tri] ?? reponseATrancher.tri}</Pastille> : null}
-                  <Bouton variante="discret" taille="sm" chargement={decision === "lead"} disabled={reponseATrancher.tri === "interesse"} onClick={() => void trancher("lead")}>C'est un lead</Bouton>
-                  <Bouton variante="discret" taille="sm" chargement={decision === "dead"} disabled={reponseATrancher.tri === "pas_interesse"} onClick={() => void trancher("dead")}>C'est un dead</Bouton>
-                </span> : null}
-                <Bouton variante="discret" taille="sm" icone={<Forward />} onClick={() => ouvrirCompo("transferer")}>
-                  Transférer
-                </Bouton>
-              </div>
-
-              <div className="px-10 pb-2 pt-5">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-balance text-section font-semibold text-encre">{ouvert.objet || "(sans objet)"}</h2>
-                  <Pastille role="inerte">{etiquetteDe(ouvert)}</Pastille>
-                </div>
-                <p className="mt-1 text-legende text-encre-2">
-                  {nomDe(ouvert)}
-                  {ouvert.adresse.includes("@") && nomDe(ouvert) !== ouvert.adresse && <> · {ouvert.adresse}</>}
-                  {" · "}
-                  <span className="chiffres">{ouvert.messages.length}</span> {ouvert.messages.length > 1 ? "messages" : "message"}
-                </p>
-              </div>
-
-              {reponseATrancher?.triDetail?.contact_nom || reponseATrancher?.triDetail?.contact_email ? (
-                <div className="mx-10 mb-3 flex flex-wrap items-center gap-3 rounded-4 bg-fond-2 px-4 py-2.5 text-legende">
-                  <span className="min-w-0 flex-1"><span className="text-encre-2">Bon contact cité : </span>{[reponseATrancher.triDetail.contact_nom, reponseATrancher.triDetail.contact_email, reponseATrancher.triDetail.contact_telephone].filter(Boolean).join(" · ")}</span>
-                  {contactCree === reponseATrancher.id ? <span className="text-ok">Contact ajouté à la fiche</span> : <Bouton taille="sm" variante="discret" chargement={creation} onClick={() => void creerLeContact()}>Créer ce contact</Bouton>}
-                </div>
-              ) : null}
-              {reponseATrancher?.tri === "absent" && reponseATrancher.triDetail?.retour ? <p className="mx-10 mb-3 text-legende text-encre-2">Absent jusqu'au {new Date(reponseATrancher.triDetail.retour + "T12:00:00").toLocaleDateString("fr-FR")} : la séquence reprend après son retour.</p> : null}
-              <div>
-                {ouvert.messages.map((m) => (
-                  <MessageCard key={m.id} m={m} ouvert={depiles.includes(m.id)} onToggle={() => basculerMessage(m.id)} />
-                ))}
-              </div>
-
-              {/* Répondre / Transférer : toujours en bas de l'écran, le mail défile au-dessus (comme Gmail). */}
-              <div className="sticky bottom-0 z-20 max-h-[60vh] overflow-y-auto border-t border-trait bg-fond px-10 py-4">
-                {mode === null ? (
-                  <div className="flex gap-2">
-                    <Bouton icone={<Reply />} onClick={() => ouvrirCompo("repondre")}>
-                      Répondre
-                    </Bouton>
-                    <Bouton icone={<Forward />} onClick={() => ouvrirCompo("transferer")}>
-                      Transférer
-                    </Bouton>
-                  </div>
-                ) : (
-                  <div className="flex gap-3">
-                    <Avatar nom={nomSignataire || "S"} sortant />
-                    <div className="min-w-0 flex-1 rounded-6 border border-trait bg-fond shadow-posee">
-                      <div className="flex items-center gap-2 border-b border-fond-4 px-4 text-legende text-encre-2">
-                        {mode === "repondre" ? (
-                          <span className="flex h-10 items-center gap-2">
-                            <Reply size={14} /> Répondre à {nomDe(ouvert)}
-                            {ouvert.adresse.includes("@") && <span className="text-encre-3">· {ouvert.adresse}</span>}
-                          </span>
-                        ) : (
-                          <ChampCompo libelle="À">
-                            <input
-                              value={compoTo}
-                              onChange={(e) => setCompoTo(e.target.value)}
-                              autoFocus
-                              placeholder="Adresse e-mail du destinataire"
-                              aria-label="Destinataire"
-                              className="h-full w-full bg-transparent text-encre outline-none placeholder:text-encre-3"
-                            />
-                          </ChampCompo>
-                        )}
-                      </div>
-                      <Zone
-                        value={compoCorps}
-                        onChange={(e) => setCompoCorps(e.target.value)}
-                        rows={mode === "repondre" ? 6 : 9}
-                        autoFocus={mode === "repondre"}
-                        placeholder="Votre message… (la signature est ajoutée automatiquement)"
-                        aria-label="Message"
-                        className="rounded-none border-0 shadow-none focus:ring-0"
-                      />
-                      <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
-                      <div className="flex items-center gap-2 px-3 py-3">
-                        <Bouton variante="plein" icone={<Send />} chargement={envoiEnCours} disabled={!pretAEnvoyer} onClick={envoyer}>
-                          Envoyer
-                        </Bouton>
-                        <Bouton variante="discret" taille="icone" onClick={fermerCompo} aria-label="Abandonner" title="Abandonner">
-                          <Trash2 />
-                        </Bouton>
-                        {envoiErreur && <span className="text-legende text-alerte">{envoiErreur}</span>}
-                        {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            /* ── La liste ── */
-            <>
-              <div className="flex h-12 items-center justify-between border-b border-trait px-8">
-                <div className="flex items-center gap-2">
-                  <Bouton variante="discret" taille="icone" onClick={charger} aria-label="Actualiser" title="Actualiser">
-                    <RefreshCw className={chargement ? "animate-spin" : ""} />
-                  </Bouton>
-                  <span className="text-legende text-encre-2">{libelleVue}</span>
-                </div>
-                <div className="flex items-center gap-1 text-legende text-encre-2">
-                  <span className="chiffres">
-                    {pages.debut}–{pages.fin} sur {pages.total}
-                  </span>
-                  <Bouton variante="discret" taille="icone" disabled={pages.page <= 1} onClick={() => setPageListe(pages.page - 1)} aria-label="Page précédente">
-                    <ChevronLeft />
-                  </Bouton>
-                  <Bouton variante="discret" taille="icone" disabled={pages.page >= pages.pages} onClick={() => setPageListe(pages.page + 1)} aria-label="Page suivante">
-                    <ChevronRight />
-                  </Bouton>
-                </div>
-              </div>
-
-              {erreur && (
-                <div className="px-10 py-4">
-                  <Bandeau role="alerte">{erreur}</Bandeau>
-                </div>
+          {/* Barre d'outils minimaliste : la recherche, les filtres du quotidien en pilules, le reste dans le ⋯. */}
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-b-[0.5px] border-[#E6E6EA] pb-2.5">
+            <label className="flex min-w-[220px] flex-1 items-center gap-2">
+              <Search className="h-[13px] w-[13px] shrink-0 text-[#8E8E93]" strokeWidth={2} />
+              <input
+                aria-label="Rechercher dans les messages"
+                placeholder="Nom, adresse, objet ou contenu…"
+                value={recherche}
+                onChange={(e) => { setRecherche(e.target.value); setPageListe(1) }}
+                className="h-7 min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6]"
+              />
+            </label>
+            <button type="button" aria-pressed={vue === "nonlus"} className={bascule(vue === "nonlus")} onClick={() => changerVue(vue === "nonlus" ? "reception" : "nonlus")}>
+              Non lus{nbNonLues > 0 && <span className={`ml-1.5 tabular-nums ${vue === "nonlus" ? "text-white/70" : "text-[#8E8E93]"}`}>{nbNonLues}</span>}
+            </button>
+            <button type="button" aria-pressed={vue === "envoyes"} className={bascule(vue === "envoyes")} onClick={() => changerVue(vue === "envoyes" ? "reception" : "envoyes")}
+              title="Les conversations où nous avons écrit">
+              Envoyés
+            </button>
+            <button type="button" className={OUTIL} onClick={charger} title="Actualiser" aria-label="Actualiser">
+              <RefreshCw className={`h-[15px] w-[15px] ${chargement ? "animate-spin" : ""}`} strokeWidth={1.7} />
+            </button>
+            <MenuPoints titre="Plus de filtres" pastille={vue === "tous"} largeur="w-60">
+              {(fermer) => (
+                <>
+                  <ElementMenu coche={vue === "reception"} onClick={() => { changerVue("reception"); fermer() }}>Boîte de réception</ElementMenu>
+                  <SeparateurMenu />
+                  <ElementMenu coche={vue === "tous"} onClick={() => { changerVue(vue === "tous" ? "reception" : "tous"); fermer() }}>Tous les messages</ElementMenu>
+                </>
               )}
-              {chargement && messages.length === 0 && !erreur && <Chargement texte="Lecture des messages…" />}
-              {!chargement && !erreur && pages.total === 0 && (
-                <Vide
-                  titre={recherche.trim() ? "Aucun résultat" : vue === "envoyes" ? "Aucun message envoyé" : vue === "nonlus" ? "Tout est lu" : "Aucun message"}
-                  texte={recherche.trim() ? "Essayez un autre mot : nom, adresse, objet ou contenu." : undefined}
-                />
-              )}
+            </MenuPoints>
+          </div>
 
-              {pagination.tranche.map((c) => (
-                    <LigneConversation key={c.cle} c={c} nom={nomDe(c)} onOuvrir={() => ouvrirConversation(c)} onBasculerLu={() => basculerLu(c)} />
-                  ))}
-            </>
+          {bandeaux}
+
+          {/* La liste, pleine largeur, en rangées fines — comme une boîte mail. */}
+          <EnTeteColonnes />
+          <div className="border-t-[0.5px] border-[#E6E6EA]">
+            {pagination.tranche.map((c) => (
+              <LigneBoite key={c.cle} c={c} nom={nomDe(c)} onOuvrir={() => ouvrirConversation(c)} onBasculerLu={() => basculerLu(c)} />
+            ))}
+            {chargement && messages.length === 0 && !erreur && (
+              <div className="flex items-center justify-center gap-2 py-12 text-[#8E8E93]">
+                <Loader2 className="h-4 w-4 animate-spin" /> Lecture des messages…
+              </div>
+            )}
+            {!chargement && !erreur && pages.total === 0 && (
+              <div className="py-12 text-center text-[13px] text-[#8E8E93]">
+                <Mail className="mx-auto mb-2.5 h-9 w-9 text-[#C7C7CC]" strokeWidth={1.2} />
+                {recherche.trim() ? "Aucun résultat" : vue === "envoyes" ? "Aucun message envoyé" : vue === "nonlus" ? "Tout est lu" : "Aucun message"}
+                {recherche.trim() && <p className="mt-1 text-[11px]">Essayez un autre mot : nom, adresse, objet ou contenu.</p>}
+              </div>
+            )}
+          </div>
+          {/* « 1–50 sur N », discret, sous la liste. */}
+          {pages.total > 0 && (
+            <div className="flex items-center justify-end gap-1 px-2 pt-2 text-[11px] text-[#8E8E93]">
+              <span className="tabular-nums">{pages.debut}–{pages.fin} sur {pages.total}</span>
+              <button type="button" className={OUTIL} disabled={pages.page <= 1} onClick={() => setPageListe(pages.page - 1)} aria-label="Page précédente">
+                <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.8} />
+              </button>
+              <button type="button" className={OUTIL} disabled={pages.page >= pages.pages} onClick={() => setPageListe(pages.page + 1)} aria-label="Page suivante">
+                <ChevronRight className="h-[15px] w-[15px]" strokeWidth={1.8} />
+              </button>
+            </div>
           )}
-        </div>
-      </section>
+        </>
+      ) : (
+        /* ══ LA CONVERSATION, en page entière, présentée comme un client mail ══ */
+        <div className="-mb-10 flex min-h-[calc(100dvh-28px)] flex-col">
+          {/* La barre reste en haut quand on descend dans le fil : retour, le titre, le ⋯. */}
+          <div className="sticky top-0 z-30 -mx-10 -mt-7 flex items-center gap-2 bg-white/90 px-10 py-3 backdrop-blur">
+            <button type="button" className={OUTIL} onClick={retourListe} title="Retour à la liste (Échap)" aria-label="Retour à la liste">
+              <ArrowLeft className="h-[15px] w-[15px] text-[#111113]" strokeWidth={1.8} />
+            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <h2 className="min-w-0 truncate text-[13px] font-semibold">{nomDe(ouvert)}</h2>
+              <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-[#6B6B70]">
+                <span className={`h-1.5 w-1.5 rounded-full ${ouvert.aRecu ? "bg-[#2F6FE0]" : "bg-[#8E8E93]"}`} />
+                {etiquetteDe(ouvert)}
+              </span>
+              {ouvert.adresse.includes("@") && nomDe(ouvert) !== ouvert.adresse && (
+                <span className="hidden min-w-0 truncate text-[11px] text-[#8E8E93] sm:inline">{ouvert.adresse}</span>
+              )}
+            </div>
+            {ouvert.sousTraitantId && (
+              <button type="button" className={`${PILULE_CLAIRE} ${PETITE}`} onClick={() => setFiche(ouvert.sousTraitantId)}>Ouvrir la fiche</button>
+            )}
+            <MenuPoints titre="Plus d'actions">
+              {(fermer) => (
+                <>
+                  {ouvert.aRecu && <ElementMenu onClick={() => { fermer(); marquerOuverteNonLue() }}>Marquer non lu</ElementMenu>}
+                  <ElementMenu onClick={() => { fermer(); ouvrirCompo("transferer") }}>Transférer</ElementMenu>
+                  {ouvert.sousTraitantId && <ElementMenu onClick={() => { fermer(); setFiche(ouvert.sousTraitantId) }}>Ouvrir la fiche</ElementMenu>}
+                </>
+              )}
+            </MenuPoints>
+          </div>
 
-      {/* ── La fenêtre « Nouveau message », en bas à droite, comme Gmail ── */}
-      {nouveau && (
-        <div className="fixed bottom-0 right-8 z-40 flex w-[560px] max-w-[calc(100vw-4rem)] flex-col rounded-t-6 border border-trait bg-fond shadow-flottante" role="dialog" aria-label="Nouveau message">
-          <div className="flex h-10 items-center justify-between rounded-t-6 bg-action px-4 text-legende font-semibold text-white">
-            Nouveau message
-            <button type="button" onClick={fermerCompo} aria-label="Fermer" className="rounded-4 p-1 hover:bg-white/15">
-              <X size={16} />
+          {bandeaux}
+
+          {/* Une réponse d'agence : le tri, et la décision du commercial (lead / dead). */}
+          {reponseATrancher && (
+            <div className={BANDEAU}>
+              <p className="min-w-[260px] flex-1 leading-normal text-[#3C3C40]">
+                <span className="font-semibold text-[#111113]">Réponse d'une agence</span>
+                {triOuvert ? (
+                  <> — classée <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><span className="h-1.5 w-1.5 rounded-full" style={{ background: triOuvert.couleur }} /><b className="font-semibold text-[#111113]">{triOuvert.libelle}</b></span>. </>
+                ) : " — pas encore classée. "}
+                Un lead rouvre ou crée le lead ; un dead passe l'agence en « Pas intéressé ».
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={`${PILULE_NOIRE} ${PETITE}`} disabled={decision !== null || reponseATrancher.tri === "interesse"} onClick={() => void trancher("lead")}>
+                  {decision === "lead" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}C'est un lead
+                </button>
+                <button type="button" className={`${PILULE_CLAIRE} ${PETITE}`} disabled={decision !== null || reponseATrancher.tri === "pas_interesse"} onClick={() => void trancher("dead")}>
+                  {decision === "dead" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}C'est un dead
+                </button>
+              </div>
+            </div>
+          )}
+          {/* Le bon contact que l'IA a lu dans la réponse : on l'ajoute à la fiche de l'agence d'un clic. */}
+          {reponseATrancher?.triDetail?.contact_nom || reponseATrancher?.triDetail?.contact_email ? (
+            <div className={BANDEAU}>
+              <p className="min-w-0 flex-1 text-[#3C3C40]">
+                <span className="font-semibold text-[#111113]">Bon contact cité</span> — {[reponseATrancher.triDetail.contact_nom, reponseATrancher.triDetail.contact_email, reponseATrancher.triDetail.contact_telephone].filter(Boolean).join(" · ")}
+              </p>
+              {contactCree === reponseATrancher.id ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[#1F8A4C]"><span className="h-1.5 w-1.5 rounded-full bg-[#1F8A4C]" />Contact ajouté à la fiche</span>
+              ) : (
+                <button type="button" className={`${PILULE_CLAIRE} ${PETITE}`} disabled={creation} onClick={() => void creerLeContact()}>
+                  {creation && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Créer ce contact
+                </button>
+              )}
+            </div>
+          ) : null}
+          {reponseATrancher?.tri === "absent" && reponseATrancher.triDetail?.retour ? (
+            <div className={BANDEAU}>
+              <p className="min-w-0 flex-1 text-[#3C3C40]">
+                <span className="font-semibold text-[#111113]">Absent jusqu'au {new Date(reponseATrancher.triDetail.retour + "T12:00:00").toLocaleDateString("fr-FR")}</span> — la séquence reprend après son retour.
+              </p>
+            </div>
+          ) : null}
+
+          {/* En-tête du fil : le sujet en grand, le nombre de messages, déplier, actualiser. */}
+          <div className="mt-4 flex items-center gap-2.5 border-b-[0.5px] border-[#E6E6EA] pb-2.5">
+            <Mail className="h-[15px] w-[15px] shrink-0 text-[#6B6B70]" strokeWidth={1.7} />
+            <h2 className="min-w-0 flex-1 truncate text-[21px] font-semibold tracking-[-0.02em]" title={ouvert.objet || "(sans objet)"}>
+              {ouvert.objet || "(sans objet)"}
+            </h2>
+            <span className="shrink-0 tabular-nums text-[#6B6B70]">{ouvert.messages.length}</span>
+            {linkedIn && (
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-[#6B6B70]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#8E8E93]" />
+                LinkedIn
+              </span>
+            )}
+            {ouvert.messages.length > 1 && (
+              <button type="button" className="shrink-0 text-[11px] text-[#3C3C40] underline underline-offset-2 hover:text-[#111113]"
+                onClick={() => setDepiles(toutDeplie ? [ouvert.dernier.id] : ouvert.messages.map((m) => m.id))}>
+                {toutDeplie ? "Réduire" : "Tout déplier"}
+              </button>
+            )}
+            <button type="button" className={OUTIL} onClick={charger} title="Actualiser" aria-label="Actualiser">
+              <RefreshCw className={`h-[15px] w-[15px] text-[#6B6B70] ${chargement ? "animate-spin" : ""}`} strokeWidth={1.7} />
             </button>
           </div>
-          <div className="px-4">
-            <ChampCompo libelle="À">
-              <input
-                value={compoTo}
-                onChange={(e) => setCompoTo(e.target.value)}
-                autoFocus
-                placeholder="Adresse e-mail"
-                aria-label="Destinataire"
-                className="h-full w-full bg-transparent text-encre outline-none placeholder:text-encre-3"
-              />
-            </ChampCompo>
-            <ChampCompo libelle="Objet">
-              <input
-                value={compoObjet}
-                onChange={(e) => setCompoObjet(e.target.value)}
-                placeholder="Objet"
-                aria-label="Objet"
-                className="h-full w-full bg-transparent text-encre outline-none placeholder:text-encre-3"
-              />
-            </ChampCompo>
+
+          {/* Le fil : une surface, des messages séparés par un filet, comme Gmail. */}
+          <div className="flex-1">
+            {ouvert.messages.map((m) => (
+              <MessageDuFil key={m.id} m={m} ouvert={depiles.includes(m.id)} objetDuFil={ouvert.objet} onToggle={() => basculerMessage(m.id)} />
+            ))}
+          </div>
+
+          {/* Répondre / Transférer + le composeur : collés en bas, le fil défile au-dessus (STC). */}
+          <div className="sticky bottom-0 z-10 -mx-10 mt-2 border-t-[0.5px] border-[#E6E6EA] bg-white px-10 py-3">
+            {mode === null ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" className={PILULE_CLAIRE} onClick={() => ouvrirCompo("repondre")}>
+                  <Reply className="h-[14px] w-[14px]" strokeWidth={1.8} />
+                  Répondre
+                </button>
+                <button type="button" className={PILULE_CLAIRE} onClick={() => ouvrirCompo("transferer")}>
+                  <Forward className="h-[14px] w-[14px]" strokeWidth={1.8} />
+                  Transférer
+                </button>
+              </div>
+            ) : (
+              <div className="max-h-[55vh] overflow-y-auto">
+                {mode === "repondre" ? (
+                  <div className={LIGNE_COMPO}>
+                    <span className="w-12 shrink-0 text-[#8E8E93]">À</span>
+                    <span className="min-w-0 truncate">
+                      {nomDe(ouvert)}
+                      {linkedIn ? <span className="text-[#8E8E93]"> · sur LinkedIn</span> : ouvert.adresse.includes("@") && nomDe(ouvert) !== ouvert.adresse && <span className="text-[#8E8E93]"> &lt;{ouvert.adresse}&gt;</span>}
+                    </span>
+                  </div>
+                ) : (
+                  <LigneCompo libelle="À">
+                    <input value={compoTo} onChange={(e) => setCompoTo(e.target.value)} autoFocus placeholder="destinataire@exemple.fr" aria-label="Destinataire"
+                      className="min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6]" />
+                  </LigneCompo>
+                )}
+                {!(mode === "repondre" && linkedIn) && (
+                  <div className={LIGNE_COMPO}>
+                    <span className="w-12 shrink-0 text-[#8E8E93]">Objet</span>
+                    <span className="min-w-0 truncate">{mode === "repondre" ? objetReponse(ouvert.dernier.objet) : objetTransfert(ouvert.dernier.objet)}</span>
+                  </div>
+                )}
+                <textarea
+                  value={compoCorps}
+                  onChange={(e) => setCompoCorps(e.target.value)}
+                  rows={mode === "repondre" ? 4 : 8}
+                  autoFocus={mode === "repondre"}
+                  placeholder="Rédigez votre message… (la signature est ajoutée automatiquement)"
+                  aria-label="Message"
+                  onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void envoyer() }}
+                  className="block max-h-[500px] min-h-[96px] w-full resize-none border-0 bg-transparent py-2 text-[13px] leading-[1.65] outline-none placeholder:text-[#A1A1A6]"
+                />
+                <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
+                  {envoiErreur && <span className="min-w-0 text-[11px] text-[#C9302C]">{envoiErreur}</span>}
+                  <span className="flex-1" />
+                  <button type="button" className="px-2 text-[11px] text-[#6B6B70] hover:text-[#111113] hover:underline" onClick={fermerCompo}>Annuler</button>
+                  <button type="button" onClick={() => void envoyer()} disabled={envoiEnCours || !pretAEnvoyer} aria-label={envoiEnCours ? "Envoi…" : "Envoyer"} title="Envoyer (Ctrl + Entrée)"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#111113] text-white hover:bg-[#2A2A2E] disabled:opacity-50">
+                    {envoiEnCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-[15px] w-[15px]" strokeWidth={1.8} />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Le « Nouveau message » flottant, façon Gmail (bas-droite, non bloquant), comme STC ── */}
+      {nouveau && (
+        <div role="dialog" aria-label="Nouveau message"
+          className="fixed bottom-0 right-4 z-50 flex w-[95vw] max-w-[540px] flex-col rounded-t-[10px] border-[0.5px] border-b-0 border-[#D4D4D8] bg-white text-[13px] text-[#111113] shadow-[0_-4px_30px_rgba(17,17,19,.12)] sm:right-8">
+          <div className="flex items-center rounded-t-[10px] bg-[#F6F6F7] py-2 pl-3.5 pr-2.5">
+            <span className="flex-1 font-semibold">Nouveau message</span>
+            <button type="button" className={OUTIL} onClick={() => { if (!envoiEnCours) fermerCompo() }} title="Fermer" aria-label="Fermer">
+              <X className="h-[15px] w-[15px]" strokeWidth={1.8} />
+            </button>
+          </div>
+          <div className="px-3.5">
+            <LigneCompo libelle="À">
+              <input value={compoTo} onChange={(e) => setCompoTo(e.target.value)} autoFocus placeholder="Adresse e-mail" aria-label="Destinataire"
+                className="min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6]" />
+            </LigneCompo>
+            <div className="border-b-[0.5px] border-[#E6E6EA] py-1">
+              <input aria-label="Objet" value={compoObjet} onChange={(e) => setCompoObjet(e.target.value)} placeholder="Objet"
+                className="w-full bg-transparent py-1.5 text-[13px] outline-none placeholder:text-[#A1A1A6]" />
+            </div>
             <textarea
+              aria-label="Message"
               value={compoCorps}
               onChange={(e) => setCompoCorps(e.target.value)}
               placeholder="Votre message… (la signature est ajoutée automatiquement)"
-              aria-label="Message"
-              className="h-64 w-full resize-none bg-transparent py-3 text-corps leading-5 text-encre outline-none placeholder:text-encre-3"
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void envoyer() }}
+              className="max-h-[45vh] min-h-[220px] w-full resize-none bg-transparent py-3 text-[13px] leading-[1.65] outline-none placeholder:text-[#A1A1A6]"
             />
+            <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
           </div>
-          <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
-          <div className="flex items-center gap-2 border-t border-fond-4 px-4 py-3">
-            <Bouton variante="plein" icone={<Send />} chargement={envoiEnCours} disabled={!pretAEnvoyer} onClick={envoyer}>
+          {envoiErreur && <p className="mx-3.5 mb-2 rounded-[6px] bg-[#C9302C]/[0.06] px-3 py-2 text-[11px] text-[#C9302C]">{envoiErreur}</p>}
+          <div className="flex items-center gap-2 border-t-[0.5px] border-[#E6E6EA] px-3.5 py-2.5">
+            <button type="button" onClick={() => void envoyer()} disabled={envoiEnCours || !pretAEnvoyer} className={`${PILULE_NOIRE} ${PETITE}`}>
+              {envoiEnCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               Envoyer
-            </Bouton>
-            <Bouton variante="discret" taille="icone" onClick={fermerCompo} aria-label="Abandonner" title="Abandonner">
-              <Trash2 />
-            </Bouton>
-            {envoiErreur && <span className="min-w-0 truncate text-legende text-alerte">{envoiErreur}</span>}
+            </button>
+            <div className="min-w-2 flex-1" />
             {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
+            <button type="button" className={`${OUTIL} text-[#8E8E93] hover:text-[#C9302C]`} title="Supprimer le brouillon" aria-label="Supprimer le brouillon"
+              onClick={() => { setCompoTo(""); setCompoObjet(""); setCompoCorps(""); setCompoPieces([]); fermerCompo() }}>
+              <Trash2 className="h-[15px] w-[15px]" strokeWidth={1.7} />
+            </button>
           </div>
         </div>
       )}
