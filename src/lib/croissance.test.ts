@@ -1,6 +1,6 @@
 // Le dashboard Croissance (Mahdi, 11/11/2026) : la cadence, les entonnoirs, la réserve.
 import { describe, expect, it } from "vitest"
-import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
+import { calculerDirect, COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
 
 const maintenant = new Date(2026, 10, 11, 12)
 
@@ -106,5 +106,22 @@ describe("les agences actives et ce qu'elles rapportent (algorithme validé par 
     expect(p.caParClient).toBe(r.caParAgence)
     expect(p.clientsNecessaires).toBe(Math.ceil((200_000 - r.caParticuliersMensuel) / r.caParAgence))
     expect(p.caEstime).toBe(r.caMensuel)
+  })
+})
+
+describe("en direct : les appels du jour et de la semaine", () => {
+  const maintenant = new Date(2026, 10, 11, 16, 30) // un mercredi
+  const a = (j: number, h: number, compte: string, resultat: string, issue = "") => ({ date: new Date(2026, 10, j, h, 5).toISOString(), compte_id: compte, compte_nom: compte.toUpperCase(), resultat, issue })
+  it("compte aujourd'hui, la semaine depuis lundi, heure par heure et par personne", () => {
+    const d = calculerDirect({
+      appels: [a(11, 9, "x", "joint", "interesse"), a(11, 9, "x", "pas_de_reponse"), a(11, 14, "y", "joint", "pas_interesse"), a(10, 10, "x", "joint", "rdv"), a(9, 10, "y", "standard"), a(8, 10, "y", "joint")],
+      appelsSt: [{ date: new Date(2026, 10, 11, 15, 0).toISOString(), compte_id: "y", compte_nom: "Y", resultat: "joint" }],
+      rdv: [{ cree_le: new Date(2026, 10, 10, 10, 6).toISOString(), compte_id: "x", compte_nom: "X" }],
+    }, maintenant)
+    expect(d.jour).toEqual({ appels: 3, joints: 2, interesses: 1, rdv: 0, artisans: 1 })
+    expect(d.semaine).toEqual({ appels: 5, joints: 3, interesses: 2, rdv: 1, artisans: 1 }) // le samedi 8 n'est pas dans la semaine
+    expect(d.parHeure.find((h) => h.heure === 9)!.appels).toBe(2)
+    expect(d.parHeure.find((h) => h.heure === 15)!.appels).toBe(1)
+    expect(d.parPersonne.map((p) => [p.nom, p.jour.appels, p.semaine.appels])).toEqual([["X", 2, 3], ["Y", 1, 2]])
   })
 })

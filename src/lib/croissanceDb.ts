@@ -2,7 +2,7 @@
 // les entonnoirs. Lecture seule.
 import { supabase } from "./supabase"
 import { lireParLots } from "./pagination"
-import type { AgenceCroissance, ArtisanCroissance } from "./croissance"
+import type { AgenceCroissance, AppelDirect, AppelStDirect, ArtisanCroissance } from "./croissance"
 
 type Lot<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>
 const sb = () => { if (!supabase) throw new Error("Supabase n'est pas configuré."); return supabase }
@@ -35,4 +35,42 @@ export async function chargerCroissance(depuis: Date): Promise<DonneesCroissance
     lireParLots<{ campagne_id: string; statut: string }>((de, a) => sb().from("cmp_inscriptions").select("campagne_id, statut").order("id").range(de, a) as unknown as Lot<{ campagne_id: string; statut: string }>),
   ])
   return { agences, artisans, leads, rdv, appels, dossiers, envois, reponses, campagnes, inscriptions }
+}
+
+/** En direct : les appels (agences et artisans) et les rendez-vous pris depuis lundi. Lecture seule. */
+export async function chargerDirect(lundi: Date): Promise<{ appels: AppelDirect[]; appelsSt: AppelStDirect[]; rdv: { cree_le: string; compte_id: string | null; compte_nom: string | null }[] }> {
+  const d = lundi.toISOString()
+  const [appels, appelsSt, rdv] = await Promise.all([
+    lireParLots<AppelDirect>((de, a) => sb().from("activites").select("date, compte_id, compte_nom, resultat, issue").eq("type", "appel").gte("date", d).order("id").range(de, a) as unknown as Lot<AppelDirect>),
+    lireParLots<AppelStDirect>((de, a) => sb().from("st_appels").select("date, compte_id, compte_nom, resultat").gte("date", d).order("id").range(de, a) as unknown as Lot<AppelStDirect>),
+    lireParLots<{ cree_le: string; compte_id: string | null; compte_nom: string | null }>((de, a) => sb().from("activites").select("cree_le, compte_id, compte_nom").eq("type", "rdv").gte("cree_le", d).order("id").range(de, a) as unknown as Lot<{ cree_le: string; compte_id: string | null; compte_nom: string | null }>),
+  ])
+  return { appels, appelsSt, rdv }
+}
+
+export type DonneesAnnee = {
+  appels: { date: string; resultat: string | null; issue: string | null }[]
+  rdv: string[]; leads: string[]; clients: string[]
+  appelsSt: string[]; dossiers: string[]; contrats: string[]
+  envois: { le: string; campagne_id: string }[]; reponses: { le: string; campagne_id: string }[]
+  bases: Record<string, string>
+}
+
+/** L'année : les dates brutes de tout ce qu'on suit, depuis `depuis` (13 mois en arrière suffisent). Lecture seule, paginée. */
+export async function chargerAnnee(depuis: Date): Promise<DonneesAnnee> {
+  const d = depuis.toISOString()
+  type L<T> = Lot<T>
+  const [appels, rdv, leads, clients, appelsSt, dossiers, contrats, envois, reponses, campagnes] = await Promise.all([
+    lireParLots<DonneesAnnee["appels"][number]>((de, a) => sb().from("activites").select("date, resultat, issue").eq("type", "appel").gte("date", d).order("id").range(de, a) as unknown as L<DonneesAnnee["appels"][number]>),
+    lireParLots<{ cree_le: string }>((de, a) => sb().from("activites").select("cree_le").eq("type", "rdv").gte("cree_le", d).order("id").range(de, a) as unknown as L<{ cree_le: string }>).then((l) => l.map((x) => x.cree_le)),
+    lireParLots<{ cree_le: string }>((de, a) => sb().from("leads_demarchage").select("cree_le").gte("cree_le", d).order("id").range(de, a) as unknown as L<{ cree_le: string }>).then((l) => l.map((x) => x.cree_le)),
+    lireParLots<{ premier_os_le: string }>((de, a) => sb().from("agences").select("premier_os_le").neq("type", "apporteur").gte("premier_os_le", d).order("id").range(de, a) as unknown as L<{ premier_os_le: string }>).then((l) => l.map((x) => x.premier_os_le)),
+    lireParLots<{ date: string }>((de, a) => sb().from("st_appels").select("date").gte("date", d).order("id").range(de, a) as unknown as L<{ date: string }>).then((l) => l.map((x) => x.date)),
+    lireParLots<{ created_at: string }>((de, a) => sb().from("dossiers_st").select("created_at").gte("created_at", d).order("id").range(de, a) as unknown as L<{ created_at: string }>).then((l) => l.map((x) => x.created_at)),
+    lireParLots<{ contrat_signe_le: string }>((de, a) => sb().from("st_sous_traitants").select("contrat_signe_le").gte("contrat_signe_le", d).order("id").range(de, a) as unknown as L<{ contrat_signe_le: string }>).then((l) => l.map((x) => x.contrat_signe_le)),
+    lireParLots<{ le: string; campagne_id: string }>((de, a) => sb().from("cmp_envois").select("le, campagne_id").eq("statut", "envoye").eq("test", false).gte("le", d).order("id").range(de, a) as unknown as L<{ le: string; campagne_id: string }>),
+    lireParLots<{ le: string; campagne_id: string }>((de, a) => sb().from("cmp_evenements").select("le, campagne_id").eq("type", "reponse").gte("le", d).order("id").range(de, a) as unknown as L<{ le: string; campagne_id: string }>),
+    sb().from("cmp_campagnes").select("id, base_id").then(({ data, error }) => { if (error) throw new Error(error.message); return (data ?? []) as { id: string; base_id: string }[] }),
+  ])
+  return { appels, rdv, leads, clients, appelsSt, dossiers, contrats, envois, reponses, bases: Object.fromEntries(campagnes.map((c) => [c.id, c.base_id])) }
 }
