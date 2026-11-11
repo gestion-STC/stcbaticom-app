@@ -105,6 +105,10 @@ export function doitArreter(envoyes: number, rebonds: number, r: ReglageArret = 
 export type PlacementMesure = { count: number; inbox_percent: number; spam_percent: number; category_percent: number }
 export function lectureSpam(m: PlacementMesure | null | undefined): { niveau: "attente" | "bon" | "moyen" | "mauvais"; texte: string } {
   if (!m || !m.count) return { niveau: "attente", texte: "En cours : les résultats arrivent en quelques minutes." }
+  // Instantly donne des fractions (0,3 = 30 %) : on les ramène en pourcentages.
+  const fraction = m.inbox_percent + m.spam_percent + m.category_percent <= 1.01
+  const pc = (x: number) => (fraction ? x * 100 : x)
+  m = { ...m, inbox_percent: pc(m.inbox_percent), spam_percent: pc(m.spam_percent), category_percent: pc(m.category_percent) }
   const r = (x: number) => Math.round(x)
   const detail = `${r(m.inbox_percent)} % en boîte de réception, ${r(m.category_percent)} % en onglet (Promotions…), ${r(m.spam_percent)} % en spam`
   if (m.spam_percent >= 20) return { niveau: "mauvais", texte: `Trop de spam : ${detail}.` }

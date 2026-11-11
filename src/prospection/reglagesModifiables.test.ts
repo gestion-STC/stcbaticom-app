@@ -48,5 +48,9 @@ describe("le test boîte de réception ou spam", () => {
     expect(lectureSpam({ count: 40, inbox_percent: 70, spam_percent: 5, category_percent: 25 }).niveau).toBe("bon")
     expect(lectureSpam({ count: 40, inbox_percent: 60, spam_percent: 15, category_percent: 25 }).niveau).toBe("moyen")
     expect(lectureSpam({ count: 40, inbox_percent: 50, spam_percent: 30, category_percent: 20 }).texte).toContain("30 % en spam")
+    // Le vrai format d'Instantly : des fractions (premier essai du 11/11/2026, Gmail 7 sur 7, Outlook 3 en spam).
+    const vrai = lectureSpam({ count: 10, inbox_percent: 0.7, spam_percent: 0.3, category_percent: 0 })
+    expect(vrai.niveau).toBe("mauvais")
+    expect(vrai.texte).toContain("70 % en boîte de réception")
   })
 })
