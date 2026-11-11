@@ -1,20 +1,22 @@
-// Sous-traitants › Agenda, façon Google Agenda (Mahdi, 11/11/2026, maquette validée) : SES agendas seulement —
+// Sous-traitants › Agenda, dans le dessin du bureau de STC Bâtiment (Mahdi, 11/11/2026) : SES agendas seulement —
 // les rappels prévus après un appel, les appels et LinkedIn demandés par les campagnes artisans, les jours fériés.
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { Session } from "@supabase/supabase-js"
 import { Check, ExternalLink, Phone } from "lucide-react"
-import { Bandeau, Bouton } from "../../ui"
+import { Bandeau } from "../../ui"
 import { estAdmin } from "../../lib/comptes"
 import { chargerSousTraitants } from "../../lib/sousTraitantsDb"
 import { tacheCampagnePourMoi } from "../../lib/perimetre"
 import { chargerTachesCampagne, rechercheLinkedin, terminerTacheCampagne, type TacheCampagne } from "../../lib/tachesCampagne"
 import type { SousTraitant } from "../../recrutement"
-import CalendrierGoogle, { type AgendaDef, type Bulle, type EvAgenda, type Vue } from "../agenda/CalendrierGoogle"
+import AgendaBureau, { type Bulle, type EvAgenda, type TypeAgenda } from "../agenda/AgendaBureau"
+import { PILULE_CLAIRE, PILULE_NOIRE } from "../agenda/dessinBureau"
+import type { Vue } from "../../lib/agendaGrille"
 
-const AGENDAS: AgendaDef[] = [
-  { id: "rappels", nom: "Rappels prévus", couleur: "#1f8a4c" },
-  { id: "campagnes", nom: "À appeler pour les campagnes", couleur: "#b25e00" },
-  { id: "linkedin", nom: "LinkedIn", couleur: "#0a66c2" },
+const TYPES: TypeAgenda[] = [
+  { id: "rappels", nom: "Rappels prévus" },
+  { id: "campagnes", nom: "Appels demandés par les campagnes" },
+  { id: "linkedin", nom: "LinkedIn" },
 ]
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const debutJour = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -43,9 +45,9 @@ export default function AgendaST({ session, onAppeler }: { session: Session | nu
     for (const a of artisans ?? []) {
       if (!a.rappelLe || !a.id) continue
       const debut = new Date(a.rappelLe)
-      out.push({ id: `r-${a.id}`, agenda: "rappels", titre: `Rappeler ${a.entreprise || a.contact || "l'artisan"}`, detail: a.contact && a.entreprise ? a.contact : undefined, debut, jour: debut, dureeMin: 15, retard: debut < maintenant })
+      out.push({ personneId: null, personneNom: "", id: `r-${a.id}`, agenda: "rappels", titre: `Rappeler ${a.entreprise || a.contact || "l'artisan"}`, detail: a.contact && a.entreprise ? a.contact : undefined, debut, jour: debut, dureeMin: 15, retard: debut < maintenant })
     }
-    for (const t of campagne) out.push({ id: `c-${t.id}`, agenda: t.type === "linkedin" ? "linkedin" : "campagnes", titre: t.type === "linkedin" ? `LinkedIn · ${t.personne || t.nom}` : `Appeler ${t.nom || t.personne || "l'artisan"}`, detail: t.campagneNom, debut: null, jour: aujourdhui })
+    for (const t of campagne) out.push({ personneId: t.proprietaireId, personneNom: "", id: `c-${t.id}`, agenda: t.type === "linkedin" ? "linkedin" : "campagnes", titre: t.type === "linkedin" ? `LinkedIn · ${t.personne || t.nom}` : `Appeler ${t.nom || t.personne || "l'artisan"}`, detail: t.campagneNom, debut: null, jour: aujourdhui })
     return out
   }, [artisans, campagne, maintenant, aujourdhui])
 
@@ -60,7 +62,7 @@ export default function AgendaST({ session, onAppeler }: { session: Session | nu
           {a.metier ? <p className="text-encre-2">{a.metier}</p> : null}
           {a.dernierResultat ? <p className="text-encre-2">Dernier appel : {a.dernierResultat}</p> : null}
         </>,
-        boutons: <Bouton taille="sm" variante="plein" icone={<Phone />} onClick={() => { fermer(); onAppeler(a.id!) }}>Appeler</Bouton>,
+        boutons: <button type="button" className={PILULE_NOIRE} onClick={() => { fermer(); onAppeler(a.id!) }}><Phone className="h-[14px] w-[14px]" strokeWidth={1.7} />Appeler</button>,
       }
     }
     const t = campagne.find((x) => `c-${x.id}` === ev.id)
@@ -73,22 +75,23 @@ export default function AgendaST({ session, onAppeler }: { session: Session | nu
         <p className="text-encre-2">Campagne « {t.campagneNom} »</p>
       </>,
       boutons: <>
-        {t.type === "appel" ? <Bouton taille="sm" variante="plein" icone={<Phone />} onClick={() => { fermer(); onAppeler(t.contactRef) }}>Appeler</Bouton> : <a className="inline-flex h-8 items-center gap-1.5 rounded-4 bg-action px-3 text-legende font-medium text-white hover:bg-action-survol" href={rechercheLinkedin(t)} target="_blank" rel="noreferrer"><ExternalLink size={14} />Chercher sur LinkedIn</a>}
-        <Bouton taille="sm" icone={<Check />} disabled={occupe} onClick={() => { setOccupe(true); terminerTacheCampagne(t.id).then(() => { fermer(); charger() }).catch((e) => setErreur(message(e))).finally(() => setOccupe(false)) }}>Fait</Bouton>
+        {t.type === "appel" ? <button type="button" className={PILULE_NOIRE} onClick={() => { fermer(); onAppeler(t.contactRef) }}><Phone className="h-[14px] w-[14px]" strokeWidth={1.7} />Appeler</button> : <a className={PILULE_NOIRE} href={rechercheLinkedin(t)} target="_blank" rel="noreferrer"><ExternalLink className="h-[14px] w-[14px]" strokeWidth={1.7} />Chercher sur LinkedIn</a>}
+        <button type="button" className={PILULE_CLAIRE} disabled={occupe} onClick={() => { setOccupe(true); terminerTacheCampagne(t.id).then(() => { fermer(); charger() }).catch((e) => setErreur(message(e))).finally(() => setOccupe(false)) }}><Check className="h-[14px] w-[14px]" strokeWidth={1.7} />Fait</button>
       </>,
     }
   }
 
   const nb = evenements.filter((e) => !e.fait).length
   return (
-    <CalendrierGoogle
-      cle="agenda_soustraitants_caches"
+    <AgendaBureau
+      cle="agenda_soustraitants_masques"
       titre="Agenda"
-      sousTitre={artisans ? `${nb} à faire` : undefined}
-      agendas={AGENDAS}
+      sousTitre={artisans ? `Les rappels prévus et les appels demandés par les campagnes · ${nb} à faire` : "Les rappels prévus et les appels demandés par les campagnes"}
+      groupe="Personnes"
+      types={TYPES}
       evenements={evenements}
       chargement={artisans === null && !erreur}
-      erreur={erreur ? <Bandeau role="alerte" className="mx-6 mt-3">{erreur}</Bandeau> : null}
+      erreur={erreur ? <Bandeau role="alerte" className="mt-3">{erreur}</Bandeau> : null}
       vue={vue} onVue={setVue} ancre={ancre} onAncre={setAncre} maintenant={maintenant}
       bulle={bulle}
     />

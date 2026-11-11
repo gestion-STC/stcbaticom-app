@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// AGENDA DES GESTIONNAIRES — façon Google Agenda (Mahdi, 11/11/2026, maquette validée).
+// AGENDA DES GESTIONNAIRES — dans le dessin du bureau de STC Bâtiment (Mahdi, 11/11/2026 : « recopie exactement le
+// même design », il passera sur le logiciel STC Bâtiment), avec une vue Semaine en plus du Mois.
 //
 // Les agendas à cocher : Rendez-vous et Tâches (table `activites`, lue par `chargerAgenda`), les appels et LinkedIn
 // demandés par les campagnes (`cmp_taches`), les jours fériés. Un clic sur un événement ouvre sa bulle : appeler,
@@ -16,7 +17,9 @@ import { estAdmin, nomAffiche } from "../../lib/comptes"
 import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Selecteur, Zone } from "../../ui"
 import { aMoi, tacheCampagnePourMoi } from "../../lib/perimetre"
 import { chargerTachesCampagne, rechercheLinkedin, terminerTacheCampagne, type TacheCampagne } from "../../lib/tachesCampagne"
-import CalendrierGoogle, { type AgendaDef, type Bulle, type EvAgenda } from "../agenda/CalendrierGoogle"
+import AgendaBureau, { type Bulle, type EvAgenda, type TypeAgenda } from "../agenda/AgendaBureau"
+import { PILULE_CLAIRE, PILULE_NOIRE } from "../agenda/dessinBureau"
+import { listerComptes } from "../../lib/comptes"
 import { bornesVue, type Vue } from "../../lib/agendaGrille"
 
 type TypeRdv = "telephone" | "visio" | "sur_place"
@@ -36,13 +39,13 @@ const s = (n: number) => (n > 1 ? "s" : "")
 const titreDe = (t: TacheAgenda) => t.titre || (t.type === "rdv" ? "RDV" : "Tâche")
 const jourMois = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })
 
-const AGENDAS: AgendaDef[] = [
-  { id: "rdv", nom: "Rendez-vous", couleur: "#2f6fe0" },
-  { id: "taches", nom: "Tâches et rappels", couleur: "#7c3aed" },
-  { id: "campagnes", nom: "À appeler pour les campagnes", couleur: "#b25e00" },
-  { id: "linkedin", nom: "LinkedIn", couleur: "#0a66c2" },
+const TYPES: TypeAgenda[] = [
+  { id: "rdv", nom: "Rendez-vous" },
+  { id: "taches", nom: "Tâches et rappels" },
+  { id: "campagnes", nom: "Appels demandés par les campagnes" },
+  { id: "linkedin", nom: "LinkedIn" },
 ]
-const BOUTON_ICONE = "flex h-9 w-9 items-center justify-center rounded-full text-encre-2 hover:bg-fond-3"
+const BOUTON_ICONE = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[#3C3C40] hover:bg-[#ECECEE] disabled:opacity-50"
 
 export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   onOuvrirAgence?: (agenceId: string) => void
@@ -53,6 +56,9 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   const moiId = session?.user?.id ?? ""
   const admin = estAdmin(session)
   const [vue, setVue] = useState<Vue>("semaine")
+  // Les noms des comptes, pour les demandes des campagnes (la couleur dit QUI, comme dans STC Bâtiment).
+  const [noms, setNoms] = useState<Map<string, string>>(() => new Map())
+  useEffect(() => { listerComptes().then((l) => setNoms(new Map(l.map((c) => [c.id, c.nom || c.email])))).catch(() => undefined) }, [])
   const [ancre, setAncre] = useState(() => new Date())
   const [maintenant, setMaintenant] = useState(() => new Date())
   const [taches, setTaches] = useState<TacheAgenda[] | null>(null)
@@ -105,12 +111,12 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
     for (const t of taches ?? []) {
       if (!t.echeance) continue
       const debut = new Date(t.echeance)
-      out.push({ id: t.id, agenda: t.type === "rdv" ? "rdv" : "taches", titre: titreDe(t), detail: [t.agenceNom, t.contactNom].filter(Boolean).join(" · "), debut, jour: debut, dureeMin: t.type === "rdv" ? 45 : 30, fait: Boolean(t.faitLe), retard: !t.faitLe && debut < maintenant })
+      out.push({ personneId: t.compteId ?? t.agenceCommercialId, personneNom: t.compteNom || noms.get(t.compteId ?? t.agenceCommercialId ?? "") || "", id: t.id, agenda: t.type === "rdv" ? "rdv" : "taches", titre: `${t.type === "rdv" ? "RDV · " : ""}${t.agenceNom || titreDe(t)}`, detail: [titreDe(t), t.contactNom].filter(Boolean).join(" · "), debut, jour: debut, dureeMin: t.type === "rdv" ? 45 : 30, fait: Boolean(t.faitLe), retard: !t.faitLe && debut < maintenant })
     }
-    for (const t of retards) out.push({ id: t.id, agenda: t.type === "rdv" ? "rdv" : "taches", titre: `${titreDe(t)} · ${t.agenceNom}`, detail: `en retard depuis le ${jourMois(t.echeance!)}`, debut: null, jour: aujourdhui, retard: true })
-    for (const t of campagne) out.push({ id: `c-${t.id}`, agenda: t.type === "linkedin" ? "linkedin" : "campagnes", titre: t.type === "linkedin" ? `LinkedIn · ${t.personne || t.nom}` : `Appeler ${t.appelStandard ? "le standard" : t.personne || "le contact"} · ${t.nom}`, detail: t.campagneNom, debut: null, jour: aujourdhui })
+    for (const t of retards) out.push({ personneId: t.compteId ?? t.agenceCommercialId, personneNom: t.compteNom || noms.get(t.compteId ?? t.agenceCommercialId ?? "") || "", id: t.id, agenda: t.type === "rdv" ? "rdv" : "taches", titre: `${titreDe(t)} · ${t.agenceNom}`, detail: `en retard depuis le ${jourMois(t.echeance!)}`, debut: null, jour: aujourdhui, retard: true })
+    for (const t of campagne) out.push({ personneId: t.proprietaireId, personneNom: t.proprietaireId ? noms.get(t.proprietaireId) ?? "" : "", id: `c-${t.id}`, agenda: t.type === "linkedin" ? "linkedin" : "campagnes", titre: t.type === "linkedin" ? `LinkedIn · ${t.personne || t.nom}` : `Appeler ${t.appelStandard ? "le standard" : t.personne || "le contact"} · ${t.nom}`, detail: t.campagneNom, debut: null, jour: aujourdhui })
     return out
-  }, [taches, retards, campagne, maintenant, aujourdhui])
+  }, [taches, retards, campagne, maintenant, aujourdhui, noms])
 
   const parId = useMemo(() => new Map([...(taches ?? []), ...retards].map((t) => [t.id, t])), [taches, retards])
   const nbAFaire = (taches ?? []).filter((t) => !t.faitLe).length + retards.length + campagne.length
@@ -129,9 +135,9 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
           <p className="text-encre-2">Campagne « {t.campagneNom} »</p>
         </>,
         boutons: <>
-          {t.type === "appel" ? <Bouton taille="sm" variante="plein" icone={<Phone />} onClick={() => { fermer(); onOuvrirSession?.(t.contactRef) }}>Appeler</Bouton> : <a className="inline-flex h-8 items-center gap-1.5 rounded-4 bg-action px-3 text-legende font-medium text-white hover:bg-action-survol" href={rechercheLinkedin(t)} target="_blank" rel="noreferrer"><ExternalLink size={14} />Chercher sur LinkedIn</a>}
-          <Bouton taille="sm" icone={<Check />} disabled={occupe} onClick={() => agir(async () => { await terminerTacheCampagne(t.id); fermer() })}>Fait</Bouton>
-          <Bouton taille="sm" icone={<ArrowUpRight />} onClick={() => { fermer(); onOuvrirAgence?.(t.contactRef) }}>Ouvrir la fiche</Bouton>
+          {t.type === "appel" ? <button type="button" className={PILULE_NOIRE} onClick={() => { fermer(); onOuvrirSession?.(t.contactRef) }}><Phone className="h-[14px] w-[14px]" strokeWidth={1.7} />Appeler</button> : <a className={PILULE_NOIRE} href={rechercheLinkedin(t)} target="_blank" rel="noreferrer"><ExternalLink className="h-[14px] w-[14px]" strokeWidth={1.7} />Chercher sur LinkedIn</a>}
+          <button type="button" className={PILULE_CLAIRE} disabled={occupe} onClick={() => agir(async () => { await terminerTacheCampagne(t.id); fermer() })}><Check className="h-[14px] w-[14px]" strokeWidth={1.7} />Fait</button>
+          <button type="button" className={PILULE_CLAIRE} onClick={() => { fermer(); onOuvrirAgence?.(t.contactRef) }}><ArrowUpRight className="h-[14px] w-[14px]" strokeWidth={1.7} />Ouvrir la fiche</button>
         </>,
       }
     }
@@ -149,8 +155,8 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
     return {
       quand: t.echeance ? `${majusculeInitiale(dateLongue(new Date(t.echeance)))} · ${heureCourte(t.echeance)} · ${libelleRelatif(t.echeance, maintenant)}` : "Sans date",
       icones: <>
-        <button type="button" aria-label="Reporter" title="Reporter" disabled={Boolean(t.faitLe)} onClick={() => setReport(enReport ? null : { id: t.id, ...decomposerDate(t.echeance) })} className={BOUTON_ICONE}><CalendarClock size={18} /></button>
-        <button type="button" aria-label="Supprimer" title="Supprimer" onClick={() => { fermer(); setASupprimer(t) }} className={BOUTON_ICONE}><Trash2 size={18} /></button>
+        <button type="button" aria-label="Reporter" title="Reporter" disabled={Boolean(t.faitLe)} onClick={() => setReport(enReport ? null : { id: t.id, ...decomposerDate(t.echeance) })} className={BOUTON_ICONE}><CalendarClock className="h-3.5 w-3.5" strokeWidth={1.7} /></button>
+        <button type="button" aria-label="Supprimer" title="Supprimer" onClick={() => { fermer(); setASupprimer(t) }} className={BOUTON_ICONE}><Trash2 className="h-3.5 w-3.5" strokeWidth={1.7} /></button>
       </>,
       lignes: <>
         {t.type === "rdv" ? <p className="flex items-center gap-1.5 text-encre-2"><IconeRdv type={t.rdvType} /> RDV {libelleRdv(t.rdvType).toLowerCase()}</p> : null}
@@ -168,31 +174,35 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
         ) : null}
       </>,
       boutons: <>
-        <Bouton taille="sm" variante="plein" icone={<Phone />} onClick={() => { fermer(); onOuvrirSession?.(t.agenceId) }}>Appeler</Bouton>
-        <Bouton taille="sm" icone={t.faitLe ? <Undo2 /> : <Check />} chargement={occupe} onClick={() => agir(async () => { await terminerTache(t.id, !t.faitLe); fermer() })}>{t.faitLe ? "Remettre à faire" : "Fait"}</Bouton>
-        <Bouton taille="sm" icone={<ArrowUpRight />} onClick={() => { fermer(); onOuvrirAgence?.(t.agenceId) }}>Ouvrir la fiche</Bouton>
+        <button type="button" className={PILULE_NOIRE} onClick={() => { fermer(); onOuvrirSession?.(t.agenceId) }}><Phone className="h-[14px] w-[14px]" strokeWidth={1.7} />Appeler</button>
+        <button type="button" className={PILULE_CLAIRE} disabled={occupe} onClick={() => agir(async () => { await terminerTache(t.id, !t.faitLe); fermer() })}>{t.faitLe ? <Undo2 className="h-[14px] w-[14px]" strokeWidth={1.7} /> : <Check className="h-[14px] w-[14px]" strokeWidth={1.7} />}{t.faitLe ? "Remettre à faire" : "Fait"}</button>
+        <button type="button" className={PILULE_CLAIRE} onClick={() => { fermer(); onOuvrirAgence?.(t.agenceId) }}><ArrowUpRight className="h-[14px] w-[14px]" strokeWidth={1.7} />Ouvrir la fiche</button>
       </>,
     }
   }
 
   return (
     <>
-      <CalendrierGoogle
-        cle="agenda_gestionnaires_caches"
+      <AgendaBureau
+        cle="agenda_gestionnaires_masques"
         titre="Agenda"
-        sousTitre={taches ? `${nbAFaire} à faire${nbFaits ? `, ${nbFaits} fait${s(nbFaits)}` : ""}` : undefined}
-        agendas={AGENDAS}
+        sousTitre={taches ? `Rendez-vous, tâches, rappels et appels demandés par les campagnes · ${nbAFaire} à faire${nbFaits ? `, ${nbFaits} fait${s(nbFaits)}` : ""}` : "Rendez-vous, tâches, rappels et appels demandés par les campagnes"}
+        groupe="Commerciaux"
+        types={TYPES}
         evenements={evenements}
         chargement={taches === null && !erreur}
-        erreur={erreur && !aSupprimer ? <Bandeau role="alerte" className="mx-6 mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
+        erreur={erreur && !aSupprimer ? <Bandeau role="alerte" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
         vue={vue} onVue={setVue} ancre={ancre} onAncre={setAncre} maintenant={maintenant}
-        creer={[{ libelle: "Tâche", onClick: () => setCreation("tache") }, { libelle: "Rendez-vous", onClick: () => setCreation("rdv") }]}
-        barre={admin ? (
-          <div role="group" aria-label="Qui" className="flex overflow-hidden rounded-[6px] border-[0.5px] border-trait-fort">
-            <button type="button" aria-pressed={!equipe} onClick={() => setEquipe(false)} className={`h-9 px-3.5 text-colonne ${!equipe ? "bg-fond-4 font-medium text-encre" : "text-encre-2 hover:bg-fond-3"}`}>Moi</button>
-            <button type="button" aria-pressed={equipe} onClick={() => setEquipe(true)} className={`h-9 border-l-[0.5px] border-trait-fort px-3.5 text-colonne ${equipe ? "bg-fond-4 font-medium text-encre" : "text-encre-2 hover:bg-fond-3"}`}>Toute l'équipe</button>
-          </div>
-        ) : null}
+        onJour={(j) => { setAncre(j); setCreation("tache") }}
+        infobulleJour="Cliquer pour créer une tâche ce jour"
+        actions={<>
+          {admin ? <>
+            <button type="button" aria-pressed={!equipe} className={`${PILULE_CLAIRE} ${!equipe ? "!bg-[#F2F2F4]" : ""}`} onClick={() => setEquipe(false)}>Moi</button>
+            <button type="button" aria-pressed={equipe} className={`${PILULE_CLAIRE} ${equipe ? "!bg-[#F2F2F4]" : ""}`} onClick={() => setEquipe(true)}>Toute l'équipe</button>
+          </> : null}
+          <button type="button" className={PILULE_CLAIRE} onClick={() => setCreation("rdv")}>Ajouter un rendez-vous</button>
+          <button type="button" className={PILULE_NOIRE} onClick={() => setCreation("tache")}>Créer une tâche</button>
+        </>}
         bulle={bulle}
       />
 
