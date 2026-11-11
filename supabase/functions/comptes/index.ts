@@ -13,10 +13,13 @@
 //   changer_role  → { id, role } → { compte }
 //   renommer      → { id, nom } → { compte }   (le nom qui signe les e-mails)
 //   nouveau_mot_de_passe → { id, motDePasse } → { compte }   (un mot de passe perdu ne se relit pas, il se remplace)
+//   adresse_dediee → { id, emailReception } → { compte }   (11/11/2026 : prenom@crm.stcbatiment.fr, vide = aucune ;
+//                    rangée dans la table equipe, colonne email_reception, le même nom que dans STC Bâtiment)
 //
 // Secrets : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 
 import { createClient, type User } from "https://esm.sh/@supabase/supabase-js@2"
+import { validerAdresseDediee } from "../_shared/boitesMail.ts"
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -35,9 +38,10 @@ function reponse(obj: unknown, status = 200): Response {
   })
 }
 
-function versCompte(u: User) {
+function versCompte(u: User, emailReception: string | null = null) {
   const role = u?.app_metadata?.role
   return {
+    emailReception,
     id: u.id as string,
     email: (u.email ?? "") as string,
     nom: String(u.user_metadata?.nom ?? ""),
@@ -74,7 +78,10 @@ Deno.serve(async (req: Request) => {
     if (action === "lister") {
       const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 })
       if (error) return reponse({ error: error.message }, 500)
-      const comptes = (data.users ?? []).map(versCompte).sort((a, b) => a.email.localeCompare(b.email))
+      // Les adresses dédiées (table equipe) ; illisibles (SQL pas encore collé) = aucune, la liste reste lisible.
+      const { data: adresses } = await admin.from("equipe").select("compte_id, email_reception")
+      const parCompte = new Map(((adresses ?? []) as { compte_id: string; email_reception: string | null }[]).map((x) => [x.compte_id, x.email_reception]))
+      const comptes = (data.users ?? []).map((u) => versCompte(u, parCompte.get(u.id) ?? null)).sort((a, b) => a.email.localeCompare(b.email))
       return reponse({ comptes })
     }
 
@@ -149,7 +156,29 @@ Deno.serve(async (req: Request) => {
       return reponse({ compte: versCompte(data.user) })
     }
 
-    return reponse({ error: "Action inconnue (lister, creer, changer_role, renommer, nouveau_mot_de_passe)." }, 400)
+    // 7. L'adresse e-mail dédiée (11/11/2026) : les mails reçus à cette adresse vont dans SA boîte, ses mails
+    //    du démarchage partent d'elle. Unique, en minuscules, sur le domaine du CRM (contrôlé ici ET en base).
+    if (action === "adresse_dediee") {
+      const id = String(corps?.id ?? "")
+      if (!id) return reponse({ error: "Compte manquant." }, 400)
+      const v = validerAdresseDediee(String(corps?.emailReception ?? ""))
+      if (!v.ok) return reponse({ error: v.erreur }, 400)
+      const { data: u, error: errU } = await admin.auth.admin.getUserById(id)
+      if (errU || !u?.user) return reponse({ error: "Compte introuvable." }, 404)
+      if (v.adresse) {
+        const { error } = await admin.from("equipe").upsert({ compte_id: id, email_reception: v.adresse, maj_le: new Date().toISOString() }, { onConflict: "compte_id" })
+        if (error) {
+          const deja = /duplicate|unique/i.test(error.message)
+          return reponse({ error: deja ? "Cette adresse est déjà celle d'un autre compte." : error.message }, deja ? 409 : 500)
+        }
+      } else {
+        const { error } = await admin.from("equipe").delete().eq("compte_id", id)
+        if (error) return reponse({ error: error.message }, 500)
+      }
+      return reponse({ compte: versCompte(u.user, v.adresse) })
+    }
+
+    return reponse({ error: "Action inconnue (lister, creer, changer_role, renommer, nouveau_mot_de_passe, adresse_dediee)." }, 400)
   } catch (e) {
     return reponse({ error: e instanceof Error ? e.message : String(e) }, 500)
   }

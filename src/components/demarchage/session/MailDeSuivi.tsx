@@ -36,8 +36,9 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
   onChoixManuel?: () => void
 }) {
   const session = useSession()
-  const { nom: nomSignataire } = useSignataires(session)
-  const signature = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
+  // Signée avec l'adresse dédiée du commercial (11/11/2026) : le mail part d'elle, les réponses y reviennent.
+  const { nom: nomSignataire, adresse } = useSignataires(session)
+  const signature = useMemo(() => signatureStc({ nom: nomSignataire, email: adresse ?? undefined }), [nomSignataire, adresse])
   const prenom = prenomDe(nomSignataire)
   const [modeles, setModeles] = useState<Email[]>([])
   const [choix, setChoix] = useState<string | null>(null)                 // null : le mail de l'IA s'il est là, sinon le 1er modèle

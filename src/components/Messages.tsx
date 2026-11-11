@@ -29,6 +29,9 @@ import {
   type Message,
 } from "../lib/messagesDb"
 import { useSession } from "../lib/auth"
+import { estAdmin, listerComptes } from "../lib/comptes"
+import { TOUS, compteDuChoix, filtrerParPersonne, type Personne } from "../lib/filtrePersonne"
+import FiltrePersonne from "./boite/FiltrePersonne"
 import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
 import { objetReponse, objetTransfert } from "../lib/messagesUtils"
@@ -109,8 +112,22 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   // Signature STC Bâtiment pour tout ce qui part d'ici : le nom du compte, ou un
   // autre nom réglé dans Paramétrage › Emails › Mes signatures (19/10/2026).
   const session = useSession()
-  const { noms: signataires, nom: nomSignataire, choisir: choisirSignataire } = useSignataires(session)
-  const signatureHtml = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
+  // Au démarchage, la signature porte l'adresse dédiée du compte (11/11/2026) ; le recrutement garde l'adresse commune.
+  const { noms: signataires, nom: nomSignataire, choisir: choisirSignataire, adresse: adresseDediee } = useSignataires(session)
+  const signatureHtml = useMemo(() => signatureStc({ nom: nomSignataire, email: adresseDediee ?? undefined }), [nomSignataire, adresseDediee])
+  const signatureCommune = useMemo(() => signatureStc({ nom: nomSignataire }), [nomSignataire])
+  const signaturePour = (e: Espace) => (e === "demarchage" ? signatureHtml : signatureCommune)
+
+  // « Mails de : Moi · Tout le monde · un commercial » (11/11/2026, comme STC Bâtiment) : pour un administrateur,
+  // au démarchage. Un commercial n'en a pas besoin : la base ne lui montre que ses mails.
+  const admin = estAdmin(session)
+  const moi = session?.user?.id ?? ""
+  const [choixPersonne, setChoixPersonne] = useState<string>(TOUS)
+  const [personnes, setPersonnes] = useState<Personne[]>([])
+  useEffect(() => {
+    if (!admin || espace === "recrutement") return
+    listerComptes().then((l) => setPersonnes(l.filter((c) => c.id !== moi).map((c) => ({ id: c.id, nom: c.nom || c.email })))).catch(() => undefined)
+  }, [admin, espace, moi])
   const prenomCommercial = prenomDe(nomSignataire)
 
   const [messages, setMessages] = useState<Message[]>([])
@@ -164,7 +181,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     return () => clearTimeout(t)
   }, [charger])
 
-  const conversations = useMemo(() => grouperEnConversations(messages), [messages])
+  const filtreParPersonne = admin && espace !== "recrutement" ? compteDuChoix(choixPersonne, moi) : null
+  const conversations = useMemo(() => grouperEnConversations(filtrerParPersonne(messages, filtreParPersonne)), [messages, filtreParPersonne])
   const nbNonLues = useMemo(() => compterNonLues(conversations), [conversations])
   const visibles = useMemo(
     () => filtrerConversations(conversations, vue, recherche),
@@ -303,7 +321,7 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     const pieces = piecesAEnvoyer(compoPieces)
     try {
       if (nouveau) {
-        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml, commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
+        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml: signaturePour(espace ?? "demarchage"), commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
         setEnvoiOk(`Message envoyé à ${compoTo.trim()}.`)
       } else if (ouvert && mode === "repondre" && messageLinkedIn(ouvert.messages)) {
         if (pieces?.length) throw new Error("Pas de pièce jointe sur LinkedIn : mets plutôt un lien.")
@@ -311,7 +329,7 @@ export default function Messages({ espace }: { espace: Espace | null }) {
         setEnvoiOk(`Réponse envoyée sur LinkedIn à ${nomDe(ouvert)}.`)
       } else if (ouvert && mode === "repondre" && messageDeProspection(ouvert.messages)) {
         if (pieces?.length) throw new Error("Pas de pièce jointe sur une réponse à un prospect : mets plutôt un lien.")
-        await repondreParInstantly({ message: messageDeProspection(ouvert.messages)!.id, objet: objetReponse(ouvert.dernier.objet), corps: compoCorps.trim(), signatureHtml })
+        await repondreParInstantly({ message: messageDeProspection(ouvert.messages)!.id, objet: objetReponse(ouvert.dernier.objet), corps: compoCorps.trim(), signatureHtml: signaturePour(ouvert.dernier.espace) })
         setEnvoiOk(`Réponse envoyée à ${nomDe(ouvert)}.`)
       } else if (ouvert && mode === "repondre") {
         const dernier = ouvert.dernier
@@ -321,7 +339,7 @@ export default function Messages({ espace }: { espace: Espace | null }) {
           corps: compoCorps.trim(),
           inReplyTo: dernier.messageId,
           agenceId: ouvert.agenceId,
-          signatureHtml,
+          signatureHtml: signaturePour(ouvert.dernier.espace),
           commercial: prenomCommercial,
           espace: ouvert.dernier.espace,
           pieces,
@@ -334,7 +352,7 @@ export default function Messages({ espace }: { espace: Espace | null }) {
           corps: compoCorps.trim(),
           inReplyTo: null,
           agenceId: null,
-          signatureHtml,
+          signatureHtml: signaturePour(ouvert.dernier.espace),
           commercial: prenomCommercial,
           espace: ouvert.dernier.espace,
           pieces,
@@ -415,6 +433,9 @@ export default function Messages({ espace }: { espace: Espace | null }) {
               title="Les conversations où nous avons écrit">
               Envoyés
             </button>
+            {admin && espace !== "recrutement" && (
+              <FiltrePersonne choix={choixPersonne} setChoix={(c) => { setChoixPersonne(c); setPageListe(1) }} personnes={personnes} />
+            )}
             <button type="button" className={OUTIL} onClick={charger} title="Actualiser" aria-label="Actualiser">
               <RefreshCw className={`h-[15px] w-[15px] ${chargement ? "animate-spin" : ""}`} strokeWidth={1.7} />
             </button>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Session } from "@supabase/supabase-js"
-import { nomAffiche } from "./comptes"
+import { adresseDedieeDe, nomAffiche } from "./comptes"
 import { dernierChoixSignature, lireSignatures, retenirChoixSignature, signataireRetenu, signatairesDe } from "./signatures"
 
 /**
@@ -9,11 +9,13 @@ import { dernierChoixSignature, lireSignatures, retenirChoixSignature, signatair
  * les autres noms réglés dans Paramétrage › Emails › Mes signatures. Le
  * dernier choix est repris sur ce navigateur tant que le nom existe encore.
  */
-export function useSignataires(session: Session | null | undefined): { noms: string[]; nom: string; choisir: (nom: string) => void } {
+export function useSignataires(session: Session | null | undefined): { noms: string[]; nom: string; choisir: (nom: string) => void; adresse: string | null } {
   const principale = nomAffiche(session)
   const compteId = session?.user?.id ?? ""
   const [autres, setAutres] = useState<string[]>([])
   const [choix, setChoix] = useState<string | null>(null)
+  // L'adresse dédiée du compte (11/11/2026) : la signature la montre, le serveur envoie depuis elle.
+  const [adresse, setAdresse] = useState<string | null>(null)
 
   useEffect(() => {
     if (!compteId) return
@@ -25,6 +27,7 @@ export function useSignataires(session: Session | null | undefined): { noms: str
         setAutres(liste)
         setChoix(dernierChoixSignature(compteId))
       })
+    adresseDedieeDe(compteId).then((a) => { if (!annule) setAdresse(a) }).catch(() => undefined)
     return () => {
       annule = true
     }
@@ -37,5 +40,5 @@ export function useSignataires(session: Session | null | undefined): { noms: str
     setChoix(n)
     if (compteId) retenirChoixSignature(compteId, n)
   }
-  return { noms, nom, choisir }
+  return { noms, nom, choisir, adresse }
 }

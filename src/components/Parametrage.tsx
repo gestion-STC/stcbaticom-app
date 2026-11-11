@@ -81,7 +81,8 @@ export default function Parametrage({ session, sectionInitiale }: { session: Ses
       </nav>
 
       <div className="page min-w-0 flex-1">
-        <h1 className="mb-6 text-section font-semibold tracking-[-0.015em] text-encre">{titre}</h1>
+        {/* « Comptes » porte son propre en-tête « Équipe », dessiné comme STC Bâtiment (11/11/2026). */}
+        {section !== "comptes" && <h1 className="mb-6 text-section font-semibold tracking-[-0.015em] text-encre">{titre}</h1>}
         {section === "signatures" && <EmailsManager partie="signatures" />}
         {section === "regles" && <ObjectifsReglage partie="regles" />}
         {section === "script" && <ObjectifsReglage partie="script" />}

@@ -52,6 +52,8 @@ export interface Compte {
   role: Role | null
   creeLe: string | null
   derniereConnexion: string | null
+  /** L'adresse e-mail dédiée (11/11/2026, comme STC Bâtiment) : prenom@crm.stcbatiment.fr, ou rien. */
+  emailReception?: string | null
 }
 
 export interface NouveauCompte {
@@ -128,6 +130,20 @@ export async function renommerCompte(id: string, nom: string): Promise<Compte> {
 export async function nouveauMotDePasse(id: string, motDePasse: string): Promise<Compte> {
   const r = await appeler<{ compte: Compte }>("nouveau_mot_de_passe", { id, motDePasse })
   return r.compte
+}
+
+/** Pose (ou retire, avec une chaîne vide) l'adresse e-mail dédiée d'un compte. Le serveur la revérifie. */
+export async function poserAdresseDediee(id: string, emailReception: string): Promise<Compte> {
+  const r = await appeler<{ compte: Compte }>("adresse_dediee", { id, emailReception })
+  return r.compte
+}
+
+/** L'adresse dédiée d'un compte, lue dans la table equipe (lisible par l'équipe) ; null si aucune ou illisible. */
+export async function adresseDedieeDe(compteId: string): Promise<string | null> {
+  if (!supabase || !compteId) return null
+  const { data, error } = await supabase.from("equipe").select("email_reception").eq("compte_id", compteId).maybeSingle()
+  if (error) return null
+  return (data as { email_reception?: string | null } | null)?.email_reception ?? null
 }
 
 export async function changerRole(id: string, role: Role): Promise<Compte> {
