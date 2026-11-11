@@ -60,26 +60,51 @@ describe("le cockpit de la croissance", () => {
   })
 })
 
-describe("le cockpit sur les vrais chiffres de STC Bâtiment", () => {
-  const brut = JSON.stringify({
-    calcule_le: "2026-11-11T15:00:00Z", fenetre_jours: 90, agences_actives: 2,
-    mois: [{ mois: "2026-08", ca_agences: 3_000, ca_particuliers: 9_000 }, { mois: "2026-09", ca_agences: 3_000, ca_particuliers: 9_000 }, { mois: "2026-10", ca_agences: 3_000, ca_particuliers: 9_000 }],
-    agences: [{ nom: "A", os_90j: 10, dernier_os_le: "2026-11-10", ca_3_mois: 6_000 }, { nom: "B", os_90j: 2, dernier_os_le: "2026-10-01", ca_3_mois: 0 }],
-  })
-  it("lit les moyennes : chiffre d'affaires réel, part des particuliers, chiffre d'affaires d'une agence active", () => {
+describe("les agences actives et ce qu'elles rapportent (algorithme validé par Mahdi)", () => {
+  const ag = (nom: string, os_30: number, os_30_60: number, facture_30: number, mois: number[]) => ({ nom, os_30, os_30_60, facture_30, dernier_os_le: null, mois })
+  // Des chiffres fictifs, de la forme des vrais (noms anonymes).
+  const brut = JSON.stringify({ version: 2, calcule_le: "2026-11-11T15:00:00Z", mois: ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"], particuliers: [7_000, 8_000, 24_000, 20_000, 20_000, 15_000], agences: [
+    ag("Agence A", 34, 9, 6_906, [1_819, 2_392, 1_650, 3_147, 2_604, 5_091]),
+    ag("Agence B", 17, 15, 1_958, [2_053, 862, 876, 1_252, 3_307, 2_352]),
+    ag("Agence C", 15, 6, 1_648, [0, 0, 0, 0, 0, 1_064]),
+    ag("Agence D", 9, 7, 4_153, [9_647, 8_375, 6_875, 1_559, 1_334, 5_341]),
+    ag("Agence E", 5, 0, 0, [0, 0, 0, 242, 0, 0]),
+    ag("Agence F", 3, 2, 2_444, [3_830, 6_219, 13_335, 1_528, 7_205, 1_624]),
+    ag("Agence G", 3, 8, 2_072, [0, 0, 0, 170, 1_999, 73]),
+    ag("Agence H", 2, 2, 1_091, [0, 0, 0, 0, 1_251, 260]),
+    ag("Agence I", 1, 3, 918, [2_344, 1_873, 1_996, 2_073, 372, 463]),
+    ag("Agence J", 0, 1, 724, [255, 0, 0, 0, 0, 0]),
+  ] })
+  it("compte les actives : au moins 1 000 € et 2 OS sur 30 jours, et pas en chute", () => {
     const r = lireReelStc(brut)!
-    expect(r.agencesActives).toBe(2)
-    expect(r.caMensuel).toBe(12_000)
-    expect(r.caParticuliersMensuel).toBe(9_000)
-    expect(r.caParAgence).toBe(1_000) // 6 000 € en 3 mois, 2 agences actives
+    expect(r.agences.filter((a) => a.active).map((a) => a.nom)).toEqual(["Agence A", "Agence B", "Agence C", "Agence D", "Agence F", "Agence H"])
+    expect(r.agences.find((a) => a.nom === "Agence G")!.raison).toBe("en chute : 3 OS contre 8 le mois d'avant")
+    expect(r.agences.find((a) => a.nom === "Agence I")!.raison).toMatch(/moins de 1.000 € facturés/)
+    expect(r.agencesActives).toBe(6)
+  })
+  it("ce que rapporte une agence active : seulement les mois où elle tourne, même si elle n'est plus active", () => {
+    const r = lireReelStc(brut)!
+    const i = r.agences.find((a) => a.nom === "Agence I")!
+    expect(i.moisActifs).toBe(4) // mai à août ; septembre et octobre ne comptent pas
+    expect(Math.round(i.moyenneQuandElleTourne!)).toBe(2_072)
+    const tourne = [1_819, 2_392, 1_650, 3_147, 2_604, 5_091, 2_053, 1_252, 3_307, 2_352, 1_064, 9_647, 8_375, 6_875, 1_559, 1_334, 5_341, 3_830, 6_219, 13_335, 1_528, 7_205, 1_624, 1_999, 1_251, 2_344, 1_873, 1_996, 2_073]
+    expect(r.moisActifs).toBe(tourne.length)
+    expect(r.caParAgence).toBeCloseTo(tourne.reduce((a, b) => a + b, 0) / tourne.length, 6)
+  })
+  it("les seuils se règlent", () => {
+    expect(lireReelStc(brut, { factureMin: 1_000, osMin: 2, chutePct: 0 })!.agencesActives).toBe(7) // sans la chute, l agence G revient
+    expect(lireReelStc(brut, { factureMin: 2_000, osMin: 2, chutePct: 50 })!.agencesActives).toBe(3)
+  })
+  it("ignore l'ancien format et les données illisibles", () => {
+    expect(lireReelStc(JSON.stringify({ agences_actives: 16, mois: [{ mois: "2026-08" }] }))).toBeNull()
     expect(lireReelStc(null)).toBeNull()
     expect(lireReelStc("{pas du json")).toBeNull()
   })
-  it("les agences portent l'objectif moins les particuliers ; le chiffre d'affaires estimé est le réel", () => {
+  it("les agences portent l'objectif moins les particuliers ; le chiffre d'affaires est le réel", () => {
     const r = lireReelStc(brut)!
-    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 109_000, caParClient: 4_000 }, { clientsActuels: 2, artisansActifs: 0, tauxClient: null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, r)
-    expect(p.caParClient).toBe(1_000)
-    expect(p.clientsNecessaires).toBe(100) // (109 000 − 9 000) ÷ 1 000
-    expect(p.caEstime).toBe(12_000)
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 200_000 }, { clientsActuels: r.agencesActives, artisansActifs: 0, tauxClient: null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, r)
+    expect(p.caParClient).toBe(r.caParAgence)
+    expect(p.clientsNecessaires).toBe(Math.ceil((200_000 - r.caParticuliersMensuel) / r.caParAgence))
+    expect(p.caEstime).toBe(r.caMensuel)
   })
 })
