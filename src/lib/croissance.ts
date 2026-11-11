@@ -69,3 +69,44 @@ export function entonnoirRecrutement(l: ArtisanCroissance[]): Marche[] {
 export const semainesRestantes = (reserve: number, parSemaineMoyen: number): number | null => (parSemaineMoyen > 0 ? Math.ceil(reserve / parSemaineMoyen) : null)
 /** Le taux de passage d'une marche à la suivante. */
 export const tauxPassage = (de: number, a: number): number | null => (de > 0 ? a / de : null)
+
+// ── LE COCKPIT (Mahdi, 11/11/2026) : « je veux faire 200 000 ou 300 000 € par mois, qu'il me dise combien d'agences,
+// combien de sous-traitants, l'objectif par semaine, et si on est sur la bonne croissance ». ──
+export type ReglageCockpit = { objectifMensuel: number; moisPourYArriver: number; caParClient: number; caParArtisan: number }
+export const COCKPIT_DEPART: ReglageCockpit = { objectifMensuel: 200_000, moisPourYArriver: 12, caParClient: 4_000, caParArtisan: 12_000 }
+export type Trajectoire = "bonne" | "juste" | "retard" | "inconnue"
+export type LevierCockpit = { libelle: string; ilFaut: number; onFait: number | null; unite: string; trajectoire: Trajectoire }
+
+const SEMAINES_PAR_MOIS = 52 / 12
+/** La trajectoire : au moins le rythme demandé = bonne ; 70 % = juste ; en dessous = en retard. */
+export function trajectoire(onFait: number | null, ilFaut: number): Trajectoire {
+  if (onFait === null) return "inconnue"
+  if (ilFaut <= 0) return "bonne"
+  const r = onFait / ilFaut
+  return r >= 1 ? "bonne" : r >= 0.7 ? "juste" : "retard"
+}
+
+/** De l'objectif de chiffre d'affaires mensuel à ce qu'il faut sortir chaque semaine. Les taux viennent des entonnoirs. */
+export function planCroissance(r: ReglageCockpit, etat: {
+  clientsActuels: number; artisansActifs: number
+  /** Agences contactées → clients ; artisans contactés → actifs (0 à 1). */
+  tauxClient: number | null; tauxArtisan: number | null
+  /** Ce qu'on fait aujourd'hui, en moyenne par semaine (4 dernières semaines). */
+  clientsParSemaine: number; artisansParSemaine: number; agencesAppeleesParSemaine: number
+}): { clientsNecessaires: number; artisansNecessaires: number; caEstime: number; premiersOsParMois: number; leviers: LevierCockpit[]; global: Trajectoire } {
+  const semaines = Math.max(1, r.moisPourYArriver * SEMAINES_PAR_MOIS)
+  const clientsNecessaires = r.caParClient > 0 ? Math.ceil(r.objectifMensuel / r.caParClient) : 0
+  const artisansNecessaires = r.caParArtisan > 0 ? Math.ceil(r.objectifMensuel / r.caParArtisan) : 0
+  const clientsSemaine = Math.max(0, clientsNecessaires - etat.clientsActuels) / semaines
+  const artisansSemaine = Math.max(0, artisansNecessaires - etat.artisansActifs) / semaines
+  const agencesSemaine = etat.tauxClient && etat.tauxClient > 0 ? clientsSemaine / etat.tauxClient : 0
+  const arrondi = (x: number) => Math.round(x * 100) / 100
+  const leviers: LevierCockpit[] = [
+    { libelle: "Nouveaux clients", ilFaut: arrondi(clientsSemaine), onFait: arrondi(etat.clientsParSemaine), unite: "par semaine", trajectoire: trajectoire(etat.clientsParSemaine, clientsSemaine) },
+    { libelle: "Agences à appeler", ilFaut: Math.ceil(agencesSemaine), onFait: etat.agencesAppeleesParSemaine, unite: "par semaine", trajectoire: etat.tauxClient ? trajectoire(etat.agencesAppeleesParSemaine, agencesSemaine) : "inconnue" },
+    { libelle: "Nouveaux sous-traitants actifs", ilFaut: arrondi(artisansSemaine), onFait: arrondi(etat.artisansParSemaine), unite: "par semaine", trajectoire: trajectoire(etat.artisansParSemaine, artisansSemaine) },
+  ]
+  const ordre: Trajectoire[] = ["retard", "juste", "bonne", "inconnue"]
+  const global = ordre.find((t) => leviers.some((l) => l.trajectoire === t)) ?? "inconnue"
+  return { clientsNecessaires, artisansNecessaires, caEstime: etat.clientsActuels * r.caParClient, premiersOsParMois: Math.ceil(clientsSemaine * SEMAINES_PAR_MOIS), leviers, global: global === "inconnue" && leviers.every((l) => l.trajectoire !== "inconnue") ? "bonne" : global }
+}

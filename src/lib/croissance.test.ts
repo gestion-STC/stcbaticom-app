@@ -1,6 +1,6 @@
 // Le dashboard Croissance (Mahdi, 11/11/2026) : la cadence, les entonnoirs, la réserve.
 import { describe, expect, it } from "vitest"
-import { entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, semainesRestantes, tauxPassage } from "./croissance"
+import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
 
 const maintenant = new Date(2026, 10, 11, 12)
 
@@ -35,5 +35,27 @@ describe("la croissance", () => {
     expect(semainesRestantes(10, 0)).toBeNull()
     expect(tauxPassage(200, 50)).toBe(0.25)
     expect(tauxPassage(0, 1)).toBeNull()
+  })
+})
+
+describe("le cockpit de la croissance", () => {
+  it("de 200 000 € par mois à ce qu'il faut sortir chaque semaine", () => {
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 200_000, moisPourYArriver: 12, caParClient: 4_000, caParArtisan: 10_000 }, { clientsActuels: 48, artisansActifs: 20, tauxClient: 48 / 622, tauxArtisan: 0.1, clientsParSemaine: 0.5, artisansParSemaine: 0.5, agencesAppeleesParSemaine: 150 })
+    expect(p.clientsNecessaires).toBe(50)
+    expect(p.artisansNecessaires).toBe(20)
+    expect(p.leviers[0].ilFaut).toBe(0.04) // 2 clients manquants en 52 semaines
+    expect(p.leviers[0].trajectoire).toBe("bonne")
+    expect(p.caEstime).toBe(192_000)
+  })
+  it("en retard quand le rythme est sous 70 % de ce qu'il faut", () => {
+    expect(trajectoire(5, 10)).toBe("retard")
+    expect(trajectoire(8, 10)).toBe("juste")
+    expect(trajectoire(10, 10)).toBe("bonne")
+    expect(trajectoire(null, 10)).toBe("inconnue")
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 300_000, moisPourYArriver: 6 }, { clientsActuels: 10, artisansActifs: 5, tauxClient: 0.05, tauxArtisan: 0.1, clientsParSemaine: 0.5, artisansParSemaine: 0.2, agencesAppeleesParSemaine: 100 })
+    expect(p.clientsNecessaires).toBe(75)
+    expect(p.leviers[1].ilFaut).toBe(Math.ceil((65 / (6 * 52 / 12)) / 0.05))
+    expect(p.global).toBe("retard")
+    expect(p.premiersOsParMois).toBe(Math.ceil((65 / (6 * 52 / 12)) * (52 / 12)))
   })
 })

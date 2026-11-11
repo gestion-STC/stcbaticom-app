@@ -1,15 +1,24 @@
 // CAMPAGNES › DASHBOARD : LA CROISSANCE (Mahdi, 11/11/2026) : « suivre la prospection, le démarchage, le recrutement
 // sous-traitant, pour voir à quelle cadence on avance ; plus tard, connecté au logiciel, le suivi de notre croissance ».
 // Même dessin que les autres dashboards (style courtier). Pour les administrateurs. Calculs : lib/croissance.ts.
-import { useEffect, useMemo, useState } from "react"
-import { Bandeau as BandeauAlerte, Chargement } from "../../ui"
-import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Table, Variation } from "../demarchage/aujourdhui/courtier"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { Bandeau as BandeauAlerte, Bouton, Champ, Chargement } from "../../ui"
+import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
+import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Etiquette, Table, Variation } from "../demarchage/aujourdhui/courtier"
 import { fr } from "../demarchage/aujourdhui/outils"
-import { entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, semainesRestantes } from "../../lib/croissance"
+import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, type ReglageCockpit, type Trajectoire } from "../../lib/croissance"
 import { chargerCroissance, type DonneesCroissance } from "../../lib/croissanceDb"
 
 const CANAUX: { id: string; nom: string }[] = [{ id: "mail", nom: "Mails" }, { id: "sms", nom: "SMS" }, { id: "linkedin", nom: "LinkedIn" }, { id: "newsletter", nom: "Newsletters" }]
 const STATUT: Record<string, string> = { active: "en cours", pause: "en pause", brouillon: "brouillon", terminee: "terminée" }
+const TRAJ: Record<Trajectoire, { texte: string; ton: string }> = {
+  bonne: { texte: "Sur la bonne trajectoire", ton: "text-ok" },
+  juste: { texte: "Un peu juste", ton: "text-attention" },
+  retard: { texte: "En retard", ton: "text-alerte" },
+  inconnue: { texte: "Pas encore de données", ton: "text-encre-2" },
+}
+const euros = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`
+const moyenne4 = (v: number[]) => v.slice(-5, -1).reduce((a, b) => a + b, 0) / 4
 const BASE: Record<string, string> = { agences: "Gestionnaires", apporteurs: "Apporteurs", artisans: "Artisans", locataires: "Locataires", clients_gestionnaires: "Clients", sous_traitants_actifs: "Sous-traitants actifs" }
 
 export default function Croissance() {
@@ -17,6 +26,14 @@ export default function Croissance() {
   const lundis = useMemo(() => lundisRecents(maintenant, 12), [maintenant])
   const [d, setD] = useState<DonneesCroissance | null>(null)
   const [erreur, setErreur] = useState("")
+  const [reglage, setReglage] = useState<ReglageCockpit>(COCKPIT_DEPART)
+  const [saisie, setSaisie] = useState<Record<keyof ReglageCockpit, string>>(() => ({ objectifMensuel: String(COCKPIT_DEPART.objectifMensuel), moisPourYArriver: String(COCKPIT_DEPART.moisPourYArriver), caParClient: String(COCKPIT_DEPART.caParClient), caParArtisan: String(COCKPIT_DEPART.caParArtisan) }))
+  const [enregistre, setEnregistre] = useState("")
+  useEffect(() => {
+    lireParametre("cockpit_croissance").then((x) => {
+      try { const r = { ...COCKPIT_DEPART, ...JSON.parse(x || "{}") } as ReglageCockpit; setReglage(r); setSaisie({ objectifMensuel: String(r.objectifMensuel), moisPourYArriver: String(r.moisPourYArriver), caParClient: String(r.caParClient), caParArtisan: String(r.caParArtisan) }) } catch { /* réglage par défaut */ }
+    }).catch(() => undefined)
+  }, [])
   useEffect(() => {
     let vivant = true
     const depuis = new Date(Math.min(lundis[0].getTime(), new Date(maintenant.getFullYear(), maintenant.getMonth() - 1, 1).getTime()))
@@ -54,6 +71,31 @@ export default function Croissance() {
     }
   }, [d, lundis, maintenant])
 
+  // Le cockpit : de l'objectif de chiffre d'affaires aux objectifs de la semaine, comparés au rythme actuel.
+  const plan = useMemo(() => {
+    if (!c) return null
+    const [, contactees, , , , clients] = c.demarchage, [, contactes, , , contrats] = c.recrutement
+    return planCroissance(reglage, {
+      clientsActuels: clients.valeur, artisansActifs: contrats.valeur,
+      tauxClient: contactees.valeur ? clients.valeur / contactees.valeur : null, tauxArtisan: contactes.valeur ? contrats.valeur / contactes.valeur : null,
+      clientsParSemaine: moyenne4(c.series[2].v), artisansParSemaine: moyenne4(c.series[4].v), agencesAppeleesParSemaine: c.agencesParSemaine,
+    })
+  }, [c, reglage])
+  const nombre = (x: string) => Math.max(0, Number(x.replace(/\s/g, "").replace(",", ".")) || 0)
+  const enregistrer = async (e: FormEvent) => {
+    e.preventDefault()
+    const r: ReglageCockpit = { objectifMensuel: nombre(saisie.objectifMensuel), moisPourYArriver: Math.max(1, nombre(saisie.moisPourYArriver)), caParClient: nombre(saisie.caParClient), caParArtisan: nombre(saisie.caParArtisan) }
+    setReglage(r); setEnregistre("")
+    try {
+      await ecrireParametre("cockpit_croissance", JSON.stringify(r))
+      // L'objectif du mois des gestionnaires (premiers OS) suit le cockpit : tout se met à jour.
+      if (c) {
+        const p = planCroissance(r, { clientsActuels: c.demarchage[5].valeur, artisansActifs: c.recrutement[4].valeur, tauxClient: c.demarchage[1].valeur ? c.demarchage[5].valeur / c.demarchage[1].valeur : null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 })
+        if (p.premiersOsParMois > 0) await ecrireParametre("objectif_os_mensuel", String(p.premiersOsParMois))
+      }
+      setEnregistre("Enregistré : l'objectif du mois des gestionnaires est mis à jour.")
+    } catch (x) { setErreur(x instanceof Error ? x.message : String(x)) }
+  }
   const debutSemaines = lundis[0].toLocaleDateString("fr-FR", { day: "numeric", month: "long" })
   return (
     <div className="@container w-full">
@@ -62,8 +104,35 @@ export default function Croissance() {
         {erreur ? <div className="pt-6"><BandeauAlerte role="alerte">{erreur}</BandeauAlerte></div> : null}
         {!c && !erreur ? <div className="pt-6"><Chargement texte="Lecture de la croissance…" /></div> : null}
         {c ? <>
+          {/* ═══ LE COCKPIT ═══ */}
+          {plan ? (
+            <Chapitre id="cockpit" titre="Le cockpit" sous="Ton objectif de chiffre d'affaires, ce qu'il demande chaque semaine, et si on est sur la bonne trajectoire."
+              droite={<span className={`text-sous-titre font-semibold ${TRAJ[plan.global].ton}`}>{TRAJ[plan.global].texte}</span>}>
+              <form onSubmit={enregistrer} className="flex flex-wrap items-end gap-4">
+                {([["objectifMensuel", "Objectif de chiffre d'affaires", "€ par mois"], ["moisPourYArriver", "Pour y arriver d'ici", "mois"], ["caParClient", "Chiffre d'affaires moyen d'une agence cliente", "€ par mois"], ["caParArtisan", "Chiffre d'affaires moyen d'un sous-traitant actif", "€ par mois"]] as [keyof ReglageCockpit, string, string][]).map(([cle, titre, unite]) => (
+                  <label key={cle} className="flex min-w-[170px] flex-1 flex-col gap-1">
+                    <Etiquette>{titre}</Etiquette>
+                    <span className="flex items-center gap-2"><Champ inputMode="numeric" value={saisie[cle]} onChange={(e) => setSaisie((x) => ({ ...x, [cle]: e.target.value }))} aria-label={titre} /><span className="shrink-0 text-colonne text-encre-2">{unite}</span></span>
+                  </label>
+                ))}
+                <Bouton variante="plein" type="submit">Enregistrer</Bouton>
+              </form>
+              {enregistre ? <p className="-mt-6 text-colonne text-ok">{enregistre}</p> : <p className="-mt-6 text-colonne text-encre-2">Les deux chiffres d'affaires moyens sont à régler pour l'instant. Quand Baticom sera dans le logiciel STC Bâtiment, ils seront calculés sur les vraies factures.</p>}
+              <Bandeau cases={[
+                { libelle: "Agences clientes nécessaires", valeur: fr(plan.clientsNecessaires), variation: <span className="chiffres text-colonne text-encre-2">vous en avez {fr(c.demarchage[5].valeur)}</span> },
+                { libelle: "Sous-traitants actifs nécessaires", valeur: fr(plan.artisansNecessaires), variation: <span className="chiffres text-colonne text-encre-2">vous en avez {fr(c.recrutement[4].valeur)}</span> },
+                { libelle: "Chiffre d'affaires estimé", valeur: euros(plan.caEstime), ton: plan.caEstime >= reglage.objectifMensuel ? "text-ok" : "text-encre", variation: <span className="chiffres text-colonne text-encre-2">{reglage.objectifMensuel ? Math.round((plan.caEstime / reglage.objectifMensuel) * 100) : 0} % de l'objectif</span>, title: "Agences clientes × chiffre d'affaires moyen d'une agence" },
+                { libelle: "Premiers OS à viser", valeur: fr(plan.premiersOsParMois), variation: <span className="chiffres text-colonne text-encre-2">par mois</span>, title: "Devient l'objectif du mois des gestionnaires à l'enregistrement" },
+              ]} />
+              <Bloc titre="Ce qu'il faut chaque semaine" droite={`pour ${euros(reglage.objectifMensuel)} par mois d'ici ${fr(reglage.moisPourYArriver)} mois · comparé aux 4 dernières semaines`}>
+                <Table colonnes={[{ titre: "Levier" }, { titre: "Il faut", largeur: "110px", droite: true }, { titre: "Vous faites", largeur: "110px", droite: true }, { titre: "", largeur: "100px" }, { titre: "Trajectoire", largeur: "190px" }]}
+                  lignes={plan.leviers.map((l) => ({ cle: l.libelle, cellules: [l.libelle, <b className="font-semibold">{l.ilFaut > 0 && l.ilFaut < 0.1 ? "moins de 0,1" : l.ilFaut.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</b>, l.onFait === null ? "—" : l.onFait.toLocaleString("fr-FR", { maximumFractionDigits: 1 }), <span className="text-encre-2">{l.unite}</span>, <span className={`font-medium ${TRAJ[l.trajectoire].ton}`}>{TRAJ[l.trajectoire].texte}</span>] }))} />
+              </Bloc>
+            </Chapitre>
+          ) : null}
+
           {/* ═══ LE MOIS ═══ */}
-          <Chapitre id="mois" titre="Croissance" sous="Où en est le démarchage des gestionnaires et le recrutement des artisans, ce mois-ci comparé au mois dernier.">
+          <Chapitre id="mois" titre="Le mois" sous="Où en est le démarchage des gestionnaires et le recrutement des artisans, ce mois-ci comparé au mois dernier.">
             <Bandeau cases={[
               { libelle: "Nouveaux clients", valeur: fr(c.clients.mois), ton: "text-ok", variation: <Variation unite="nb" n={c.clients.mois} avant={c.clients.avant} />, title: "Agences qui ont envoyé leur premier ordre de service" },
               { libelle: "RDV pris", valeur: fr(c.rdv.mois), variation: <Variation unite="nb" n={c.rdv.mois} avant={c.rdv.avant} /> },
