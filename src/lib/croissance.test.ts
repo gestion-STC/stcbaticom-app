@@ -1,6 +1,6 @@
 // Le dashboard Croissance (Mahdi, 11/11/2026) : la cadence, les entonnoirs, la réserve.
 import { describe, expect, it } from "vitest"
-import { calculerDirect, COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, lundisRecents, moisCompare, parSemaine, planCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
+import { calculerDirect, COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, lundisRecents, moisCompare, parSemaine, planCroissance, previsionCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
 
 const maintenant = new Date(2026, 10, 11, 12)
 
@@ -57,6 +57,29 @@ describe("le cockpit de la croissance", () => {
     expect(p.leviers[1].ilFaut).toBe(Math.ceil((65 / (6 * 52 / 12)) / 0.05))
     expect(p.global).toBe("retard")
     expect(p.premiersOsParMois).toBe(Math.ceil((65 / (6 * 52 / 12)) * (52 / 12)))
+  })
+})
+
+describe("le prévisionnel : où on arrive à l'échéance, au rythme actuel", () => {
+  const r = { ...COCKPIT_DEPART, objectifMensuel: 100_000, moisPourYArriver: 6 } // 26 semaines
+  it("le chiffre d'affaires d'aujourd'hui, plus les clients gagnés au rythme actuel", () => {
+    const p = previsionCroissance(r, { clientsActuels: 10, artisansActifs: 4, clientsParSemaine: 0.5, artisansParSemaine: 0.25 }, { caEstime: 40_000, caParClient: 2_000 })
+    expect(p.clientsPrevus).toBe(23) // 10 + 0,5 × 26
+    expect(p.artisansPrevus).toBe(11) // 4 + 0,25 × 26 = 10,5
+    expect(p.caPrevu).toBe(66_000) // 40 000 + 13 clients × 2 000
+    expect(p.pctObjectif).toBe(66)
+    expect(p.manque).toBe(34_000)
+    expect(p.semainesPourObjectif).toBe(60) // 60 000 € à gagner, 1 000 € de plus par semaine
+  })
+  it("sans nouveau client, on reste où on est et l'objectif n'est jamais atteint", () => {
+    const p = previsionCroissance(r, { clientsActuels: 10, artisansActifs: 4, clientsParSemaine: 0, artisansParSemaine: 0 }, { caEstime: 40_000, caParClient: 2_000 })
+    expect(p.caPrevu).toBe(40_000)
+    expect(p.semainesPourObjectif).toBeNull()
+  })
+  it("objectif déjà atteint : rien ne manque", () => {
+    const p = previsionCroissance(r, { clientsActuels: 10, artisansActifs: 4, clientsParSemaine: 1, artisansParSemaine: 0 }, { caEstime: 120_000, caParClient: 2_000 })
+    expect(p.manque).toBe(0)
+    expect(p.semainesPourObjectif).toBe(0)
   })
 })
 
