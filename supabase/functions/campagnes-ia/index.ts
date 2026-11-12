@@ -2,7 +2,7 @@
 // Réservé aux administrateurs. Rien n'est envoyé ici. Déployée sans vérification de JWT : le jeton est contrôlé ci-dessous.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
-import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, lireAppris, lireReponse, offreSTC } from "../_shared/campagnes/generationIA.ts"
+import { apprendreDesAppels, ceQuiMarche, ficheIA, genererTexteIA, interventionsSecteurs, lireAppris, lireReponse, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { appelInstantly, envoyerParInstantly, preparerInstantly } from "../_shared/campagnes/instantly.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
 import { boitesDe, corpsAvecMentions, remplirVariables, type Mentions } from "../_shared/campagnes/instantlyOutils.ts"
@@ -96,12 +96,13 @@ Deno.serve(async (req: Request) => {
     }
     const offre = await offreSTC(sb)
     const appels = await ceQuiMarche(sb, b.baseId, b.ia)
+    const interventions = await interventionsSecteurs(sb)
     const lignes = await Promise.all(contacts.map(async (k) => {
       const contact = { id: k.id, baseId: k.base_id, nom: k.nom, personne: k.personne, champs: k.champs ?? {} }
       const fiche = await ficheIA(sb, contact, b.ia)
       const detail = [contact.champs.metier, contact.champs.secteur || contact.champs.zone].filter(Boolean).join(" · ")
       if (fichePauvre(b.ia, fiche)) return { contactRef: k.id, nom: k.nom, detail, texte: "", pauvre: true, cout: 0 }
-      const r = await genererTexteIA({ baseId: b.baseId, reglage: b.ia, campagneNom: b.campagneNom, objet: b.objet, corps: b.corps, fiche, offre, appels })
+      const r = await genererTexteIA({ baseId: b.baseId, reglage: b.ia, campagneNom: b.campagneNom, objet: b.objet, corps: b.corps, fiche, offre, appels, interventions })
       return { contactRef: k.id, nom: k.nom, detail, texte: r.texte, pauvre: false, cout: r.cout }
     }))
     return json({ lignes, cout: lignes.reduce((s, l) => s + l.cout, 0) })
