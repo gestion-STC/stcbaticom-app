@@ -1,7 +1,7 @@
 // La génération des textes par l'IA, partagée par le moteur et par l'écran d'essai.
 import Anthropic from "npm:@anthropic-ai/sdk@0.137.0"
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { CONSIGNES_APPRIS, CONSIGNES_TRI, SCHEMA_APPRIS, SCHEMA_IA, SCHEMA_TRI, avecAppels, consignesIA, coutIA, messageAppris, messageIA, type AppelAnalyse, type DetailTri, type ReglageIA } from "./ia.ts"
+import { CONSIGNES_APPRIS, CONSIGNES_TRI, SCHEMA_APPRIS, SCHEMA_IA, SCHEMA_TRI, avecAppels, avecObjetIA, consignesIA, coutIA, lireInterventions, messageAppris, messageIA, type AppelAnalyse, type DetailTri, type InterventionsSecteurs, type ReglageIA } from "./ia.ts"
 import { valeursDe } from "./instantlyOutils.ts"
 
 export const MODELE_IA = "claude-opus-5-5"
@@ -10,6 +10,12 @@ type Contact = { id: string; baseId: string; nom: string; personne: string; cham
 export async function offreSTC(sb: SupabaseClient): Promise<string> {
   const { data } = await sb.from("parametres").select("valeur").eq("cle", "script_appel").maybeSingle()
   return String((data as { valeur?: unknown } | null)?.valeur ?? "")
+}
+
+/** Ce que des gestionnaires nous ont confié, par code postal (12/11/2026) : le seul chiffre que l'IA peut citer. */
+export async function interventionsSecteurs(sb: SupabaseClient): Promise<InterventionsSecteurs | null> {
+  const { data } = await sb.from("parametres").select("valeur").eq("cle", "interventions_secteurs").maybeSingle()
+  return lireInterventions((data as { valeur?: string } | null)?.valeur)
 }
 
 export type Appris = { texte: string; nb: number; le: string }
@@ -21,9 +27,30 @@ export async function lireAppris(sb: SupabaseClient): Promise<Appris | null> {
   try { return JSON.parse(String((data as { valeur?: unknown } | null)?.valeur ?? "")) as Appris } catch { return null }
 }
 
+// LA FICHE RESTE À JOUR TOUTE SEULE (12/11/2026) : au-delà de 7 jours, elle est refaite à partir des derniers appels
+// analysés, en arrière-plan. Le texte en cours part avec la fiche actuelle ; le suivant aura la nouvelle. Une seule
+// mise à jour à la fois : on note l'heure du départ, et on ne relance pas avant une heure.
+const FICHE_PERIMEE_MS = 7 * 86_400_000
+const CLE_MAJ_APPRIS = "ia_ce_qui_marche_maj"
+async function rafraichirSiPerimee(sb: SupabaseClient, appris: Appris | null): Promise<void> {
+  const age = appris?.le ? Date.now() - new Date(appris.le).getTime() : Infinity
+  if (!(age > FICHE_PERIMEE_MS)) return
+  const { data } = await sb.from("parametres").select("valeur").eq("cle", CLE_MAJ_APPRIS).maybeSingle()
+  const lancee = new Date(String((data as { valeur?: string } | null)?.valeur ?? "")).getTime()
+  if (Date.now() - lancee < 3_600_000) return
+  const maintenant = new Date().toISOString()
+  await sb.from("parametres").upsert({ cle: CLE_MAJ_APPRIS, valeur: maintenant, maj_le: maintenant }, { onConflict: "cle" })
+  const travail = apprendreDesAppels(sb).then(() => undefined).catch((e) => console.error("[IA] fiche des appels non refaite", e))
+  const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime
+  if (rt?.waitUntil) rt.waitUntil(travail)
+}
+
 /** Le texte à donner à l'IA des mails, si la campagne le veut. */
 export async function ceQuiMarche(sb: SupabaseClient, baseId: string, r: ReglageIA): Promise<string> {
-  return avecAppels(baseId, r) ? (await lireAppris(sb))?.texte ?? "" : ""
+  if (!avecAppels(baseId, r)) return ""
+  const appris = await lireAppris(sb)
+  await rafraichirSiPerimee(sb, appris).catch((e) => console.error("[IA] fiche des appels", e))
+  return appris?.texte ?? ""
 }
 
 /** Relit les appels analysés (les intéressés d'abord, quelques refus pour les objections) et en tire la fiche. */
@@ -53,7 +80,8 @@ export async function apprendreDesAppels(sb: SupabaseClient): Promise<Appris & {
 
 /** La fiche telle que l'IA la voit, notes d'appel comprises si la campagne les autorise. */
 export async function ficheIA(sb: SupabaseClient, k: Contact, r: ReglageIA): Promise<Record<string, string>> {
-  const fiche = valeursDe(k)
+  // Le code postal ne part jamais dans la fiche montrée à l'IA : il sert à retrouver le vrai chiffre de son secteur.
+  const fiche = { ...valeursDe(k), cp: k.champs.cp ?? "" }
   if (!r.champs.includes("notes")) return fiche
   const { data } = k.baseId === "artisans"
     ? await sb.from("st_appels").select("note").eq("sous_traitant_id", k.id).neq("note", "").order("date", { ascending: false }).limit(3)
@@ -61,7 +89,7 @@ export async function ficheIA(sb: SupabaseClient, k: Contact, r: ReglageIA): Pro
   return { ...fiche, notes: ((data ?? []) as { note: string }[]).map((x) => x.note).join(" / ") }
 }
 
-export async function genererTexteIA(a: { baseId: string; reglage: ReglageIA; campagneNom: string; objet: string; corps: string; fiche: Record<string, string>; offre: string; appels?: string }): Promise<{ texte: string; cout: number }> {
+export async function genererTexteIA(a: { baseId: string; reglage: ReglageIA; campagneNom: string; objet: string; corps: string; fiche: Record<string, string>; offre: string; appels?: string; interventions?: InterventionsSecteurs | null }): Promise<{ texte: string; cout: number }> {
   const client = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") || "" })
   const reponse = await client.beta.messages.create({
     model: MODELE_IA,
@@ -75,7 +103,10 @@ export async function genererTexteIA(a: { baseId: string; reglage: ReglageIA; ca
   if (reponse.stop_reason === "refusal") throw new Error("texte refusé par le modèle")
   if (reponse.stop_reason === "max_tokens") throw new Error("texte coupé")
   const brut = (reponse.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("")
-  return { texte: String((JSON.parse(brut) as { texte?: string }).texte ?? "").trim(), cout: coutIA(reponse.usage?.input_tokens ?? 0, reponse.usage?.output_tokens ?? 0) }
+  const lu = JSON.parse(brut) as { objet?: string; texte?: string }
+  const texte = String(lu.texte ?? "").trim()
+  // Le mail entier : l'objet écrit par l'IA voyage en première ligne (« Objet : … »), visible à la relecture.
+  return { texte: a.reglage.mode === "mail" && texte ? avecObjetIA(String(lu.objet ?? ""), texte) : texte, cout: coutIA(reponse.usage?.input_tokens ?? 0, reponse.usage?.output_tokens ?? 0) }
 }
 
 /** Le tri d'une réponse. En cas d'échec : null, et la règle simple prend le relais. */

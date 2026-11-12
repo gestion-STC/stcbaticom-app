@@ -5,12 +5,12 @@ import { Bandeau, Bouton, Champ, Chargement, Dialogue, Interrupteur, Selecteur, 
 import { Etiquette } from "../../demarchage/aujourdhui/courtier"
 import { ChoixFichiers } from "./ChoixFichiers"
 import { ceQuiMarcheAuTelephone, enregistrerTextesIA, essayerIA, type Appris, type LigneIA } from "../../../lib/campagnesIa"
-import { BALISE_IA, CHAMPS_IA, avecAppels, familleIA, reglageIADepart, type ModeIA, type ReglageIA } from "../../../prospection/ia"
+import { BALISE_IA, CHAMPS_IA, avecAppels, familleIA, reglageIADepart, type Citer, type ModeIA, type ReglageIA } from "../../../prospection/ia"
 
 const MODES: { id: ModeIA; label: string; aide: string }[] = [
   { id: "accroche", label: "Une accroche", aide: `Une phrase écrite pour chaque fiche, placée où tu mets ${BALISE_IA}. Le reste du mail est le tien.` },
   { id: "paragraphe", label: "Un paragraphe", aide: `Deux ou trois phrases écrites pour chaque fiche, à l'endroit de ${BALISE_IA}.` },
-  { id: "mail", label: "Tout le mail", aide: "L'IA écrit le mail entier en suivant ta consigne. Ton texte lui sert de modèle." },
+  { id: "mail", label: "Tout le mail", aide: "L'IA écrit le mail entier et son objet, en partant d'un problème entendu au téléphone. Ton texte lui donne l'intention ; l'objet apparaît en première ligne à la relecture." },
 ]
 const pilule = (on: boolean) => `h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait text-encre hover:bg-fond-2"}`
 const euros = (x: number) => `${(x * 0.95).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 3 })} €`
@@ -60,6 +60,7 @@ export default function PersonnalisationIA({ reglage, onChange, baseId, campagne
           {erreurAppris ? <Bandeau role="alerte">{erreurAppris}</Bandeau> : null}
           {voirAppris ? appris ? <div className="space-y-1"><p className="text-colonne text-encre-2">Tirée de {appris.nb} appels intéressés, le {new Date(appris.le).toLocaleDateString("fr-FR")}.</p><p className="whitespace-pre-line text-colonne text-encre">{appris.texte}</p></div> : <p className="text-colonne text-encre-2">Pas encore de fiche : touche « Mettre à jour depuis les appels ».</p> : null}
         </div> : null}
+        <label className="block min-w-0 space-y-1.5"><Etiquette>Le nom et le secteur du contact</Etiquette><Selecteur value={r.citer ?? "naturel"} onChange={(e) => maj({ citer: e.target.value as Citer })}><option value="naturel">Les citer seulement si c'est naturel</option><option value="toujours">Toujours les citer (objet, salutation, jamais en pleine phrase)</option><option value="jamais">Ne jamais les citer</option></Selecteur></label>
         <label className="block space-y-1.5"><Etiquette>Le contexte de la campagne</Etiquette><Zone rows={4} value={r.contexte} onChange={(e) => maj({ contexte: e.target.value })} /></label>
         <label className="block space-y-1.5"><Etiquette>Ta consigne</Etiquette><Zone rows={3} value={r.consigne} onChange={(e) => maj({ consigne: e.target.value })} /></label>
         <label className="block space-y-1.5"><Etiquette>Ce qu'elle ne doit jamais faire</Etiquette><Champ value={r.interdit} onChange={(e) => maj({ interdit: e.target.value })} /></label>
@@ -76,7 +77,7 @@ export default function PersonnalisationIA({ reglage, onChange, baseId, campagne
         {!lignes && !erreur ? <Chargement texte="L'IA écrit pour de vraies fiches…" /> : null}
         {lignes ? <><ul className="divide-y-[0.5px] divide-trait">{lignes.map((l, i) => <li key={l.contactRef} className="grid gap-2 py-3 sm:grid-cols-[170px_minmax(0,1fr)_auto]">
           <div className="min-w-0"><p className="truncate text-legende font-medium">{l.nom}</p><p className="truncate text-colonne text-encre-2">{l.detail}</p></div>
-          {l.pauvre ? <p className="self-center text-colonne text-encre-2">{r.pauvre === "texte" ? "Fiche trop pauvre : ton texte part sans accroche." : "Fiche trop pauvre : ce contact est mis de côté."}</p> : <Zone rows={2} aria-label={`Texte pour ${l.nom}`} value={l.texte} onChange={(e) => setLignes((x) => (x ?? []).map((y, j) => (j === i ? { ...y, texte: e.target.value, modifie: true } : y)))} />}
+          {l.pauvre ? <p className="self-center text-colonne text-encre-2">{r.pauvre === "texte" ? "Fiche trop pauvre : ton texte part sans accroche." : "Fiche trop pauvre : ce contact est mis de côté."}</p> : <Zone rows={r.mode === "mail" ? 9 : 2} aria-label={`Texte pour ${l.nom}`} value={l.texte} onChange={(e) => setLignes((x) => (x ?? []).map((y, j) => (j === i ? { ...y, texte: e.target.value, modifie: true } : y)))} />}
           <Bouton taille="icone" variante="discret" icone={<RefreshCw />} aria-label={`Régénérer pour ${l.nom}`} disabled={l.pauvre} chargement={occupe === l.contactRef} onClick={() => void regenerer(l)} />
         </li>)}</ul><p className="mt-3 text-colonne text-encre-2">Coût de cet essai : {euros(cout)}{nb ? `, soit environ ${euros(cout / nb)} par mail` : ""}.</p></> : null}
       </Dialogue> : null}

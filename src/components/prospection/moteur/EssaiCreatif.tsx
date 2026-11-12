@@ -6,7 +6,7 @@ import { useSession } from "../../../lib/auth"
 import { envoyerEssaiMail, envoyerEssaiSms, testerArrivee } from "../../../lib/essaiCampagne"
 import { essaiMail, essaiSms, type ValeursEssai } from "../../../prospection/apercuMail"
 import type { ConfigCampagne, Creatif } from "../../../prospection/configCampagne"
-import { appliquerIA } from "../../../prospection/ia"
+import { appliquerIA, objetIA } from "../../../prospection/ia"
 import { essayerIA } from "../../../lib/campagnesIa"
 
 export default function EssaiCreatif({ k, cfg, exemple, baseId, campagneNom, campagne }: { k: Creatif; cfg: ConfigCampagne; exemple?: ValeursEssai; baseId: string; campagneNom: string; campagne: { id: string; nom: string; rythme: { jours: number[]; heureMin: number; heureMax: number } } }) {
@@ -30,9 +30,9 @@ export default function EssaiCreatif({ k, cfg, exemple, baseId, campagneNom, cam
         const marque = k.variantes.length > 1 ? `[ESSAI ${v.nom}] ` : "[ESSAI] "
         if (sms) await envoyerEssaiSms(adresse.trim(), essaiSms(v.corps, marque, exemple))
         else {
-          let corps = v.corps
-          if (k.ia?.actif) { const x = await essayerIA({ baseId, campagneNom: campagneNom || "Campagne", objet: v.objet, corps: v.corps, ia: k.ia, nombre: 1 }); corps = appliquerIA(v.corps, k.ia.mode, x.lignes[0]?.texte ?? "") }
-          const m = essaiMail(v.objet, corps, marque, bouton, prospection, exemple, { signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien }); await envoyerEssaiMail(adresse.trim(), m.objet, m.html)
+          let corps = v.corps, objet = v.objet
+          if (k.ia?.actif) { const x = await essayerIA({ baseId, campagneNom: campagneNom || "Campagne", objet: v.objet, corps: v.corps, ia: k.ia, nombre: 1 }); const t = x.lignes[0]?.texte ?? ""; corps = appliquerIA(v.corps, k.ia.mode, t); objet = objetIA(v.objet, k.ia.mode, t) }
+          const m = essaiMail(objet, corps, marque, bouton, prospection, exemple, { signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien }); await envoyerEssaiMail(adresse.trim(), m.objet, m.html)
         }
       }
       setEtat(`Envoyé à ${adresse.trim()}${k.variantes.length > 1 ? ` (${k.variantes.length} versions)` : ""}.`)

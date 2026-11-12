@@ -26,8 +26,8 @@ import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_share
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
 import { ETAPE_ALERTE, aAppelerSurOuverture, boitesSaines, envoisDuJour, type AlerteOuverture, type Montee } from "../_shared/campagnes/montee.ts"
-import { appliquerIA, concerneIA, fichePauvre, type ReglageIA } from "../_shared/campagnes/ia.ts"
-import { ceQuiMarche, ficheIA, genererTexteIA, offreSTC } from "../_shared/campagnes/generationIA.ts"
+import { appliquerIA, concerneIA, fichePauvre, objetIA, type ReglageIA } from "../_shared/campagnes/ia.ts"
+import { ceQuiMarche, ficheIA, genererTexteIA, interventionsSecteurs, offreSTC } from "../_shared/campagnes/generationIA.ts"
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe, type Mentions, type ReglageArret } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/campagnes/pareFeu.ts"
 import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
@@ -192,7 +192,7 @@ async function texteIA(sb: SupabaseClient, c: Ligne, cr: CreatifConfig, r: Regla
   if (compteurIA.n >= IA_MAX_PAR_PASSAGE) return { reporte: true }
   compteurIA.n++
   try {
-    const g = await genererTexteIA({ baseId: k.baseId, reglage: r, campagneNom: String(c.nom), objet, corps, fiche, offre: await offreSTC(sb), appels: await ceQuiMarche(sb, k.baseId, r) })
+    const g = await genererTexteIA({ baseId: k.baseId, reglage: r, campagneNom: String(c.nom), objet, corps, fiche, offre: await offreSTC(sb), appels: await ceQuiMarche(sb, k.baseId, r), interventions: await interventionsSecteurs(sb) })
     const valide = r.relecture !== "tous"
     const { error } = await sb.from("cmp_textes_ia").upsert({ campagne_id: c.id, creatif_id: cr.id, variante_id: varianteId, contact_ref: k.id, texte: g.texte, valide, cout: g.cout }, { onConflict: "campagne_id,variante_id,contact_ref" })
     if (error) throw new Error(error.message)
@@ -246,6 +246,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     if ("reporte" in r) return { ok: false, reporte: true }
     if ("saute" in r) return { ok: false, saute: r.saute }
     texte = appliquerIA(corps, creatifIA.ia.mode, r.texte)
+    sujet = objetIA(objet, creatifIA.ia.mode, r.texte) // le mail entier : l'objet est celui de l'IA
   }
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
   const variables = valeursDe(k); texte = remplirVariables(texte, variables); sujet = remplirVariables(sujet, variables)
