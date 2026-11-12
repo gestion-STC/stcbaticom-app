@@ -9,7 +9,7 @@ import Annee from "./Annee"
 import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
 import { Bandeau, Bloc, Chapitre, Courbe, Entonnoir, Table, Variation } from "../demarchage/aujourdhui/courtier"
 import { fr } from "../demarchage/aujourdhui/outils"
-import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, lireReelStc, planCroissance, semainesRestantes, type ReglageCockpit, type Trajectoire } from "../../lib/croissance"
+import { COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lundisRecents, moisCompare, parSemaine, lireReelStc, planCroissance, previsionCroissance, semainesRestantes, type ReglageCockpit, type Trajectoire } from "../../lib/croissance"
 import { chargerCroissance, type DonneesCroissance } from "../../lib/croissanceDb"
 
 const CANAUX: { id: string; nom: string }[] = [{ id: "mail", nom: "Mails" }, { id: "sms", nom: "SMS" }, { id: "linkedin", nom: "LinkedIn" }, { id: "newsletter", nom: "Newsletters" }]
@@ -94,6 +94,17 @@ export default function Croissance() {
       clientsParSemaine: moyenne4(c.series[2].v), artisansParSemaine: moyenne4(c.series[4].v), agencesAppeleesParSemaine: c.agencesParSemaine,
     }, reel)
   }, [c, reglage, reel])
+  // Le prévisionnel : le même rythme (4 dernières semaines), prolongé jusqu'à l'échéance.
+  const prevu = useMemo(() => {
+    if (!c || !plan) return null
+    return previsionCroissance(reglage, { clientsActuels: reel ? reel.agencesActives : c.demarchage[5].valeur, artisansActifs: c.recrutement[4].valeur, clientsParSemaine: moyenne4(c.series[2].v), artisansParSemaine: moyenne4(c.series[4].v) }, plan)
+  }, [c, plan, reglage, reel])
+  const quandObjectif = (semaines: number | null) => {
+    if (semaines === null) return "Jamais à ce rythme"
+    if (semaines === 0) return "Déjà atteint"
+    if (semaines > 520) return "Dans plus de 10 ans"
+    return new Date(maintenant.getTime() + semaines * 7 * 86_400_000).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
+  }
   const nombre = (x: string) => Math.max(0, Number(x.replace(/\s/g, "").replace(",", ".")) || 0)
   const enregistrer = async (e: FormEvent) => {
     e.preventDefault()
@@ -199,6 +210,22 @@ export default function Croissance() {
                     </div>
                   </form>
                 </div>
+              ) : null}
+              {prevu ? (
+                <Bloc titre="Le prévisionnel" droite={`au rythme des 4 dernières semaines · dans ${fr(reglage.moisPourYArriver)} mois`}>
+                  <Bandeau cases={[
+                    { libelle: "Chiffre d'affaires prévu", valeur: `${euros(prevu.caPrevu)} / mois`, ton: prevu.manque > 0 ? "text-alerte" : "text-ok", title: `Le chiffre d'affaires d'aujourd'hui (${euros(plan.caEstime)}), plus les nouveaux clients gagnés d'ici là (${euros(plan.caParClient)} par mois chacun)` },
+                    { libelle: "De l'objectif", valeur: `${fr(prevu.pctObjectif)} %`, ton: prevu.manque > 0 ? "text-alerte" : "text-ok" },
+                    { libelle: "Agences actives prévues", valeur: <>{fr(prevu.clientsPrevus)}<span className="text-[13px] font-normal text-encre-2"> / {fr(plan.clientsNecessaires)}</span></> },
+                    { libelle: "Sous-traitants prévus", valeur: <>{fr(prevu.artisansPrevus)}<span className="text-[13px] font-normal text-encre-2"> / {fr(plan.artisansNecessaires)}</span></> },
+                    { libelle: "Objectif atteint", valeur: quandObjectif(prevu.semainesPourObjectif), title: "La date à laquelle le chiffre d'affaires atteint l'objectif, si on garde ce rythme" },
+                  ]} />
+                  <p className="mt-3 text-colonne text-encre-2">
+                    {prevu.manque > 0
+                      ? `En gardant ce rythme, il manquera ${euros(prevu.manque)} par mois à l'échéance. Aucune agence perdue n'est retranchée.`
+                      : "En gardant ce rythme, l'objectif est atteint à l'échéance. Aucune agence perdue n'est retranchée."}
+                  </p>
+                </Bloc>
               ) : null}
               <Bloc titre="Ce qu'il faut chaque semaine" droite={`pour ${euros(reglage.objectifMensuel)} par mois d'ici ${fr(reglage.moisPourYArriver)} mois · comparé aux 4 dernières semaines`}>
                 <Table colonnes={[{ titre: "Levier" }, { titre: "Il faut", largeur: "110px", droite: true }, { titre: "Vous faites", largeur: "110px", droite: true }, { titre: "", largeur: "100px" }, { titre: "Trajectoire", largeur: "190px" }]}

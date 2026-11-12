@@ -173,6 +173,32 @@ export function planCroissance(r: ReglageCockpit, etat: {
   return { clientsNecessaires, artisansNecessaires, caEstime: reel ? reel.caMensuel : etat.clientsActuels * r.caParClient, caParClient, premiersOsParMois: Math.ceil(clientsSemaine * SEMAINES_PAR_MOIS), leviers, global: global === "inconnue" && leviers.every((l) => l.trajectoire !== "inconnue") ? "bonne" : global }
 }
 
+// ── LE PRÉVISIONNEL (Mahdi, 12/11/2026) : « par rapport à notre cadence actuelle, où on en est, et à quel chiffre
+// d'affaires on arrive sous le délai ». On part du chiffre d'affaires d'aujourd'hui et on ajoute ce que rapporteront
+// les nouveaux clients gagnés au rythme des 4 dernières semaines, jusqu'à l'échéance. Aucune agence perdue n'est
+// retranchée : c'est le rythme d'entrée qui est prolongé. ──
+export type Prevision = {
+  /** Agences actives et sous-traitants actifs à l'échéance, au rythme actuel. */
+  clientsPrevus: number; artisansPrevus: number
+  /** Chiffre d'affaires mensuel à l'échéance, sa part de l'objectif (en %), et ce qu'il manquerait (0 si atteint). */
+  caPrevu: number; pctObjectif: number; manque: number
+  /** Dans combien de semaines l'objectif est atteint à ce rythme : 0 = déjà atteint, null = jamais (rythme nul). */
+  semainesPourObjectif: number | null
+}
+export function previsionCroissance(r: ReglageCockpit, etat: { clientsActuels: number; artisansActifs: number; clientsParSemaine: number; artisansParSemaine: number }, plan: { caEstime: number; caParClient: number }): Prevision {
+  const semaines = Math.max(1, r.moisPourYArriver * SEMAINES_PAR_MOIS)
+  const gainParSemaine = Math.max(0, etat.clientsParSemaine) * plan.caParClient
+  const caPrevu = plan.caEstime + gainParSemaine * semaines
+  const resteAujourdhui = r.objectifMensuel - plan.caEstime
+  return {
+    clientsPrevus: Math.round(etat.clientsActuels + Math.max(0, etat.clientsParSemaine) * semaines),
+    artisansPrevus: Math.round(etat.artisansActifs + Math.max(0, etat.artisansParSemaine) * semaines),
+    caPrevu, pctObjectif: r.objectifMensuel > 0 ? Math.round((caPrevu / r.objectifMensuel) * 100) : 0,
+    manque: Math.max(0, r.objectifMensuel - caPrevu),
+    semainesPourObjectif: resteAujourdhui <= 0 ? 0 : gainParSemaine > 0 ? Math.ceil(resteAujourdhui / gainParSemaine) : null,
+  }
+}
+
 // ── EN DIRECT (Mahdi, 11/11/2026) : « voir combien il y a de calls journaliers et par semaine, en direct, sans aller
 // consulter les données ». Aujourd'hui et la semaine (depuis lundi), heure par heure, et par personne. ──
 export type AppelDirect = { date: string; compte_id: string | null; compte_nom: string | null; resultat: string | null; issue: string | null }
