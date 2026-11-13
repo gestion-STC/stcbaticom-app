@@ -11,7 +11,7 @@ import QualificationST from "./QualificationST"
 import { useSession } from "../../lib/auth"
 import { nomAffiche } from "../../lib/comptes"
 import { useQualification } from "../../lib/qualificationStDb"
-import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw, KeyRound, Undo2 } from "lucide-react"
+import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw, KeyRound, Undo2, GraduationCap, Copy } from "lucide-react"
 import type { ClicST, EnvoiST, EtapeST, SousTraitant } from "../../recrutement"
 import { chronologie, dateHeure, type Evenement } from "../../lib/chronologieArtisan"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
@@ -23,6 +23,8 @@ import { lancerAppelRingover } from "../../lib/ringover"
 import { chargerAppelsDe, type AppelST } from "../../lib/appelsStDb"
 import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, envoyerLienAcces, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
+import { envoyerLienFormation, lienFormation, preparerLien, useFormation } from "../../lib/formationDb"
+import { LIBELLE_ETAT } from "../../recrutement/formationST"
 import { LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, dureeLisibleST } from "../../lib/appelsStOutils"
 import { Bouton, Champ, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
 
@@ -33,6 +35,9 @@ const POINT: Record<Evenement["role"], string> = {
 export default function FicheArtisan({ id, onFermer, onChange }: { id: string; onFermer: () => void; onChange?: () => void }) {
   const compteNom = nomAffiche(useSession())
   const qualif = useQualification(id)
+  // La formation, visible et envoyable depuis la fiche (Mahdi, 13/11/2026 : « je ne trouve pas le lien à lui envoyer »).
+  const { formation, recharger: rechargerFormation } = useFormation(id)
+  const lienDeFormation = formation ? lienFormation(formation) : ""
   const [st, setSt] = useState<SousTraitant | null>(null)
   const [envois, setEnvois] = useState<EnvoiST[]>([])
   const [clics, setClics] = useState<ClicST[]>([])
@@ -100,6 +105,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             ? <Bouton icone={<RotateCcw />} disabled={occupe} onClick={() => agir(() => remettreAContacter(st.id!), "Fiche remise « à contacter ».")}>Remettre à contacter</Bouton>
             : null}
           <Bouton icone={<Play />} disabled={occupe || arretee || etapes.length === 0} onClick={() => agir(() => relancerMaintenant(st, etapes), "Prochaine étape due maintenant : elle partira au prochain passage.")}>Relancer maintenant</Bouton>
+          <Bouton icone={<GraduationCap />} disabled={occupe || !st.email} title={!st.email ? "Cette fiche n'a pas d'adresse e-mail : copie le lien depuis la ligne Formation" : "Envoie par mail le lien personnel de formation"} onClick={() => agir(async () => { await envoyerLienFormation(st.id!); await rechargerFormation() }, "Lien de formation envoyé par mail.")}>{formation?.lienEnvoyeLe ? "Renvoyer la formation" : "Envoyer la formation"}</Bouton>
           <Bouton icone={<FileSignature />} disabled={occupe || !st.deposeLe || qualif.decision !== "Accepté" || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={qualif.decision !== "Accepté" ? "Accepte d'abord le sous-traitant dans sa qualification" : !st.deposeLe ? "Pas de dossier déposé : pas de contrat (on envoie depuis Dossiers déposés)" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => setEnvoiContrats(true)}>Envoyer les contrats</Bouton>
           {/* Le lien « Ouvrir mon accès » part tout seul à la signature des deux parties ; mais l'artisan ne le voit pas toujours
               et nous appelle (Mahdi, 12/10) : on peut l'envoyer ou le renvoyer à la main, même sans contrats signés (confirmation). */}
@@ -125,6 +131,15 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
             <Ligne libelle="Zone">{st.zone || "—"}</Ligne>
             <Ligne libelle="Appels">{st.nbAppels ? <>{st.nbAppels}{st.nbJoints ? ` dont ${st.nbJoints} joint${st.nbJoints > 1 ? "s" : ""}` : ""}</> : "jamais appelé ici"}{st.suivi ? <span className="ml-2 text-encre-2">· {LIBELLE_SUIVI[st.suivi]}{st.suiviMotif ? ` (${st.suiviMotif})` : ""}</span> : null}</Ligne>
             {st.rappelLe ? <Ligne libelle="Prochain appel">{new Date(st.rappelLe).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</Ligne> : null}
+            <Ligne libelle="Formation">
+              <span className="flex flex-wrap items-center justify-end gap-2">
+                <Pastille role={formation?.etat === "reussi" ? "fait" : formation?.etat === "a_refaire" ? "probleme" : formation?.etat === "en_cours" ? "attente" : "inerte"} point>{LIBELLE_ETAT[formation?.etat ?? "a_envoyer"]}{formation?.score != null ? ` · ${formation.score} %` : ""}</Pastille>
+                {lienDeFormation
+                  ? <Bouton taille="sm" variante="discret" icone={<Copy />} onClick={() => { void navigator.clipboard.writeText(lienDeFormation).then(() => setInfo("Lien de formation copié.")) }}>Copier le lien</Bouton>
+                  : <Bouton taille="sm" variante="discret" disabled={occupe} onClick={() => agir(async () => { await preparerLien(st.id!); await rechargerFormation() }, "Lien de formation créé : il est affiché sur la fiche.")}>Créer le lien</Bouton>}
+              </span>
+              {lienDeFormation ? <a className="mt-1 block break-all text-colonne text-encre-2 underline underline-offset-2" href={lienDeFormation} target="_blank" rel="noreferrer">{lienDeFormation}</a> : null}
+            </Ligne>
             <Ligne libelle="Contrats">{st.contratStatut ? <span className="flex flex-wrap items-center gap-2"><Pastille role={ROLE_CONTRAT[st.contratStatut]} point>{LIBELLE_CONTRAT[st.contratStatut]}</Pastille>{st.contratLe ? <span className="text-colonne text-encre-2">{new Date(st.contratLe).toLocaleDateString("fr-FR")}</span> : null}</span> : "pas encore envoyés"}</Ligne>
             {st.accesOuvertLe || st.accesEnvoyeLe ? <Ligne libelle="Accès partenaire">{st.accesOuvertLe ? `ouvert le ${new Date(st.accesOuvertLe).toLocaleDateString("fr-FR")}${st.accesEmail ? ` · ${st.accesEmail}` : ""}` : `lien envoyé le ${new Date(st.accesEnvoyeLe!).toLocaleDateString("fr-FR")}`}</Ligne> : null}
             <Ligne libelle="Envois">{st.nbEnvoisOk} réussi{st.nbEnvoisOk > 1 ? "s" : ""}{st.nbEnvoisErreur ? ` · ${st.nbEnvoisErreur} en erreur` : ""}</Ligne>
