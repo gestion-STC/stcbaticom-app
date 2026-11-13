@@ -6,14 +6,17 @@ import { ecrireParametre, lireParametre } from "./parametresDb"
 import { regles, type EtatFormation, type ReglesFormation } from "../recrutement/formationST"
 import type { QuestionDepart } from "../recrutement/banqueDepart"
 
-export const URL_FORMATION = "https://stcbatiment.com/"
 export type Formation = { sousTraitantId: string; jeton: string; etat: EtatFormation; score: number | null; essais: number; vues: number; derogationMotif: string; derogationPar: string; derogationLe: string | null; lienEnvoyeLe: string | null; termineLe: string | null; journal: { le: string; score: number; ratees: string[] }[]; scenarioScore: number | null; scenarioLe: string | null; scenarioJournal: { ton: string; texte: string }[] }
 export type QuestionF = QuestionDepart & { id: string; actif: boolean; posee: number; ratee: number }
 type Ligne = { sous_traitant_id: string; jeton: string; etat: EtatFormation; score: number | null; essais: number; vues: string[] | null; derogation_motif: string | null; derogation_par: string | null; derogation_le: string | null; lien_envoye_le: string | null; termine_le: string | null; journal: Formation["journal"] | null; scenario_score?: number | null; scenario_le?: string | null; scenario_journal?: Formation["scenarioJournal"] | null }
 const COLONNES = "sous_traitant_id, jeton, etat, score, essais, vues, derogation_motif, derogation_par, derogation_le, lien_envoye_le, termine_le, journal, scenario_score, scenario_le, scenario_journal"
 const sb = () => { if (!supabase) throw new Error("Supabase n'est pas configuré."); return supabase }
 const versFormation = (l: Ligne): Formation => ({ sousTraitantId: l.sous_traitant_id, jeton: l.jeton, etat: l.etat, score: l.score, essais: l.essais, vues: l.vues?.length ?? 0, derogationMotif: l.derogation_motif ?? "", derogationPar: l.derogation_par ?? "", derogationLe: l.derogation_le, lienEnvoyeLe: l.lien_envoye_le, termineLe: l.termine_le, journal: l.journal ?? [], scenarioScore: l.scenario_score ?? null, scenarioLe: l.scenario_le ?? null, scenarioJournal: l.scenario_journal ?? [] })
-export const lienFormation = (f: Pick<Formation, "jeton">) => `${URL_FORMATION}?formation=${f.jeton}`
+// Le lien personnel mène à la PAGE DE FORMATION (13/11/2026), qui sait où il en est : la mission d'entraînement d'abord,
+// puis les questions. Avant, il ouvrait l'application en mode formation, qui repart toujours de la première situation :
+// un artisan qui revenait par son mail pour un deuxième essai devait refaire toute la mission.
+export const PAGE_FORMATION = "https://gestion-stc.github.io/stcbaticom-app/"
+export const lienFormation = (f: Pick<Formation, "jeton">) => `${PAGE_FORMATION}?formation=${f.jeton}`
 
 export async function chargerRegles(): Promise<ReglesFormation> {
   try { return regles(JSON.parse((await lireParametre("formation_regles")) || "{}")) } catch { return regles(null) }

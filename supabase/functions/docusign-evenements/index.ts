@@ -11,6 +11,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { api, apiJson, configDepuisEnv, hmacValide, jetonDocusign } from "../_shared/docusign.ts"
 import { envoyerLienAcces } from "../_shared/acces-partenaire.ts"
+import { alerterBureau } from "../_shared/alerteBureau.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 type Enveloppe = { envelopeId: string; status: string; recipients?: { signers?: { recipientId: string; status: string; signedDateTime?: string }[] } }
@@ -93,14 +94,23 @@ Deno.serve(async (req: Request) => {
     }
     const { error } = await sb.from("st_contrats").update(maj).eq("id", contrat.id)
     if (error) throw error
-    // Signé par les deux parties → le lien « ouvrir mon accès » part (une fois : si déjà envoyé, on ne renvoie pas).
+    // Signé par les deux parties → le lien « ouvrir mon accès » part. Une fois par signature : DocuSign rappelle
+    // plusieurs fois pour la même enveloppe, on ne renvoie pas. Mais un lien parti AVANT la signature complète
+    // (envoyé à la main, expiré depuis : il ne vit que 7 jours) ne compte pas : à la signature, un lien neuf part (13/11/2026).
     let lien: { ok: boolean; detail: string } | null = null
     if (etat.statut === "signe") {
-      const { data: fiche } = await sb.from("st_sous_traitants").select("id, entreprise, contact, email, telephone, metier, zone, acces_envoye_le").eq("id", contrat.sous_traitant_id).maybeSingle()
-      if (fiche && !(fiche as { acces_envoye_le: string | null }).acces_envoye_le) {
-        const r = await envoyerLienAcces(sb, fiche as { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string }, (k) => Deno.env.get(k))
+      const { data: fiche } = await sb.from("st_sous_traitants").select("id, entreprise, contact, email, telephone, metier, zone, acces_envoye_le, acces_ouvert_le").eq("id", contrat.sous_traitant_id).maybeSingle()
+      const f = fiche as { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string; acces_envoye_le: string | null; acces_ouvert_le: string | null } | null
+      const vientDEtreSigne = contrat.statut !== "signe"
+      if (f && !f.acces_ouvert_le && (!f.acces_envoye_le || vientDEtreSigne)) {
+        const r = await envoyerLienAcces(sb, f, (k) => Deno.env.get(k))
         lien = r.ok ? { ok: true, detail: r.destinataire } : { ok: false, detail: r.erreur }
-        if (!r.ok) console.error("[DOCUSIGN-EVENEMENTS] lien d'accès non envoyé :", r.erreur)
+        if (!r.ok) {
+          console.error("[DOCUSIGN-EVENEMENTS] lien d'accès non envoyé :", r.erreur)
+          // Le bureau l'apprend (avant : seulement dans les journaux techniques).
+          await alerterBureau(sb, `acces-non-envoye:${envelopeId}`, `Lien d'accès non envoyé — ${f.entreprise || f.email}`,
+            `Les contrats de ${f.entreprise || f.contact || f.email} sont signés par les deux parties, mais le lien « ouvrir mon accès » n'est pas parti.\n\nRaison : ${r.erreur}\n\nÀ faire : ouvrir sa fiche de recrutement et renvoyer le lien à la main.`)
+        }
       }
     }
     return json({ ok: true, event: message.event, statut: etat.statut, dossier_complet: dossierComplet, lien })

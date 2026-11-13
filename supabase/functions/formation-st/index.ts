@@ -3,6 +3,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.137.0"
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { blocageEssai, melanger, regles, scoreSur, tirerQuestions, type EtatFormation, type ReglesFormation } from "../_shared/formationST.ts"
+import { alerterBureau } from "../_shared/alerteBureau.ts"
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
@@ -102,6 +103,16 @@ Deno.serve(async (req: Request) => {
       const ratees = f.essai.ids.filter((id) => !f.essai!.reponses[id].juste).flatMap((id) => liste.find((q) => q.id === id)?.texte ?? [])
       const etat: EtatFormation = reussi ? "reussi" : "a_refaire", essais = f.essais + 1
       await maj({ etat, score, essais, essai: null, termine_le: iso, journal: [...(f.journal ?? []), { le: iso, score, ratees }] })
+      // Le bureau l'apprend (13/11/2026) : l'artisan lit « STC Bâtiment revient vers toi », il faut que quelqu'un le sache.
+      if (reussi || essais >= r.essais) {
+        const { data: st } = await sb.from("st_sous_traitants").select("entreprise, contact").eq("id", f.sous_traitant_id).maybeSingle()
+        const qui = (st as { entreprise?: string; contact?: string } | null)?.entreprise || (st as { contact?: string } | null)?.contact || "Un sous-traitant"
+        await alerterBureau(sb, `formation:${f.sous_traitant_id}:${reussi ? "reussi" : "essais"}`,
+          reussi ? `Formation réussie — ${qui}` : `Formation : essais épuisés — ${qui}`,
+          reussi
+            ? `${qui} a réussi sa formation (${score} %, essai ${essais} sur ${r.essais}).\n\nÀ faire : ouvrir sa fiche de recrutement, onglet Qualification, pour la suite (décision, contrats).`
+            : `${qui} a utilisé ses ${r.essais} essais sans réussir la formation (dernier score : ${score} %, il faut ${r.seuil} %).\n\nÀ faire : le rappeler, ou lui accorder une dérogation depuis sa fiche.`)
+      }
       return json({ score, reussi, seuil: r.seuil, blocage: blocageEssai(r, { essais, termineLe: iso, etat }, maintenant) })
     }
     return json({ error: "Action inconnue." }, 400)
