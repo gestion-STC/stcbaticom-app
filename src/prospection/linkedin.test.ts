@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest"
 import type { Campagne, Contact } from "./modele"
 import { estEligible } from "./modele"
 import { passage } from "./moteur"
-import { LINKEDIN_DEPART, NOTE_MAX, estAttenteLinkedIn, estSautLinkedIn, identifiantLinkedIn, noteInvitation, peutAgirLinkedIn } from "./linkedin"
+import { LINKEDIN_DEPART, NOTE_MAX, compteDeCampagne, estAttenteLinkedIn, estSautLinkedIn, faitsParCompte, identifiantLinkedIn, noteInvitation, peutAgirLinkedIn, restantLinkedIn } from "./linkedin"
+import sqlParCompte from "../../supabase/maj-2026-11-13-linkedin-par-compte.sql?raw"
 import { devinerColonnes } from "./colonnesImport"
 import { preparerLignes } from "../demarchage/importAgences"
 import ecran from "./linkedin.ts?raw"
@@ -88,5 +89,34 @@ describe("LinkedIn", () => {
     expect(sql).toContain("add column if not exists linkedin text")
     expect(sql).toContain("'connexion'")
     expect(sql).toContain("security_invoker = true")
+  })
+  it("le plafond se compte pour chaque compte branché", () => {
+    const debut = "2026-11-13T00:00:00Z"
+    const envois = [
+      { compte: "horlann", le: "2026-11-13T09:00:00Z" }, { compte: "horlann", le: "2026-11-12T09:00:00Z" },
+      { compte: "alexandre", le: "2026-11-13T10:00:00Z" },
+      { compte: null, le: "2026-11-13T08:00:00Z" }, // d'avant : compté pour le premier compte
+    ]
+    const f = faitsParCompte(envois, debut, "horlann")
+    expect(f.get("horlann")).toEqual({ jour: 2, semaine: 3 })
+    expect(f.get("alexandre")).toEqual({ jour: 1, semaine: 1 })
+    // Chacun a ses 20 par jour et ses 2 par passage, sans manger ceux de l'autre.
+    expect(restantLinkedIn(LINKEDIN_DEPART, { jour: 19, semaine: 19, passage: 0 }, 10)).toBe(1)
+    expect(restantLinkedIn(LINKEDIN_DEPART, { jour: 0, semaine: 0, passage: 0 }, 10)).toBe(2)
+    expect(restantLinkedIn(LINKEDIN_DEPART, { jour: 0, semaine: 0, passage: 2 }, 10)).toBe(0)
+    expect(restantLinkedIn(LINKEDIN_DEPART, { jour: 20, semaine: 20, passage: 0 }, 10)).toBe(0)
+    expect(restantLinkedIn(LINKEDIN_DEPART, { jour: 0, semaine: 80, passage: 0 }, 10)).toBe(0)
+    expect(restantLinkedIn(LINKEDIN_DEPART, { jour: 0, semaine: 0, passage: 0 }, 20)).toBe(0) // hors des heures
+  })
+  it("le compte d'une campagne : celui choisi s'il est branché, sinon le premier", () => {
+    const comptes = [{ id: "horlann" }, { id: "alexandre" }]
+    expect(compteDeCampagne(comptes, "alexandre")?.id).toBe("alexandre")
+    expect(compteDeCampagne(comptes, "debranche")?.id).toBe("horlann")
+    expect(compteDeCampagne(comptes, undefined)?.id).toBe("horlann")
+    expect(compteDeCampagne([], "alexandre")).toBeNull()
+  })
+  it("le SQL du plafond par compte : une colonne, additive", () => {
+    expect(sqlParCompte).toContain("add column if not exists compte_linkedin text")
+    expect(sqlParCompte).not.toMatch(/drop |delete |update /i)
   })
 })

@@ -12,7 +12,7 @@ export const LIBELLE_MODE: Record<ModeLinkedIn, string> = {
 /** La note d'une invitation : 300 caractères au plus (LinkedIn). */
 export const NOTE_MAX = 300
 
-/** Les réglages LinkedIn, pour toutes les campagnes : un compte LinkedIn se protège, pas une campagne. */
+/** Les réglages LinkedIn, pour toutes les campagnes, et comptés pour CHAQUE compte branché : un compte LinkedIn se protège, pas une campagne. */
 export type ReglageLinkedIn = { parJour: number; parSemaine: number; heureMin: number; heureMax: number }
 export const LINKEDIN_DEPART: ReglageLinkedIn = { parJour: 20, parSemaine: 80, heureMin: 9, heureMax: 18 }
 /** Au plus 2 actions LinkedIn par passage du moteur (toutes les 10 minutes) : les envois s'étalent dans la journée. */
@@ -59,3 +59,29 @@ export function peutAgirLinkedIn(r: ReglageLinkedIn, faitsAujourdhui: number, fa
 export const estAttenteLinkedIn = (statut: number, type: string) => statut === 429 || statut === 503 || statut === 504 || /cannot_resend_yet|limit|too_many_requests|no_client_session|network_down|service_unavailable|request_timeout|retry/.test(type)
 /** Celles qui veulent dire « inutile, on passe » (déjà en relation, invitation refusée, profil introuvable). */
 export const estSautLinkedIn = (type: string) => /already|cannot_invite|invalid_recipient|not_found|invalid_resource_identifier|user_not_found/.test(type)
+
+// ── LE PLAFOND COMPTE PAR COMPTE (Mahdi, 13/11/2026) : LinkedIn surveille chaque compte séparément. Les plafonds
+// (jour, semaine, et 2 actions par passage) se comptent donc pour chaque compte branché, pas pour tous ensemble. ──
+export type EnvoiLinkedIn = { compte: string | null; le: string }
+/** Ce que chaque compte a déjà fait aujourd'hui et sur 7 jours. Un envoi sans compte (d'avant le 13/11) compte pour `parDefaut`. */
+export function faitsParCompte(envois: EnvoiLinkedIn[], debutJour: string, parDefaut: string): Map<string, { jour: number; semaine: number }> {
+  const out = new Map<string, { jour: number; semaine: number }>()
+  for (const e of envois) {
+    const cle = e.compte || parDefaut
+    if (!cle) continue
+    const f = out.get(cle) ?? { jour: 0, semaine: 0 }
+    f.semaine++
+    if (e.le >= debutJour) f.jour++
+    out.set(cle, f)
+  }
+  return out
+}
+/** Combien d'actions ce compte peut encore faire dans ce passage (0 : il attend). */
+export function restantLinkedIn(r: ReglageLinkedIn, faits: { jour: number; semaine: number; passage: number }, heureParis: number): number {
+  if (!peutAgirLinkedIn(r, faits.jour, faits.semaine, heureParis).ok) return 0
+  return Math.max(0, Math.min(LINKEDIN_PAR_PASSAGE - faits.passage, r.parJour - faits.jour, r.parSemaine - faits.semaine))
+}
+/** Le compte qui envoie pour une campagne : celui qu'elle a choisi s'il est branché, sinon le premier branché. */
+export function compteDeCampagne<T extends { id: string }>(comptes: T[], choisi: string | undefined | null): T | null {
+  return comptes.find((x) => x.id === choisi) ?? comptes[0] ?? null
+}

@@ -31,7 +31,7 @@ import { ceQuiMarche, ficheIA, genererTexteIA, interventionsSecteurs, offreSTC }
 import { corpsAvecMentions, doitArreter, remplirVariables, valeursDe, type Mentions, type ReglageArret } from "../_shared/campagnes/instantlyOutils.ts"
 import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/campagnes/pareFeu.ts"
 import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
-import { LINKEDIN_PAR_PASSAGE, estAttenteLinkedIn, estSautLinkedIn, identifiantLinkedIn, noteInvitation, peutAgirLinkedIn } from "../_shared/campagnes/linkedin.ts"
+import { compteDeCampagne, estAttenteLinkedIn, estSautLinkedIn, faitsParCompte, identifiantLinkedIn, noteInvitation, restantLinkedIn, type CompteLinkedIn } from "../_shared/campagnes/linkedin.ts"
 import { appelUnipile, comptesLinkedIn, profilLinkedIn, reglageLinkedIn, unipileBranche } from "../_shared/campagnes/unipile.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
@@ -206,12 +206,11 @@ function ajouterBouton(texte: string, url: string, libelle: string): string {
 }
 
 /** Une étape LinkedIn automatique (11/11/2026) : par le compte branché chez Unipile. Jamais en mode essai. */
-async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: string, texte: string, test: boolean): Promise<Resultat> {
+async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: string, texte: string, test: boolean, compteChoisi?: CompteLinkedIn | null): Promise<Resultat> {
   if (test) return { ok: false, saute: "mode essai : rien ne part sur LinkedIn" }
   if (!unipileBranche()) return { ok: false, reporte: true }
-  const comptes = await comptesLinkedIn()
-  const choisi = (c.config as { linkedinCompte?: string } | null)?.linkedinCompte
-  const compte = comptes.find((x) => x.id === choisi) ?? comptes[0]
+  // Le compte est choisi par le passage (ses plafonds y sont comptés) ; à défaut, relu ici.
+  const compte = compteChoisi ?? compteDeCampagne(await comptesLinkedIn(), (c.config as { linkedinCompte?: string } | null)?.linkedinCompte)
   if (!compte) return { ok: false, reporte: true }
   const ident = identifiantLinkedIn(k.champs.linkedin ?? "")
   if (!ident) return { ok: false, saute: "profil LinkedIn illisible" }
@@ -236,7 +235,7 @@ async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: s
   return { ok: false, erreur: `LinkedIn (${r.status}) ${r.type}` }
 }
 
-async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter" | "linkedin", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number, modeLinkedIn = ""): Promise<Resultat> {
+async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter" | "linkedin", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number, modeLinkedIn = "", compteLinkedIn: CompteLinkedIn | null = null): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const gc = (c.config as { garde?: GardeConfig } | null)?.garde, mentions: Mentions = { signature: gc?.signature, libelleLien: gc?.libelleLien }
@@ -307,7 +306,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     const r = await invoquer(base, service, "envoyer-sms", { to, message: test ? `[TEST] ${message}` : message })
     return r.ok ? { ok: true } : { ok: false, erreur: String(r.data?.error ?? "envoi SMS échoué"), saute: r.data?.code === "non_mobile" ? "numéro non mobile" : undefined }
   }
-  if (canal === "linkedin") return envoyerLinkedIn(sb, c, k, modeLinkedIn, texte, test)
+  if (canal === "linkedin") return envoyerLinkedIn(sb, c, k, modeLinkedIn, texte, test, compteLinkedIn)
   const to = test ? String(c.test_email ?? "") : k.email
   if (!to) return { ok: false, saute: "pas de mail" }
   sujet = (test ? "[TEST] " : "") + sujet
@@ -346,11 +345,22 @@ Deno.serve(async (req: Request) => {
     const brutEcart = (ligneEcart as { valeur?: string } | null)?.valeur
     const ecartCommun = brutEcart != null && brutEcart !== "" && Number.isFinite(Number(brutEcart)) ? Number(brutEcart) : null
     let envoisPassage = 0
-    // LinkedIn : les plafonds du compte (jour, semaine), ses heures, et 2 actions au plus par passage.
+    // LinkedIn (13/11/2026) : les plafonds (jour, semaine), les heures, et 2 actions au plus par passage, comptés
+    // COMPTE PAR COMPTE. Les comptes branchés ne sont lus chez Unipile qu'une fois, et seulement si une action attend.
     const reglageLi = await reglageLinkedIn(sb)
-    const { count: liJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("canal", "linkedin").eq("statut", "envoye").eq("test", false).gte("le", new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString())
-    const { count: liSemaine } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("canal", "linkedin").eq("statut", "envoye").eq("test", false).gte("le", new Date(maintenant.getTime() - 7 * JOUR_MS).toISOString())
-    let liRestant = peutAgirLinkedIn(reglageLi, liJour ?? 0, liSemaine ?? 0, heureParis(maintenant)).ok ? Math.max(0, Math.min(LINKEDIN_PAR_PASSAGE, reglageLi.parJour - (liJour ?? 0), reglageLi.parSemaine - (liSemaine ?? 0))) : 0
+    let comptesLi: CompteLinkedIn[] | null = null
+    let faitsLi = new Map<string, { jour: number; semaine: number }>()
+    const passageLi = new Map<string, number>()
+    const compteLinkedInDe = async (l: Ligne): Promise<CompteLinkedIn | null> => {
+      if (!unipileBranche()) return null
+      if (comptesLi === null) {
+        comptesLi = await comptesLinkedIn()
+        const { data: liEnvois } = await sb.from("cmp_envois").select("compte_linkedin, le").eq("canal", "linkedin").eq("statut", "envoye").eq("test", false).gte("le", new Date(maintenant.getTime() - 7 * JOUR_MS).toISOString()).limit(5000)
+        faitsLi = faitsParCompte(((liEnvois ?? []) as { compte_linkedin: string | null; le: string }[]).map((x) => ({ compte: x.compte_linkedin, le: x.le })), new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString(), comptesLi[0]?.id ?? "")
+      }
+      return compteDeCampagne(comptesLi, (l.config as { linkedinCompte?: string } | null)?.linkedinCompte)
+    }
+    const restantLi = (id: string) => restantLinkedIn(reglageLi, { ...(faitsLi.get(id) ?? { jour: 0, semaine: 0 }), passage: passageLi.get(id) ?? 0 }, heureParis(maintenant))
     for (const ligne of (actives ?? []) as Ligne[]) {
       bilan.campagnes = Number(bilan.campagnes) + 1
       const c = versCampagne(ligne)
@@ -422,8 +432,11 @@ Deno.serve(async (req: Request) => {
       let arret = false
       for (const e of ecr.envois) {
         const canal = e.canal === "sms" ? "sms" : e.canal === "linkedin" ? "linkedin" : "mail"
+        // LinkedIn : le compte de la campagne, et ce qu'il peut encore faire (une action sautée d'avance ne compte pas).
+        const compteLi = canal === "linkedin" && e.statut !== "saute" && !ligne.mode_test ? await compteLinkedInDe(ligne) : null
+        const liBloque = canal === "linkedin" && e.statut !== "saute" && !ligne.mode_test && (!compteLi || restantLi(compteLi.id) <= 0)
         // Boîtes Instantly pas prêtes : le mail attend, il n'est ni perdu ni envoyé par un autre chemin.
-        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || (canal === "linkedin" ? liRestant <= 0 : budget[canal] <= 0) || (canal === "sms" && !hSms) || (canal === "mail" && !avis && !ins.pretes.length)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
+        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || (canal === "linkedin" ? liBloque : budget[canal] <= 0) || (canal === "sms" && !hSms) || (canal === "mail" && !avis && !ins.pretes.length)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
         const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null
@@ -442,11 +455,17 @@ Deno.serve(async (req: Request) => {
         const k = parContact.get(e.contactId)!
         const test = Boolean(ligne.mode_test)
         await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
-        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "")
+        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "", compteLi)
         if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
         if (r.ok) {
-          await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null }).eq("id", e.id)
-          if (canal === "linkedin") liRestant--; else budget[canal]--
+          await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null, ...(canal === "linkedin" && compteLi ? { compte_linkedin: compteLi.id } : {}) }).eq("id", e.id)
+          if (canal === "linkedin") {
+            if (compteLi) {
+              const f = faitsLi.get(compteLi.id) ?? { jour: 0, semaine: 0 }
+              faitsLi.set(compteLi.id, { jour: f.jour + 1, semaine: f.semaine + 1 })
+              passageLi.set(compteLi.id, (passageLi.get(compteLi.id) ?? 0) + 1)
+            }
+          } else budget[canal]--
           envoisPassage++; bilan.envois = Number(bilan.envois) + 1
           await pause(CADENCE_MS[canal])
         } else if (r.saute) {
