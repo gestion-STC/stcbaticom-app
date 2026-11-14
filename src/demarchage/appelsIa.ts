@@ -35,6 +35,8 @@ export type AppelIa = {
   issue: string
   statut: StatutIa
   dureeS: number | null
+  /** L'enregistrement Ringover (mp3), à écouter sur la fiche (14/11/2026). */
+  enregistrementUrl: string
   transcription: string
   resume: string
   interet: Interet | null
@@ -50,20 +52,20 @@ export type AppelIa = {
 
 type Ligne = {
   id: string; activite_id: string; agence_id: string | null; contact_id: string | null; compte_id: string | null; compte_nom: string | null
-  resultat: string | null; statut: StatutIa; duree_s: number | null; transcription: string | null; resume: string | null; interet: Interet | null
+  resultat: string | null; statut: StatutIa; duree_s: number | null; enregistrement_url?: string | null; transcription: string | null; resume: string | null; interet: Interet | null
   analyse_detail: { decideur_joint?: boolean; prochaine_etape?: string; arguments?: ArgumentAppel[]; objections?: ObjectionAppel[]; points_forts?: string[]; a_ameliorer?: string[] } | null
   mail_pertinent: boolean | null; mail_objet: string | null; mail_corps: string | null; mail_envoye_le: string | null; mail_ecarte_le: string | null
   erreur: string | null; cree_le: string
   agences?: { nom: string } | null
   activites?: { issue: string | null } | null
 }
-const COLONNES = "id, activite_id, agence_id, contact_id, compte_id, compte_nom, resultat, statut, duree_s, transcription, resume, interet, analyse_detail, mail_pertinent, mail_objet, mail_corps, mail_envoye_le, mail_ecarte_le, erreur, cree_le, agences(nom), activites(issue)"
+const COLONNES = "id, activite_id, agence_id, contact_id, compte_id, compte_nom, resultat, statut, duree_s, enregistrement_url, transcription, resume, interet, analyse_detail, mail_pertinent, mail_objet, mail_corps, mail_envoye_le, mail_ecarte_le, erreur, cree_le, agences(nom), activites(issue)"
 
 export function versAppelIa(l: Ligne): AppelIa {
   const a = l.analyse_detail
   return {
     id: l.id, activiteId: l.activite_id, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", contactId: l.contact_id, compteId: l.compte_id, compteNom: l.compte_nom ?? "",
-    resultat: l.resultat ?? "", issue: l.activites?.issue ?? "", statut: l.statut, dureeS: l.duree_s, transcription: l.transcription ?? "", resume: l.resume ?? "", interet: l.interet,
+    resultat: l.resultat ?? "", issue: l.activites?.issue ?? "", statut: l.statut, dureeS: l.duree_s, enregistrementUrl: /^https:\/\//.test(l.enregistrement_url ?? "") ? l.enregistrement_url! : "", transcription: l.transcription ?? "", resume: l.resume ?? "", interet: l.interet,
     analyse: a ? {
       decideurJoint: Boolean(a.decideur_joint), prochaineEtape: a.prochaine_etape ?? "", arguments: a.arguments ?? [], objections: a.objections ?? [],
       pointsForts: a.points_forts ?? [], aAmeliorer: a.a_ameliorer ?? [],

@@ -18,7 +18,10 @@ export function useEchanges(agenceId: string | null | undefined, version: unknow
       .catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) })
     return () => { vivant = false }
   }, [agenceId, version])
-  const prets = appels.filter((a) => a.statut === "pret" && (a.resume || a.transcription))
+  // Tout appel qui a quelque chose à montrer : un enregistrement, une transcription ou un résumé, que l'IA l'ait
+  // analysé ou non (Mahdi, 14/11/2026 : « sur la fiche du prospect, à chaque fois »). Avant, seuls les appels
+  // analysés s'affichaient : sans crédit IA, l'appel et son enregistrement disparaissaient de la fiche.
+  const prets = appels.filter((a) => a.resume || a.transcription || a.enregistrementUrl)
   const parActivite = new Map(prets.map((a) => [a.activiteId, a]))
   return { appels, prets, parActivite, erreur }
 }

@@ -8,10 +8,12 @@
 //   · ResumeSousAppel — sous chaque appel du fil : son résumé, en deux lignes ;
 //   · PanneauEchange — « Lire l'échange » : le résumé complet et la conversation mot pour mot.
 // Un appel sans enregistrement n'a rien à montrer : ces morceaux se taisent.
+// 14/11/2026 : l'enregistrement s'écoute sur la fiche, et un appel pas (encore) analysé par l'IA s'affiche quand même,
+// avec son état et « Relancer l'analyse ».
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useState } from "react"
-import { MessageSquareText } from "lucide-react"
-import type { AppelIa, Interet } from "../../demarchage/appelsIa"
+import { MessageSquareText, RefreshCw } from "lucide-react"
+import { relancerAnalyse, type AppelIa, type Interet } from "../../demarchage/appelsIa"
 import { useEchanges } from "./useEchanges"
 import { dureeLisible } from "../../demarchage/analyseOutils"
 import { dateHeureCourte } from "../../demarchage/sessionOutils"
@@ -22,6 +24,31 @@ const INTERET: Record<Interet, { role: RolePastille; libelle: string }> = {
   moyen: { role: "info", libelle: "Intérêt moyen" },
   faible: { role: "attente", libelle: "Intérêt faible" },
   nul: { role: "inerte", libelle: "Pas d'intérêt" },
+}
+
+/** L'enregistrement de l'appel, à écouter. */
+function Ecoute({ appel }: { appel: AppelIa }) {
+  if (!appel.enregistrementUrl) return null
+  return <audio controls preload="none" src={appel.enregistrementUrl} className="mt-2 h-9 w-full max-w-[420px]" aria-label="Écouter l'enregistrement de l'appel" />
+}
+
+/** L'analyse IA pas (encore) faite : pourquoi, et la relancer. */
+function EtatAnalyse({ appel }: { appel: AppelIa }) {
+  const [etat, setEtat] = useState("")
+  if (appel.statut === "pret") return null
+  const credit = /credit balance|crédit/i.test(appel.erreur)
+  const texte = appel.statut === "erreur"
+    ? credit ? "Analyse IA non faite : le crédit de l'IA est épuisé." : "Analyse IA non faite : une erreur est survenue."
+    : appel.statut === "en_attente" || appel.statut === "en_cours" ? "Analyse IA en cours…" : ""
+  if (!texte) return null
+  const relancer = async () => { setEtat("…"); try { await relancerAnalyse(appel.id, appel.activiteId); setEtat("Relancée : le résumé arrive dans quelques minutes.") } catch (e) { setEtat(e instanceof Error ? e.message : String(e)) } }
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-colonne text-attention">
+      {texte}
+      {appel.statut === "erreur" ? <button type="button" className="inline-flex items-center gap-1 font-medium text-encre underline-offset-4 hover:underline" onClick={() => void relancer()}><RefreshCw size={12} /> Relancer l'analyse</button> : null}
+      {etat ? <span className="text-encre-2">{etat}</span> : null}
+    </p>
+  )
 }
 
 /** « Tu as appelé le 21/10, Horlann · 3 min » */
@@ -44,12 +71,14 @@ export function DernierEchange({ agenceId, version, className = "" }: { agenceId
         <span className="flex items-center gap-1.5 text-legende font-semibold text-encre"><MessageSquareText size={14} /> La dernière fois</span>
         <span className="chiffres text-colonne text-encre-2">{enTete(a)}</span>
         {interet ? <Pastille role={interet.role}>{interet.libelle}</Pastille> : null}
-        {prets.length > 1 ? <span className="text-colonne text-encre-2">{prets.length} appels transcrits</span> : null}
+        {prets.length > 1 ? <span className="text-colonne text-encre-2">{prets.length} appels enregistrés</span> : null}
       </div>
       {a.analyse?.prochaineEtape ? (
         <p className="mt-2 text-legende text-encre"><span className="text-encre-2">Convenu : </span>{a.analyse.prochaineEtape}</p>
       ) : null}
       {a.resume ? <p className="mt-1.5 line-clamp-6 whitespace-pre-line text-legende text-encre-2">{a.resume}</p> : null}
+      <EtatAnalyse appel={a} />
+      <Ecoute appel={a} />
       {objections.length ? (
         <p className="mt-1.5 text-colonne text-encre-2">
           Objections : {objections.map((o) => `${o.libelle}${o.levee ? " (levée)" : ""}`).join(" · ")}
@@ -73,6 +102,8 @@ export function ResumeSousAppel({ appel }: { appel: AppelIa }) {
   return (
     <div className="mt-1">
       {appel.resume ? <p className="line-clamp-2 whitespace-pre-line text-colonne text-encre-2">{appel.resume}</p> : null}
+      <EtatAnalyse appel={appel} />
+      <Ecoute appel={appel} />
       <button type="button" className="mt-0.5 inline-flex items-center gap-1 text-colonne font-medium text-encre underline-offset-4 hover:underline" onClick={() => setOuvert(true)}>
         <MessageSquareText size={12} /> Lire l'échange
       </button>
@@ -88,6 +119,13 @@ export function PanneauEchange({ appel, onFermer }: { appel: AppelIa; onFermer: 
   return (
     <Panneau titre={appel.agenceNom || "L'échange"} sousTitre={enTete(appel)} onFermer={onFermer} largeur="w-[560px]">
       <div className="space-y-5">
+        {appel.enregistrementUrl || appel.statut !== "pret" ? (
+          <section>
+            <h3 className="mb-1 text-colonne font-medium text-encre-2">L'enregistrement</h3>
+            <Ecoute appel={appel} />
+            <EtatAnalyse appel={appel} />
+          </section>
+        ) : null}
         <div className="flex flex-wrap gap-3">
           {interet ? <Pastille role={interet.role}>{interet.libelle}</Pastille> : null}
           {an ? <Pastille role={an.decideurJoint ? "fait" : "inerte"}>{an.decideurJoint ? "Décideur au téléphone" : "Pas le décideur"}</Pastille> : null}
