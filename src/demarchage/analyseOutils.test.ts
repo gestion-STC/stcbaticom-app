@@ -10,7 +10,7 @@ function appel(p: Partial<AppelIa> & { args?: [string, "positive" | "neutre" | "
   n += 1
   return {
     id: `a${n}`, activiteId: `x${n}`, agenceId: "ag", agenceNom: "Agence", contactId: null, compteId: "c", compteNom: p.compteNom ?? "Mahdi",
-    resultat: "joint", issue: p.issue ?? "", statut: p.statut ?? "pret", dureeS: p.dureeS ?? 120, transcription: "", resume: "", interet: p.interet ?? "moyen",
+    resultat: "joint", issue: p.issue ?? "", statut: p.statut ?? "pret", dureeS: p.dureeS ?? 120, enregistrementUrl: "", transcription: "", resume: "", interet: p.interet ?? "moyen",
     analyse: {
       decideurJoint: true, prochaineEtape: "",
       arguments: (p.args ?? []).map(([libelle, reaction]) => ({ libelle, reaction, extrait: `« ${libelle} »` })),
