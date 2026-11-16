@@ -38,12 +38,12 @@ const liens = (s: string, libelle: string) => echapper(s).replace(/\[([^\]\n]+)\
 const texteEnHtml = (s: string, libelle: string) => s.split(IMAGE).map((morceau, i) => (i % 2 ? morceau : liens(morceau, libelle))).join("").replace(/\n/g, "<br/>")
 
 /** Le corps prêt à partir : en HTML, avec la signature, l'adresse postale de STC et le lien de désinscription, jamais en double. */
-/** La signature et le texte des liens, réglés dans chaque campagne (Mahdi, 11/11/2026). Vides : ceux par défaut. */
+/** La signature et le texte des liens, réglés dans chaque campagne (Mahdi, 11/11/2026). Vides : ceux par défaut. Une signature en HTML (celle du commercial, avec le logo) part telle quelle (16/11/2026). */
 export type Mentions = { signature?: string; libelleLien?: string }
 export function corpsAvecMentions(texte: string, desinscription?: string, suivi = false, m: Mentions = {}): string {
   const signature = (m.signature ?? "").trim() || SIGNATURE_PROSPECTION, libelle = (m.libelleLien ?? "").trim() || LIBELLE_LIEN
   const html = estHtml(texte) ? texte : texteEnHtml(texte, libelle)
-  const mentions = [suivi && !texte.includes(PHRASE_SUIVI) ? PHRASE_SUIVI : "", texte.includes("78280") || texte.includes(signature) ? "" : echapper(signature).replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
+  const mentions = [suivi && !texte.includes(PHRASE_SUIVI) ? PHRASE_SUIVI : "", texte.includes("78280") || texte.includes(signature) ? "" : estHtml(signature) ? signature : echapper(signature).replace(/\n/g, "<br/>"), desinscription ? `Pour ne plus recevoir nos messages : <a href="${desinscription}">se désinscrire</a>` : ""].filter(Boolean).join("<br/>")
   if (!mentions) return html
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `<p>${mentions}</p></body>`)
   return `${html}<br/><br/>${mentions}`

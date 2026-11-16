@@ -74,4 +74,9 @@ describe("instantlyOutils", () => {
     expect(doitArreter(100, 3)).toBe(false)
     expect(doitArreter(100, 4)).toBe(true)
   })
+  it("une signature en HTML (celle du commercial, avec le logo) part telle quelle, une signature en texte est échappée", () => {
+    const html = '<div style="border-top:1px solid #ececec"><img src="https://stcbatiment.com/stc-logo-email.png" width="128"><p>Horlann Maunier · Gestion</p><p>STC Bâtiment · 7 rue Oscar Niemeyer, 78280 Guyancourt</p></div>'
+    expect(corpsAvecMentions("Bonjour,\n\nUn mot.", "https://x/stop", false, { signature: html })).toContain(html)
+    expect(corpsAvecMentions("Bonjour,", undefined, false, { signature: "Horlann <Maunier>\nSTC" })).toContain("Horlann &lt;Maunier&gt;<br/>STC")
+  })
 })

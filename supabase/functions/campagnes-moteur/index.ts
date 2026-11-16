@@ -85,12 +85,14 @@ async function invoquer(base: string, cle: string, fonction: string, body: unkno
   } catch (e) { return { ok: false, data: { error: String(e) } } }
 }
 
-// Les plaquettes d'un mail de campagne (16/11/2026) : les deux du 14/10, les mêmes que dans le mail de suivi
-// après un appel (src/lib/documentsBibliotheque.ts). Le clic passe par evenements-site, qui note « Plaquette
+// Les documents d'un mail de campagne (16/11/2026) : les deux plaquettes du 14/10, le Kbis et l'assurance, les mêmes
+// que dans le mail de suivi après un appel. Instantly n'envoie pas de pièce jointe : chaque document est un lien suivi (src/lib/documentsBibliotheque.ts). Le clic passe par evenements-site, qui note « Plaquette
 // ouverte » sur la fiche ; la base en fait un clic « plaquette » de la campagne (règle « A ouvert la plaquette »).
 export const PLAQUETTES: Record<string, string> = {
   "{{lien_plaquette}}": "801aeb9d-311d-48a8-ba02-97c96754dfa2.pdf",            // STC - Plaquette Service Gestion
   "{{lien_plaquette_plateforme}}": "43fb4102-ec01-4710-ba3b-317bf4ace8c4.pdf", // STC - Plaquette Plateforme
+  "{{lien_kbis}}": "aba7ff82-c739-4f18-a0b6-d65279ac5f28.pdf",                  // Kbis STC Bâtiment
+  "{{lien_assurance}}": "5b129b47-c76a-4dda-a96a-19516ef7608b.pdf",             // Attestation d'assurance (décennale et RC)
 }
 
 /** Le lien suivi d'une agence (réutilisé s'il existe) : evenements-site note le clic sur la fiche. */
