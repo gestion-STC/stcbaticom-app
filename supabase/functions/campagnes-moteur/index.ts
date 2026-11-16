@@ -85,9 +85,17 @@ async function invoquer(base: string, cle: string, fonction: string, body: unkno
   } catch (e) { return { ok: false, data: { error: String(e) } } }
 }
 
+// Les plaquettes d'un mail de campagne (16/11/2026) : les deux du 14/10, les mêmes que dans le mail de suivi
+// après un appel (src/lib/documentsBibliotheque.ts). Le clic passe par evenements-site, qui note « Plaquette
+// ouverte » sur la fiche ; la base en fait un clic « plaquette » de la campagne (règle « A ouvert la plaquette »).
+export const PLAQUETTES: Record<string, string> = {
+  "{{lien_plaquette}}": "801aeb9d-311d-48a8-ba02-97c96754dfa2.pdf",            // STC - Plaquette Service Gestion
+  "{{lien_plaquette_plateforme}}": "43fb4102-ec01-4710-ba3b-317bf4ace8c4.pdf", // STC - Plaquette Plateforme
+}
+
 /** Le lien suivi d'une agence (réutilisé s'il existe) : evenements-site note le clic sur la fiche. */
-async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, cible: "creer_compte" | "site"): Promise<{ url: string; jeton: string }> {
-  const url = cible === "site" ? "https://www.stcbatiment.fr" : ""
+async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, cible: "creer_compte" | "site" | "plaquette", fichier = ""): Promise<{ url: string; jeton: string }> {
+  const url = cible === "site" ? "https://www.stcbatiment.fr" : cible === "plaquette" ? `${base}/storage/v1/object/public/pieces-jointes/${fichier}` : ""
   const { data } = await sb.from("liens_suivis").select("jeton").eq("agence_id", agenceId).eq("cible", cible).eq("url", url).order("cree_le", { ascending: false }).limit(1).maybeSingle()
   let jeton = (data as { jeton?: string } | null)?.jeton
   if (!jeton) {
@@ -293,6 +301,8 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     stop = `${base}/functions/v1/evenements-site?stop=${compte.jeton}`
     remplacer("{{lien_creer_compte}}", compte.url); remplacer("{{lien_principal}}", compte.url); remplacer("{{lien_desinscription}}", stop)
     if (texte.includes("{{lien_site}}")) remplacer("{{lien_site}}", (await lienAgence(sb, base, k.id, "site")).url)
+    // En test, la plaquette s'ouvre sans rien noter : un clic d'essai ne doit pas faire un lead sur une vraie agence.
+    for (const [variable, fichier] of Object.entries(PLAQUETTES)) if (texte.includes(variable)) remplacer(variable, test ? `${base}/storage/v1/object/public/pieces-jointes/${fichier}` : (await lienAgence(sb, base, k.id, "plaquette", fichier)).url)
   }
   if (test) stop = LIEN_NEUTRE
   // Un mail de prospection propose toujours de ne plus en recevoir, agence ou artisan.

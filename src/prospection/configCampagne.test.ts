@@ -66,7 +66,7 @@ describe("le réglage complet d'une campagne (09/11/2026)", () => {
   it("seules les règles connues du moteur deviennent ses signaux ; aucune règle, aucun signal", () => {
     expect(versSignaux([])).toEqual([])
     const r = (evenement: string, fois = 1) => ({ id: "x", evenement, fois, jours: 7 })
-    expect(versSignaux([r("A cliqué un lien"), r("A ouvert la plaquette"), r("A ouvert le mail", 1)])).toEqual(["clic_lien"])
+    expect(versSignaux([r("A cliqué un lien"), r("A ouvert la plaquette"), r("A ouvert le mail", 1)])).toEqual(["clic_lien", "clic_plaquette"])
     expect(versSignaux([r("A ouvert le mail", 2)])).toEqual(["ouvertures_2"])
   })
   it("un envoi sans texte empêche de lancer", () => {

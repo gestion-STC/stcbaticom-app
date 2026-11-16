@@ -17,6 +17,8 @@ export type LigneEtape = {
 export type LigneVariante = { etapeId: string; varianteId: string; nom: string; objet: string; envoyes: number; ouvreurs: number; cliqueurs: number; repondants: number; leads: number; tauxOuverture: number | null; tauxClic: number | null }
 export type LigneSegment = { valeur: string; entres: number; touches: number; cliqueurs: number; repondants: number; leads: number; gagnes: number }
 export type LigneJour = { jour: string; entres: number; envoyes: number; erreurs: number; ouvreurs: number; cliqueurs: number; leads: number }
+/** Un jour de la semaine (0 = lundi), compté par le JOUR OÙ LE MAIL EST PARTI : un mail du lundi ouvert le mardi compte pour le lundi. */
+export type LigneJourSemaine = { jour: number; envoyes: number; ouverts: number; cliques: number; leads: number; tauxOuverture: number | null; tauxClic: number | null; tauxLead: number | null }
 
 export type Indicateurs = {
   audience: { eligibles: number; entres: number; enCours: number; terminees: number; sortisLead: number; desinscrits: number; rebonds: number; restants: number }
@@ -30,6 +32,8 @@ export type Indicateurs = {
   parSegment: { champ: string; libelle: string; lignes: LigneSegment[] }[]
   parJour: LigneJour[]
   clicsParJourSemaine: number[]
+  /** Quel jour d'envoi marche le mieux (Julien, 16/11/2026 : « voir quel jour on a le meilleur taux d'ouverture et de conversion »). */
+  parJourSemaine: LigneJourSemaine[]
   ouverturesParHeure: number[]
   parCommercial: { compteId: string; appels: number; joints: number; issues: Record<string, number> }[]
 }
@@ -110,6 +114,7 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
   for (const e of premierClic.values()) clicsParJourSemaine[(new Date(e.le).getDay() + 6) % 7] += 1
   for (const e of evs) if (e.type === "ouvert") ouverturesParHeure[new Date(e.le).getHours()] += 1
 
+  const parJourSemaine = joursDEnvoi(env, evs, lds)
   const delais = lds.map((l) => { const i = insc.find((x) => x.contactId === l.contactId); return i ? (new Date(l.creeLe).getTime() - new Date(i.entreeLe).getTime()) / 86_400_000 : null }).filter((x): x is number => x !== null)
   const commerciaux = new Map<string, { compteId: string; appels: number; joints: number; issues: Record<string, number> }>()
   for (const a of apl) {
@@ -144,8 +149,32 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
     couts: { sms: nbSms, coutSms, coutParLead: lds.length ? Math.round((coutSms / lds.length) * 100) / 100 : null, coutParGagne: gagnes.size ? Math.round((coutSms / gagnes.size) * 100) / 100 : null },
     parEtape, parVariante, parSegment,
     parJour: [...jours.values()].sort((a, b) => (a.jour < b.jour ? -1 : 1)),
-    clicsParJourSemaine, ouverturesParHeure, parCommercial: [...commerciaux.values()],
+    clicsParJourSemaine, parJourSemaine, ouverturesParHeure, parCommercial: [...commerciaux.values()],
   }
+}
+
+const jourSemaine = (iso: string) => (new Date(iso).getDay() + 6) % 7
+
+/** Par jour d'envoi : les mails partis, ceux ouverts ou cliqués au moins une fois, et les leads. Un lead revient au
+ *  jour du dernier mail parti vers ce contact avant lui (le mail qui l'a décidé). Fonction PURE. */
+export function joursDEnvoi(env: Envoi[], evs: Evenement[], lds: Lead[]): LigneJourSemaine[] {
+  const partis = env.filter((e) => e.statut === "envoye" && e.canal === "mail")
+  const parId = new Map(partis.map((e) => [e.id, e]))
+  const lignes = [0, 1, 2, 3, 4, 5, 6].map((jour) => ({ jour, envoyes: 0, ouverts: 0, cliques: 0, leads: 0 }))
+  for (const e of partis) lignes[jourSemaine(e.le)].envoyes += 1
+  for (const [type, cle] of [["ouvert", "ouverts"], ["clic", "cliques"]] as const) {
+    const vus = new Set<string>()
+    for (const ev of evs) {
+      const e = ev.type === type && ev.envoiId ? parId.get(ev.envoiId) : undefined
+      if (!e || vus.has(e.id)) continue
+      vus.add(e.id); lignes[jourSemaine(e.le)][cle] += 1
+    }
+  }
+  for (const l of lds) {
+    const avant = partis.filter((e) => e.contactId === l.contactId && e.le <= l.creeLe).sort((a, b) => (a.le < b.le ? 1 : -1))[0]
+    if (avant) lignes[jourSemaine(avant.le)].leads += 1
+  }
+  return lignes.map((l) => ({ ...l, tauxOuverture: taux(l.ouverts, l.envoyes), tauxClic: taux(l.cliques, l.envoyes), tauxLead: taux(l.leads, l.envoyes) }))
 }
 
 // ── L'ANALYSE : des constats tirés des chiffres, chacun avec sa preuve et une action. En production, l'IA lit

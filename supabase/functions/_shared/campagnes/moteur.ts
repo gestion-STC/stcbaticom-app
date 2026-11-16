@@ -149,6 +149,7 @@ export function leadsNouveaux(c: Campagne, evenements: Evenement[], inscriptions
     let signal = ""
     if (c.signaux.includes("reponse") && evs.some((e) => e.type === "reponse")) signal = "A répondu au mail"
     else if (c.signaux.includes("clic_lien_principal") && evs.some((e) => e.type === "clic" && e.lien === "principal")) signal = `A cliqué « ${lienPrincipal} »`
+    else if (c.signaux.includes("clic_plaquette") && evs.some((e) => e.type === "clic" && e.lien === "plaquette")) signal = "A ouvert la plaquette"
     else if (c.signaux.includes("clic_lien") && evs.some((e) => e.type === "clic")) signal = "A cliqué un lien"
     else if (c.signaux.includes("ouvertures_2") && evs.filter((e) => e.type === "ouvert" && maintenant.getTime() - new Date(e.le).getTime() < 7 * JOUR).length >= 2) signal = "A ouvert 2 fois en 7 jours"
     if (!signal) continue

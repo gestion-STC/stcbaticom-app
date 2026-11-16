@@ -100,6 +100,7 @@ export function qualificationDeDepart(baseId: string, origine = ""): Qualificati
 const TEXTE_SIGNAL: Record<Signal, Omit<Regle, "id">> = {
   clic_lien: { evenement: "A cliqué un lien", fois: 1, jours: 7 },
   clic_lien_principal: { evenement: "A cliqué le lien principal", fois: 1, jours: 7 },
+  clic_plaquette: { evenement: "A ouvert la plaquette", fois: 1, jours: 7 },
   reponse: { evenement: "A répondu au mail", fois: 1, jours: 7 },
   ouvertures_2: { evenement: "A ouvert le mail", fois: 2, jours: 7 },
 }
@@ -149,6 +150,7 @@ export function versSignaux(regles: Regle[]): Signal[] {
   for (const r of regles) {
     if (r.evenement === "A cliqué un lien") out.add("clic_lien")
     else if (r.evenement === "A cliqué le lien principal") out.add("clic_lien_principal")
+    else if (r.evenement === "A ouvert la plaquette") out.add("clic_plaquette")
     else if (r.evenement === "A répondu au mail") out.add("reponse")
     else if (r.evenement === "A ouvert le mail" && r.fois >= 2) out.add("ouvertures_2")
   }
