@@ -39,7 +39,7 @@ export default function AjoutImage({ onImage }: { onImage: (url: string, lien: s
     <div className="flex flex-wrap items-center gap-2">
       <input ref={entree} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" aria-label="Choisir une image" onChange={(e) => choisi(e.target.files?.[0])} />
       <Bouton taille="sm" icone={<ImagePlus />} chargement={occupe} onClick={() => entree.current?.click()}>Ajouter une image</Bouton>
-      <span className="w-[190px]"><Selecteur value={lien} aria-label="Au clic sur l'image" onChange={(e) => setLien(e.target.value)}><option value="">Image non cliquable</option><option value="{{lien_principal}}">Clic : lien principal</option><option value="{{lien_formulaire}}">Clic : formulaire</option><option value="{{lien_page}}">Clic : page</option></Selecteur></span>
+      <span className="w-[190px]"><Selecteur value={lien} aria-label="Au clic sur l'image" onChange={(e) => setLien(e.target.value)}><option value="">Image non cliquable</option><option value="{{lien_principal}}">Clic : lien principal</option><option value="{{lien_formulaire}}">Clic : formulaire</option><option value="{{lien_page}}">Clic : page</option><option value="{{lien_plaquette}}">Clic : plaquette</option></Selecteur></span>
       <span className="text-colonne text-encre-2">Elle s'ajoute à la fin du texte, sous forme de code : tu peux déplacer ce code. À éviter dans le premier mail.</span>
       {erreur ? <span className="text-colonne text-alerte">{erreur}</span> : null}
     </div>

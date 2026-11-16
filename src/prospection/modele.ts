@@ -51,10 +51,11 @@ export type Etape =
   | { id: Id; type: "appel"; consigne: string; /** Le standard de l'entreprise, ou le contact en direct. */ cible?: "standard" | "contact" }
   | { id: Id; type: "fin" }
 
-export type Signal = "clic_lien" | "reponse" | "ouvertures_2" | "clic_lien_principal"
+export type Signal = "clic_lien" | "reponse" | "ouvertures_2" | "clic_lien_principal" | "clic_plaquette"
 export const LIBELLE_SIGNAL: Record<Signal, string> = {
   clic_lien: "clique un lien suivi",
   clic_lien_principal: "clique le lien principal",
+  clic_plaquette: "ouvre la plaquette",
   reponse: "répond (réponse humaine)",
   ouvertures_2: "ouvre 2 fois en 7 jours",
 }

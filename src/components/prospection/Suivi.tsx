@@ -105,6 +105,13 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
                 <li key={e.etapeId} className="grid grid-cols-[110px_minmax(0,1fr)_110px] items-center gap-3 text-colonne"><span>{e.rang + 1} · {e.libelle}</span><Barre v={e.premiersClics} max={maxPc} ton={e.leads ? "bg-ok" : "bg-encre/60"} /><span className="chiffres text-right text-encre-2">{e.premiersClics} clics · {e.leads} leads</span></li>
               ))}</ul>
             </Bloc>
+            <Bloc titre="Le meilleur jour d'envoi" droite={<span className="text-colonne text-encre-2">compté au jour où le mail part</span>}>
+              <table className="mt-3 w-full text-colonne"><thead><tr className="text-encre-2"><th className="text-left font-normal">Jour</th><th className="text-right font-normal">Partis</th><th className="text-right font-normal">Ouverts</th><th className="text-right font-normal">Cliqués</th><th className="text-right font-normal">Leads</th></tr></thead>
+                <tbody>{ind.parJourSemaine.filter((l) => l.envoyes > 0).map((l) => (
+                  <tr key={l.jour} className="border-t border-fond-4"><td className="py-1.5">{JOURS[l.jour]}</td><td className="chiffres text-right">{l.envoyes}</td><td className="chiffres text-right">{pct(l.tauxOuverture)}</td><td className="chiffres text-right">{pct(l.tauxClic)}</td><td className="chiffres text-right">{l.leads} · {pct(l.tauxLead)}</td></tr>
+                ))}</tbody></table>
+              {ind.parJourSemaine.every((l) => l.envoyes === 0) ? <p className="mt-2 text-colonne text-encre-3">Aucun mail parti pour l'instant.</p> : null}
+            </Bloc>
             <Bloc titre="Le jour du clic"><div className="mt-3 flex h-24 items-end gap-2">{ind.clicsParJourSemaine.map((n, i) => <div key={i} className="flex flex-1 flex-col items-center gap-1"><span className="chiffres text-[10px] text-encre-2">{n}</span><span className="w-full rounded-t-[3px] bg-encre/70" style={{ height: `${(n / maxJs) * 60}px` }} /><span className="text-[10px] text-encre-2">{JOURS[i]}</span></div>)}</div></Bloc>
             <Bloc titre="L'heure d'ouverture"><div className="mt-3 flex h-20 items-end gap-[2px]">{ind.ouverturesParHeure.map((n, h) => <div key={h} title={`${h} h : ${n}`} className="flex flex-1 flex-col items-center gap-1"><span className="w-full rounded-t-[2px] bg-encre/60" style={{ height: `${(n / maxH) * 56}px` }} /><span className="text-[9px] text-encre-3">{h % 3 === 0 ? h : ""}</span></div>)}</div></Bloc>
           </div>

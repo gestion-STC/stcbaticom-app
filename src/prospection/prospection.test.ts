@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest"
 import type { Base, Campagne, Compte, Contact, Envoi, Equipe, Evenement, Inscription } from "./modele"
 import { basesVisibles, contactVisible, estEligible } from "./modele"
 import { leadsNouveaux, passage } from "./moteur"
-import { constats, indicateurs } from "./indicateurs"
+import { constats, indicateurs, joursDEnvoi } from "./indicateurs"
+import { configDe, versSignaux } from "./configCampagne"
 import modeleEcran from "./modele.ts?raw"
 import moteurEcran from "./moteur.ts?raw"
 import modeleServeur from "../../supabase/functions/_shared/campagnes/modele.ts?raw"
@@ -153,5 +154,32 @@ describe("le moteur du serveur", () => {
     const r = passage({ campagne: c, contacts: [k], inscriptions: [insc], envois: [], evenements: [{ id: "e", campagneId: c.id, envoiId: null, contactId: "k1", type: "reponse", le: "2026-11-02T08:00:00Z" }] }, new Date("2026-11-03T10:00:00Z"), () => "x")
     expect(r.envois).toHaveLength(0)
     expect(r.majInscriptions[0].statut).toBe("terminee")
+  })
+})
+
+describe("la plaquette et le meilleur jour d'envoi (16/11/2026)", () => {
+  it("ouvrir la plaquette fait un lead quand la règle est posée, pas un autre lien", () => {
+    const k = contact()
+    const insc: Inscription = { id: "ip", campagneId: "c1", contactId: k.id, entreeLe: "2026-11-02T09:00:00Z", etapeIndex: 2, prochaineLe: "2026-11-05T09:00:00Z", statut: "en_cours", sortieLe: null }
+    const site: Evenement = { id: "e1", campagneId: "c1", envoiId: null, contactId: k.id, type: "clic", le: "2026-11-02T10:00:00Z", lien: "site" }
+    const plaq: Evenement = { ...site, id: "e2", lien: "plaquette" }
+    const c = campagne({ signaux: ["clic_plaquette"] })
+    expect(leadsNouveaux(c, [site], [insc], [], [k], new Date("2026-11-02T11:00:00Z"), id).leads).toHaveLength(0)
+    expect(leadsNouveaux(c, [plaq], [insc], [], [k], new Date("2026-11-02T11:00:00Z"), id).leads.map((l) => l.signal)).toEqual(["A ouvert la plaquette"])
+  })
+  it("la règle « A ouvert la plaquette » devient le signal du moteur, et revient à l'écran", () => {
+    expect(versSignaux([{ id: "r", evenement: "A ouvert la plaquette", fois: 1, jours: 7 }])).toEqual(["clic_plaquette"])
+    const cfg = configDe(campagne({ signaux: ["clic_plaquette"] }))
+    expect(cfg.qualification.interet.map((r) => r.evenement)).toEqual(["A ouvert la plaquette"])
+  })
+  it("chaque mail compte pour le jour où il part, même ouvert le lendemain ; le lead revient au dernier mail avant lui", () => {
+    const mail = (id: string, contactId: string, le: string): Envoi => ({ id, campagneId: "c1", inscriptionId: "i", contactId, etapeId: "s1", varianteId: null, canal: "mail", le, statut: "envoye", cause: "" })
+    const env = [mail("lun1", "a", "2026-11-16T08:10:00Z"), mail("lun2", "b", "2026-11-16T08:20:00Z"), mail("jeu1", "a", "2026-11-19T08:10:00Z")]
+    const ev = (envoiId: string, type: Evenement["type"], le: string): Evenement => ({ id: envoiId + type + le, campagneId: "c1", envoiId, contactId: "a", type, le })
+    const evs = [ev("lun1", "ouvert", "2026-11-17T09:00:00Z"), ev("lun1", "ouvert", "2026-11-17T10:00:00Z"), ev("jeu1", "ouvert", "2026-11-19T09:00:00Z"), ev("jeu1", "clic", "2026-11-19T09:01:00Z")]
+    const lds = [{ id: "l", contactId: "a", baseId: "b1", campagneId: "c1", signal: "", creeLe: "2026-11-19T09:02:00Z", statut: "a_traiter" as const, proprietaireId: null }]
+    const [lundi, , , jeudi] = joursDEnvoi(env, evs, lds)
+    expect(lundi).toMatchObject({ envoyes: 2, ouverts: 1, cliques: 0, leads: 0, tauxOuverture: 0.5 })
+    expect(jeudi).toMatchObject({ envoyes: 1, ouverts: 1, cliques: 1, leads: 1, tauxLead: 1 })
   })
 })
