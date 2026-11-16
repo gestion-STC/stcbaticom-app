@@ -1,17 +1,15 @@
-// Relais sécurisé « Ringover SMS » — envoie un SMS via l'API Ringover.
+// Relais SMS — envoie un SMS par Twilio (Mahdi, 16/11/2026 : « à l'envoi, c'est STC Bâtiment et pas un numéro »).
 //
-// Même principe que rapid-task (appels) : la clé API Ringover reste côté serveur
-// (secret RINGOVER_API_KEY), jamais dans le navigateur. Utilisée par le séquenceur
-// de recrutement des sous-traitants (sequenceur-st) et testable à la main.
+// Ringover refusait l'envoi de SMS par l'API depuis le 19/10/2026 (403 « insufficient permissions »,
+// droit SMS absent des clés). Les APPELS restent sur Ringover ; seuls les SMS passent par Twilio,
+// comme dans STC Bâtiment (mêmes réglages, même nom d'expéditeur).
 //
-// Format CONFIRMÉ (OpenAPI Ringover) : POST /v2/push/sms, body JSON
-// { from_number, to_number, content } avec les numéros en E.164 sous forme de
-// CHAÎNE (« +33… »). L'API refuse les entiers ou les numéros sans « + » (« Bad body »).
+// Tous les SMS de Baticom passent ici : campagnes (campagnes-moteur), recrutement (sequenceur-st),
+// boutons d'essai. La réponse garde la même forme : { ok: true } ou { error, code? }.
 //
-// Secret nécessaire : RINGOVER_API_KEY (déjà en place, partagé avec rapid-task).
-// Un numéro Ringover activé pour l'envoi de SMS est requis (côté compte Ringover).
-
-const URL_SMS = "https://public-api.ringover.com/v2/push/sms" // ⚠️ à confirmer (voir en-tête)
+// Secrets nécessaires (projet STCBATICOM) : TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SMS_FROM
+// (le nom d'expéditeur, 11 caractères au plus, ou un numéro Twilio en +33…).
+import { estServeur, jetonDe, membre } from "../_shared/acces.ts"
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -38,12 +36,23 @@ const numeroOk = (d: string) => d.length >= 10 && d.length <= 15
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
+  if (req.method !== "POST") return reponse({ error: "POST attendu" }, 405)
+
+  // Sécurité (16/11/2026) : seuls un membre de l'équipe ou le serveur envoient un SMS à nos frais.
+  const jetonAppel = jetonDe(req)
+  const serveur = await estServeur(jetonAppel)
+  const appelant = serveur ? null : await membre(jetonAppel)
+  if (!serveur && !appelant) return reponse({ error: "non autorisé" }, 401)
 
   try {
     const corps = await req.json()
 
-    const cle = Deno.env.get("RINGOVER_API_KEY")
-    if (!cle) return reponse({ error: "Clé API Ringover non configurée (secret RINGOVER_API_KEY)." }, 500)
+    const sid = Deno.env.get("TWILIO_ACCOUNT_SID")
+    const jeton = Deno.env.get("TWILIO_AUTH_TOKEN")
+    const expediteur = (Deno.env.get("TWILIO_SMS_FROM") || "").trim()
+    if (!sid || !jeton || !expediteur) {
+      return reponse({ error: "Twilio non configuré (secrets TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SMS_FROM)." }, 500)
+    }
 
     const to = corps?.to
     const message = typeof corps?.message === "string" ? corps.message : ""
@@ -54,34 +63,28 @@ Deno.serve(async (req: Request) => {
     if (!numeroOk(dTo)) return reponse({ error: "Numéro du destinataire invalide (après normalisation)." }, 400)
 
     // GARDE-FOU (demande Mahdi 05/08/2026) : SMS uniquement vers les MOBILES
-    // français (06/07 → 336/337). Un numéro fixe (01-05, 09) ne recevra jamais
-    // le SMS mais l'envoi serait facturé quand même → refus propre, code
-    // "non_mobile", AVANT d'appeler Ringover (zéro consommation).
+    // français (06/07 → 336/337). Un fixe ne recevra jamais le SMS mais l'envoi
+    // serait facturé → refus propre, code "non_mobile", AVANT d'appeler Twilio.
     if (dTo.startsWith("33") && !/^33[67]\d{8}$/.test(dTo)) {
       return reponse({ error: "Numéro non mobile (fixe 01-05/09) — SMS non envoyé pour ne pas consommer un envoi perdu.", code: "non_mobile" }, 400)
     }
 
-    // Numéro émetteur : imposé côté serveur via le secret RINGOVER_SMS_FROM si présent
-    // (numéro Ringover activé pour le SMS), sinon celui fourni dans l'appel.
-    const from = Deno.env.get("RINGOVER_SMS_FROM") || corps?.from || ""
-    const dFrom = normaliser(String(from))
+    const form = new URLSearchParams()
+    form.append("To", "+" + dTo)
+    form.append("From", expediteur)
+    form.append("Body", message)
 
-    // Format EXIGÉ par l'API Ringover (/push/sms) : numéros en E.164 (« + » + indicatif),
-    // en CHAÎNE — pas en entier (sinon « Bad body »).
-    const payload: Record<string, string> = { to_number: "+" + dTo, content: message }
-    if (numeroOk(dFrom)) payload.from_number = "+" + dFrom
-
-    const r = await fetch(URL_SMS, {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: cle }, // clé BRUTE, pas de « Bearer »
-      body: JSON.stringify(payload),
+      headers: { Authorization: "Basic " + btoa(`${sid}:${jeton}`), "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
     })
 
-    const texte = await r.text()
+    const data = await r.json().catch(() => ({})) as { sid?: string; message?: string; code?: number }
     if (r.status === 429) return reponse({ error: "Trop de SMS rapprochés — patiente puis réessaie." }, 429)
-    if (!r.ok) return reponse({ error: `Ringover a refusé le SMS (code ${r.status}).`, detail: texte }, 502)
+    if (!r.ok) return reponse({ error: `Twilio a refusé le SMS (code ${data.code ?? r.status}) : ${data.message ?? ""}`.trim() }, 502)
 
-    return reponse({ ok: true, ringover: texte || "SMS envoyé" })
+    return reponse({ ok: true, sid: data.sid })
   } catch (e) {
     return reponse({ error: "Erreur du relais SMS : " + String(e) }, 500)
   }
