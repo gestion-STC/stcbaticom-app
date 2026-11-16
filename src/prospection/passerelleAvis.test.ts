@@ -1,6 +1,6 @@
 // La passerelle des avis (Mahdi, 11/11/2026) : qui reçoit une demande d'avis.
 import { describe, expect, it } from "vitest"
-import { aSolliciter, versAvisContact, type LigneAvisStc } from "../../supabase/functions/synchro-clients/avisRegles"
+import { aRetirer, aSolliciter, numeroFactice, versAvisContact, type LigneAvisStc } from "../../supabase/functions/synchro-clients/avisRegles"
 
 const maintenant = new Date("2026-11-11T10:00:00Z")
 const jours = (n: number) => new Date(maintenant.getTime() - n * 86_400_000).toISOString()
@@ -25,5 +25,17 @@ describe("à qui demander un avis", () => {
     expect(v.email).toBe("claire@exemple.fr")
     expect(v).not.toHaveProperty("desinscrit")
     expect(v.ref_stc).toBe("os:1")
+  })
+  it("un numéro factice ne compte pas (16/11/2026)", () => {
+    expect(numeroFactice("0000000000")).toBe(true)
+    expect(numeroFactice("+33 6 00 00 00 00")).toBe(true)
+    expect(numeroFactice("06 12 34 56 78")).toBe(false)
+    expect(aSolliciter([l({ email: "", telephone: "0000000000" })], maintenant)).toHaveLength(0)
+    expect(versAvisContact(l({ telephone: "33000000000" }), maintenant).mobile).toBe("")
+  })
+  it("ceux que STC Bâtiment ne renvoie plus sortent, sauf déjà en campagne ou en cas de panne", () => {
+    const ex = [{ id: "a", ref_stc: "os:1" }, { id: "b", ref_stc: "os:2" }, { id: "c", ref_stc: "os:3" }, { id: "d", ref_stc: null }]
+    expect(aRetirer(ex, ["os:1"], new Set(["c"]))).toEqual(["b"])
+    expect(aRetirer(ex, [], new Set())).toEqual([])
   })
 })
