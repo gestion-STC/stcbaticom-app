@@ -1,6 +1,7 @@
 // Un message du fil, présenté comme un client mail (STC Bâtiment, OSMessagesTabV2) — jamais en bulles.
 // Le rond : noir « STC » pour nos envois, bleu clair aux initiales pour ce qui arrive.
 // Replié = une ligne (le rond, l'expéditeur, l'extrait, la date) ; déplié = l'en-tête, le corps, les pièces jointes.
+import { ouvrirApresAttente } from "../../lib/ouvrirOnglet"
 import { useState } from "react"
 import { ChevronDown, ChevronRight, FileText, Image as ImageIcon, Loader2 } from "lucide-react"
 import { lienPieceJointe, type Message } from "../../lib/messagesDb"
@@ -29,8 +30,7 @@ export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle }: { m: M
   async function ouvrirPiece(chemin: string) {
     setPjEnCours(chemin)
     try {
-      const url = await lienPieceJointe(chemin)
-      window.open(url, "_blank", "noopener")
+      await ouvrirApresAttente(() => lienPieceJointe(chemin))
     } catch (e) {
       alert("Téléchargement impossible : " + (e instanceof Error ? e.message : e))
     } finally {

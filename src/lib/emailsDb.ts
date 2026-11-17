@@ -54,12 +54,14 @@ export async function creerEmail(e: Email): Promise<Email> {
 
 export async function majEmail(id: string, e: Email): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { error } = await supabase.from("emails").update(versLigne(e)).eq("id", id)
+  const { data, error } = await supabase.from("emails").update(versLigne(e)).eq("id", id).select("id")
   if (error) throw new Error(error.message)
+  if (!data?.length) throw new Error("la base n'a rien modifié (modèle supprimé ou droits insuffisants)")
 }
 
 export async function supprimerEmail(id: string): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
-  const { error } = await supabase.from("emails").delete().eq("id", id)
+  const { data, error } = await supabase.from("emails").delete().eq("id", id).select("id")
   if (error) throw new Error(error.message)
+  if (!data?.length) throw new Error("la base n'a rien supprimé (droits insuffisants ?)")
 }

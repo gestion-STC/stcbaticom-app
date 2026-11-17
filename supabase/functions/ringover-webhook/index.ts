@@ -8,15 +8,21 @@
 // un jeton secret : Ringover doit appeler .../ringover-webhook?cle=JETON.
 //
 // URL à coller dans le dashboard Ringover (Développeurs → Webhooks) :
-//   https://<ref-projet>.supabase.co/functions/v1/ringover-webhook?cle=stc-wh-7k2m9x4qv8
+//   affichée dans Baticom, Réglages › Numéros Ringover (« Copier l'adresse »).
 
-const JETON = "stc-wh-7k2m9x4qv8"
+// Le code secret vit dans la base (parametres.ringover_webhook_cle, 17/11/2026) : l'ancien était écrit ici, dans un dépôt public.
+async function jetonAttendu(supaUrl: string, srk: string): Promise<string> {
+  const r = await fetch(`${supaUrl}/rest/v1/parametres?cle=eq.ringover_webhook_cle&select=valeur`, { headers: { apikey: srk, Authorization: "Bearer " + srk } })
+  const l = (await r.json().catch(() => [])) as { valeur?: string }[]
+  return String(l?.[0]?.valeur ?? "")
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok")
   try {
     const url = new URL(req.url)
-    if (url.searchParams.get("cle") !== JETON) {
+    const attendu = await jetonAttendu(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "")
+    if (attendu.length < 32 || url.searchParams.get("cle") !== attendu) {
       return new Response("non autorisé", { status: 401 })
     }
 

@@ -248,7 +248,7 @@ export default function MachineST({ onNaviguer }: { onNaviguer?: (page: PageVois
                     <b className="block truncate font-semibold text-encre">{f.entreprise || f.contact || f.email}</b>
                     <span className="block text-encre-2">a cliqué « candidater » {depuis(maintenant - new Date(f.candidatureClicLe!).getTime())} · {f.metier || "corps inconnu"}</span>
                   </button>
-                  <Bouton taille="sm" variante="discret" icone={<Phone />} onClick={async () => { const r = await lancerAppelRingover(f.telephone); if (!r.ok) setErreur(r.message || "Appel impossible.") }}>Appeler</Bouton>
+                  <Bouton taille="sm" variante="discret" icone={<Phone />} onClick={async () => { setErreur(""); setInfo(""); const r = await lancerAppelRingover(f.telephone); if (!r.ok) setErreur(r.message || "Appel impossible."); else setInfo("Appel lancé : décroche ton téléphone Ringover, il sonne en premier.") }}>Appeler</Bouton>
                 </li>
               ))}
               {calc.aTraiter.interesses.length > 5 ? <li className="py-2 text-colonne text-encre-2">et {calc.aTraiter.interesses.length - 5} autres intéressés dans Suivi.</li> : null}

@@ -136,16 +136,16 @@ export async function deciderReponse(id: string, decision: "lead" | "dead"): Pro
 export async function marquerLus(ids: string[]): Promise<void> {
   if (!supabase || ids.length === 0) return
   const { error } = await supabase.from("messages").update({ lu: true }).in("id", ids)
-  if (error) console.error("Marquer lus :", error.message)
   prevenirPastille()
+  if (error) throw new Error(`Marquer comme lu : ${error.message}`)
 }
 
 // Marque une liste de messages comme NON lus (option « marquer comme non lu »).
 export async function marquerNonLus(ids: string[]): Promise<void> {
   if (!supabase || ids.length === 0) return
   const { error } = await supabase.from("messages").update({ lu: false }).in("id", ids)
-  if (error) console.error("Marquer non lus :", error.message)
   prevenirPastille()
+  if (error) throw new Error(`Marquer comme non lu : ${error.message}`)
 }
 
 // Lien de téléchargement temporaire (5 min) d'une pièce jointe reçue.
@@ -157,6 +157,19 @@ export async function lienPieceJointe(chemin: string): Promise<string> {
   const { data, error } = await supabase.storage.from("mails-recus").createSignedUrl(chemin, 300)
   if (error || !data?.signedUrl) throw new Error(error?.message || "Lien indisponible")
   return data.signedUrl
+}
+
+/** Les pièces d'un message reçu, prêtes à repartir avec un transfert (17/11/2026) : un lien valable 1 heure, que le
+ *  service d'envoi télécharge au moment de l'envoi. Une pièce déjà publique garde son adresse. */
+export async function piecesPourTransfert(pieces: PieceRecue[]): Promise<Array<{ nom: string; url: string; taille: number; chemin: string }>> {
+  if (!supabase || !pieces.length) return []
+  const sb = supabase
+  return Promise.all(pieces.map(async (p) => {
+    if (p.chemin.startsWith("https://")) return { nom: p.nom, url: p.chemin, taille: p.taille, chemin: p.chemin }
+    const { data, error } = await sb.storage.from("mails-recus").createSignedUrl(p.chemin, 3600)
+    if (error || !data?.signedUrl) throw new Error(`pièce « ${p.nom} » illisible : ${error?.message ?? "lien indisponible"}`)
+    return { nom: p.nom, url: data.signedUrl, taille: p.taille, chemin: p.chemin }
+  }))
 }
 
 /** Répond à un prospect depuis la boîte Instantly qui a reçu son message (jamais par Resend). */

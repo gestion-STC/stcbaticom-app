@@ -17,7 +17,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { ArrowLeft, ChevronLeft, ChevronRight, Forward, Loader2, Mail, RefreshCw, Reply, Search, Send, Trash2, X } from "lucide-react"
-import { deciderReponse } from "../lib/messagesDb"
+import { deciderReponse, piecesPourTransfert } from "../lib/messagesDb"
 import { creerContact } from "../demarchage/db"
 import {
   chargerMessages,
@@ -227,8 +227,11 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   function marquer(ids: string[], lu: boolean) {
     if (!ids.length) return
     setMessages((prev) => prev.map((x) => (ids.includes(x.id) ? { ...x, lu } : x)))
-    if (lu) marquerLus(ids)
-    else marquerNonLus(ids)
+    // 17/11/2026 : l'échec n'allait qu'à la console ; le message redevenait non lu au rechargement, sans explication.
+    ;(lu ? marquerLus(ids) : marquerNonLus(ids)).catch((e) => {
+      setMessages((prev) => prev.map((x) => (ids.includes(x.id) ? { ...x, lu: !lu } : x)))
+      setErreur(e instanceof Error ? e.message : String(e))
+    })
   }
 
   function ouvrirConversation(c: Conv) {
@@ -264,6 +267,9 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     setCompoCorps(m === "transferer" && ouverte ? corpsTransfert(ouverte.dernier) : "")
     setCompoPieces([])
     setMode(m)
+    // Transférer emporte les pièces jointes du message (17/11/2026 : seul le texte partait). On peut en retirer avant d'envoyer.
+    const recues = m === "transferer" && ouverte ? [...ouverte.messages].reverse().find((x) => x.piecesJointes.length)?.piecesJointes ?? [] : []
+    if (recues.length) piecesPourTransfert(recues).then((l) => setCompoPieces((actuelles) => (actuelles.length ? actuelles : l))).catch((e) => setEnvoiErreur(`Pièces jointes non reprises : ${e instanceof Error ? e.message : String(e)}. Ajoute-les à la main.`))
   }
 
   function ouvrirNouveau() {
