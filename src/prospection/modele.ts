@@ -79,6 +79,8 @@ export type Campagne = {
   coutSms: number
   /** Mode test (Mahdi, 07/11) : tout part vers ces coordonnées, pas vers les contacts. */
   modeTest?: boolean; testEmail?: string; testMobile?: string
+  /** La date de la dernière écriture en base, lue au chargement : un enregistrement ne doit jamais écraser une version plus récente (17/11/2026). */
+  majLe?: string
   /** « st » : la machine sous-traitants reprise ; « tracabilite » : les critères actuels des agences, jamais lancée. */
   origine?: string
   /** Le réglage complet, tel que l'écran l'édite (voir configCampagne.ts). Le moteur lit les colonnes ci-dessus. */
