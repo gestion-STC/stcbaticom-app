@@ -107,7 +107,7 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
   return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
 }
 
-type GardeConfig = { smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
+type GardeConfig = { retires?: string[]; smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
@@ -424,7 +424,9 @@ Deno.serve(async (req: Request) => {
         const fins = await tout<{ id: string; fin_le: string | null }>((d, f) => sb.from("avis_contacts").select("id, fin_le").eq("public", "locataires").order("id").range(d, f))
         for (const x of fins) if (!pretPourAvis(x.fin_le, r, maintenant)) pasPrets.add(String(x.id))
       }
-      const autorises = sansDejaSollicites(contacts.filter((k) => dejaDedans.has(k.id) || (!bloques.has(k.id) && !pasPrets.has(k.id) && !domaineBloque(k.email, domaines))), dejaDedans, actifs)
+      // Retirés de CETTE campagne (lot 4) : ni entrée, ni envoi ; remis, ils reprennent où ils en étaient.
+      const retires = new Set(garde?.retires ?? [])
+      const autorises = sansDejaSollicites(contacts.filter((k) => !retires.has(k.id) && (dejaDedans.has(k.id) || (!bloques.has(k.id) && !pasPrets.has(k.id) && !domaineBloque(k.email, domaines)))), dejaDedans, actifs)
       const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle)
       bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
       const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, parContact)

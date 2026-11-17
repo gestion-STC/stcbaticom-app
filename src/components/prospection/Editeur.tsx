@@ -13,6 +13,8 @@ import { AVIS_DEPART, estBaseAvis } from "../../prospection/avis"
 import MesureAvis from "./moteur/MesureAvis"
 import ChoixObjectif from "./moteur/ChoixObjectif"
 import TailleAudience from "./moteur/TailleAudience"
+import ListeAudience from "./moteur/ListeAudience"
+import { basculerRetire, raisonsExclusion } from "../../prospection/audience"
 import VerificationAdresses from "./moteur/VerificationAdresses"
 import TestSpam from "./moteur/TestSpam"
 import LinkedInReglage from "./moteur/LinkedInReglage"
@@ -91,7 +93,11 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const majDomaines = (l: string[]) => { setDomaines(l); void ecrireParametre("domaines_bloques", JSON.stringify(l)) }
   const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId && !domaineBloque(x.email, domaines)), [v.contacts, c.baseId, domaines])
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
-  const eligibles = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)).length, [contactsBase, compilee])
+  // L'audience réelle (lot 4) : les filtres, puis les mêmes exclusions que le moteur (« Toujours exclus », écart, retirés).
+  const parFiltres = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)), [contactsBase, compilee])
+  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: cfg.garde, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant }), [c.id, cfg.garde, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant])
+  const recevront = useMemo(() => (estBaseAvis(c.baseId) ? parFiltres : parFiltres.filter((x) => !raison(x))), [parFiltres, raison, c.baseId])
+  const eligibles = recevront.length
   const vide = messageVide(cfg)
   const avis = estBaseAvis(c.baseId)
   // Le pare-feu, à l'écran : ceux qui sont déjà dans une campagne en cours attendront qu'elle soit finie.
@@ -165,6 +171,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                   <Libelle titre="Sans contact depuis (jours)" className="max-w-[220px]"><Champ type="number" min={0} placeholder="Tous" value={c.audience.pasContacteDepuis || ""} onChange={(e) => setC({ ...c, audience: { ...c.audience, pasContacteDepuis: Number(e.target.value) || undefined } })} /></Libelle>
                   <div className="flex flex-wrap gap-4 text-legende">{(["email", "telephone", "mobile", ...(c.baseId === "artisans" ? [] : ["linkedin" as const])] as const).map((x) => <label key={x} className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--color-action)]" checked={c.audience.doitAvoir.includes(x)} onChange={() => setC({ ...c, audience: { ...c.audience, doitAvoir: c.audience.doitAvoir.includes(x) ? c.audience.doitAvoir.filter((y) => y !== x) : [...c.audience.doitAvoir, x] } })} />Doit avoir un {x === "email" ? "mail" : x === "telephone" ? "téléphone" : x === "linkedin" ? "profil LinkedIn" : "mobile (pour les SMS)"}</label>)}</div>
                 </div></Bloc>
+                {!avis ? <ListeAudience contacts={parFiltres} raison={raison} unite={base?.unite ?? "contacts"} onBasculer={(id) => maj((x) => ({ ...x, garde: basculerRetire(x.garde, id) }))} /> : null}
                 {c.baseId === "locataires" ? <Bloc titre="Quand demander l'avis"><div className="mt-3 space-y-2">
                   <div className="flex flex-wrap items-center gap-2 text-legende">Envoyer <Champ type="number" min={0} className="!w-20" aria-label="Jours après la fin du chantier" value={(cfg.avis ?? AVIS_DEPART).delaiJours} onChange={(e) => maj((x) => ({ ...x, avis: { ...(x.avis ?? AVIS_DEPART), delaiJours: Math.max(0, Number(e.target.value) || 0) } }))} /> jours après la fin du chantier, et pas pour un chantier fini depuis plus de <Champ type="number" min={1} max={365} className="!w-20" aria-label="Jours au plus" value={(cfg.avis ?? AVIS_DEPART).fenetreJours} onChange={(e) => maj((x) => ({ ...x, avis: { ...(x.avis ?? AVIS_DEPART), fenetreJours: Math.min(365, Math.max(1, Number(e.target.value) || 120)) } }))} /> jours</div>
                   <p className="text-colonne text-encre-2">0 jour : dès que le chantier passe à « Fin de chantier » ou « Livré » dans STC Bâtiment (la synchro passe chaque heure), pendant les heures d'envoi. La campagne tourne en continu : chaque nouveau chantier fini y entre tout seul.</p>
@@ -211,7 +218,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
               )}
           </div>
         </div>
-        <div className="min-w-0"><div className="sticky top-4 space-y-6"><TailleAudience total={eligibles} mails={contactsBase.filter((x) => x.email && estEligible(x, compilee)).length} mobiles={contactsBase.filter((x) => x.mobile && estEligible(x, compilee)).length} enAttente={enAttente} parJour={c.rythme.parJour} unite={base?.unite ?? "contacts"} cible={[base?.nom ?? "", avis ? "" : (c.audience.filtres.fichier?.length ? `${c.audience.filtres.fichier.length} fichier${c.audience.filtres.fichier.length > 1 ? "s" : ""}` : "toute la base"), cfg.zones.length ? `${cfg.zones.length} zone${cfg.zones.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")} /><VerificationAdresses emails={emailsCible} />{!avis ? <TestSpam campagneId={existante ? c.id : ""} campagneNom={c.nom} baseId={c.baseId} mentions={{ signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien }} suivi={cfg.garde.suiviOuvertures !== false} mails={cfg.actions.filter((a) => a.type === "mail").flatMap((a, i) => (cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? []).filter((x) => x.corps.trim()).map((x) => ({ id: `${a.id}:${x.id}`, libelle: `Mail ${i + 1} · ${x.nom}`, objet: x.objet, corps: x.corps })))} /> : null}{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
+        <div className="min-w-0"><div className="sticky top-4 space-y-6"><TailleAudience total={eligibles} mails={recevront.filter((x) => x.email).length} mobiles={recevront.filter((x) => x.mobile).length} enAttente={enAttente} parJour={c.rythme.parJour} unite={base?.unite ?? "contacts"} cible={[base?.nom ?? "", avis ? "" : (c.audience.filtres.fichier?.length ? `${c.audience.filtres.fichier.length} fichier${c.audience.filtres.fichier.length > 1 ? "s" : ""}` : "toute la base"), cfg.zones.length ? `${cfg.zones.length} zone${cfg.zones.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")} /><VerificationAdresses emails={emailsCible} />{!avis ? <TestSpam campagneId={existante ? c.id : ""} campagneNom={c.nom} baseId={c.baseId} mentions={{ signature: cfg.garde.signature, libelleLien: cfg.garde.libelleLien }} suivi={cfg.garde.suiviOuvertures !== false} mails={cfg.actions.filter((a) => a.type === "mail").flatMap((a, i) => (cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? []).filter((x) => x.corps.trim()).map((x) => ({ id: `${a.id}:${x.id}`, libelle: `Mail ${i + 1} · ${x.nom}`, objet: x.objet, corps: x.corps })))} /> : null}{avis ? <p className="text-colonne text-encre-2">Une campagne d'avis ne crée ni lead ni appel. Les réponses arrivent dans Campagnes › Avis.</p> : <Chemin cfg={cfg} />}</div></div>
       </div>
     </div>
   )
