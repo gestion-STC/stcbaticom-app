@@ -240,7 +240,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   })
 
   // ── La dictée : on parle, ça s'ajoute à la note de l'appel ──
-  const { ecoute, dicter } = useDictee({ dicteeRef, agenceCouranteId, agenceIdRef, setNote, setErreur })
+  const { ecoute, dicter, provisoire: dicteeProvisoire, message: dicteeMessage } = useDictee({ dicteeRef, agenceCouranteId, agenceIdRef, setNote, setErreur })
   // ── Le script d'appel : lu au montage, modifiable sur place ──
   const scriptAppel = useScriptAppel(setErreur)
 
@@ -1331,6 +1331,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
                 }
                 ecoute={ecoute}
                 dicter={dicter}
+                dicteeProvisoire={dicteeProvisoire}
+                dicteeMessage={dicteeMessage}
                 note={note}
                 setNote={setNote}
               />

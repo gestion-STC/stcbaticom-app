@@ -26,7 +26,11 @@ export function essaiMail(objet: string, corps: string, marque: string, bouton: 
   const m = apercuMail(objet, corps, bouton, prospection, v, mentions)
   return { objet: `${marque}${m.objet}`, html: m.html }
 }
-export const essaiSms = (corps: string, marque: string, v?: ValeursEssai) => `${marque}${remplirExemples(corps, v)}`
+/** Le SMS tel qu'il part : le moteur ajoute toujours « STOP : lien » (désinscription en un clic), sauf si le texte a déjà
+ *  {{lien_desinscription}}. L'aperçu et l'essai le montrent aussi (17/11/2026 : on croyait les SMS sans mention STOP). */
+export const LIGNE_STOP_EXEMPLE = "STOP : https://stcbatiment.fr/stop"
+export const smsTelQuilPart = (corps: string, v?: ValeursEssai) => `${remplirExemples(corps, v)}${corps.includes("{{lien_desinscription}}") ? "" : `\n${LIGNE_STOP_EXEMPLE}`}`
+export const essaiSms = (corps: string, marque: string, v?: ValeursEssai) => `${marque}${smsTelQuilPart(corps, v)}`
 
 /** La balise d'une image ajoutée à un mail : elle ne dépasse jamais la largeur du message. */
 export const baliseImage = (url: string, lien = "") => { const img = `<img src="${url}" alt="" width="600" style="max-width:100%;height:auto;border:0">`; return lien ? `<a href="${lien}">${img}</a>` : img }
