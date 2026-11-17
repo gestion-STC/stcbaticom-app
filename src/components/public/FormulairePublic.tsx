@@ -52,7 +52,13 @@ export default function FormulairePublic() {
       return () => { vivant = false }
     }
     appeler<Contenu>({ action: "lire", c: q.get("fc"), f: q.get("f"), k: q.get("k"), s: q.get("s"), t: q.get("t") ?? "" })
-      .then((d) => { if (vivant) setContenu(d) })
+      .then((d) => {
+        if (!vivant) return
+        // Avis = avis GOOGLE uniquement (17/11/2026) : la page envoie tout de suite sur Google, sans formulaire chez nous.
+        // Vaut aussi pour les liens déjà envoyés : ils ouvrent cette page.
+        if (d.type === "avis" && d.lienGoogle) { window.location.replace(d.lienGoogle); return }
+        setContenu(d)
+      })
       .catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) })
     return () => { vivant = false }
   }, [cle])
