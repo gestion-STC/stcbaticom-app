@@ -53,6 +53,8 @@ Deno.serve(async (req: Request) => {
       if (!test && creatif.lienGoogle) {
         const { count: vu } = await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("type", "clic").eq("lien", "google")
         if (!vu) await sb.from("cmp_evenements").insert({ campagne_id: c, contact_ref: k, type: "clic", le: new Date().toISOString(), lien: "google" })
+        // Parti sur Google : la demande est faite, plus de relance.
+        await sb.from("cmp_inscriptions").update({ statut: "terminee", sortie_le: new Date().toISOString() }).eq("campagne_id", c).eq("contact_ref", k).eq("statut", "en_cours")
       }
       const { count } = test ? { count: 0 } : await sb.from("avis").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k)
       return json({ type: "avis", titre: creatif.variantes?.[0]?.objet || creatif.nom, texte: creatif.variantes?.[0]?.corps ?? "", videoUrl: "", versId: "", questions: [], dejaRepondu: Boolean(count), lienGoogle: creatif.lienGoogle ?? "" })
