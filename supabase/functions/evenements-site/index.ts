@@ -29,6 +29,13 @@ async function nomDocument(sb: SupabaseClient, url: string): Promise<string> {
     const p = pieces.find((x) => x?.url === url)
     if (p?.nom) return p.nom.replace(/.pdf$/i, "").replace(/ (d+)$/, "")
   }
+  // Les PDF ajoutés depuis les campagnes (« Ajouter un PDF… », 17/11/2026).
+  const { data: ajoutes } = await sb.from("parametres").select("valeur").eq("cle", "documents_bibliotheque").maybeSingle()
+  try {
+    const l = JSON.parse(String((ajoutes as { valeur?: string } | null)?.valeur ?? "[]")) as { nom?: string; url?: string }[]
+    const p = Array.isArray(l) ? l.find((x) => x?.url === url) : undefined
+    if (p?.nom) return p.nom.replace(/.pdf$/i, "")
+  } catch { /* valeur illisible : pas de nom */ }
   return ""
 }
 

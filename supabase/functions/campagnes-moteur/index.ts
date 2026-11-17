@@ -305,6 +305,8 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     if (texte.includes("{{lien_site}}")) remplacer("{{lien_site}}", (await lienAgence(sb, base, k.id, "site")).url)
     // En test, la plaquette s'ouvre sans rien noter : un clic d'essai ne doit pas faire un lead sur une vraie agence.
     for (const [variable, fichier] of Object.entries(PLAQUETTES)) if (texte.includes(variable)) remplacer(variable, test ? `${base}/storage/v1/object/public/pieces-jointes/${fichier}` : (await lienAgence(sb, base, k.id, "plaquette", fichier)).url)
+    // N'importe quel PDF de la bibliothèque (lot 3, 17/11/2026) : {{document:<fichier>}}, inséré depuis l'écran des créatifs.
+    for (const variable of new Set(`${texte}${sujet}`.match(/\{\{document:[A-Za-z0-9._-]+\}\}/g) ?? [])) { const fichier = variable.slice(11, -2); remplacer(variable, test ? `${base}/storage/v1/object/public/pieces-jointes/${fichier}` : (await lienAgence(sb, base, k.id, "plaquette", fichier)).url) }
   }
   if (test) stop = LIEN_NEUTRE
   // Un mail de prospection propose toujours de ne plus en recevoir, agence ou artisan.
