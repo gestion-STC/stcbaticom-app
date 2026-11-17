@@ -16,7 +16,7 @@ import MailDeSuivi from "./session/MailDeSuivi"
 import { useReglages } from "../../demarchage/reglages"
 import OptionsMotifs from "../prospection/moteur/OptionsMotifs"
 import { ISSUES, MOTIFS, RESULTATS, effetAnnonce, nomContact, type Agence, type Contact, type Issue, type Motif, type Resultat } from "../../demarchage/modele"
-import { TYPES_RDV, choixComplet, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
+import { TYPES_RDV, choixComplet, datePassee, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
 import { Bouton, Etiquette, Champ, Selecteur } from "../../ui"
 
 const NOUVEAU_CONTACT = "__nouveau__"
@@ -117,7 +117,8 @@ export default function BarreResultat({
   const mailAttend = avecMail && envoyer && ia?.etat === "attente" && !mailManuel
   const rappelLe = issue === "a_rappeler" ? versIso(rappel) : null
   const rdvLe = issue === "rdv" ? versIso(rdv) : null
-  const complet = choixComplet({ resultat, issue, motif, rappelLe, rdvLe })
+  const complet = choixComplet({ resultat, issue, motif, rappelLe, rdvLe }, new Date())
+  const MSG_PASSEE = "Cette date est déjà passée : vérifie le jour et le mois."
 
   function choisirResultat(r: Resultat) {
     setChoisi(r)
@@ -206,6 +207,7 @@ export default function BarreResultat({
               <Etiquette texte="Rappeler le">
                 <Champ type="datetime-local" value={rappel} onChange={(e) => setRappel(e.target.value)} />
               </Etiquette>
+              {datePassee(rappelLe, new Date()) ? <p className="mt-1 text-colonne text-alerte">{MSG_PASSEE}</p> : null}
             </div>
           ) : null}
           {issue === "rdv" ? (
@@ -213,6 +215,7 @@ export default function BarreResultat({
               <Etiquette texte="Rendez-vous le">
                 <Champ type="datetime-local" value={rdv} onChange={(e) => setRdv(e.target.value)} />
               </Etiquette>
+              {datePassee(rdvLe, new Date()) ? <p className="mt-1 text-colonne text-alerte">{MSG_PASSEE}</p> : null}
               <Etiquette texte="Type">
                 <Selecteur value={rdvType} onChange={(e) => setRdvType(e.target.value as TypeRdv)}>
                   {TYPES_RDV.map((t) => (
