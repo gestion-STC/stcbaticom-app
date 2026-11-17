@@ -41,7 +41,7 @@ export const versCampagne = (l: L): Campagne => ({
   id: String(l.id), nom: String(l.nom), baseId: String(l.base_id), objectif: String(l.objectif ?? ""), statut: l.statut as Campagne["statut"],
   audience: l.audience as Campagne["audience"], rythme: l.rythme as Campagne["rythme"], etapes: (l.etapes ?? []) as Campagne["etapes"], signaux: (l.signaux ?? []) as Campagne["signaux"],
   creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0),
-  modeTest: Boolean(l.mode_test), testEmail: String(l.test_email ?? ""), testMobile: String(l.test_mobile ?? ""), origine: String(l.origine ?? ""), config: (l.config as Record<string, unknown>) ?? undefined,
+  modeTest: Boolean(l.mode_test), testEmail: String(l.test_email ?? ""), testMobile: String(l.test_mobile ?? ""), origine: String(l.origine ?? ""), config: (l.config as Record<string, unknown>) ?? undefined, majLe: l.maj_le ? String(l.maj_le) : undefined,
 })
 const versLigne = (c: Campagne) => ({
   id: c.id, nom: c.nom, base_id: c.baseId, objectif: c.objectif, statut: c.statut, audience: c.audience, rythme: c.rythme, etapes: c.etapes, signaux: c.signaux,
@@ -94,9 +94,22 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
       taches: taches.map((l): Tache => ({ id: String(l.id), contactId: String(l.contact_ref), campagneId: String(l.campagne_id), etapeId: String(l.etape_id), type: l.type as Tache["type"], consigne: String(l.consigne ?? ""), creeLe: String(l.cree_le), faiteLe: (l.faite_le as string) ?? null })),
     })
   }
+  // Un enregistrement depuis l'écran ne doit jamais écraser une version plus récente (17/11/2026 : un lancement avait remis
+  // le mode test et effacé des exclusions posées entre-temps). Campagne déjà en base : on n'écrit que si elle n'a pas
+  // bougé depuis le chargement (même maj_le) ; sinon on recharge et on prévient.
   const ecrire = async (c: Campagne) => {
-    const { error } = await sb().from("cmp_campagnes").upsert(versLigne(c))
+    const ligne = versLigne(c)
+    const { data, error } = c.majLe
+      ? await sb().from("cmp_campagnes").update(ligne).eq("id", c.id).eq("maj_le", c.majLe).select("id")
+      : await sb().from("cmp_campagnes").upsert(ligne).select("id")
     if (error) { onErreur(`La campagne n'a pas été enregistrée : ${error.message}`); await charger(); return }
+    if (c.majLe && !(data ?? []).length) onErreur("La campagne a été modifiée ailleurs depuis l'ouverture de cette page : rien n'a été écrasé. Elle est rechargée, refais ta modification.")
+    await charger()
+  }
+  // Lancer, mettre en pause, reprendre : seulement le statut (et la date de lancement), jamais le reste de la campagne.
+  const ecrireStatut = async (c: Campagne) => {
+    const { error } = await sb().from("cmp_campagnes").update({ statut: c.statut, lancee_le: c.lanceeLe, maj_le: new Date().toISOString() }).eq("id", c.id)
+    if (error) onErreur(`Le statut n'a pas été changé : ${error.message}`)
     await charger()
   }
   const lot2 = () => { throw new Error("Disponible au lot 2 (session unique, cloison par équipe).") }
@@ -105,8 +118,8 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     lire: () => etat,
     ecouter: (f) => { ecouteurs.add(f); return () => ecouteurs.delete(f) },
     enregistrerCampagne: (c) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); void ecrire({ ...c, creeParId: c.creeParId || compte.id }) },
-    changerStatut: (id, statut) => { const c = etat.campagnes.find((x) => x.id === id); if (c) { const s = { ...c, statut, lanceeLe: c.lanceeLe ?? (statut === "active" ? new Date().toISOString() : null) }; publier({ ...etat, campagnes: etat.campagnes.map((x) => (x.id === id ? s : x)) }); void ecrire(s) } },
-    dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: true }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
+    changerStatut: (id, statut) => { const c = etat.campagnes.find((x) => x.id === id); if (c) { const s = { ...c, statut, lanceeLe: c.lanceeLe ?? (statut === "active" ? new Date().toISOString() : null) }; publier({ ...etat, campagnes: etat.campagnes.map((x) => (x.id === id ? s : x)) }); void ecrireStatut(s) } },
+    dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: true, majLe: undefined }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
     noterAppel: lot2, traiterLead: lot2, faireTache: lot2, marquerGagne: lot2, repondre: lot2, lireMessage: lot2, attribuer: lot2, majEquipe: lot2, majBase: lot2, importer: lot2,
   }
 }
