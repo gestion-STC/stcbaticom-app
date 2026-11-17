@@ -1,14 +1,17 @@
 // L'aperçu d'un mail tel qu'il arrive (Mahdi, 09/11/2026) : la même mise en forme que l'envoi, avec des valeurs d'exemple.
 // Fichier PUR.
 import { corpsAvecMentions, remplirVariables, type Mentions } from "./instantlyOutils"
+import { remplacerDocuments } from "./documentsCampagne"
 
 const LIEN_EXEMPLE = "https://www.stcbatiment.fr"
+// Les documents s'ouvrent pour de vrai dans l'aperçu et l'essai (avant : ils menaient au site), sans rien noter.
+const BASE_FICHIERS = `${(import.meta.env?.VITE_SUPABASE_URL as string | undefined) ?? ""}/storage/v1/object/public/pieces-jointes/`
 const EXEMPLES: Record<string, string> = { contact: "Claire Martin", prenom: "Claire", entreprise: "Agence Exemple", agence: "Agence Exemple", secteur: "Paris 12e", enseigne: "", metier: "Peinture", zone: "Paris", accroche_ia: "[La phrase écrite par l'IA pour cette fiche.]" }
 
 export type ValeursEssai = Record<string, string>
 
 export function remplirExemples(s: string, v?: ValeursEssai): string {
-  return remplirVariables(s, v ?? EXEMPLES).replace(/\{\{([a-z_]+)\}\}/g, (tout, cle: string) => (cle.startsWith("lien_") ? LIEN_EXEMPLE : tout))
+  return remplirVariables(remplacerDocuments(s, BASE_FICHIERS), v ?? EXEMPLES).replace(/\{\{([a-z_]+)\}\}/g, (tout, cle: string) => (cle.startsWith("lien_") ? LIEN_EXEMPLE : tout))
 }
 
 /** Le mail d'exemple. `bouton` : le libellé du lien vers la page ou le formulaire du créatif, s'il y en a un. */

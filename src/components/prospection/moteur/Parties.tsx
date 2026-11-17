@@ -5,6 +5,9 @@ import { apercuMail, baliseImage, conseilsMail, type ValeursEssai } from "../../
 import { chargerModelesMail, enregistrerModeleMail, type ModeleMail } from "../../../lib/modelesMail"
 import AjoutImage from "./AjoutImage"
 import InsererAvis from "./InsererAvis"
+import InsererDocument from "./InsererDocument"
+import { variablesInconnues } from "../../../prospection/documentsCampagne"
+import type { PieceJointe } from "../../../emails"
 import EssaiCreatif from "./EssaiCreatif"
 import PersonnalisationIA from "./PersonnalisationIA"
 import { ArrowDown, ArrowUp, Clock, FileText, GitBranch, LayoutTemplate, Mail, MessageSquare, Newspaper, Phone, Play, Plus, Square, Star, Trash2, UserRoundPlus, X, type LucideIcon } from "lucide-react"
@@ -101,12 +104,13 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
   const [modeles, setModeles] = useState<ModeleMail[]>([])
   useEffect(() => { chargerModelesMail().then(setModeles).catch(() => undefined) }, [])
   const variables = VARIABLES[avis ? "avis" : baseId === "artisans" ? "artisan" : "agence"]
+  const [documents, setDocuments] = useState<PieceJointe[] | undefined>(undefined)
   const insererVariable = (i: number, corps: string, id: string, texte: string) => { const el = document.getElementById(`corps-${id}`) as HTMLTextAreaElement | null; const a = el?.selectionStart ?? corps.length, b = el?.selectionEnd ?? corps.length; majV(i, { corps: corps.slice(0, a) + texte + corps.slice(b) }) }
   const liables = cfg.creatifs.filter((x) => k && x.id !== k.id && (x.type === "page" || x.type === "formulaire"))
   const texteLong = k?.type === "mail" || k?.type === "page" || k?.type === "avis"
   return (
     <div className="space-y-4">
-      <Bandeau role="info">{avis ? <>Dans le mail, {"{{lien_avis}}"} devient le lien personnel de chaque contact vers la page d'avis.</> : <>Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Les documents, en liens suivis : {"{{lien_plaquette}}"} (service gestion), {"{{lien_plaquette_plateforme}}"}, {"{{lien_kbis}}"}, {"{{lien_assurance}}"} ; par exemple [Notre plaquette (PDF)]({"{{lien_plaquette}}"}). Chaque contact reçoit son lien personnel. Pour choisir les mots du lien : [Créer mon compte]({"{{lien_principal}}"}). Si une fiche n'a pas la donnée, le texte après la barre la remplace : {"{{secteur|votre secteur}}"}.</>}</Bandeau>
+      <Bandeau role="info">{avis ? <>Dans le mail, {"{{lien_avis}}"} devient le lien personnel de chaque contact vers la page d'avis.</> : <>Un mail peut mener à sa page ou à son formulaire avec « Le bouton mène vers », ou dans le texte avec {"{{lien_formulaire}}"} et {"{{lien_page}}"}. Les documents : « Insérer un document » sous le texte (ou {"{{lien_plaquette}}"} (service gestion), {"{{lien_plaquette_plateforme}}"}, {"{{lien_kbis}}"}, {"{{lien_assurance}}"} ; par exemple [Notre plaquette (PDF)]({"{{lien_plaquette}}"}). Chaque contact reçoit son lien personnel. Pour choisir les mots du lien : [Créer mon compte]({"{{lien_principal}}"}). Si une fiche n'a pas la donnée, le texte après la barre la remplace : {"{{secteur|votre secteur}}"}.</>}</Bandeau>
       <div className="grid gap-8 @min-[760px]:grid-cols-[170px_minmax(0,1fr)_minmax(0,0.75fr)]">
         <div className="space-y-1">
           {cfg.creatifs.map((x) => { const I = ICONE_CREATIF[x.type]; return <button key={x.id} type="button" onClick={() => setId(x.id)} className={`flex w-full items-center gap-2 rounded-4 px-2 py-1.5 text-left text-legende ${k?.id === x.id ? "bg-fond-4 font-medium" : "hover:bg-fond-3"}`}><I size={14} className="shrink-0 text-encre-2" /><span className="min-w-0 flex-1 truncate">{x.nom}</span></button> })}
@@ -123,6 +127,8 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
                 {texteLong ? <Libelle titre={k.type === "mail" ? "Objet" : "Titre"}><Champ value={v.objet} onChange={(e) => majV(i, { objet: e.target.value })} /></Libelle> : null}
                 <Libelle titre="Texte"><Zone id={`corps-${v.id}`} rows={k.type === "sms" ? 3 : 6} value={v.corps} placeholder={avis ? "Variables : {{contact}}, {{entreprise}}, {{lien_avis}}" : "Variables : {{contact}}, {{entreprise}}, {{lien_principal}}, {{lien_formulaire}}, {{lien_page}}"} onChange={(e) => majV(i, { corps: e.target.value })} /></Libelle>
                 {k.type === "mail" || k.type === "sms" ? <div className="flex flex-wrap items-center gap-1.5"><span className="text-colonne text-encre-2">Insérer :</span>{variables.map(([nom, code]) => <button key={code} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insererVariable(i, v.corps, v.id, code)} className="h-6 rounded-full border-[0.5px] border-trait px-2.5 text-colonne text-encre hover:bg-fond-2">{nom}</button>)}</div> : null}
+                {k.type === "mail" && !avis && baseId !== "artisans" ? <InsererDocument onDocuments={setDocuments} onLien={(lien) => insererVariable(i, v.corps, v.id, lien)} /> : null}
+                {k.type === "mail" || k.type === "sms" ? variablesInconnues(`${v.objet}\n${v.corps}`, documents).map((x) => <p key={x} className="text-colonne text-alerte">{x} n'est pas reconnu : il partirait tel quel. Corrige-le ou réinsère le document.</p>) : null}
                 {(k.type === "mail" || k.type === "page") && !avis ? <InsererAvis onAvis={(citation) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${citation}` })} /> : null}
                 {k.type === "mail" ? <AjoutImage onImage={(url, lien) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${baliseImage(url, lien)}` })} /> : null}
                 {k.type === "mail" ? conseilsMail(v.objet, v.corps, premierMail === k.id).map((t) => <p key={t} className="text-colonne text-attention">{t}</p>) : null}
