@@ -259,7 +259,7 @@ async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: s
   return { ok: false, erreur: `LinkedIn (${r.status}) ${r.type}` }
 }
 
-async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter" | "linkedin", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number, modeLinkedIn = "", compteLinkedIn: CompteLinkedIn | null = null): Promise<Resultat> {
+async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter" | "linkedin", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number, modeLinkedIn = "", compteLinkedIn: CompteLinkedIn | null = null, envoiId = ""): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const gc = (c.config as { garde?: GardeConfig } | null)?.garde, mentions: Mentions = { signature: gc?.signature, libelleLien: gc?.libelleLien }
@@ -344,7 +344,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription)
     if (fil) return fil
   }
-  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions, boites: gc?.boites }, k, to, sujet, texte, varianteId, test, desinscription)
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions, boites: gc?.boites }, k, to, sujet, texte, varianteId, test, desinscription, envoiId)
 }
 
 Deno.serve(async (req: Request) => {
@@ -510,7 +510,7 @@ Deno.serve(async (req: Request) => {
         const { error: errLigne } = await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
         // Sans sa ligne, l'envoi ne serait pas tracé : il ne part pas (il sera rejoué au passage suivant).
         if (errLigne) { reportees.add(e.inscriptionId); erreursCampagne.push(`ligne d'envoi non écrite : ${errLigne.message}`); continue }
-        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "", compteLi)
+        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "", compteLi, e.id)
         if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports["texte IA à relire"] = (reports["texte IA à relire"] ?? 0) + 1; continue }
         if (r.ok) {
           const { error: errEnvoye } = await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null, ...(canal === "linkedin" && compteLi ? { compte_linkedin: compteLi.id } : {}) }).eq("id", e.id)

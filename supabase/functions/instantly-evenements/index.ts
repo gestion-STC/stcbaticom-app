@@ -47,15 +47,25 @@ Deno.serve(async (req: Request) => {
     const le = String(b.timestamp ?? new Date().toISOString()), email = String(b.lead_email ?? ""), messageId = String(b.email_id ?? "")
     const artisan = baseId === "artisans"
     const lien = artisan ? { sous_traitant_id: contact, espace: "recrutement" } : { agence_id: contact, espace: "demarchage" }
+    // L'envoi exact (17/11/2026) : le moteur le confie à Instantly (bt_envoi). Avant, chaque événement allait au DERNIER
+    // envoi du contact : une ouverture du mail 1 arrivée après le mail 2 était comptée au mail 2 (test A/B faussé).
+    const envoiDeLEvenement = async (): Promise<string | null> => {
+      const id = String(b.bt_envoi ?? "")
+      if (/^[0-9a-f-]{36}$/i.test(id)) {
+        const { data } = await sb.from("cmp_envois").select("id").eq("id", id).eq("campagne_id", campagneId).maybeSingle()
+        if (data) return id
+      }
+      return dernierEnvoi(sb, campagneId, contact)
+    }
     const evenement = async (t: string) => {
-      const { error } = await sb.from("cmp_evenements").insert({ campagne_id: campagneId, envoi_id: await dernierEnvoi(sb, campagneId, contact), contact_ref: contact, type: t, le })
+      const { error } = await sb.from("cmp_evenements").insert({ campagne_id: campagneId, envoi_id: await envoiDeLEvenement(), contact_ref: contact, type: t, le })
       if (error) throw new Error(error.message)
     }
 
     if (type === "email_sent" && messageId && !(await dejaRange(sb, "sortant", messageId))) {
       const { error } = await sb.from("messages").insert({ sens: "sortant", de: String(b.email_account ?? ""), a: email, objet: String(b.email_subject ?? ""), corps_text: String(b.email_text ?? ""), corps_html: String(b.email_html ?? ""), message_id: messageId, lu: true, ...lien })
       if (error) throw new Error(error.message)
-      const envoi = await dernierEnvoi(sb, campagneId, contact)
+      const envoi = await envoiDeLEvenement()
       if (envoi) await sb.from("cmp_envois").update({ fournisseur_id: messageId }).eq("id", envoi)
     } else if (type === "email_opened") await evenement("ouvert")
     else if (type === "email_bounced") {
