@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, remplirContact, remplirVariables, valeursDe } from "./instantlyOutils"
+import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, reglageInstantly, remplirContact, remplirVariables, valeursDe } from "./instantlyOutils"
 import ecran from "./instantlyOutils.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/instantlyOutils.ts?raw"
 
@@ -24,6 +24,15 @@ describe("instantlyOutils", () => {
     expect(boitePrete({ status: 1, setup_pending: false })).toBe(true)
     expect(boitePrete({ status: 1, setup_pending: true })).toBe(false)
     expect(boitePrete({ status: -1, setup_pending: false })).toBe(false)
+  })
+  it("prépare les réglages à recopier chez Instantly, sans jamais vider les boîtes", () => {
+    const c = { baseId: "agences", rythme: { jours: [1, 2, 4], heureMin: 8, heureMax: 11 }, plafond: 40, suiviOuvertures: true }
+    const r = reglageInstantly(c, boites)
+    expect(r.daily_limit).toBe(40)
+    expect(r.campaign_schedule.schedules[0].timing).toEqual({ from: "08:00", to: "11:00" })
+    expect(r.email_list).toEqual(["partenaires@x.com", "interventions@x.com"])
+    expect("email_list" in reglageInstantly(c, [])).toBe(false)
+    expect(JSON.stringify(reglageInstantly({ ...c, rythme: { ...c.rythme, heureMax: 9 } }, boites))).not.toBe(JSON.stringify(r))
   })
   it("traduit les jours et les heures", () => {
     const h = horaireInstantly({ jours: [1, 5, 7], heureMin: 9, heureMax: 24 }).schedules[0]

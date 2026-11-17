@@ -28,6 +28,16 @@ export function horaireInstantly(r: { jours: number[]; heureMin: number; heureMa
   }
 }
 
+/**
+ * Les réglages qu'Instantly doit connaître pour une campagne (17/11/2026) : heures, jours, plafond, boîtes, ouvertures.
+ * Modifiés dans Baticom après le premier envoi, ils sont recopiés chez Instantly au passage suivant du moteur.
+ * Aucune boîte prête : la liste n'est pas touchée, pour ne jamais vider la campagne.
+ */
+export function reglageInstantly(c: { baseId: string; rythme: { jours: number[]; heureMin: number; heureMax: number }; plafond: number; suiviOuvertures: boolean }, pretes: string[]) {
+  const boites = boitesDe(c.baseId, pretes)
+  return { campaign_schedule: horaireInstantly(c.rythme), daily_limit: c.plafond, open_tracking: c.suiviOuvertures, ...(boites.length ? { email_list: boites } : {}) }
+}
+
 const echapper = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 const IMAGE = /(<a\b[^>]*>\s*<img\b[^>]*>\s*<\/a>|<img\b[^>]*>)/i
 const estHtml = (s: string) => /<(html|body|table|div|p|a|br)\b/i.test(s.replace(new RegExp(IMAGE.source, "gi"), ""))

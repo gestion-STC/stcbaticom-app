@@ -45,7 +45,7 @@ export const versCampagne = (l: L): Campagne => ({
 })
 const versLigne = (c: Campagne) => ({
   id: c.id, nom: c.nom, base_id: c.baseId, objectif: c.objectif, statut: c.statut, audience: c.audience, rythme: c.rythme, etapes: c.etapes, signaux: c.signaux,
-  cout_sms: c.coutSms, mode_test: c.modeTest ?? true, test_email: c.testEmail ?? "", test_mobile: c.testMobile ?? "", lancee_le: c.lanceeLe, maj_le: new Date().toISOString(), ...(c.config ? { config: c.config } : {}),
+  cout_sms: c.coutSms, mode_test: false, test_email: c.testEmail ?? "", test_mobile: c.testMobile ?? "", lancee_le: c.lanceeLe, maj_le: new Date().toISOString(), ...(c.config ? { config: c.config } : {}),
 })
 
 export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void): Depot & { charger: () => Promise<void> } {
@@ -119,7 +119,7 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     ecouter: (f) => { ecouteurs.add(f); return () => ecouteurs.delete(f) },
     enregistrerCampagne: (c) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); void ecrire({ ...c, creeParId: c.creeParId || compte.id }) },
     changerStatut: (id, statut) => { const c = etat.campagnes.find((x) => x.id === id); if (c) { const s = { ...c, statut, lanceeLe: c.lanceeLe ?? (statut === "active" ? new Date().toISOString() : null) }; publier({ ...etat, campagnes: etat.campagnes.map((x) => (x.id === id ? s : x)) }); void ecrireStatut(s) } },
-    dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: true, majLe: undefined }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
+    dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: false, majLe: undefined }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
     noterAppel: lot2, traiterLead: lot2, faireTache: lot2, marquerGagne: lot2, repondre: lot2, lireMessage: lot2, attribuer: lot2, majEquipe: lot2, majBase: lot2, importer: lot2,
   }
 }

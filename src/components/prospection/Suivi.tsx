@@ -17,6 +17,7 @@ import MesureAvis from "./moteur/MesureAvis"
 import { chargerFichiers, type Fichier } from "../../lib/fichiersDb"
 import TextesARelire from "./moteur/TextesARelire"
 import { estBaseAvis } from "../../prospection/avis"
+import { alerteLancement } from "../../prospection/alerteLancement"
 
 type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "contacts" | "appels"
 const PT: Record<Constat["ton"], string> = { ok: "bg-ok", attention: "bg-attention", alerte: "bg-alerte" }
@@ -51,16 +52,19 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   const maxJs = Math.max(1, ...ind.clicsParJourSemaine)
 
   const arret = (c.config as { arret?: { rebonds: number; envois: number } } | null | undefined)?.arret
-  const entete = <Titre titre={c.nom} sous={<><NomBase base={base} /> · {c.objectif} · <Pastille role={c.statut === "active" ? "fait" : c.statut === "pause" ? "attente" : "inerte"}>{c.statut === "active" ? "Active" : c.statut === "pause" ? "En pause" : c.statut === "brouillon" ? "Brouillon" : "Terminée"}</Pastille>{c.lanceeLe ? ` · lancée le ${dateHeure(c.lanceeLe)}` : ""} · {c.rythme.parJour} entrées max par jour{c.modeTest ? <> · <b className="font-medium text-attention">mode test : tout part vers {c.testEmail || "l'adresse de test"}</b></> : null}</>}
+  const entete = <Titre titre={c.nom} sous={<><NomBase base={base} /> · {c.objectif} · <Pastille role={c.statut === "active" ? "fait" : c.statut === "pause" ? "attente" : "inerte"}>{c.statut === "active" ? "Active" : c.statut === "pause" ? "En pause" : c.statut === "brouillon" ? "Brouillon" : "Terminée"}</Pastille>{c.lanceeLe ? ` · lancée le ${dateHeure(c.lanceeLe)}` : ""} · {c.rythme.parJour} entrées max par jour</>}
         droite={<>
           <Bouton icone={<Pencil />} onClick={modifier}>Modifier</Bouton>
           <Bouton icone={<Copy />} onClick={() => depot.dupliquerCampagne(c.id)}>Dupliquer</Bouton>
           {c.statut === "active" ? <Bouton icone={<Pause />} onClick={() => depot.changerStatut(c.id, "pause")}>Mettre en pause</Bouton> : <Bouton variante="plein" icone={<Play />} onClick={() => depot.changerStatut(c.id, "active")}>{c.statut === "brouillon" ? "Lancer" : "Reprendre"}</Bouton>}
         </>} />
-  if (estBaseAvis(c.baseId)) return <div className="space-y-6">{entete}<MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /></div>
+  const alerte = alerteLancement(c, v.etat.envois, v.etat.maintenant)
+  const bandeauAlerte = alerte ? <Bandeau role="alerte">{alerte} Vérifie la campagne, ou mets-la en pause.</Bandeau> : null
+  if (estBaseAvis(c.baseId)) return <div className="space-y-6">{entete}{bandeauAlerte}<MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /></div>
   return (
     <div className="space-y-6">
       {entete}
+      {bandeauAlerte}
       {(c.config as { creatifs?: { ia?: { actif?: boolean; relecture?: string } }[] } | undefined)?.creatifs?.some((k) => k.ia?.actif && k.ia.relecture === "tous") ? <TextesARelire campagneId={c.id} nomDe={(id) => v.contacts.find((x) => x.id === id)?.nom ?? "Contact"} /> : null}
       {c.statut === "pause" && arret ? <Bandeau role="alerte">Mise en pause automatiquement : {arret.rebonds} rebonds sur {arret.envois} envois. Nettoie ou vérifie le fichier avant de relancer.</Bandeau> : null}
 
