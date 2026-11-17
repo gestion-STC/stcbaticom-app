@@ -46,7 +46,8 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
   const [edition, setEdition] = useState(false)
   const [retires, setRetires] = useState<string[]>([])
 
-  useEffect(() => { chargerEmails().then(setModeles).catch(() => {}) }, [])
+  const [erreurModeles, setErreurModeles] = useState("")
+  useEffect(() => { chargerEmails().then(setModeles).catch((e) => setErreurModeles(`Modèles et documents illisibles : ${e instanceof Error ? e.message : String(e)}`)) }, [])
   const [ajoutes, setAjoutes] = useState<PieceJointe[]>([])
   const base = useMemo(() => documentsDeBase(modeles), [modeles])
   const documents = useMemo(() => [...base, ...ajoutes], [base, ajoutes])
@@ -81,6 +82,7 @@ export default function MailDeSuivi({ destinataire, brouillon, envoyer, setEnvoy
       </div>
       {envoyer ? (
         <div className="space-y-3">
+          {erreurModeles ? <p className="text-colonne text-alerte">{erreurModeles}</p> : null}
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <button type="button" disabled={!brouillon} onClick={() => partirDe(IA)} className={`flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12px] font-medium disabled:opacity-50 ${source === IA ? "bg-action text-white" : "border-[0.5px] border-trait-fort bg-fond text-encre hover:bg-fond-2"}`}>

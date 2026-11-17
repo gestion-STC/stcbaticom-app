@@ -93,7 +93,7 @@ export function CarteMailIa({ appel, avecAgence, onChange }: { appel: AppelIa; a
         <EnvoyerEmailModal
           destinataire={envoiPour}
           brouillon={{ objet: appel.mailObjet, corps: appel.mailCorps }}
-          onEnvoye={() => { void marquerMailEnvoye(appel.id).catch(() => {}) }}
+          onEnvoye={() => { void marquerMailEnvoye(appel.id).catch(() => marquerMailEnvoye(appel.id)).catch((x) => setErreur(`Le mail est parti, mais n'a pas pu être noté comme envoyé (${x instanceof Error ? x.message : String(x)}) : ne le renvoie pas.`)) }}
           onClose={() => { setEnvoiPour(null); onChange() }}
         />
       ) : null}

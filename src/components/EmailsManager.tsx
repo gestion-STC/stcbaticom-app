@@ -131,8 +131,10 @@ export default function EmailsManager({ partie }: { partie?: "signatures" | "mod
 
   async function enregistrer(em: Email) {
     if (modal?.mode === "edit" && modal.email.id) {
+      const avant = emails
       setEmails((arr) => arr.map((x) => (x.id === modal.email.id ? { ...em, id: x.id } : x)))
-      await majEmail(modal.email.id, em).catch(console.error)
+      // 17/11/2026 : l'échec était avalé ; l'écran montrait la nouvelle version, l'ancienne partait.
+      try { await majEmail(modal.email.id, em) } catch (e) { setEmails(avant); setErreur("Modèle non enregistré, c'est l'ancienne version qui part : " + message(e)) }
     } else {
       try {
         const cree = await creerEmail(em)
@@ -146,8 +148,9 @@ export default function EmailsManager({ partie }: { partie?: "signatures" | "mod
 
   async function supprimer(em: Email) {
     setASupprimer(null)
+    const avant = emails
     setEmails((arr) => arr.filter((x) => x.id !== em.id))
-    if (em.id) await supprimerEmail(em.id).catch(console.error)
+    if (em.id) try { await supprimerEmail(em.id) } catch (e) { setEmails(avant); setErreur("Modèle non supprimé : " + message(e)) }
   }
 
   const nouveauModele = (

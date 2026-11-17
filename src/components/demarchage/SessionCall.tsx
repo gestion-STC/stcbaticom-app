@@ -1020,13 +1020,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           const nom = c.agence.nom
           const idAppel = bilan.appelId
           envoyerMail().then((a) => {
-            marquerMailEnvoyeDeLAppel(idAppel).catch(() => {})
+            // Un second essai, puis on le dit : sinon le mail revenait dans « Mails à envoyer » (risque d'envoi en double).
+            marquerMailEnvoyeDeLAppel(idAppel).catch(() => marquerMailEnvoyeDeLAppel(idAppel)).catch((e) => { if (enVie.current) setErreur(`${nom} : le mail de suivi est parti, mais n'a pas pu être noté comme envoyé (${messageDe(e)}). S'il revient dans « Mails à envoyer », ne le renvoie pas.`) })
             if (enVie.current) setInfo((i) => i.replace("mail en route", `mail parti à ${a}`))
           }, (e) => { if (enVie.current) setErreur(`${nom} : le mail de suivi n'est pas parti (${messageDe(e)}). Renvoie-le depuis la fiche.`) })
         }
         setAppelees((s) => new Set(s).add(c.agence.id))
         // L'appel demandé par une campagne est fait : sa demande se ferme toute seule (11/11/2026).
-        chargerTachesCampagne(c.agence.id).then((l) => Promise.all(l.filter((t) => t.type === "appel").map((t) => terminerTacheCampagne(t.id)))).then(() => setNbCampagne((n) => Math.max(0, n - 1))).catch(() => {})
+        chargerTachesCampagne(c.agence.id).then((l) => Promise.all(l.filter((t) => t.type === "appel").map((t) => terminerTacheCampagne(t.id)))).then(() => setNbCampagne((n) => Math.max(0, n - 1))).catch((e) => { if (enVie.current) setErreur(`${c.agence.nom} : l'appel demandé par la campagne n'a pas pu être fermé (${messageDe(e)}). Il restera dans l'Agenda : ferme-le à la main.`) })
         const n = appelId ? "" : chiffresTel(a?.numeroEmission ?? "") // déjà compté au clic
         if (n) {
           setCompteursNumero((prev) => {

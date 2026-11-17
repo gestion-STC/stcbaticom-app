@@ -6,6 +6,7 @@
 // la désinscription. Et les quatre gestes : appeler, relancer maintenant,
 // mettre en pause, ne plus contacter.
 // ════════════════════════════════════════════════════════════════════════════
+import { ouvrirApresAttente } from "../../lib/ouvrirOnglet"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import QualificationST from "./QualificationST"
 import { useSession } from "../../lib/auth"
@@ -84,8 +85,11 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
   }
   const appeler = async () => {
     if (!st?.telephone) { setErreur("Cette fiche n'a pas de numéro."); return }
+    setErreur(""); setInfo("")
     const r = await lancerAppelRingover(st.telephone)
+    // 17/11/2026 : un appel lancé n'affichait rien ; on ne savait pas s'il était parti.
     if (!r.ok) setErreur(r.message || "Appel impossible pour le moment.")
+    else setInfo("Appel lancé : décroche ton téléphone Ringover, il sonne en premier.")
   }
 
   const arretee = st ? ["depose", "desinscrit"].includes(st.statut) : true
@@ -163,7 +167,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
                       <span className="block truncate text-colonne text-encre-2">{[c.documents.map((d) => d.nom).join(", "), c.compteNom, c.signeArtisanLe ? `artisan le ${dateHeure(c.signeArtisanLe)}` : "", c.signeLe ? `signés le ${dateHeure(c.signeLe)}` : ""].filter(Boolean).join(" · ")}</span>
                       {c.erreur ? <span className="block truncate text-colonne text-alerte">{c.erreur}</span> : null}
                     </span>
-                    {c.pdfPath ? <Bouton taille="sm" variante="discret" icone={<Download />} onClick={async () => { try { window.open(await lienContratSigne(c.pdfPath), "_blank", "noopener") } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } }}>PDF signé</Bouton> : null}
+                    {c.pdfPath ? <Bouton taille="sm" variante="discret" icone={<Download />} onClick={async () => { try { await ouvrirApresAttente(() => lienContratSigne(c.pdfPath!)) } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } }}>PDF signé</Bouton> : null}
                     {c.statut !== "signe" ? <Bouton taille="sm" variante="discret" icone={<RefreshCw />} disabled={occupe} onClick={() => agir(async () => { await relireContrat(c.envelopeId) }, "État relu chez DocuSign.")}>Relire</Bouton> : null}
                   </li>
                 ))}

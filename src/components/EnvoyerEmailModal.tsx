@@ -91,7 +91,7 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
           setPieces(e[0].pieces ?? [])
         }
       })
-      .catch(() => {})
+      .catch((e) => { if (!annule) setErreur("Modèles illisibles : la liste « Partir d'un modèle » est vide. Détail : " + (e instanceof Error ? e.message : String(e))) })
     return () => {
       annule = true
     }
