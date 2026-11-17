@@ -3,8 +3,8 @@ import type { ReactNode } from "react"
 import { ArrowRight, CalendarClock, Check, Mail, PhoneIncoming, PhoneOutgoing, SquareCheck, StickyNote, type LucideIcon } from "lucide-react"
 import type { Message } from "../../../lib/messagesDb"
 import { libelleEtape, pastilleEtape, type Activite, type Agence, type TypeActivite } from "../../../demarchage/modele"
-import { dateHeureCourte, decrireActivite, texteDernierAppel } from "../../../demarchage/sessionOutils"
-import { Pastille } from "../../../ui"
+import { LIBELLE_TEMPERATURE, dateHeureCourte, decrireActivite, lectureRappel, texteDernierAppel, type Temperature } from "../../../demarchage/sessionOutils"
+import { Pastille, type RolePastille } from "../../../ui"
 import type { AppelIa } from "../../../demarchage/appelsIa"
 import type { Lead } from "../../../demarchage/db"
 import { attenteCourte, couleurAttente, minutesDepuis } from "../../../demarchage/leadsOutils"
@@ -26,8 +26,10 @@ export function Section({ titre, droite, children }: { titre: string; droite?: R
 // LEAD, son signal et depuis quand il attend (vert, orange, rouge), avec un point violet.
 /** Pourquoi une agence est dans « À appeler aujourd'hui » (Mahdi, 11/11/2026) : un lead, une demande de campagne, un rappel. */
 export type MotifAppel = { groupe: "lead" | "campagne" | "rappel"; texte: string }
+const ROLE_TEMPERATURE: Record<Temperature, RolePastille> = { chaud: "probleme", tiede: "attente", froid: "inerte" }
 export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, onClick, lead, motif }: { motif?: MotifAppel; agence: Agence; courante: boolean; appelee: boolean; maintenant: Date; bloquee: boolean; onClick: () => void; lead?: Lead }) {
   const attente = lead ? minutesDepuis(lead.creeLe, maintenant) : 0
+  const rappel = motif?.groupe === "rappel" ? lectureRappel(a, maintenant) : null
   return (
     <button
       type="button"
@@ -44,6 +46,12 @@ export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, o
         {appelee ? <Check size={14} className="shrink-0 text-ok" aria-label="Appelée aujourd'hui" /> : null}
       </div>
       {motif && motif.groupe === "campagne" ? <div className="mt-0.5 truncate text-colonne text-attention">{motif.texte}</div> : null}
+      {rappel ? (
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-colonne text-encre-2">
+          <Pastille role={ROLE_TEMPERATURE[rappel.temperature]}>{LIBELLE_TEMPERATURE[rappel.temperature]}</Pastille>
+          <span className="truncate">{[rappel.origine, rappel.pourquoi].filter(Boolean).join(" · ")}</span>
+        </div>
+      ) : null}
       {lead ? <div className="mt-0.5 truncate text-colonne text-encre-2">{lead.signal}{lead.tentatives ? ` · ${lead.tentatives} essai${lead.tentatives > 1 ? "s" : ""}` : ""}</div> : null}
       <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-colonne text-encre-2">
         <Pastille role={pastilleEtape(a.etape)}>{libelleEtape(a.etape)}</Pastille>
@@ -55,7 +63,7 @@ export function LigneFile({ agence: a, courante, appelee, maintenant, bloquee, o
       <div className="truncate text-colonne text-encre-2">{a.adresse || "adresse inconnue"}</div>
       {lead ? null : (
         <div className="text-colonne text-encre-2">
-          {texteDernierAppel(a, maintenant)}
+          {rappel ? rappel.dernierAppel : texteDernierAppel(a, maintenant)}
           {a.prochaineEcheance ? ` · ${a.prochaineTache || "tâche"} le ${dateHeureCourte(a.prochaineEcheance)}` : ""}
         </div>
       )}

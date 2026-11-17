@@ -50,7 +50,7 @@ import {
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS,
   compteARebours, dateHeureCourte, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  CADENCE_MIN_S, resumeEcriture, toursSansDemarrage,
+  CADENCE_MIN_S, resumeEcriture, toursSansDemarrage, trierRappels,
   type ChoixResultat,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
@@ -363,7 +363,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const parId = new Map(pile.map((a) => [a.id, a]))
     const campagnes = (await Promise.all(demandes.map((id) => parId.get(id) ?? chargerAgence(id).then((c) => c.agence).catch(() => null)))).filter((a): a is Agence => Boolean(a))
     for (const a of campagnes) vus.add(a.id)
-    const rappels = pile.filter((a) => !vus.has(a.id))
+    // Les rappels chauds d'abord (lot 2, 17/11/2026) : signal récent, RDV, puis gestionnaire joint, puis le reste.
+    const rappels = trierRappels(pile.filter((a) => !vus.has(a.id)), new Date())
     const m = new Map<string, MotifAppel>()
     for (const l of leads) m.set(l.agence.id, { groupe: "lead", texte: l.lead.signal })
     for (const a of campagnes) { const t = demandesTaches.find((x) => x.contactRef === a.id); m.set(a.id, { groupe: "campagne", texte: [`Campagne « ${t?.campagneNom ?? ""} »`, t?.consigne, t?.appelStandard ? "appeler le standard" : ""].filter(Boolean).join(" · ") }) }

@@ -40,7 +40,7 @@ import { Bandeau, Bouton, Carte, Champ, Chargement, Dialogue, Etiquette, Ligne, 
 import EnvoyerEmailModal from "../EnvoyerEmailModal"
 import { destinataireDepuis } from "../../lib/destinataire"
 import { useReglages } from "../../demarchage/reglages"
-import { bilanDepuisAgence, texteBilanAppels } from "../../demarchage/sessionOutils"
+import { bilanDepuisAgence, datePassee, texteBilanAppels } from "../../demarchage/sessionOutils"
 import ContactFormulaire from "./ContactFormulaire"
 import { AppelsIaAgence } from "./MailsIa"
 import { DernierEchange, ResumeSousAppel } from "./EchangesAppels"
@@ -608,6 +608,7 @@ function FormulaireAjout({ type, heureRelance, contacts, maintenant, occupe, onA
     }
     const iso = heureRelance === null ? null : isoDepuisChamp(echeance, heureRelance)
     if (!iso) { setErreur("Il faut une date."); return }
+    if (datePassee(iso, new Date())) { setErreur("Cette date est déjà passée : vérifie le jour et le mois."); return }
     if (type === "rdv") { onEnregistrer({ type, titre: titre.trim(), echeance: iso, rdvType, note: note.trim(), contactId: cid }); return }
     if (!titre.trim()) { setErreur("Il faut un titre à la tâche."); return }
     onEnregistrer({ type, titre: titre.trim(), echeance: iso, note: note.trim(), contactId: cid })

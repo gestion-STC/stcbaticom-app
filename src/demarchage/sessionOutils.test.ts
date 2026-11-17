@@ -3,6 +3,10 @@ import type { Activite, Agence, Contact } from "./modele"
 import {
   SURVEILLANCE_INITIALE,
   choixComplet,
+  datePassee,
+  lectureRappel,
+  origineRappel,
+  trierRappels,
   compteARebours,
   bilanAppels,
   bilanDepuisAgence,
@@ -277,5 +281,34 @@ describe("numéro d'une agence qui appartient à un collègue (13/10)", () => {
   })
   it("un numéro qui n'est à personne (retiré de la réserve) reste bloqué", () => {
     expect(numeroEmissionPour({ numeroEmission: "01 99 99 99 99" }, ["+33 1 84 80 61 28"], [], ["33 1 89 70 86 23"]).bloque).toBe(true)
+  })
+})
+
+// ── Lot 2 (17/11/2026) : rappels lus d'un coup d'œil, date passée refusée ──
+describe("rappels : origine, température, date", () => {
+  const maintenant = new Date(2026, 10, 17, 10, 0)
+  const base = { prochaineTache: "Rappeler", etape: "a_prospecter", dernierSignal: "", dernierSignalLe: null, compteOuvertLe: null, dernierResultat: "", dernierAppelLe: null, jointFois: 0 } as Parameters<typeof lectureRappel>[0]
+  it("lit l'origine dans le titre de la tâche", () => {
+    expect(origineRappel("Rappeler Mme Bouzit")).toBe("Rappel demandé")
+    expect(origineRappel("Relancer")).toBe("Relance après « intéressé »")
+    expect(origineRappel("Envoyer la plaquette")).toBe("Tâche")
+  })
+  it("chaud : signal récent ou RDV ; tiède : joint ; froid sinon", () => {
+    expect(lectureRappel({ ...base, dernierSignal: "Plaquette ouverte", dernierSignalLe: new Date(2026, 10, 16).toISOString() }, maintenant)).toMatchObject({ temperature: "chaud", pourquoi: "Plaquette ouverte hier" })
+    expect(lectureRappel({ ...base, dernierSignal: "Plaquette ouverte", dernierSignalLe: new Date(2026, 9, 1).toISOString() }, maintenant).temperature).toBe("froid")
+    expect(lectureRappel({ ...base, etape: "rdv_planifie" }, maintenant).temperature).toBe("chaud")
+    expect(lectureRappel({ ...base, dernierResultat: "joint", dernierAppelLe: new Date(2026, 10, 14).toISOString() }, maintenant)).toMatchObject({ temperature: "tiede", dernierAppel: "dernier appel il y a 3 j (Gestionnaire joint)" })
+    expect(lectureRappel(base, maintenant)).toMatchObject({ temperature: "froid", dernierAppel: "jamais appelée" })
+  })
+  it("met les chauds d'abord et garde l'ordre sinon", () => {
+    const f1 = { ...base, id: "f1" }, t = { ...base, id: "t", jointFois: 1 }, c = { ...base, id: "c", etape: "rdv_planifie" as const }, f2 = { ...base, id: "f2" }
+    expect(trierRappels([f1, t, c, f2], maintenant).map((x) => x.id)).toEqual(["c", "t", "f1", "f2"])
+  })
+  it("refuse une date avant aujourd'hui (11/01 au lieu de 01/11)", () => {
+    expect(datePassee(new Date(2026, 0, 11, 10).toISOString(), maintenant)).toBe(true)
+    expect(datePassee(new Date(2026, 10, 17, 8).toISOString(), maintenant)).toBe(false)
+    const choix = { resultat: "joint" as const, issue: "a_rappeler" as const, motif: "" as const, rdvLe: null }
+    expect(choixComplet({ ...choix, rappelLe: new Date(2026, 0, 11, 10).toISOString() }, maintenant)).toBe(false)
+    expect(choixComplet({ ...choix, rappelLe: new Date(2026, 10, 18, 10).toISOString() }, maintenant)).toBe(true)
   })
 })

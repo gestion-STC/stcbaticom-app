@@ -160,12 +160,20 @@ export function estChampDeSaisie(tag: string | undefined, editable: boolean): bo
 }
 
 // Le résultat est obligatoire, et chaque issue a sa pièce jointe (date, motif).
-export function choixComplet(c: { resultat: Resultat | null; issue: Issue | ""; motif: Motif | ""; rappelLe: string | null; rdvLe: string | null }): boolean {
+// Une date de rappel ou de RDV avant aujourd'hui est une erreur de saisie (17/11/2026 : deux rappels posés le 10/11
+// étaient datés du 11/01/2026, jour et mois inversés). Plus tôt dans la journée reste permis.
+export function datePassee(iso: string | null | undefined, maintenant: Date): boolean {
+  if (!iso) return false
+  const d = new Date(iso)
+  return !Number.isNaN(d.getTime()) && d.getTime() < new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).getTime()
+}
+
+export function choixComplet(c: { resultat: Resultat | null; issue: Issue | ""; motif: Motif | ""; rappelLe: string | null; rdvLe: string | null }, maintenant?: Date): boolean {
   if (!c.resultat) return false
   if (c.resultat !== "joint") return true
   if (!c.issue) return false
-  if (c.issue === "a_rappeler") return Boolean(c.rappelLe)
-  if (c.issue === "rdv") return Boolean(c.rdvLe)
+  if (c.issue === "a_rappeler") return Boolean(c.rappelLe) && !(maintenant && datePassee(c.rappelLe, maintenant))
+  if (c.issue === "rdv") return Boolean(c.rdvLe) && !(maintenant && datePassee(c.rdvLe, maintenant))
   if (c.issue === "pas_interesse") return Boolean(c.motif)
   return true
 }
@@ -281,6 +289,39 @@ export function texteDernierAppel(a: Pick<Agence, "dernierAppelLe">, maintenant:
   if (j === 0) return "appelée aujourd'hui"
   if (j === 1) return "dernier appel hier"
   return `dernier appel il y a ${j} j`
+}
+
+// ── Un rappel lu d'un coup d'œil (lot 2, 17/11/2026) ─────────────────────────
+// D'où il vient (le titre posé par la session : « Rappeler… » = demandé par l'agence, « Relancer… » = relance
+// automatique après « intéressé ») et s'il est chaud. Chaud : RDV, ou signal du site / compte ouvert depuis moins
+// de 14 jours. Tiède : un gestionnaire a déjà été joint. Froid : le reste (standard, pas de réponse).
+export type Temperature = "chaud" | "tiede" | "froid"
+export const JOURS_CHAUD = 14
+export const LIBELLE_TEMPERATURE: Record<Temperature, string> = { chaud: "Chaud", tiede: "Tiède", froid: "Froid" }
+export function origineRappel(titre: string): string {
+  const t = (titre || "").trim().toLowerCase()
+  if (t.startsWith("rappeler")) return "Rappel demandé"
+  if (t.startsWith("relancer")) return "Relance après « intéressé »"
+  return titre ? "Tâche" : "Rappel"
+}
+export function lectureRappel(a: Pick<Agence, "prochaineTache" | "etape" | "dernierSignal" | "dernierSignalLe" | "compteOuvertLe" | "dernierResultat" | "dernierAppelLe" | "jointFois">, maintenant: Date): { origine: string; temperature: Temperature; pourquoi: string; dernierAppel: string } {
+  const recent = (iso: string | null) => { const j = depuisJours(iso, maintenant); return j !== null && j < JOURS_CHAUD ? j : null }
+  const jSignal = a.dernierSignal ? recent(a.dernierSignalLe) : null
+  const jCompte = recent(a.compteOuvertLe)
+  const ilya = (j: number) => (j === 0 ? "aujourd'hui" : j === 1 ? "hier" : `il y a ${j} j`)
+  let temperature: Temperature = "froid", pourquoi = ""
+  if (a.etape === "rdv_planifie") { temperature = "chaud"; pourquoi = "RDV planifié" }
+  else if (jSignal !== null) { temperature = "chaud"; pourquoi = `${a.dernierSignal} ${ilya(jSignal)}` }
+  else if (jCompte !== null) { temperature = "chaud"; pourquoi = `compte ouvert ${ilya(jCompte)}` }
+  else if (a.etape === "interesse") { temperature = "tiede"; pourquoi = "intéressé" }
+  else if (a.dernierResultat === "joint" || a.jointFois > 0 || a.etape === "gestionnaire_joint") { temperature = "tiede"; pourquoi = "gestionnaire déjà joint" }
+  const dernierAppel = a.dernierAppelLe ? `${texteDernierAppel(a, maintenant)}${a.dernierResultat ? ` (${libelleResultat(a.dernierResultat)})` : ""}` : "jamais appelée"
+  return { origine: origineRappel(a.prochaineTache), temperature, pourquoi, dernierAppel }
+}
+const RANG_TEMPERATURE: Record<Temperature, number> = { chaud: 0, tiede: 1, froid: 2 }
+/** Les rappels du jour, les chauds d'abord ; l'ordre de la base est gardé à température égale. */
+export function trierRappels<T extends Parameters<typeof lectureRappel>[0]>(liste: T[], maintenant: Date): T[] {
+  return liste.map((a, i) => ({ a, i, r: RANG_TEMPERATURE[lectureRappel(a, maintenant).temperature] })).sort((x, y) => x.r - y.r || x.i - y.i).map((x) => x.a)
 }
 
 // ── Le résumé de ce que la validation a écrit ────────────────────────────────
