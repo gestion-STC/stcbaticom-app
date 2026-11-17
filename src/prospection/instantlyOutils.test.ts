@@ -111,3 +111,11 @@ describe("diffusion (lot 5)", () => {
     expect(dateFinPrevue(10, 0, [1], mardi)).toBeNull()
   })
 })
+
+describe("date de fin avec montée en charge", () => {
+  it("suit un volume qui varie selon le jour", () => {
+    const lundi = new Date(2026, 10, 16)
+    const volume = (d: Date) => (d.getDate() < 19 ? 10 : 50)
+    expect(dateFinPrevue(30, volume, [1, 2, 4], lundi)?.getDate()).toBe(19)
+  })
+})

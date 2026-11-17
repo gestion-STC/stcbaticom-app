@@ -134,8 +134,13 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
     const nbMails = cfg.actions.filter((a) => a.type === "mail").length
     const deja = v.etat.envois.filter((e) => e.campagneId === c.id && e.canal === "mail" && e.statut === "envoye").length
     const aEnvoyer = Math.max(0, recevront.length * nbMails - deja)
-    return { utilisees, capa, nbMails, aEnvoyer, fin: dateFinPrevue(aEnvoyer, capa.parJour, c.rythme.jours, new Date(v.etat.maintenant)) }
-  }, [boites, c.baseId, c.id, c.rythme, cfg.garde.boites, cfg.actions, reglageBoites.mailsParBoite, v.etat.envois, v.etat.maintenant, recevront.length])
+    // La montée en charge limite le volume des premières semaines : l'estimation la suit jour par jour.
+    const montee = !estBaseAvis(c.baseId) && cfg.garde.montee?.actif ? cfg.garde.montee : null
+    const lancee = c.lanceeLe ?? v.etat.maintenant
+    const volume = (d: Date) => (montee ? Math.min(capa.parJour, envoisDuJour(montee, c.rythme.parJour, lancee, d, true)) : capa.parJour)
+    const aujourdhui = volume(new Date(v.etat.maintenant))
+    return { utilisees, capa, nbMails, aEnvoyer, montee: Boolean(montee), aujourdhui, fin: dateFinPrevue(aEnvoyer, volume, c.rythme.jours, new Date(v.etat.maintenant)) }
+  }, [boites, c.baseId, c.id, c.rythme, c.lanceeLe, cfg.garde.boites, cfg.garde.montee, cfg.actions, reglageBoites.mailsParBoite, v.etat.envois, v.etat.maintenant, recevront.length])
   const [textesRelus, setTextesRelus] = useState(0)
   const iaSansRelecture = cfg.creatifs.some((k) => k.ia?.actif && k.ia.relecture === "dix") && !textesRelus
   useEffect(() => { if (confirmer) compterTextesValides(c.id).then(setTextesRelus).catch(() => undefined) }, [confirmer, c.id])
@@ -220,6 +225,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                     </div>
                     <div className="space-y-1 rounded-4 bg-fond-2 p-3 text-colonne text-encre">
                       <p>Capacité réelle : <b className="font-medium">{fr(diffusion.capa.parJour)} mails par jour</b>. {diffusion.utilisees.length} boîte{diffusion.utilisees.length > 1 ? "s" : ""}, un mail toutes les 10 minutes chacune, de {libelleHeure(c.rythme.heureMin)} à {libelleHeure(c.rythme.heureMax)} : {fr(diffusion.capa.parCreneau)} par boîte au plus{c.rythme.parJour < diffusion.capa.parCreneau * diffusion.utilisees.length ? `, plafonné à ${fr(c.rythme.parJour)} par la campagne` : ""}.</p>
+                      {diffusion.montee && diffusion.aujourdhui < diffusion.capa.parJour ? <p>Montée en charge active : <b className="font-medium">{fr(diffusion.aujourdhui)} mails aujourd'hui</b>, puis +{cfg.garde.montee?.palier ?? 0} tous les {cfg.garde.montee?.tousLesJours ?? 0} jours jusqu'à {fr(diffusion.capa.parJour)}.</p> : null}
                       <p>Reste à envoyer : {fr(diffusion.aEnvoyer)} mails ({fr(recevront.length)} {base?.unite ?? "contacts"} × {diffusion.nbMails} mail{diffusion.nbMails > 1 ? "s" : ""}, moins ceux déjà partis). {diffusion.fin ? <>Dernier envoi prévu vers le <b className="font-medium">{diffusion.fin.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</b> (hors jours fériés et réponses).</> : "Pas de date possible : aucun jour ou aucune boîte."}</p>
                       {c.rythme.parJour > diffusion.capa.parJour ? <p className="text-attention">« Envois par jour » ({fr(c.rythme.parJour)}) dépasse ce que les boîtes peuvent envoyer sur ce créneau : élargis les heures ou ajoute une boîte.</p> : null}
                     </div>
