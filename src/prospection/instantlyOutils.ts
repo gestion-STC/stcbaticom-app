@@ -12,6 +12,12 @@ export function boitesDe(baseId: string, emails: string[]): string[] {
   return miennes.length ? miennes : emails
 }
 
+/** Les boîtes d'une campagne (lot 5) : celles choisies à l'écran et prêtes ; sans choix (ou plus aucune prête), celles de la cible. */
+export function boitesChoisies(baseId: string, pretes: string[], choix?: string[]): string[] {
+  const l = choix?.length ? pretes.filter((e) => choix.includes(e)) : []
+  return l.length ? l : boitesDe(baseId, pretes)
+}
+
 /** Une boîte utilisable : active et configurée. */
 export function boitePrete(b: { status?: number | null; setup_pending?: boolean | null }): boolean {
   return b.status === 1 && !b.setup_pending
@@ -22,7 +28,7 @@ export function boitePrete(b: { status?: number | null; setup_pending?: boolean 
  * Europe/Belgrade suit la même heure, été comme hiver. Les jours vont de 0 (dimanche) à 6.
  */
 export function horaireInstantly(r: { jours: number[]; heureMin: number; heureMax: number }) {
-  const heure = (h: number) => (h >= 24 ? "23:59" : `${String(h).padStart(2, "0")}:00`)
+  const heure = (h: number) => (h >= 24 ? "23:59" : `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`)
   return {
     schedules: [{ name: "Baticom", timing: { from: heure(r.heureMin), to: heure(r.heureMax) }, days: Object.fromEntries(r.jours.map((j) => [String(j % 7), true])), timezone: "Europe/Belgrade" }],
   }
@@ -33,8 +39,8 @@ export function horaireInstantly(r: { jours: number[]; heureMin: number; heureMa
  * Modifiés dans Baticom après le premier envoi, ils sont recopiés chez Instantly au passage suivant du moteur.
  * Aucune boîte prête : la liste n'est pas touchée, pour ne jamais vider la campagne.
  */
-export function reglageInstantly(c: { baseId: string; rythme: { jours: number[]; heureMin: number; heureMax: number }; plafond: number; suiviOuvertures: boolean }, pretes: string[]) {
-  const boites = boitesDe(c.baseId, pretes)
+export function reglageInstantly(c: { baseId: string; rythme: { jours: number[]; heureMin: number; heureMax: number }; plafond: number; suiviOuvertures: boolean; boites?: string[] }, pretes: string[]) {
+  const boites = boitesChoisies(c.baseId, pretes, c.boites)
   return { campaign_schedule: horaireInstantly(c.rythme), daily_limit: c.plafond, open_tracking: c.suiviOuvertures, ...(boites.length ? { email_list: boites } : {}) }
 }
 
@@ -77,6 +83,33 @@ export const remplirContact = (s: string, personne: string) => remplirVariables(
 export function valeursDe(k: { nom: string; personne: string; champs: Record<string, string> }): Record<string, string> {
   const c = k.champs
   return { contact: k.personne, prenom: c.prenom ?? "", entreprise: k.nom, agence: k.nom, secteur: c.secteur ?? "", enseigne: c.enseigne === "Indépendante" ? "" : c.enseigne ?? "", metier: c.metier ?? "", zone: c.zone ?? "" }
+}
+
+/** Instantly espace deux mails d'une même boîte de 10 minutes (réglé à la création de chaque campagne). */
+export const ECART_MAILS_MIN = 10
+
+/**
+ * Ce que la campagne peut VRAIMENT envoyer par jour (lot 5) : chaque boîte, un mail toutes les 10 minutes pendant le
+ * créneau, sans dépasser sa limite Instantly ; puis le plafond de la campagne.
+ */
+export function capaciteReelle(r: { heureMin: number; heureMax: number; parJour: number }, boites: { limite?: number | null }[], parBoiteDefaut = MAILS_PAR_BOITE): { parJour: number; parBoite: number; parCreneau: number } {
+  const parCreneau = Math.max(0, Math.floor(((Math.min(24, r.heureMax) - r.heureMin) * 60) / ECART_MAILS_MIN))
+  const total = boites.reduce((n, b) => n + Math.min(parCreneau, b.limite || parBoiteDefaut), 0)
+  return { parJour: Math.min(total, r.parJour), parBoite: boites.length ? Math.round(total / boites.length) : 0, parCreneau }
+}
+
+/** Le jour où le dernier mail partirait (jours 1 = lundi … 7 = dimanche), sans compter les jours fériés : une estimation. */
+export function dateFinPrevue(mails: number, parJour: number, jours: number[], depuis: Date): Date | null {
+  if (mails <= 0) return depuis
+  if (parJour <= 0 || !jours.length) return null
+  let reste = mails
+  const d = new Date(depuis)
+  for (let i = 0; i < 3660; i++) {
+    const j = ((d.getDay() + 6) % 7) + 1
+    if (jours.includes(j)) { reste -= parJour; if (reste <= 0) return d }
+    d.setDate(d.getDate() + 1)
+  }
+  return null
 }
 
 /** Ce qu'une série de boîtes peut envoyer par jour sans abîmer leur réputation. */

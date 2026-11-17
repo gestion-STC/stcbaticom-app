@@ -12,7 +12,8 @@ type Etat = { campagne: Campagne; contacts: Contact[]; inscriptions: Inscription
 const JOUR = 86_400_000
 // L'heure et le jour de PARIS, où que tourne le code (le serveur est en heure universelle).
 const paris = (d: Date, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", ...o }).format(d)
-export const heureParis = (d: Date) => Number(new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "numeric", hourCycle: "h23" }).formatToParts(d).find((p) => p.type === "hour")?.value ?? 0)
+// L'heure de Paris avec ses minutes (lot 5, 17/11/2026) : 8 h 30 vaut 8,5, pour régler les envois à la demi-heure.
+export const heureParis = (d: Date) => { const parts = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(d); const v = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0); return v("hour") + v("minute") / 60 }
 const JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 /** Jour ISO de la semaine à Paris (1 = lundi … 7 = dimanche). */
 export const jourParis = (d: Date) => JOURS_FR.indexOf(paris(d, { weekday: "long" })) + 1

@@ -107,7 +107,7 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
   return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
 }
 
-type GardeConfig = { retires?: string[]; smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
+type GardeConfig = { retires?: string[]; boites?: string[]; smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
@@ -330,7 +330,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription)
     if (fil) return fil
   }
-  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions }, k, to, sujet, texte, varianteId, test, desinscription)
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions, boites: gc?.boites }, k, to, sujet, texte, varianteId, test, desinscription)
 }
 
 Deno.serve(async (req: Request) => {
