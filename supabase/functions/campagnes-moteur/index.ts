@@ -107,16 +107,18 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
   return { url: `${base}/functions/v1/evenements-site?l=${jeton}`, jeton }
 }
 
-type GardeConfig = { retires?: string[]; smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
+type GardeConfig = { retires?: string[]; boites?: string[]; smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
 const REBOND = "E-mail rebondi (adresse injoignable)"
 const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
 /** Ceux que les garde-fous de la campagne empêchent d'entrer. Une campagne jamais enregistrée n'en a pas. */
 /** Avant un premier envoi : l'adresse est vérifiée (Mahdi, 11/11/2026). Seuls les nouveaux contacts dont l'adresse a passé
  *  la vérification peuvent entrer ; ceux qui n'ont pas de mail (SMS seul) et ceux déjà dans la campagne ne changent pas. */
-async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: Contact[], dejaDedans: Set<string>, maintenant: Date, cle: string): Promise<{ contacts: Contact[]; refusees: number }> {
+async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: Contact[], dejaDedans: Set<string>, maintenant: Date, cle: string, invalides: Set<string>): Promise<{ contacts: Contact[]; refusees: number }> {
   if (!dansLaPlage(c, maintenant)) return { contacts, refusees: 0 }
-  const nouveaux = contacts.filter((k) => !dejaDedans.has(k.id) && k.statut === "libre" && k.email && estEligible(k, c, maintenant))
+  // Les adresses déjà jugées invalides ne reprennent plus de place dans le lot (17/11/2026 : sinon elles s'empilent en tête
+  // et, au bout de quelques semaines, plus personne n'entre).
+  const nouveaux = contacts.filter((k) => !dejaDedans.has(k.id) && k.statut === "libre" && k.email && !invalides.has(k.email.trim().toLowerCase()) && estEligible(k, c, maintenant))
   if (!nouveaux.length) return { contacts, refusees: 0 }
   const place = Math.max(1, c.rythme.parJour)
   const lot = nouveaux.slice(0, place * 3)
@@ -128,6 +130,7 @@ async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: 
     if (v?.statut === "invalide") refusees++
     if (v && (v.statut === "valide" || v.statut === "douteux")) { ok.add(k.id); if (ok.size >= place) break }
   }
+  for (const [e, v] of verdicts) if (v.statut === "invalide") invalides.add(e)
   return { contacts: contacts.filter((k) => dejaDedans.has(k.id) || !k.email || ok.has(k.id)), refusees }
 }
 
@@ -154,7 +157,7 @@ async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["conf
   return etapes === c.etapes ? c : { ...c, etapes }
 }
 
-async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null): Promise<Set<string>> {
+async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null, rebondis: Set<string>): Promise<Set<string>> {
   const bloques = new Set<string>()
   if (!garde) return bloques
   // L'écart commun à toutes les campagnes l'emporte sur l'ancien réglage de la campagne.
@@ -169,10 +172,7 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
     const rebonds = await tout<{ agence_id: string }>((d, f) => sb.from("activites").select("agence_id").eq("type", "note").eq("source", "site").eq("titre", REBOND).order("id").range(d, f))
     for (const r of rebonds) bloques.add(r.agence_id)
   }
-  if (exclusions.includes("Adresse en erreur")) {
-    const rebonds = await tout<{ contact_ref: string }>((d, f) => sb.from("cmp_evenements").select("contact_ref").eq("type", "rebond").order("id").range(d, f))
-    for (const r of rebonds) bloques.add(r.contact_ref)
-  }
+  if (exclusions.includes("Adresse en erreur")) for (const r of rebondis) bloques.add(r)
   // Pas intéressé : exclu, jusqu'au délai « Le recontacter après » de la campagne (0 : jamais).
   if (exclusions.includes("Pas intéressé")) {
     const limite = relanceMois > 0 ? new Date(maintenant.getTime() - relanceMois * 30 * JOUR_MS).toISOString() : ""
@@ -185,6 +185,20 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   const libres = exclusions.filter((x) => !EXCLUSIONS_CONNUES.includes(x)).map((x) => x.trim().toLowerCase()).filter(Boolean)
   if (libres.length) for (const k of contacts) if (Object.values(k.champs).some((v) => v.split(" / ").some((x) => libres.includes(x.trim().toLowerCase())))) bloques.add(k.id)
   return bloques
+}
+
+/** « 3 × boîte refusée, 1 × adresse vide » : les causes regroupées. */
+const compter = (l: string[]) => Object.fromEntries([...l.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())])
+
+/** Le journal du moteur (17/11/2026), lisible à l'écran : les 72 derniers passages (12 heures), campagne par campagne. */
+const CLE_JOURNAL = "campagnes_moteur_journal"
+async function garderJournal(sb: SupabaseClient, passage: Record<string, unknown>): Promise<void> {
+  const { data } = await sb.from("parametres").select("valeur").eq("cle", CLE_JOURNAL).maybeSingle()
+  let l: unknown[] = []
+  try { l = JSON.parse(String((data as { valeur?: string } | null)?.valeur ?? "[]")) } catch { l = [] }
+  if (!Array.isArray(l)) l = []
+  const { error } = await sb.from("parametres").upsert({ cle: CLE_JOURNAL, valeur: JSON.stringify([passage, ...l].slice(0, 72)) }, { onConflict: "cle" })
+  if (error) console.error("[CAMPAGNES-MOTEUR] journal non écrit :", error.message)
 }
 
 type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; reporte?: boolean; /** LinkedIn : déjà en relation. */ connexion?: boolean }
@@ -330,7 +344,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription)
     if (fil) return fil
   }
-  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions }, k, to, sujet, texte, varianteId, test, desinscription)
+  return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions, boites: gc?.boites }, k, to, sujet, texte, varianteId, test, desinscription)
 }
 
 Deno.serve(async (req: Request) => {
@@ -359,6 +373,15 @@ Deno.serve(async (req: Request) => {
     const brutEcart = (ligneEcart as { valeur?: string } | null)?.valeur
     const ecartCommun = brutEcart != null && brutEcart !== "" && Number.isFinite(Number(brutEcart)) ? Number(brutEcart) : null
     let envoisPassage = 0
+    const debutPassage = Date.now()
+    const journal: Record<string, unknown>[] = []
+    // Une fois par passage (17/11/2026) : les adresses invalides connues, et les contacts dont un mail a rebondi.
+    const invalides = new Set((await tout<{ email: string }>((d, f) => sb.from("cmp_verifications").select("email").eq("statut", "invalide").order("email").range(d, f))).map((x) => x.email.trim().toLowerCase()))
+    const rebondis = new Set((await tout<{ contact_ref: string }>((d, f) => sb.from("cmp_evenements").select("contact_ref").eq("type", "rebond").order("id").range(d, f))).map((x) => x.contact_ref))
+    // Un envoi resté « en cours » (passage coupé avant la fin) : on ne sait pas s'il est parti. Il est noté « sauté » pour ne
+    // JAMAIS le renvoyer en double, et le journal le signale.
+    const { data: interrompus } = await sb.from("cmp_envois").update({ statut: "saute", cause: "Envoi interrompu (passage coupé) : peut-être parti, non renvoyé" }).eq("statut", "en_cours").lt("le", new Date(maintenant.getTime() - 15 * 60_000).toISOString()).select("id")
+    if (interrompus?.length) console.warn("[CAMPAGNES-MOTEUR] envois interrompus passés en « sauté » :", interrompus.length)
     // LinkedIn (13/11/2026) : les plafonds (jour, semaine), les heures, et 2 actions au plus par passage, comptés
     // COMPTE PAR COMPTE. Les comptes branchés ne sont lus chez Unipile qu'une fois, et seulement si une action attend.
     const reglageLi = await reglageLinkedIn(sb)
@@ -377,7 +400,16 @@ Deno.serve(async (req: Request) => {
     const restantLi = (id: string) => restantLinkedIn(reglageLi, { ...(faitsLi.get(id) ?? { jour: 0, semaine: 0 }), passage: passageLi.get(id) ?? 0 }, heureParis(maintenant))
     for (const ligne of (actives ?? []) as Ligne[]) {
       bilan.campagnes = Number(bilan.campagnes) + 1
+      const debutCampagne = Date.now()
+      const avantBilan = { ...bilan }
+      const j: Record<string, unknown> = { id: ligne.id, campagne: ligne.nom }
+      const reports: Record<string, number> = {}
+      const erreursCampagne: string[] = []
+      const sautesCampagne: string[] = []
+      const ecart = (cle: string) => Number(bilan[cle] ?? 0) - Number(avantBilan[cle] ?? 0)
+      try {
       const c = versCampagne(ligne)
+      j.creneau = dansLaPlage(c, maintenant) ? "ouvert" : "fermé"
       const garde = (ligne.config as { garde?: GardeConfig } | null)?.garde
       const lus = (await tout<Ligne>((d, f) => sb.from("cmp_contacts").select("*").eq("base_id", c.baseId).order("id").range(d, f))).map(versContact)
       // « Déjà client » retiré des exclusions : la campagne a choisi de les toucher aussi. Un désinscrit, lui, ne l'est jamais.
@@ -394,8 +426,10 @@ Deno.serve(async (req: Request) => {
       const nbEnvoyes = envois.filter((e) => e.statut === "envoye" && new Date(e.le).getTime() > depuisArret).length
       const nbRebonds = evenements.filter((e) => e.type === "rebond" && new Date(e.le).getTime() > depuisArret).length
       if (!ligne.mode_test && doitArreter(nbEnvoyes, nbRebonds, garde?.arret)) {
-        await sb.from("cmp_campagnes").update({ statut: "pause", config: { ...((ligne.config as Ligne | null) ?? {}), arret: { le: iso, envois: nbEnvoyes, rebonds: nbRebonds } } }).eq("id", c.id)
+        // maj_le change aussi (17/11/2026) : un écran ouvert avant la pause ne peut plus la défaire en enregistrant.
+        await sb.from("cmp_campagnes").update({ statut: "pause", maj_le: iso, config: { ...((ligne.config as Ligne | null) ?? {}), arret: { le: iso, envois: nbEnvoyes, rebonds: nbRebonds } } }).eq("id", c.id)
         console.warn("[CAMPAGNES-MOTEUR] mise en pause, rebonds", c.nom, nbRebonds, "/", nbEnvoyes)
+        j.miseEnPause = `${nbRebonds} rebonds sur ${nbEnvoyes} envois`
         continue
       }
 
@@ -406,7 +440,8 @@ Deno.serve(async (req: Request) => {
       // 1. Les sorties : un contact devenu lead, gagné, exclu ou désinscrit quitte la séquence.
       for (const i of inscriptions.filter((x) => x.campagneId === c.id && x.statut === "en_cours")) {
         const k = parContact.get(i.contactId)
-        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" ? "terminee" : null
+        // Un mail rebondi (17/11/2026) : l'adresse est morte, les relances ne partent plus.
+        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : rebondis.has(i.contactId) ? "rebond" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" ? "terminee" : null
         if (!statut) continue
         await sb.from("cmp_inscriptions").update({ statut, sortie_le: iso }).eq("id", i.id)
         i.statut = statut as Inscription["statut"]
@@ -415,7 +450,7 @@ Deno.serve(async (req: Request) => {
 
       // 2. La décision, par le moteur pur.
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
-      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun)
+      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun, rebondis)
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
       // Campagne d'avis des locataires : chacun entre au moment réglé après la fin de son chantier.
       const pasPrets = new Set<string>()
@@ -427,7 +462,8 @@ Deno.serve(async (req: Request) => {
       // Retirés de CETTE campagne (lot 4) : ni entrée, ni envoi ; remis, ils reprennent où ils en étaient.
       const retires = new Set(garde?.retires ?? [])
       const autorises = sansDejaSollicites(contacts.filter((k) => !retires.has(k.id) && (dejaDedans.has(k.id) || (!bloques.has(k.id) && !pasPrets.has(k.id) && !domaineBloque(k.email, domaines)))), dejaDedans, actifs)
-      const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle)
+      const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle, invalides)
+      Object.assign(j, { parJour: c.rythme.parJour, contacts: contacts.length, dejaDedans: dejaDedans.size, bloquesParGardeFous: bloques.size, retires: retires.size, autorises: autorises.length - dejaDedans.size, adressesRefusees: verifies.refusees })
       bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
       const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, parContact)
       const ecr = passage({ campagne: avecGagnant, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
@@ -435,7 +471,7 @@ Deno.serve(async (req: Request) => {
       for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }
       const majs = new Map(ecr.majInscriptions.map((i) => [i.id, i]))
       const avant = new Map(inscriptions.map((i) => [i.id, i]))
-      const reportees = new Set<string>()
+      const reportees = new Set<string>(), enErreur = new Set<string>()
 
       // 3. Les envois, un par un, avec les garde-fous.
       const debutJour = new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString()
@@ -452,7 +488,8 @@ Deno.serve(async (req: Request) => {
         const compteLi = canal === "linkedin" && e.statut !== "saute" && !ligne.mode_test ? await compteLinkedInDe(ligne) : null
         const liBloque = canal === "linkedin" && e.statut !== "saute" && !ligne.mode_test && (!compteLi || restantLi(compteLi.id) <= 0)
         // Boîtes Instantly pas prêtes : le mail attend, il n'est ni perdu ni envoyé par un autre chemin.
-        if (arret || envoisPassage >= ENVOIS_MAX_PAR_PASSAGE || (canal === "linkedin" ? liBloque : budget[canal] <= 0) || (canal === "sms" && !hSms) || (canal === "mail" && !avis && !ins.pretes.length)) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
+        const causeReport = arret ? "limite de débit du prestataire" : envoisPassage >= ENVOIS_MAX_PAR_PASSAGE ? `plafond de ${ENVOIS_MAX_PAR_PASSAGE} envois par passage` : canal === "linkedin" && liBloque ? "LinkedIn : compte absent ou quota atteint" : canal !== "linkedin" && budget[canal] <= 0 ? `plafond du jour (${canal})` : canal === "sms" && !hSms ? "hors des heures SMS" : canal === "mail" && !avis && !ins.pretes.length ? "aucune boîte Instantly prête" : ""
+        if (causeReport) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[causeReport] = (reports[causeReport] ?? 0) + 1; continue }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
         const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null
@@ -460,21 +497,25 @@ Deno.serve(async (req: Request) => {
         const nouvelle = nouvelles.get(e.inscriptionId)
         if (nouvelle) {
           const { error } = await sb.from("cmp_inscriptions").insert({ id: nouvelle.id, campagne_id: c.id, contact_ref: nouvelle.contactId, entree_le: nouvelle.entreeLe, etape_index: 0, prochaine_le: iso, statut: "en_cours" })
-          if (error) { reportees.add(e.inscriptionId); continue } // déjà inscrit par un passage concurrent
+          if (error) { reportees.add(e.inscriptionId); reports["inscription refusée (déjà inscrit ?)"] = (reports["inscription refusée (déjà inscrit ?)"] ?? 0) + 1; continue } // déjà inscrit par un passage concurrent
           bilan.entrees = Number(bilan.entrees) + 1
         }
         // Dernier filet : cette étape est-elle déjà partie (ou sautée) pour ce contact ?
-        const { count: deja } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).in("statut", ["envoye", "saute"])
+        const { count: deja } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).in("statut", ["envoye", "saute", "en_cours"])
         if ((deja ?? 0) > 0) continue
         const { count: essais } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).eq("statut", "erreur")
         const tentative = (essais ?? 0) + 1
         const k = parContact.get(e.contactId)!
         const test = Boolean(ligne.mode_test)
-        await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
+        const { error: errLigne } = await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
+        // Sans sa ligne, l'envoi ne serait pas tracé : il ne part pas (il sera rejoué au passage suivant).
+        if (errLigne) { reportees.add(e.inscriptionId); erreursCampagne.push(`ligne d'envoi non écrite : ${errLigne.message}`); continue }
         const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "", compteLi)
-        if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; continue }
+        if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports["texte IA à relire"] = (reports["texte IA à relire"] ?? 0) + 1; continue }
         if (r.ok) {
-          await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null, ...(canal === "linkedin" && compteLi ? { compte_linkedin: compteLi.id } : {}) }).eq("id", e.id)
+          const { error: errEnvoye } = await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null, ...(canal === "linkedin" && compteLi ? { compte_linkedin: compteLi.id } : {}) }).eq("id", e.id)
+          // Parti, mais pas noté : la ligne reste « en cours », le filet empêche tout renvoi. Le journal le dit.
+          if (errEnvoye) erreursCampagne.push(`envoi parti mais non noté (${e.contactId}) : ${errEnvoye.message}`)
           if (canal === "linkedin") {
             if (compteLi) {
               const f = faitsLi.get(compteLi.id) ?? { jour: 0, semaine: 0 }
@@ -486,16 +527,19 @@ Deno.serve(async (req: Request) => {
           await pause(CADENCE_MS[canal])
         } else if (r.saute) {
           await sb.from("cmp_envois").update({ statut: "saute", cause: r.saute }).eq("id", e.id)
+          sautesCampagne.push(String(r.saute))
           // Déjà en relation sur LinkedIn : c'est comme une invitation acceptée (pour « Si… a accepté »).
           if (r.connexion) await sb.from("cmp_evenements").insert({ campagne_id: c.id, envoi_id: e.id, contact_ref: e.contactId, type: "connexion", le: iso })
           bilan.sautes = Number(bilan.sautes) + 1
         } else {
           const cause = causeDe(r.erreur ?? "")
           await sb.from("cmp_envois").update({ statut: "erreur", cause }).eq("id", e.id)
+          erreursCampagne.push(cause)
           bilan.erreurs = Number(bilan.erreurs) + 1
           if (tentative < TENTATIVES_MAX) {
             // On revient sur l'étape, rejouée plus tard (la mise à jour du moteur pour ce contact n'est pas écrite).
             reportees.add(e.inscriptionId)
+            enErreur.add(e.inscriptionId)
             await sb.from("cmp_inscriptions").update({ etape_index: etapeIndex, prochaine_le: new Date(maintenant.getTime() + REJOUER_APRES_MIN[tentative - 1] * 60_000).toISOString() }).eq("id", e.inscriptionId)
           }
           if (/débit/.test(cause)) arret = true
@@ -515,10 +559,12 @@ Deno.serve(async (req: Request) => {
         if (existe) await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id)
         else { await sb.from("cmp_inscriptions").insert({ id, campagne_id: c.id, contact_ref: i.contactId, entree_le: i.entreeLe, etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }); bilan.entrees = Number(bilan.entrees) + 1 }
       }
-      const reporteesContacts = new Set([...reportees].map((id) => (nouvelles.get(id) ?? avant.get(id))?.contactId))
+      // Un envoi en erreur est rejoué à SON étape : les tâches d'avant (un appel) ne seront pas refaites, on les écrit donc.
+      const reporteesContacts = new Set([...reportees].filter((id) => !enErreur.has(id)).map((id) => (nouvelles.get(id) ?? avant.get(id))?.contactId))
       const taches = ecr.taches.filter((t) => !reporteesContacts.has(t.contactId))
       if (taches.length) {
-        await sb.from("cmp_taches").insert(taches.map((t) => ({ id: t.id, campagne_id: c.id, contact_ref: t.contactId, etape_id: t.etapeId, type: t.type, consigne: t.consigne, cible: t.cible ?? "contact" })))
+        const { error: errTaches } = await sb.from("cmp_taches").insert(taches.map((t) => ({ id: t.id, campagne_id: c.id, contact_ref: t.contactId, etape_id: t.etapeId, type: t.type, consigne: t.consigne, cible: t.cible ?? "contact" })))
+        if (errTaches) erreursCampagne.push(`tâches non écrites : ${errTaches.message}`)
         bilan.taches = Number(bilan.taches) + taches.length
       }
       // L'alerte d'ouverture : un appel au standard, une seule fois par contact.
@@ -527,12 +573,27 @@ Deno.serve(async (req: Request) => {
         const a = aAppelerSurOuverture(garde.alerteOuverture, inscriptions.filter((i) => i.campagneId === c.id), evenements, new Set(((deja ?? []) as { contact_ref: string }[]).map((x) => x.contact_ref)), maintenant)
         if (a.length) { await sb.from("cmp_taches").insert(a.map((id) => ({ id: crypto.randomUUID(), campagne_id: c.id, contact_ref: id, etape_id: ETAPE_ALERTE, type: "appel", consigne: `A ouvert le mail ${garde.alerteOuverture!.fois} fois : appeler le standard.`, cible: "standard" }))); bilan.taches = Number(bilan.taches) + a.length }
       }
-      if (envoisPassage >= ENVOIS_MAX_PAR_PASSAGE) break
+      // Plafond du passage atteint : on ne s'arrête plus (17/11/2026) ; les campagnes suivantes font leurs sorties, leur
+      // contrôle des rebonds et leurs tâches, et leurs envois sont reportés (cause notée dans le journal).
+      } catch (err) {
+        // Une campagne en erreur n'arrête plus les autres.
+        erreursCampagne.push(`passage interrompu : ${String((err as Error)?.message ?? err).slice(0, 300)}`)
+        console.error("[CAMPAGNES-MOTEUR] erreur sur la campagne", ligne.nom, ligne.id, err)
+        bilan.campagnesEnErreur = Number(bilan.campagnesEnErreur ?? 0) + 1
+      }
+      Object.assign(j, { entrees: ecart("entrees"), envois: ecart("envois"), sorties: ecart("sorties"), taches: ecart("taches"), reportes: reports, erreurs: compter(erreursCampagne), sautes: compter(sautesCampagne), ms: Date.now() - debutCampagne })
+      console.log("[CAMPAGNES-MOTEUR] campagne", JSON.stringify(j))
+      journal.push(j)
     }
+    bilan.ms = Date.now() - debutPassage
+    bilan.boites = `${ins.pretes.length} prête(s) sur ${ins.boites.length}`
+    if (interrompus?.length) bilan.envoisInterrompus = interrompus.length
     console.log("[CAMPAGNES-MOTEUR]", JSON.stringify(bilan))
+    await garderJournal(sb, { le: iso, bilan, campagnes: journal })
     return json({ ok: true, bilan })
   } catch (e) {
     console.error("[CAMPAGNES-MOTEUR] erreur :", e)
+    await garderJournal(sb, { le: iso, bilan, erreur: String((e as Error)?.message ?? e).slice(0, 500), campagnes: [] }).catch(() => undefined)
     return json({ ok: false, error: String((e as Error)?.message ?? e), bilan }, 500)
   }
 })

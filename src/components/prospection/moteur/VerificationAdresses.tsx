@@ -8,15 +8,18 @@ import { chargerVerdicts, verifierMaintenant, type Verdict } from "../../../lib/
 const MAX_PAR_CLIC = 500
 
 export default function VerificationAdresses({ emails }: { emails: string[] }) {
-  const liste = useMemo(() => [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))], [emails])
+  // La liste ne change que si les adresses changent (17/11/2026 : avant, chaque frappe dans l'éditeur relisait les verdicts).
+  const cle = useMemo(() => [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))].sort().join("\n"), [emails])
+  const liste = useMemo(() => (cle ? cle.split("\n") : []), [cle])
+  const dansListe = useMemo(() => new Set(liste), [liste])
   const [verdicts, setVerdicts] = useState<Map<string, Verdict>>(new Map())
   const [progres, setProgres] = useState("")
   const [erreur, setErreur] = useState("")
   const [voir, setVoir] = useState(false)
   useEffect(() => { let vivant = true; chargerVerdicts(liste).then((v) => { if (vivant) setVerdicts(v) }).catch(() => undefined); return () => { vivant = false } }, [liste])
-  const compte = (s: Verdict["statut"]) => [...verdicts.values()].filter((v) => v.statut === s && liste.includes(v.email)).length
+  const compte = (s: Verdict["statut"]) => [...verdicts.values()].filter((v) => v.statut === s && dansListe.has(v.email)).length
   const restantes = liste.filter((e) => !verdicts.has(e) || verdicts.get(e)?.statut === "attente")
-  const refusees = [...verdicts.values()].filter((v) => v.statut === "invalide" && liste.includes(v.email))
+  const refusees = [...verdicts.values()].filter((v) => v.statut === "invalide" && dansListe.has(v.email))
   const verifier = async () => {
     setErreur("")
     const aFaire = restantes.slice(0, MAX_PAR_CLIC)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, reglageInstantly, remplirContact, remplirVariables, valeursDe } from "./instantlyOutils"
+import { boitePrete, boitesDe, capaciteJour, corpsAvecMentions, doitArreter, horaireInstantly, conseilsEnvoi, reglageInstantly, boitesChoisies, capaciteReelle, dateFinPrevue, remplirContact, remplirVariables, valeursDe } from "./instantlyOutils"
 import ecran from "./instantlyOutils.ts?raw"
 import serveur from "../../supabase/functions/_shared/campagnes/instantlyOutils.ts?raw"
 
@@ -87,5 +87,27 @@ describe("instantlyOutils", () => {
     const html = '<div style="border-top:1px solid #ececec"><img src="https://stcbatiment.com/stc-logo-email.png" width="128"><p>Horlann Maunier · Gestion</p><p>STC Bâtiment · 7 rue Oscar Niemeyer, 78280 Guyancourt</p></div>'
     expect(corpsAvecMentions("Bonjour,\n\nUn mot.", "https://x/stop", false, { signature: html })).toContain(html)
     expect(corpsAvecMentions("Bonjour,", undefined, false, { signature: "Horlann <Maunier>\nSTC" })).toContain("Horlann &lt;Maunier&gt;<br/>STC")
+  })
+})
+
+describe("diffusion (lot 5)", () => {
+  it("traduit les demi-heures pour Instantly", () => {
+    expect(horaireInstantly({ jours: [1], heureMin: 8.5, heureMax: 11 }).schedules[0].timing).toEqual({ from: "08:30", to: "11:00" })
+  })
+  it("prend les boîtes choisies et prêtes, sinon celles de la cible", () => {
+    const pretes = ["partenaire@x.org", "interventions@x.org", "artisans@x.org"]
+    expect(boitesChoisies("agences", pretes, ["interventions@x.org"])).toEqual(["interventions@x.org"])
+    expect(boitesChoisies("agences", pretes, ["partie@x.org"])).toEqual(["partenaire@x.org", "interventions@x.org"])
+    expect(boitesChoisies("agences", pretes)).toEqual(["partenaire@x.org", "interventions@x.org"])
+  })
+  it("calcule la vraie capacité : 1 mail / 10 min / boîte sur le créneau, puis le plafond", () => {
+    expect(capaciteReelle({ heureMin: 8, heureMax: 11, parJour: 40 }, [{}, {}])).toEqual({ parJour: 36, parBoite: 18, parCreneau: 18 })
+    expect(capaciteReelle({ heureMin: 8, heureMax: 18, parJour: 40 }, [{ limite: 25 }, {}]).parJour).toBe(40)
+    expect(capaciteReelle({ heureMin: 8, heureMax: 18, parJour: 100 }, [{ limite: 25 }, {}]).parJour).toBe(55)
+  })
+  it("estime la date du dernier envoi sur les jours choisis", () => {
+    const mardi = new Date(2026, 10, 17)
+    expect(dateFinPrevue(100, 36, [1, 2, 4], mardi)?.toDateString()).toBe(new Date(2026, 10, 23).toDateString())
+    expect(dateFinPrevue(10, 0, [1], mardi)).toBeNull()
   })
 })

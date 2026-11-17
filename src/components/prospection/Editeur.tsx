@@ -3,7 +3,7 @@
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { Check, X } from "lucide-react"
-import { Bouton, Champ, Chargement, Dialogue, Onglets, Zone } from "../../ui"
+import { Bandeau, Bouton, Champ, Chargement, Dialogue, Onglets, Selecteur, Zone } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
@@ -20,7 +20,7 @@ import TestSpam from "./moteur/TestSpam"
 import LinkedInReglage from "./moteur/LinkedInReglage"
 import { nombreComptesLinkedIn } from "../../lib/linkedinDb"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
-import { ARRET_DEPART, BOITES_DEPART, PHRASE_SUIVI, SIGNATURE_PROSPECTION, LIBELLE_LIEN, boitesDe, conseilsEnvoi, corpsAvecMentions, valeursDe, type ReglageBoites } from "../../prospection/instantlyOutils"
+import { ARRET_DEPART, BOITES_DEPART, PHRASE_SUIVI, SIGNATURE_PROSPECTION, LIBELLE_LIEN, boitesChoisies, boitesDe, capaciteReelle, conseilsEnvoi, dateFinPrevue, corpsAvecMentions, valeursDe, type ReglageBoites } from "../../prospection/instantlyOutils"
 import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
 import { listerComptes, type Compte } from "../../lib/comptes"
 import { compterTextesValides } from "../../lib/campagnesIa"
@@ -36,6 +36,8 @@ import MesureCampagne from "./moteur/MesureCampagne"
 const Carte = lazy(() => import("./moteur/Carte"))
 type Partie = "audience" | "sequence" | "creatifs" | "qualification" | "garde" | "mesure"
 const JOURS = ["L", "M", "M", "J", "V", "S", "D"]
+const DEMI_HEURES = Array.from({ length: 49 }, (_, i) => i / 2)
+const libelleHeure = (h: number) => (h >= 24 ? "minuit" : `${Math.floor(h)} h${h % 1 ? " 30" : ""}`)
 // La carte remplace ces filtres : ils ne s'affichent pas en boutons.
 const CHAMPS_GEO = ["secteur", "cp", "zone"]
 
@@ -71,6 +73,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   }
   const changerBase = (id: string) => { if (id !== c.baseId) { if (JSON.stringify(cfg) === cfgDepart) appliquerBase(id); else setBaseVoulue(id) } }
   const [ex, setEx] = useState("")
+  const [erreurReglage, setErreurReglage] = useState("")
   const [confirmer, setConfirmer] = useState(false)
   const maj: MajConfig = (f) => setCfg(f)
   const tracabilite = c.origine === ORIGINE_TRACABILITE
@@ -81,33 +84,39 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   // L'écart entre deux campagnes protège la personne, pas la campagne : un seul réglage pour toutes (Mahdi, 11/11/2026).
   const [ecartCommun, setEcartCommun] = useState<number | null>(null)
   useEffect(() => { lireParametre("cmp_ecart_campagnes").then((x) => setEcartCommun(x && Number.isFinite(Number(x)) ? Number(x) : null)).catch(() => undefined) }, [])
-  const majEcart = (n: number) => { setEcartCommun(n); void ecrireParametre("cmp_ecart_campagnes", String(n)) }
+  const majEcart = (n: number) => { setEcartCommun(n); ecrireParametre("cmp_ecart_campagnes", String(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
   // Le volume conseillé par boîte et la chauffe : pour toutes les campagnes (Mahdi, 11/11/2026).
   const [reglageBoites, setReglageBoites] = useState<ReglageBoites>(BOITES_DEPART)
   useEffect(() => { lireParametre("cmp_reglage_boites").then((x) => { try { const o = JSON.parse(x || "{}") as Partial<ReglageBoites>; setReglageBoites({ ...BOITES_DEPART, ...o }) } catch { /* par défaut */ } }).catch(() => undefined) }, [])
-  const majBoites = (p: Partial<ReglageBoites>) => setReglageBoites((r) => { const n = { ...r, ...p }; void ecrireParametre("cmp_reglage_boites", JSON.stringify(n)); return n })
+  const majBoites = (p: Partial<ReglageBoites>) => setReglageBoites((r) => { const n = { ...r, ...p }; ecrireParametre("cmp_reglage_boites", JSON.stringify(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)); return n })
   const arret = cfg.garde.arret ?? ARRET_DEPART
   // LinkedIn : combien de comptes branchés (pour le récapitulatif avant de lancer).
   const [comptesLi, setComptesLi] = useState(0)
   useEffect(() => { nombreComptesLinkedIn().then(setComptesLi).catch(() => undefined) }, [])
-  const majDomaines = (l: string[]) => { setDomaines(l); void ecrireParametre("domaines_bloques", JSON.stringify(l)) }
+  const majDomaines = (l: string[]) => { setDomaines(l); ecrireParametre("domaines_bloques", JSON.stringify(l)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
   const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId && !domaineBloque(x.email, domaines)), [v.contacts, c.baseId, domaines])
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
+  // L'audience ne se recalcule que quand ses réglages changent (17/11/2026) : avant, chaque frappe dans un mail ou dans le nom
+  // refaisait tout le calcul, et relisait la vérification des adresses.
+  const cleAudience = JSON.stringify([c.baseId, c.audience, cfg.zones])
+  const pourAudience = useMemo(() => compilee, [cleAudience]) // eslint-disable-line react-hooks/exhaustive-deps
+  const cleGarde = JSON.stringify([cfg.garde.exclusions, cfg.garde.retires, cfg.garde.ecartCampagnes])
+  const gardeAudience = useMemo(() => cfg.garde, [cleGarde]) // eslint-disable-line react-hooks/exhaustive-deps
   // L'audience réelle (lot 4) : les filtres, puis les mêmes exclusions que le moteur (« Toujours exclus », écart, retirés).
-  const parFiltres = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)), [contactsBase, compilee])
-  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: cfg.garde, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant }), [c.id, cfg.garde, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant])
+  const parFiltres = useMemo(() => contactsBase.filter((x) => estEligible(x, pourAudience)), [contactsBase, pourAudience])
+  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: gardeAudience, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant }), [c.id, gardeAudience, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant])
   const recevront = useMemo(() => (estBaseAvis(c.baseId) ? parFiltres : parFiltres.filter((x) => !raison(x))), [parFiltres, raison, c.baseId])
   const eligibles = recevront.length
   const vide = messageVide(cfg)
   const avis = estBaseAvis(c.baseId)
   // Le pare-feu, à l'écran : ceux qui sont déjà dans une campagne en cours attendront qu'elle soit finie.
   const enAttente = useMemo(() => {
-    const ici = contactsBase.filter((x) => estEligible(x, compilee))
+    const ici = parFiltres
     const parId = new Map(v.contacts.map((x) => [x.id, x]))
     const dedans = new Set(v.etat.inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
     const actifs = v.etat.inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => parId.get(i.contactId) ?? [])
     return ici.length - sansDejaSollicites(ici, dedans, actifs).length
-  }, [contactsBase, compilee, v.contacts, v.etat.inscriptions, c.id])
+  }, [parFiltres, v.contacts, v.etat.inscriptions, c.id])
   const valeurs = (cle: string) => [...new Set(contactsBase.flatMap((x) => (x.champs[cle] ?? "").split(" / ")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")).slice(0, 40)
   const basculerFiltre = (cle: string, val: string) => setC((x) => { const l = x.audience.filtres[cle] ?? []; return { ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, [cle]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } } } })
   const compter = c.baseId !== "artisans" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
@@ -118,10 +127,19 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
     const autres = v.etat.campagnes.filter((x) => x.id !== c.id && x.statut === "active" && !estBaseAvis(x.baseId) && boitesDe(x.baseId, emails).some((e) => miennes.includes(e)))
     return conseilsEnvoi(boites.filter((b) => miennes.includes(b.email)), c.rythme.parJour + autres.reduce((n, x) => n + x.rythme.parJour, 0), v.etat.maintenant, reglageBoites)
   }, [reglageBoites, boites, c.baseId, c.id, c.rythme.parJour, v.etat.campagnes, v.etat.maintenant])
+  // La diffusion réelle (lot 5) : les boîtes de la campagne, ce qu'elles peuvent envoyer, et quand ce sera fini.
+  const diffusion = useMemo(() => {
+    const emails = boites.map((b) => b.email), utilisees = boitesChoisies(c.baseId, emails, cfg.garde.boites)
+    const capa = capaciteReelle(c.rythme, boites.filter((b) => utilisees.includes(b.email)), reglageBoites.mailsParBoite)
+    const nbMails = cfg.actions.filter((a) => a.type === "mail").length
+    const deja = v.etat.envois.filter((e) => e.campagneId === c.id && e.canal === "mail" && e.statut === "envoye").length
+    const aEnvoyer = Math.max(0, recevront.length * nbMails - deja)
+    return { utilisees, capa, nbMails, aEnvoyer, fin: dateFinPrevue(aEnvoyer, capa.parJour, c.rythme.jours, new Date(v.etat.maintenant)) }
+  }, [boites, c.baseId, c.id, c.rythme, cfg.garde.boites, cfg.actions, reglageBoites.mailsParBoite, v.etat.envois, v.etat.maintenant, recevront.length])
   const [textesRelus, setTextesRelus] = useState(0)
   const iaSansRelecture = cfg.creatifs.some((k) => k.ia?.actif && k.ia.relecture === "dix") && !textesRelus
   useEffect(() => { if (confirmer) compterTextesValides(c.id).then(setTextesRelus).catch(() => undefined) }, [confirmer, c.id])
-  const emailsCible = useMemo(() => contactsBase.filter((x) => x.email && estEligible(x, compilee)).map((x) => x.email), [contactsBase, compilee])
+  const emailsCible = useMemo(() => parFiltres.filter((x) => x.email).map((x) => x.email), [parFiltres])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
   const nbActions = (t: string) => cfg.actions.filter((a) => a.type === t).length
@@ -144,7 +162,8 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
 
   return (
     <div className="space-y-5">
-      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={`${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${c.rythme.heureMin} h à ${c.rythme.heureMax} h, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3"><ul className="space-y-1">{recapitulatif.map(([t, ok]) => <li key={t} className="flex items-center gap-2 text-legende">{ok ? <Check size={14} className="shrink-0 text-ok" /> : <X size={14} className="shrink-0 text-alerte" />}{t}</li>)}</ul>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
+      {erreurReglage ? <Bandeau role="alerte">{erreurReglage}</Bandeau> : null}
+      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={`${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${libelleHeure(c.rythme.heureMin)} à ${libelleHeure(c.rythme.heureMax)}, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3"><ul className="space-y-1">{recapitulatif.map(([t, ok]) => <li key={t} className="flex items-center gap-2 text-legende">{ok ? <Check size={14} className="shrink-0 text-ok" /> : <X size={14} className="shrink-0 text-alerte" />}{t}</li>)}</ul>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
       {baseVoulue ? <Dialogue titre="Changer de cible ?" description="Tes textes et ton parcours seront remplacés par ceux prévus pour cette cible." onFermer={() => setBaseVoulue(null)} pied={<><Bouton onClick={() => setBaseVoulue(null)}>Annuler</Bouton><Bouton variante="plein" onClick={() => appliquerBase(baseVoulue)}>Changer de cible</Bouton></>}><p className="text-legende text-encre-2">Ton audience et tes filtres sont aussi remis à zéro.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}
       <Titre titre={existante ? existante.nom : "Créer une campagne"} sous={tracabilite ? "Ce qui tourne aujourd'hui : les mails envoyés après les appels, avec leurs liens suivis. Cette campagne n'envoie rien toute seule." : existante?.statut === "active" ? "Campagne active : les changements valent pour les prochaines touches." : "Rien ne part tant qu'elle n'est pas lancée."}
@@ -185,14 +204,26 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                   <Bloc titre="Rythme d'envoi"><div className="mt-3 space-y-3">
                     <div className="grid grid-cols-4 gap-4">
                       <Libelle titre="Envois par jour, relances comprises" className="!flex flex-col justify-between"><Champ type="number" min={1} value={c.rythme.parJour} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, parJour: Number(e.target.value) || 1 } })} /></Libelle>
-                      <Libelle titre="De (heure)" className="!flex flex-col justify-between"><Champ type="number" min={0} max={23} value={c.rythme.heureMin} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, heureMin: Number(e.target.value) } })} /></Libelle>
-                      <Libelle titre="À (heure)" className="!flex flex-col justify-between"><Champ type="number" min={1} max={24} value={c.rythme.heureMax} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, heureMax: Number(e.target.value) } })} /></Libelle>
+                      <Libelle titre="De" className="!flex flex-col justify-between"><Selecteur aria-label="Heure de début" value={String(c.rythme.heureMin)} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, heureMin: Number(e.target.value) } })}>{DEMI_HEURES.filter((h) => h < 24).map((h) => <option key={h} value={h}>{libelleHeure(h)}</option>)}</Selecteur></Libelle>
+                      <Libelle titre="À" className="!flex flex-col justify-between"><Selecteur aria-label="Heure de fin" value={String(c.rythme.heureMax)} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, heureMax: Number(e.target.value) } })}>{DEMI_HEURES.filter((h) => h > c.rythme.heureMin).map((h) => <option key={h} value={h}>{libelleHeure(h)}</option>)}</Selecteur></Libelle>
                       <Libelle titre="Écart entre deux envois (h)" className="!flex flex-col justify-between"><Champ type="number" min={0} value={c.rythme.ecartMinH} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, ecartMinH: Number(e.target.value) } })} /></Libelle>
                     </div>
                     <div className="flex gap-1">{JOURS.map((j, i) => { const on = c.rythme.jours.includes(i + 1); return <button key={i} type="button" aria-pressed={on} onClick={() => setC({ ...c, rythme: { ...c.rythme, jours: on ? c.rythme.jours.filter((x) => x !== i + 1) : [...c.rythme.jours, i + 1].sort() } })} className={`h-8 w-8 rounded-full text-colonne ${on ? "bg-action text-white" : "bg-fond-3 text-encre-2"}`}>{j}</button> })}</div>
                     {!avis ? <div className="space-y-2 border-t-[0.5px] border-trait pt-3"><label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(cfg.garde.montee?.actif)} onChange={(e) => majMontee({ actif: e.target.checked })} />Monter progressivement</label>{cfg.garde.montee?.actif ? <><div className="flex flex-wrap items-center gap-2 text-legende">Démarrer à <Champ type="number" min={1} className="!w-20" aria-label="Envois au départ" value={montee.depart} onChange={(e) => majMontee({ depart: Number(e.target.value) || 1 })} /> envois, ajouter <Champ type="number" min={1} className="!w-20" aria-label="Envois ajoutés" value={montee.palier} onChange={(e) => majMontee({ palier: Number(e.target.value) || 1 })} /> tous les <Champ type="number" min={1} className="!w-20" aria-label="Nombre de jours" value={montee.tousLesJours} onChange={(e) => majMontee({ tousLesJours: Number(e.target.value) || 1 })} /> jours</div><p className="text-colonne text-encre-2">Aujourd'hui : {fr(envoisDuJour(montee, c.rythme.parJour, c.lanceeLe ?? v.etat.maintenant, new Date(v.etat.maintenant), true))} envois, jusqu'à {fr(c.rythme.parJour)} par jour. Si les rebonds dépassent 2 %, la campagne redescend d'un palier.</p></> : null}</div> : null}
                     {blocConseils}
                   </div></Bloc>
+                  {!avis ? <Bloc titre="Diffusion" droite={<span className="chiffres text-colonne text-encre"><b className="font-medium">{fr(diffusion.capa.parJour)}</b> mails par jour au plus</span>}><div className="mt-3 space-y-3">
+                    <div className="space-y-1.5">
+                      <p className="text-legende font-medium text-encre">Boîtes d'envoi</p>
+                      {boites.length ? <div className="flex flex-wrap gap-x-4 gap-y-1.5">{boites.map((b) => { const choisie = (cfg.garde.boites ?? []).includes(b.email), utilisee = diffusion.utilisees.includes(b.email); return <label key={b.email} className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={cfg.garde.boites?.length ? choisie : utilisee} onChange={() => maj((x) => { const base = x.garde.boites?.length ? x.garde.boites : diffusion.utilisees; const l = base.includes(b.email) ? base.filter((e) => e !== b.email) : [...base, b.email]; return { ...x, garde: { ...x.garde, boites: l } } })} />{b.email}{b.limite ? <span className="text-colonne text-encre-2">· {b.limite}/jour chez Instantly</span> : null}</label> })}</div> : <p className="text-colonne text-attention">Aucune boîte prête chez Instantly pour l'instant.</p>}
+                      <p className="text-colonne text-encre-2">{cfg.garde.boites?.length ? "Choix fait à la main. Tout décocher revient au choix automatique." : "Choix automatique : les boîtes prévues pour cette cible."}</p>
+                    </div>
+                    <div className="space-y-1 rounded-4 bg-fond-2 p-3 text-colonne text-encre">
+                      <p>Capacité réelle : <b className="font-medium">{fr(diffusion.capa.parJour)} mails par jour</b>. {diffusion.utilisees.length} boîte{diffusion.utilisees.length > 1 ? "s" : ""}, un mail toutes les 10 minutes chacune, de {libelleHeure(c.rythme.heureMin)} à {libelleHeure(c.rythme.heureMax)} : {fr(diffusion.capa.parCreneau)} par boîte au plus{c.rythme.parJour < diffusion.capa.parCreneau * diffusion.utilisees.length ? `, plafonné à ${fr(c.rythme.parJour)} par la campagne` : ""}.</p>
+                      <p>Reste à envoyer : {fr(diffusion.aEnvoyer)} mails ({fr(recevront.length)} {base?.unite ?? "contacts"} × {diffusion.nbMails} mail{diffusion.nbMails > 1 ? "s" : ""}, moins ceux déjà partis). {diffusion.fin ? <>Dernier envoi prévu vers le <b className="font-medium">{diffusion.fin.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</b> (hors jours fériés et réponses).</> : "Pas de date possible : aucun jour ou aucune boîte."}</p>
+                      {c.rythme.parJour > diffusion.capa.parJour ? <p className="text-attention">« Envois par jour » ({fr(c.rythme.parJour)}) dépasse ce que les boîtes peuvent envoyer sur ce créneau : élargis les heures ou ajoute une boîte.</p> : null}
+                    </div>
+                  </div></Bloc> : null}
                   <Bloc titre="Ne pas fatiguer les contacts"><div className="mt-3 grid grid-cols-3 gap-4">
                     <Libelle titre="Écart entre deux campagnes (j), pour toutes" className="!flex flex-col justify-between"><Champ type="number" min={0} value={ecartCommun ?? cfg.garde.ecartCampagnes} onChange={(e) => majEcart(Number(e.target.value) || 0)} /></Libelle>
                     {cfg.actions.some((a) => a.type === "sms") ? <Libelle titre="SMS par jour, maximum" className="!flex flex-col justify-between"><Champ type="number" min={0} value={cfg.garde.plafondSms} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, plafondSms: Number(e.target.value) || 0 } }))} /></Libelle> : null}
