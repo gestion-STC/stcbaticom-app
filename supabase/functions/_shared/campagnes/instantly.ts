@@ -5,7 +5,7 @@
 // la première fois. Ajouter un contact à cette campagne, c'est demander l'envoi. Le texte, déjà personnalisé par le
 // moteur (liens signés), voyage dans les variables du contact. Baticom reste le seul à décider qui reçoit quoi et quand.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { boitePrete, boitesDe, corpsAvecMentions, horaireInstantly, type Mentions } from "./instantlyOutils.ts"
+import { boitePrete, corpsAvecMentions, reglageInstantly, type Mentions } from "./instantlyOutils.ts"
 
 const API = "https://api.instantly.ai/api/v2"
 const CLE_CARTE = "instantly_campagnes"
@@ -71,17 +71,28 @@ export async function preparerInstantly(sb: SupabaseClient, base: string, mainte
 type Rythme = { jours: number[]; heureMin: number; heureMax: number }
 async function campagneDeLaVariante(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; nom: string; baseId: string; rythme: Rythme; plafond: number; suiviOuvertures: boolean; mentions?: Mentions }, cleVariante: string): Promise<{ id?: string; erreur?: string }> {
   const cleCarte = `${c.id}:${cleVariante}`
-  if (ins.carte[cleCarte]) return { id: ins.carte[cleCarte] }
+  const reglage = reglageInstantly(c, ins.pretes)
+  const empreinte = JSON.stringify(reglage)
+  const existante = ins.carte[cleCarte]
+  if (existante) {
+    // Heures, jours ou plafond changés dans Baticom : recopiés chez Instantly (sinon il garde ceux du premier envoi).
+    if (ins.carte[`${cleCarte}#reglage`] === empreinte) return { id: existante }
+    const maj = await appelInstantly(ins.cle, `/campaigns/${existante}`, { methode: "PATCH", corps: reglage })
+    if (maj.ok) { ins.carte[`${cleCarte}#reglage`] = empreinte; await ecrireParametre(sb, CLE_CARTE, JSON.stringify(ins.carte)) }
+    else console.error(`Instantly : réglages non recopiés pour ${cleCarte} (${maj.status}) ${String(maj.data?.message ?? "").slice(0, 120)}`)
+    return { id: existante }
+  }
   const cree = await appelInstantly(ins.cle, "/campaigns", { corps: {
-    name: `Baticom · ${c.nom} · ${cleVariante.slice(0, 8)}`, campaign_schedule: horaireInstantly(c.rythme),
+    name: `Baticom · ${c.nom} · ${cleVariante.slice(0, 8)}`,
     sequences: [{ steps: [{ type: "email", delay: 0, variants: [{ subject: "{{bt_objet}}", body: "{{bt_corps}}" }] }] }],
-    email_list: boitesDe(c.baseId, ins.pretes), daily_limit: c.plafond, stop_on_reply: true, link_tracking: false, open_tracking: c.suiviOuvertures, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
+    ...reglage, stop_on_reply: true, link_tracking: false, text_only: false, stop_on_auto_reply: false, email_gap: 10, insert_unsubscribe_header: true,
   } })
   const id = String(cree.data?.id ?? "")
   if (!cree.ok || !id) return { erreur: `création de campagne refusée (${cree.status}) ${String(cree.data?.message ?? "").slice(0, 120)}` }
   const active = await appelInstantly(ins.cle, `/campaigns/${id}/activate`, { methode: "POST" })
   if (!active.ok) return { erreur: `activation refusée (${active.status}) ${String(active.data?.message ?? "").slice(0, 120)}` }
   ins.carte[cleCarte] = id
+  ins.carte[`${cleCarte}#reglage`] = empreinte
   await ecrireParametre(sb, CLE_CARTE, JSON.stringify(ins.carte))
   return { id }
 }
