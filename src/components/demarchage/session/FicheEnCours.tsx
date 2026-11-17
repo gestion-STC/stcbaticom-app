@@ -27,6 +27,8 @@ export default function FicheEnCours({
   blocContacts,
   ecoute,
   dicter,
+  dicteeProvisoire = "",
+  dicteeMessage = "",
   note,
   setNote,
   lead,
@@ -46,6 +48,10 @@ export default function FicheEnCours({
   blocContacts: ReactNode
   ecoute: boolean
   dicter: () => void
+  /** Ce que la dictée entend, avant que la phrase soit finie. */
+  dicteeProvisoire?: string
+  /** Pourquoi la dictée ne marche pas, à côté de la note. */
+  dicteeMessage?: string
   note: string
   setNote: Dispatch<SetStateAction<string>>
 }) {
@@ -118,12 +124,12 @@ export default function FicheEnCours({
       <Section
         titre="Note de l'appel"
         droite={
-          FABRIQUE_DICTEE ? (
-            <Bouton taille="sm" variante={ecoute ? "danger" : "discret"} icone={ecoute ? <MicOff /> : <Mic />} onClick={dicter}>{ecoute ? "Arrêter la dictée" : "Dicter"}</Bouton>
-          ) : null
+          <Bouton taille="sm" variante={ecoute ? "danger" : "discret"} icone={ecoute ? <MicOff /> : <Mic />} onClick={dicter} title={FABRIQUE_DICTEE ? undefined : "Dictée disponible sur Google Chrome"}>{ecoute ? "Arrêter la dictée" : "Dicter"}</Bouton>
         }
       >
         <Zone value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Ce qui s'est dit pendant l'appel… La note part avec le résultat." />
+        {ecoute ? <p className="mt-1 text-colonne text-encre-2">{dicteeProvisoire ? <i>{dicteeProvisoire}…</i> : "J'écoute… parle normalement, le texte s'ajoute à chaque fin de phrase."}</p> : null}
+        {dicteeMessage ? <p className="mt-1 text-colonne text-alerte">{dicteeMessage}</p> : null}
       </Section>
 
     </div>

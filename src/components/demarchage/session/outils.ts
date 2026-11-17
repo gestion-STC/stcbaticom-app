@@ -9,7 +9,7 @@ export type Dictee = {
   interimResults: boolean
   onresult: ((e: ResultatDictee) => void) | null
   onend: (() => void) | null
-  onerror: (() => void) | null
+  onerror: ((e: { error?: string }) => void) | null
   start(): void
   stop(): void
 }

@@ -1,7 +1,7 @@
 // ── LES PARTIES D'UNE CAMPAGNE (09/11/2026) : séquence, créatifs, qualification, garde-fous, et le chemin du contact ──
 import { useEffect, useState, type ReactNode } from "react"
 import { listerComptes, type Compte } from "../../../lib/comptes"
-import { apercuMail, baliseImage, conseilsMail, type ValeursEssai } from "../../../prospection/apercuMail"
+import { apercuMail, baliseImage, conseilsMail, smsTelQuilPart, type ValeursEssai } from "../../../prospection/apercuMail"
 import { chargerModelesMail, enregistrerModeleMail, type ModeleMail } from "../../../lib/modelesMail"
 import AjoutImage from "./AjoutImage"
 import InsererAvis from "./InsererAvis"
@@ -78,7 +78,7 @@ function Apercu({ k, cfg }: { k: Creatif; cfg: ConfigCampagne }) {
   const v = k.variantes[0]
   const vers = cfg.creatifs.find((x) => x.id === k.versId)
   if (k.type === "linkedin") return <div className="space-y-1"><div className="max-w-[300px] whitespace-pre-line rounded-[14px] bg-fond-3 px-3 py-2 text-legende">{v?.corps || "Le texte"}</div><p className={`text-colonne ${(v?.corps ?? "").length > NOTE_MAX ? "text-attention" : "text-encre-2"}`}>{(v?.corps ?? "").length} caractères. Une note d'invitation est coupée à {NOTE_MAX} ; un message n'a pas cette limite.</p></div>
-  if (k.type === "sms") return <div className="max-w-[300px] rounded-[14px] bg-fond-3 px-3 py-2 text-legende">{v?.corps || "Le texte"}</div>
+  if (k.type === "sms") return <div className="space-y-1"><div className="max-w-[300px] whitespace-pre-line rounded-[14px] bg-fond-3 px-3 py-2 text-legende">{v?.corps ? smsTelQuilPart(v.corps) : "Le texte"}</div><p className="text-colonne text-encre-2">La ligne « STOP » est ajoutée d'office : un clic et la personne ne reçoit plus rien. Le lien réel est propre à chaque contact.</p></div>
   if (k.type === "formulaire") return <div className="space-y-3">{k.remplirPar === "commercial" ? <p className="text-colonne text-encre-2">S'affichera sur la fiche, dans la session de call.</p> : null}{k.questions.map((q) => <div key={q.id} className="space-y-1"><p className="text-legende font-medium">{q.libelle || "Question"}{q.requis ? " *" : ""}</p>{q.type === "Oui / Non" ? <div className="flex gap-2"><span className="rounded-full border-[0.5px] border-trait px-3 py-1 text-colonne">Oui</span><span className="rounded-full border-[0.5px] border-trait px-3 py-1 text-colonne">Non</span></div> : <div className={`rounded-4 bg-fond-3 ${q.type === "Texte long" ? "h-14" : "h-8"}`} />}</div>)}<div className="inline-block rounded-full bg-action px-4 py-1.5 text-legende text-white">Envoyer</div></div>
   if (k.type === "avis") return <div className="space-y-3"><h3 className="text-sous-titre font-semibold">{v?.objet || "Titre de la page"}</h3><p className="whitespace-pre-line text-legende">{v?.corps}</p><div className="flex gap-1.5">{[1, 2, 3, 4, 5].map((n) => <span key={n} className="flex h-8 w-8 items-center justify-center rounded-full border-[0.5px] border-trait text-legende">{n}</span>)}</div><p className="text-colonne text-encre-2">Note, commentaire, nom à afficher et autorisation de réutiliser. Après l'envoi, le lien Google est proposé à tout le monde.</p></div>
   if (k.type === "mail") {
@@ -132,7 +132,7 @@ export function Creatifs({ cfg, maj, avis, exemple, baseId, campagne }: { cfg: C
                 {(k.type === "mail" || k.type === "page") && !avis ? <InsererAvis onAvis={(citation) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${citation}` })} /> : null}
                 {k.type === "mail" ? <AjoutImage onImage={(url, lien) => majV(i, { corps: `${v.corps}${v.corps ? "\n\n" : ""}${baliseImage(url, lien)}` })} /> : null}
                 {k.type === "mail" ? conseilsMail(v.objet, v.corps, premierMail === k.id).map((t) => <p key={t} className="text-colonne text-attention">{t}</p>) : null}
-                {k.type === "sms" ? <p className="text-colonne text-encre-2">{v.corps.length} caractères · {Math.max(1, Math.ceil(v.corps.length / 160))} SMS</p> : null}
+                {k.type === "sms" ? (() => { const n = v.corps.length + (v.corps.includes("{{lien_desinscription}}") ? 0 : 70); return <p className="text-colonne text-encre-2">Environ {n} caractères avec les liens et la ligne STOP · {Math.max(1, Math.ceil(n / 160))} SMS</p> })() : null}
               </div>
             )) : null}
             {k.type === "mail" && !avis && premierMail !== k.id ? <label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={k.memeFil !== false} onChange={(e) => majK({ memeFil: e.target.checked })} />Envoyer en réponse au mail précédent, dans le même fil</label> : null}
