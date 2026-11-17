@@ -83,10 +83,10 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
 
     // Les appels passés aux contacts des campagnes, depuis leur entrée.
     const appelsAg = await lireParLots<L>((d, f) => sb().from("activites").select("id, agence_id, compte_id, date, resultat, issue").eq("type", "appel").gte("date", depuis).neq("resultat", "lance").order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)
-    const appelsSt = await lireParLots<L>((d, f) => sb().from("st_appels").select("id, sous_traitant_id, compte_nom, cree_le, resultat, issue").gte("cree_le", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>).catch(() => [] as L[])
+    const appelsSt = await lireParLots<L>((d, f) => sb().from("st_appels").select("id, sous_traitant_id, compte_nom, date, resultat, issue").gte("date", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>).catch(() => [] as L[])
     const appels: Appel[] = [
       ...appelsAg.filter((a) => { const i = parContact.get(String(a.agence_id)); return i && String(a.date) >= i.entreeLe }).map((a) => ({ id: String(a.id), contactId: String(a.agence_id), compteId: String(a.compte_id ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: parContact.get(String(a.agence_id))!.campagneId })),
-      ...appelsSt.filter((a) => { const i = parContact.get(String(a.sous_traitant_id)); return i && String(a.cree_le) >= i.entreeLe }).map((a) => ({ id: String(a.id), contactId: String(a.sous_traitant_id), compteId: String(a.compte_nom ?? ""), le: String(a.cree_le), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: parContact.get(String(a.sous_traitant_id))!.campagneId })),
+      ...appelsSt.filter((a) => { const i = parContact.get(String(a.sous_traitant_id)); return i && String(a.date) >= i.entreeLe }).map((a) => ({ id: String(a.id), contactId: String(a.sous_traitant_id), compteId: String(a.compte_nom ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: parContact.get(String(a.sous_traitant_id))!.campagneId })),
     ]
     publier({
       ...etat, maintenant: new Date().toISOString(), campagnes: camps, inscriptions: insc, contacts: cts, evenements: evs, leads, appels,
