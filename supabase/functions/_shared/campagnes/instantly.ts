@@ -5,7 +5,7 @@
 // la première fois. Ajouter un contact à cette campagne, c'est demander l'envoi. Le texte, déjà personnalisé par le
 // moteur (liens signés), voyage dans les variables du contact. Baticom reste le seul à décider qui reçoit quoi et quand.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { ECART_MAILS_MIN, boitePrete, corpsAvecMentions, reglageInstantly, type Mentions } from "./instantlyOutils.ts"
+import { ECART_MAILS_MIN, MAILS_PAR_BOITE, boitePrete, corpsAvecMentions, reglageInstantly, type Mentions } from "./instantlyOutils.ts"
 
 const API = "https://api.instantly.ai/api/v2"
 const CLE_CARTE = "instantly_campagnes"
@@ -61,6 +61,16 @@ export async function preparerInstantly(sb: SupabaseClient, base: string, mainte
   let anciennes: { email?: string; depuis?: string }[] = []
   try { anciennes = (JSON.parse(await lireParametre(sb, CLE_ETAT) || "{}") as { boites?: { email?: string; depuis?: string }[] }).boites ?? [] } catch { anciennes = [] }
   const boites = ((r.data.items ?? []) as (Boite & { timestamp_warmup_start?: string | null; timestamp_created?: string | null })[]).map((b) => ({ email: b.email, status: b.status, warmup_status: b.warmup_status, setup_pending: Boolean(b.setup_pending), stat_warmup_score: b.stat_warmup_score ?? null, limite: Number((b as { daily_limit?: number }).daily_limit ?? 0) || null, depuis: b.timestamp_warmup_start ?? b.timestamp_created ?? anciennes.find((x) => x.email === b.email)?.depuis ?? maintenant }))
+  // Le volume par boîte réglé dans Baticom (Réglages des campagnes › « Volume conseillé par boîte », 30 par défaut) est
+  // appliqué à chaque boîte prête chez Instantly (17/11/2026) : avant, il fallait le changer à la main dans Instantly.
+  let parBoite = MAILS_PAR_BOITE
+  try { const n = Number((JSON.parse(await lireParametre(sb, "cmp_reglage_boites") || "{}") as { mailsParBoite?: number }).mailsParBoite); if (Number.isFinite(n) && n >= 1) parBoite = Math.min(200, Math.round(n)) } catch { /* par défaut */ }
+  for (const b of boites) {
+    if (!boitePrete(b) || b.limite === parBoite) continue
+    const maj = await appelInstantly(cle, `/accounts/${encodeURIComponent(b.email)}`, { methode: "PATCH", corps: { daily_limit: parBoite } })
+    if (maj.ok) b.limite = parBoite
+    else console.error(`Instantly : limite de ${b.email} non changée (${maj.status}) ${String(maj.data?.message ?? "").slice(0, 120)}`)
+  }
   const retours = await installerRetours(base, cle)
   await ecrireParametre(sb, CLE_ETAT, JSON.stringify({ le: maintenant, boites, retours }))
   let carte: Record<string, string> = {}
