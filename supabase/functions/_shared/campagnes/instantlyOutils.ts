@@ -98,15 +98,17 @@ export function capaciteReelle(r: { heureMin: number; heureMax: number; parJour:
   return { parJour: Math.min(total, r.parJour), parBoite: boites.length ? Math.round(total / boites.length) : 0, parCreneau }
 }
 
-/** Le jour où le dernier mail partirait (jours 1 = lundi … 7 = dimanche), sans compter les jours fériés : une estimation. */
-export function dateFinPrevue(mails: number, parJour: number, jours: number[], depuis: Date): Date | null {
+/** Le jour où le dernier mail partirait (jours 1 = lundi … 7 = dimanche), sans compter les jours fériés : une estimation.
+ *  `parJour` peut varier selon le jour (montée en charge). */
+export function dateFinPrevue(mails: number, parJour: number | ((jour: Date) => number), jours: number[], depuis: Date): Date | null {
   if (mails <= 0) return depuis
-  if (parJour <= 0 || !jours.length) return null
+  const volume = typeof parJour === "number" ? () => parJour : parJour
+  if (!jours.length || (typeof parJour === "number" && parJour <= 0)) return null
   let reste = mails
   const d = new Date(depuis)
   for (let i = 0; i < 3660; i++) {
     const j = ((d.getDay() + 6) % 7) + 1
-    if (jours.includes(j)) { reste -= parJour; if (reste <= 0) return d }
+    if (jours.includes(j)) { reste -= Math.max(0, volume(d)); if (reste <= 0) return d }
     d.setDate(d.getDate() + 1)
   }
   return null
