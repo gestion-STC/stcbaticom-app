@@ -1,4 +1,5 @@
 import { useState } from "react"
+import RelaisRingover from "./RelaisRingover"
 import type { Session } from "@supabase/supabase-js"
 import SecteursReglage from "./demarchage/SecteursReglage"
 import ObjectifsReglage from "./demarchage/ObjectifsReglage"
@@ -90,7 +91,7 @@ export default function Parametrage({ session, sectionInitiale }: { session: Ses
         {section === "modeles" && <EmailsManager partie="modeles" />}
         {section === "qualification" && admin && <ReglagesQualification />}
         {section === "comptes" && admin && <Comptes session={session} />}
-        {section === "numeros" && <NumerosManager />}
+        {section === "numeros" && <><NumerosManager /><RelaisRingover /></>}
       </div>
     </div>
   )
