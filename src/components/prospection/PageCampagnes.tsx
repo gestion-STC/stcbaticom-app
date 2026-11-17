@@ -2,7 +2,7 @@
 // Une seule page (07/11/2026) : `base` null = toutes les bases du compte, avec le choix de base dans la page
 // (un administrateur) ; sinon la base du compte (un commercial : les agences, un recruteur : les artisans).
 // Les données se relisent toutes les 2 minutes (le moteur passe toutes les 10).
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { Bandeau, Bouton, Chargement } from "../../ui"
 import { ContexteDepot } from "../../prospection/depot"
@@ -17,15 +17,24 @@ import { ORIGINE_TRACABILITE } from "../../prospection/configCampagne"
 
 export default function PageCampagnes({ base, onSession }: { base: "agences" | "artisans" | null; onSession: () => void }) {
   const session = useSession()
-  const compte = useMemo(() => ({ id: session?.user?.id ?? "moi", nom: nomAffiche(session), role: roleDeSession(session) === "admin" ? "gerant" as const : "commercial" as const }), [session])
+  // Le compte ne change que si la personne change (17/11/2026) : avant, chaque rafraîchissement de la connexion (toutes les
+  // heures, ou au retour sur l'onglet) recréait le dépôt, vidait l'écran et relisait tout.
+  const idCompte = session?.user?.id ?? "moi", nomCompte = nomAffiche(session), roleCompte = roleDeSession(session) === "admin" ? "gerant" as const : "commercial" as const
+  const compte = useMemo(() => ({ id: idCompte, nom: nomCompte, role: roleCompte }), [idCompte, nomCompte, roleCompte])
   const [erreur, setErreur] = useState("")
   const depot = useMemo(() => creerDepotSupabase({ ...compte, role: "gerant" }, setErreur), [compte])
   const [pret, setPret] = useState(false)
   const [vue, setVue] = useState<{ ecran: "liste" | "suivi" | "editeur"; id: string | null }>({ ecran: "liste", id: null })
   // La traçabilité n'envoie rien : elle s'ouvre directement sur ses critères, pas sur un suivi d'envois vide.
   const ouvrir = (id: string) => setVue({ ecran: depot.lire().campagnes.find((c) => c.id === id)?.origine === ORIGINE_TRACABILITE ? "editeur" : "suivi", id })
-  const relire = () => depot.charger().then(() => { setPret(true); setErreur("") }).catch((e) => setErreur(`Lecture des campagnes : ${e instanceof Error ? e.message : String(e)}`))
-  useEffect(() => { void relire(); const t = setInterval(() => void relire(), 120_000); return () => clearInterval(t) }, [depot]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Une seule lecture à la fois, et pas de relecture automatique quand l'onglet est caché.
+  const enLecture = useRef(false)
+  const relire = (auto = false) => {
+    if (enLecture.current || (auto && typeof document !== "undefined" && document.hidden)) return Promise.resolve()
+    enLecture.current = true
+    return depot.charger().then(() => { setPret(true); setErreur("") }).catch((e) => setErreur(`Lecture des campagnes : ${e instanceof Error ? e.message : String(e)}`)).finally(() => { enLecture.current = false })
+  }
+  useEffect(() => { void relire(); const t = setInterval(() => void relire(true), 120_000); return () => clearInterval(t) }, [depot]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <ContexteDepot.Provider value={depot}>
       <ContexteCompte.Provider value={compte.id}>

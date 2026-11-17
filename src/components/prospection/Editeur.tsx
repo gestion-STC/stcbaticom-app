@@ -3,7 +3,7 @@
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { Check, X } from "lucide-react"
-import { Bouton, Champ, Chargement, Dialogue, Onglets, Selecteur, Zone } from "../../ui"
+import { Bandeau, Bouton, Champ, Chargement, Dialogue, Onglets, Selecteur, Zone } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
 import { estEligible, type Campagne } from "../../prospection/modele"
@@ -73,6 +73,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   }
   const changerBase = (id: string) => { if (id !== c.baseId) { if (JSON.stringify(cfg) === cfgDepart) appliquerBase(id); else setBaseVoulue(id) } }
   const [ex, setEx] = useState("")
+  const [erreurReglage, setErreurReglage] = useState("")
   const [confirmer, setConfirmer] = useState(false)
   const maj: MajConfig = (f) => setCfg(f)
   const tracabilite = c.origine === ORIGINE_TRACABILITE
@@ -83,33 +84,39 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   // L'écart entre deux campagnes protège la personne, pas la campagne : un seul réglage pour toutes (Mahdi, 11/11/2026).
   const [ecartCommun, setEcartCommun] = useState<number | null>(null)
   useEffect(() => { lireParametre("cmp_ecart_campagnes").then((x) => setEcartCommun(x && Number.isFinite(Number(x)) ? Number(x) : null)).catch(() => undefined) }, [])
-  const majEcart = (n: number) => { setEcartCommun(n); void ecrireParametre("cmp_ecart_campagnes", String(n)) }
+  const majEcart = (n: number) => { setEcartCommun(n); ecrireParametre("cmp_ecart_campagnes", String(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
   // Le volume conseillé par boîte et la chauffe : pour toutes les campagnes (Mahdi, 11/11/2026).
   const [reglageBoites, setReglageBoites] = useState<ReglageBoites>(BOITES_DEPART)
   useEffect(() => { lireParametre("cmp_reglage_boites").then((x) => { try { const o = JSON.parse(x || "{}") as Partial<ReglageBoites>; setReglageBoites({ ...BOITES_DEPART, ...o }) } catch { /* par défaut */ } }).catch(() => undefined) }, [])
-  const majBoites = (p: Partial<ReglageBoites>) => setReglageBoites((r) => { const n = { ...r, ...p }; void ecrireParametre("cmp_reglage_boites", JSON.stringify(n)); return n })
+  const majBoites = (p: Partial<ReglageBoites>) => setReglageBoites((r) => { const n = { ...r, ...p }; ecrireParametre("cmp_reglage_boites", JSON.stringify(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)); return n })
   const arret = cfg.garde.arret ?? ARRET_DEPART
   // LinkedIn : combien de comptes branchés (pour le récapitulatif avant de lancer).
   const [comptesLi, setComptesLi] = useState(0)
   useEffect(() => { nombreComptesLinkedIn().then(setComptesLi).catch(() => undefined) }, [])
-  const majDomaines = (l: string[]) => { setDomaines(l); void ecrireParametre("domaines_bloques", JSON.stringify(l)) }
+  const majDomaines = (l: string[]) => { setDomaines(l); ecrireParametre("domaines_bloques", JSON.stringify(l)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
   const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId && !domaineBloque(x.email, domaines)), [v.contacts, c.baseId, domaines])
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
+  // L'audience ne se recalcule que quand ses réglages changent (17/11/2026) : avant, chaque frappe dans un mail ou dans le nom
+  // refaisait tout le calcul, et relisait la vérification des adresses.
+  const cleAudience = JSON.stringify([c.baseId, c.audience, cfg.zones])
+  const pourAudience = useMemo(() => compilee, [cleAudience]) // eslint-disable-line react-hooks/exhaustive-deps
+  const cleGarde = JSON.stringify([cfg.garde.exclusions, cfg.garde.retires, cfg.garde.ecartCampagnes])
+  const gardeAudience = useMemo(() => cfg.garde, [cleGarde]) // eslint-disable-line react-hooks/exhaustive-deps
   // L'audience réelle (lot 4) : les filtres, puis les mêmes exclusions que le moteur (« Toujours exclus », écart, retirés).
-  const parFiltres = useMemo(() => contactsBase.filter((x) => estEligible(x, compilee)), [contactsBase, compilee])
-  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: cfg.garde, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant }), [c.id, cfg.garde, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant])
+  const parFiltres = useMemo(() => contactsBase.filter((x) => estEligible(x, pourAudience)), [contactsBase, pourAudience])
+  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: gardeAudience, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant }), [c.id, gardeAudience, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant])
   const recevront = useMemo(() => (estBaseAvis(c.baseId) ? parFiltres : parFiltres.filter((x) => !raison(x))), [parFiltres, raison, c.baseId])
   const eligibles = recevront.length
   const vide = messageVide(cfg)
   const avis = estBaseAvis(c.baseId)
   // Le pare-feu, à l'écran : ceux qui sont déjà dans une campagne en cours attendront qu'elle soit finie.
   const enAttente = useMemo(() => {
-    const ici = contactsBase.filter((x) => estEligible(x, compilee))
+    const ici = parFiltres
     const parId = new Map(v.contacts.map((x) => [x.id, x]))
     const dedans = new Set(v.etat.inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
     const actifs = v.etat.inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => parId.get(i.contactId) ?? [])
     return ici.length - sansDejaSollicites(ici, dedans, actifs).length
-  }, [contactsBase, compilee, v.contacts, v.etat.inscriptions, c.id])
+  }, [parFiltres, v.contacts, v.etat.inscriptions, c.id])
   const valeurs = (cle: string) => [...new Set(contactsBase.flatMap((x) => (x.champs[cle] ?? "").split(" / ")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")).slice(0, 40)
   const basculerFiltre = (cle: string, val: string) => setC((x) => { const l = x.audience.filtres[cle] ?? []; return { ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, [cle]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } } } })
   const compter = c.baseId !== "artisans" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
@@ -132,7 +139,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const [textesRelus, setTextesRelus] = useState(0)
   const iaSansRelecture = cfg.creatifs.some((k) => k.ia?.actif && k.ia.relecture === "dix") && !textesRelus
   useEffect(() => { if (confirmer) compterTextesValides(c.id).then(setTextesRelus).catch(() => undefined) }, [confirmer, c.id])
-  const emailsCible = useMemo(() => contactsBase.filter((x) => x.email && estEligible(x, compilee)).map((x) => x.email), [contactsBase, compilee])
+  const emailsCible = useMemo(() => parFiltres.filter((x) => x.email).map((x) => x.email), [parFiltres])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
   const nbActions = (t: string) => cfg.actions.filter((a) => a.type === t).length
@@ -155,6 +162,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
 
   return (
     <div className="space-y-5">
+      {erreurReglage ? <Bandeau role="alerte">{erreurReglage}</Bandeau> : null}
       {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={`${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${libelleHeure(c.rythme.heureMin)} à ${libelleHeure(c.rythme.heureMax)}, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3"><ul className="space-y-1">{recapitulatif.map(([t, ok]) => <li key={t} className="flex items-center gap-2 text-legende">{ok ? <Check size={14} className="shrink-0 text-ok" /> : <X size={14} className="shrink-0 text-alerte" />}{t}</li>)}</ul>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
       {baseVoulue ? <Dialogue titre="Changer de cible ?" description="Tes textes et ton parcours seront remplacés par ceux prévus pour cette cible." onFermer={() => setBaseVoulue(null)} pied={<><Bouton onClick={() => setBaseVoulue(null)}>Annuler</Bouton><Bouton variante="plein" onClick={() => appliquerBase(baseVoulue)}>Changer de cible</Bouton></>}><p className="text-legende text-encre-2">Ton audience et tes filtres sont aussi remis à zéro.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}

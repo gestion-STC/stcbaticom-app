@@ -18,6 +18,7 @@ import { chargerFichiers, type Fichier } from "../../lib/fichiersDb"
 import TextesARelire from "./moteur/TextesARelire"
 import { estBaseAvis } from "../../prospection/avis"
 import { alerteLancement } from "../../prospection/alerteLancement"
+import JournalMoteur from "./moteur/JournalMoteur"
 
 type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "contacts" | "appels"
 const PT: Record<Constat["ton"], string> = { ok: "bg-ok", attention: "bg-attention", alerte: "bg-alerte" }
@@ -60,11 +61,12 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
         </>} />
   const alerte = alerteLancement(c, v.etat.envois, v.etat.maintenant)
   const bandeauAlerte = alerte ? <Bandeau role="alerte">{alerte} Vérifie la campagne, ou mets-la en pause.</Bandeau> : null
-  if (estBaseAvis(c.baseId)) return <div className="space-y-6">{entete}{bandeauAlerte}<MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /></div>
+  if (estBaseAvis(c.baseId)) return <div className="space-y-6">{entete}{bandeauAlerte}{c.statut === "active" || c.statut === "pause" ? <JournalMoteur campagneId={c.id} /> : null}<MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /></div>
   return (
     <div className="space-y-6">
       {entete}
       {bandeauAlerte}
+      {c.statut === "active" || c.statut === "pause" ? <JournalMoteur campagneId={c.id} /> : null}
       {(c.config as { creatifs?: { ia?: { actif?: boolean; relecture?: string } }[] } | undefined)?.creatifs?.some((k) => k.ia?.actif && k.ia.relecture === "tous") ? <TextesARelire campagneId={c.id} nomDe={(id) => v.contacts.find((x) => x.id === id)?.nom ?? "Contact"} /> : null}
       {c.statut === "pause" && arret ? <Bandeau role="alerte">Mise en pause automatiquement : {arret.rebonds} rebonds sur {arret.envois} envois. Nettoie ou vérifie le fichier avant de relancer.</Bandeau> : null}
 
