@@ -3,6 +3,7 @@ import type { AppelIa } from "./appelsIa"
 import {
   MIN_APPELS, abouti, bilanGlobal, cleLibelle, dureeLisible, ecartLisible, heureDeParis, pourcent,
   entrainement, statsArguments, statsObjections, statsParCommercial, statsParHeure,
+  ESSAIS_MAX_ANALYSE, causeEchecLisible, enEchecDefinitif,
 } from "./analyseOutils"
 
 let n = 0
@@ -124,5 +125,20 @@ describe("mon entraînement", () => {
     const vieux = appel({ compteNom: "H", creeLe: "2026-11-01T09:00:00Z" }); vieux.analyse!.pointsForts = ["Récupère le mail du gestionnaire"]
     const recent = appel({ compteNom: "H", creeLe: "2026-11-06T09:00:00Z" }); recent.analyse!.pointsForts = ["Récupère le mail du gestionnaire", "Qualification rapide"]
     expect(entrainement([vieux, recent], "H").pointsForts.map((r) => r.texte)).toEqual(["Récupère le mail du gestionnaire", "Qualification rapide"])
+  })
+})
+
+describe("analyses en échec définitif", () => {
+  it("une erreur n'est définitive qu'une fois les essais épuisés", () => {
+    expect(enEchecDefinitif({ statut: "erreur", tentatives: ESSAIS_MAX_ANALYSE })).toBe(true)
+    expect(enEchecDefinitif({ statut: "erreur", tentatives: 13 })).toBe(true)
+    expect(enEchecDefinitif({ statut: "erreur", tentatives: 3 })).toBe(false) // encore reprise par le passage de secours
+    expect(enEchecDefinitif({ statut: "sans_enregistrement", tentatives: 12 })).toBe(false)
+    expect(enEchecDefinitif({ statut: "pret", tentatives: 12 })).toBe(false)
+  })
+  it("la cause est dite en clair", () => {
+    expect(causeEchecLisible('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API.')).toBe("crédit IA épuisé")
+    expect(causeEchecLisible("transcription refusée (ElevenLabs 401) : …")).toBe("transcription refusée")
+    expect(causeEchecLisible("")).toBe("cause inconnue")
   })
 })

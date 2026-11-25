@@ -375,10 +375,10 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
   for (const l of analyse.aCreer) {
     onProgres({ fait, total, enCours: l.nom })
     try {
-      const id = await creerAgence({ nom: l.nom, enseigne: l.enseigne, type: l.type, secteur: l.secteur, adresse: l.adresse, telephone: l.telephone, email: l.email })
+      // La trace d'origine (créée par un import, pas à la main) est posée DÈS la création (25/11/2026) :
+      // la seconde écriture d'avant ignorait son erreur et laissait des agences « saisie » sans fichier.
+      const id = await creerAgence({ nom: l.nom, enseigne: l.enseigne, type: l.type, secteur: l.secteur, adresse: l.adresse, telephone: l.telephone, email: l.email }, { source: origine?.source || "import", fichierId: origine?.fichierId ?? null })
       bilan.agencesCreees++
-      // La trace d'origine : créée par un import, pas à la main.
-      await sb().from("agences").update({ source: origine?.source || "import", fichier_id: origine?.fichierId ?? null }).eq("id", id)
       for (const c of contactsDe(l)) {
         await creerContact(id, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: l.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
         bilan.contactsAjoutes++

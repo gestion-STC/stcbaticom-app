@@ -194,3 +194,18 @@ export function entrainement(tous: AppelIa[], nom: string): Entrainement {
     aReecouter: miens.find((a) => (a.interet === "fort" || a.interet === "moyen") && !abouti(a) && a.analyse!.objections.some((o) => !o.levee)) ?? null,
   }
 }
+
+// ── Les analyses en échec définitif (25/11/2026) ──
+// La fonction analyser-appel reprend une analyse en erreur toutes les 2 minutes, au plus ESSAIS_MAX_ANALYSE fois
+// (le même nombre que dans la fonction). Au-delà, plus rien ne la reprend : l'écran doit le dire.
+export const ESSAIS_MAX_ANALYSE = 12
+export const enEchecDefinitif = (a: { statut: string; tentatives: number }): boolean => a.statut === "erreur" && a.tentatives >= ESSAIS_MAX_ANALYSE
+/** La cause, en clair, à partir du message brut de l'erreur. */
+export function causeEchecLisible(erreur: string): string {
+  const e = (erreur || "").toLowerCase()
+  if (e.includes("credit balance")) return "crédit IA épuisé"
+  if (e.includes("elevenlabs") || e.includes("transcription")) return "transcription refusée"
+  if (e.includes("ringover")) return "Ringover injoignable"
+  if (e.includes("trop longue")) return "appel trop long pour l'analyse"
+  return erreur ? erreur.slice(0, 120) : "cause inconnue"
+}

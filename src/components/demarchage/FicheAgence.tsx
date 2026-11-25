@@ -491,7 +491,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
       {fusionSource && agence ? (
         <Dialogue
           titre="Fusionner les deux fiches ?"
-          description={`Tout ce qui est rattaché à « ${fusionSource.nom} » (contacts, appels, e-mails, tâches) passe dans « ${agence.nom} », puis « ${fusionSource.nom} » disparaît. On ne revient pas en arrière.`}
+          description={`Tout ce qui est rattaché à « ${fusionSource.nom} » (contacts, appels et leurs analyses, e-mails, tâches, leads, campagnes, liens des mails déjà envoyés) passe dans « ${agence.nom} », puis « ${fusionSource.nom} » disparaît. On ne revient pas en arrière.`}
           onFermer={() => setFusionSource(null)}
           largeur="max-w-md"
           pied={

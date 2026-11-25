@@ -21,6 +21,8 @@ import {
   type Motif,
   type Resultat,
   type Secteur,
+  contactDuGestionnaire,
+  filtreRechercheAgences,
   jourLocal,
   premiersInteresses,
   nomCle,
@@ -73,6 +75,8 @@ function sb() {
 function erreur(e: { message: string } | null): void {
   if (e) throw new Error(e.message)
 }
+// Une fonction SQL pas encore posée en base (le fichier SQL du jour n'a pas encore été collé).
+const fonctionAbsente = (e: { message: string; code?: string } | null): boolean => Boolean(e && (e.code === "PGRST202" || /could not find the function/i.test(e.message)))
 const chiffres = (t: string) => (t || "").replace(/\D/g, "")
 
 // ── Secteurs ──
@@ -116,8 +120,7 @@ export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> 
     if (f.commercialId === "aucun") q = q.is("commercial_id", null)
     else if (f.commercialId) q = q.eq("commercial_id", f.commercialId)
     if (f.recherche?.trim()) {
-      const r = f.recherche.trim().replace(/[%,]/g, " ")
-      q = q.or(`nom.ilike.%${r}%,telephone.ilike.%${r}%,email.ilike.%${r}%,adresse.ilike.%${r}%,contact_principal.ilike.%${r}%`)
+      q = q.or(filtreRechercheAgences(f.recherche))
     }
     return q
   }
@@ -329,8 +332,11 @@ function versLigneAgence(c: ChampsAgence): Record<string, unknown> {
   return l
 }
 
-export async function creerAgence(c: ChampsAgence & { nom: string }): Promise<string> {
-  const { data, error } = await sb().from("agences").insert({ ...versLigneAgence(c), source: "saisie" }).select("id").single()
+// La trace d'origine (saisie à la main, import + son fichier) est posée dès la création : pas de seconde écriture.
+export async function creerAgence(c: ChampsAgence & { nom: string }, origine: { source: string; fichierId?: string | null } = { source: "saisie" }): Promise<string> {
+  const trace: Record<string, unknown> = { source: origine.source || "saisie" }
+  if (origine.fichierId !== undefined) trace.fichier_id = origine.fichierId
+  const { data, error } = await sb().from("agences").insert({ ...versLigneAgence(c), ...trace }).select("id").single()
   erreur(error)
   return (data as { id: string }).id
 }
@@ -351,14 +357,13 @@ export async function premierOs(id: string, date?: string): Promise<void> {
   erreur(error)
 }
 // Fusionner deux agences : tout ce qui est rattaché à `source` passe à `cible`, puis `source` disparaît.
+// 25/11/2026 : c'est la base qui fusionne, en une seule transaction (agences_fusionner) : contacts, activités,
+// mails, leads, appels analysés, liens suivis (les liens des mails déjà partis continuent de marcher), client
+// signalé, campagnes. Avant, seuls contacts, activités et mails suivaient ; le reste partait avec la fiche.
 export async function fusionnerAgences(cibleId: string, sourceId: string): Promise<void> {
-  const s = sb()
-  for (const table of ["contacts", "activites", "messages"]) {
-    const { error } = await s.from(table).update({ agence_id: cibleId }).eq("agence_id", sourceId)
-    erreur(error)
-  }
-  const { error } = await s.from("agences").delete().eq("id", sourceId)
-  erreur(error)
+  const { error } = await sb().rpc("agences_fusionner", { p_garder: cibleId, p_supprimer: sourceId })
+  if (fonctionAbsente(error)) throw new Error("La fusion attend la mise à jour de la base du 25/11 (fichier SQL fiches-et-appels) : rien n'a été modifié.")
+  if (error) throw new Error(`La fusion n'a pas été faite, rien n'a été modifié : ${error.message}`)
 }
 
 // ── Contacts ──
@@ -382,14 +387,20 @@ export async function creerContact(agenceId: string, c: ChampsContact): Promise<
   // Le premier contact d'une agence est le contact principal.
   const { count } = await s.from("contacts").select("id", { count: "exact", head: true }).eq("agence_id", agenceId).eq("parti", false)
   const principal = c.principal ?? (count ?? 0) === 0
-  if (principal) await s.from("contacts").update({ principal: false }).eq("agence_id", agenceId)
+  if (principal) {
+    const { error: e } = await s.from("contacts").update({ principal: false }).eq("agence_id", agenceId)
+    erreur(e)
+  }
   const { data, error } = await s.from("contacts").insert({ agence_id: agenceId, ...versLigneContact({ ...c, principal }) }).select(COLONNES_CONTACT).single()
   erreur(error)
   return versContact(data as LigneContact)
 }
 export async function majContact(id: string, agenceId: string, c: ChampsContact): Promise<void> {
   const s = sb()
-  if (c.principal) await s.from("contacts").update({ principal: false }).eq("agence_id", agenceId)
+  if (c.principal) {
+    const { error: e } = await s.from("contacts").update({ principal: false }).eq("agence_id", agenceId)
+    erreur(e)
+  }
   const { error } = await s.from("contacts").update({ ...versLigneContact(c), maj_le: new Date().toISOString() }).eq("id", id)
   erreur(error)
 }
@@ -660,21 +671,31 @@ export async function chargerClientsAConfirmer(): Promise<ClientSignale[]> {
   return ((data ?? []) as LigneClientSignale[]).map(versClientSignale)
 }
 // « C'est elle » : l'agence passe cliente, datée du premier OS ; on garde une trace dans son fil, et le gestionnaire devient un contact s'il manque.
+// 25/11/2026 : tout en UNE transaction dans la base (client_signale_confirmer) ; une erreur annule tout et s'affiche.
 export async function confirmerClientSignale(c: ClientSignale, agenceId: string, compteNom: string): Promise<void> {
+  const { error } = await sb().rpc("client_signale_confirmer", { p_id: c.id, p_agence_id: agenceId, p_compte_nom: compteNom })
+  if (!fonctionAbsente(error)) { erreur(error); return }
+  await confirmerClientSignaleEtapes(c, agenceId, compteNom) // la fonction SQL n'est pas encore posée
+}
+// L'ancien chemin, étape par étape (en attendant le SQL du 25/11) : chaque erreur est vérifiée et remonte à l'écran.
+async function confirmerClientSignaleEtapes(c: ClientSignale, agenceId: string, compteNom: string): Promise<void> {
   const s = sb()
   // Le jour LOCAL (Paris) : un OS reçu à 0 h 30 le 13 n'est pas du 12 (`.slice(0, 10)` d'un horodatage UTC le faisait).
   const date = jourLocal(c.premierOsLe ? new Date(c.premierOsLe) : new Date())
   const { error: e1 } = await s.rpc("agence_premier_os", { p_agence_id: agenceId, p_date: date, p_source: "stc_batiment" })
   erreur(e1)
   if (c.email) {
-    const { data: deja } = await s.from("contacts").select("id").eq("agence_id", agenceId).ilike("email", c.email).limit(1)
-    if (!deja?.length) {
-      const [prenom, ...reste] = c.nom.trim().split(/\s+/)
-      await s.from("contacts").insert({ agence_id: agenceId, prenom: prenom ?? "", nom: reste.join(" "), role: "gestionnaire", email: c.email, ligne_directe: c.telephones[0] ?? "", mobile: c.telephones.find((t) => /^(\+33\s?|0)[67]/.test(t.replace(/[\s.]/g, ""))) ?? "", note: "Gestionnaire relevé sur les ordres de service STC Bâtiment." })
+    const { data: deja, error: e0 } = await s.from("contacts").select("id, email").eq("agence_id", agenceId)
+    erreur(e0)
+    if (!((deja ?? []) as { email: string | null }[]).some((x) => (x.email ?? "").trim().toLowerCase() === c.email.trim().toLowerCase())) {
+      const g = contactDuGestionnaire(c.nom, c.telephones)
+      const { error: e3 } = await s.from("contacts").insert({ agence_id: agenceId, prenom: g.prenom, nom: g.nom, role: "gestionnaire", email: c.email, ligne_directe: g.ligneDirecte, mobile: g.mobile, note: "Gestionnaire relevé sur les ordres de service STC Bâtiment." })
+      erreur(e3)
     }
   }
   const quoi = c.premierOsNumero ? `OS ${c.premierOsNumero}` : "ordre de service"
-  await s.from("activites").insert({ agence_id: agenceId, type: "note", note: `Premier ${quoi} reçu dans STC Bâtiment le ${new Date(date).toLocaleDateString("fr-FR")} (${c.nbOs} OS au total). Confirmé par ${compteNom}.`, compte_nom: compteNom, source: "stc_batiment" })
+  const { error: e4 } = await s.from("activites").insert({ agence_id: agenceId, type: "note", note: `Premier ${quoi} reçu dans STC Bâtiment le ${new Date(date).toLocaleDateString("fr-FR")} (${c.nbOs} OS au total). Confirmé par ${compteNom}.`, compte_nom: compteNom, source: "stc_batiment" })
+  erreur(e4)
   const { error: e2 } = await s.from("clients_signales").update({ statut: "confirme", agence_id: agenceId, decide_par: compteNom, decide_le: new Date().toISOString(), maj_le: new Date().toISOString() }).eq("id", c.id)
   erreur(e2)
 }
@@ -683,9 +704,25 @@ export async function ignorerClientSignale(id: string, compteNom: string): Promi
   erreur(error)
 }
 // « Créer l'agence cliente » : une agence neuve, cliente d'emblée, avec le gestionnaire en contact.
+// 25/11/2026 : création et confirmation dans la MÊME transaction (client_signale_confirmer) : si la confirmation
+// échoue, l'agence n'est pas créée ; un second clic ne crée pas de doublon (le signalement est verrouillé, puis confirmé).
 export async function creerAgenceCliente(c: ClientSignale, compteNom: string, secteur: string | null): Promise<string> {
   const nom = (c.societe || c.nomsAgence.split("|")[0] || c.nom).trim()
+  const { data, error } = await sb().rpc("client_signale_confirmer", { p_id: c.id, p_agence_id: null, p_compte_nom: compteNom, p_nom: nom, p_nom_cle: nomCle(nom), p_secteur: secteur })
+  if (!fonctionAbsente(error)) {
+    erreur(error)
+    if (!data) throw new Error("La base n'a pas renvoyé l'agence créée.")
+    return data as string
+  }
+  // La fonction SQL n'est pas encore posée : création puis confirmation ; si la confirmation échoue,
+  // l'agence tout juste créée est retirée (sinon un nouvel essai créait un doublon).
   const id = await creerAgence({ nom, secteur, telephone: c.telephones[0] ?? "", email: c.email })
-  await confirmerClientSignale(c, id, compteNom)
+  try {
+    await confirmerClientSignaleEtapes(c, id, compteNom)
+  } catch (e) {
+    const { error: eRetrait } = await sb().from("agences").delete().eq("id", id)
+    const m = e instanceof Error ? e.message : String(e)
+    throw new Error(eRetrait ? `${m} — et la fiche « ${nom} » créée juste avant n'a pas pu être retirée : vérifier les doublons avant de réessayer.` : m, { cause: e })
+  }
   return id
 }

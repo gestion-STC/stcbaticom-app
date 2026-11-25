@@ -9,6 +9,7 @@
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
 import type { Destinataire } from "../lib/destinataire"
+import { ESSAIS_MAX_ANALYSE } from "./analyseOutils"
 
 export type StatutIa = "en_attente" | "en_cours" | "pret" | "sans_enregistrement" | "trop_court" | "erreur"
 export type Interet = "nul" | "faible" | "moyen" | "fort"
@@ -132,6 +133,23 @@ export async function relancerAnalyse(id: string, activiteId: string): Promise<v
   const { error } = await sb().from("appels_ia").update({ statut: "en_attente", tentatives: 0, prochain_essai: new Date().toISOString(), erreur: null, maj_le: new Date().toISOString() }).eq("id", id)
   if (error) throw new Error(error.message)
   lancerAnalyseAppel(activiteId)
+}
+
+/** Les analyses que plus rien ne reprendra (erreur, essais épuisés), toutes périodes confondues (25/11/2026). */
+export type AnalyseEnEchec = { id: string; agenceNom: string; compteNom: string; creeLe: string; erreur: string }
+export async function analysesEnEchec(): Promise<AnalyseEnEchec[]> {
+  const { data, error } = await sb().from("appels_ia").select("id, compte_nom, cree_le, erreur, agences(nom)")
+    .eq("statut", "erreur").gte("tentatives", ESSAIS_MAX_ANALYSE).order("cree_le", { ascending: false }).limit(200)
+  if (error) { if (tableAbsente(error.message)) return []; throw new Error(error.message) }
+  return ((data ?? []) as unknown as { id: string; compte_nom: string | null; cree_le: string; erreur: string | null; agences: { nom: string } | null }[])
+    .map((l) => ({ id: l.id, agenceNom: l.agences?.nom ?? "", compteNom: l.compte_nom ?? "", creeLe: l.cree_le, erreur: l.erreur ?? "" }))
+}
+/** Remettre des analyses en attente : le passage de secours les reprend (4 toutes les 2 minutes), la transcription déjà payée est gardée. */
+export async function relancerAnalyses(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const maintenant = new Date().toISOString()
+  const { error } = await sb().from("appels_ia").update({ statut: "en_attente", tentatives: 0, prochain_essai: maintenant, erreur: null, verrou_le: null, maj_le: maintenant }).in("id", ids).eq("statut", "erreur")
+  if (error) throw new Error(error.message)
 }
 
 // ── Le verrou du compte (Mahdi, 24/10) : « à partir du moment où tu as passé ton call, tu es

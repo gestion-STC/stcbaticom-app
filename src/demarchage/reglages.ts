@@ -66,12 +66,18 @@ export async function enregistrerReglage(d: DefinitionReglage, valeur: number): 
 }
 
 // ── Le partage entre écrans : une lecture, tous les écrans abonnés ──
+// 25/11/2026 : un réglage changé par un autre poste n'attendait plus que le rechargement de la page. La lecture
+// en mémoire vit au plus 5 minutes, et tout est relu au retour sur l'onglet.
+export const RELIRE_REGLAGES_MS = 5 * 60_000
 let enCache: Promise<Reglages> | null = null
+let luLe = 0
 const abonnes = new Set<() => void>()
 export function lireReglages(): Promise<Reglages> {
-  if (!enCache) {
-    enCache = chargerDefinitionsReglages().then(versReglages)
-    enCache.catch(() => { enCache = null }) // un échec ne reste pas en mémoire : on retentera
+  if (!enCache || Date.now() - luLe >= RELIRE_REGLAGES_MS) {
+    luLe = Date.now()
+    const lecture = chargerDefinitionsReglages().then(versReglages)
+    enCache = lecture
+    lecture.catch(() => { if (enCache === lecture) enCache = null }) // un échec ne reste pas en mémoire : on retentera
   }
   return enCache
 }
@@ -80,6 +86,25 @@ export function oublierReglages(): void {
   enCache = null
   for (const f of abonnes) f()
 }
+/** Deux lectures identiques : l'écran garde l'ancien objet (pas de nouveau calcul ni de rechargement pour rien). */
+export function memesReglages(a: Reglages | null, b: Reglages): boolean {
+  if (!a) return false
+  return TEXTES_REGLAGES.every((t) => a[t.cle] === b[t.cle])
+}
+// La relecture : au retour sur l'onglet, et toutes les 5 minutes tant qu'un écran s'en sert (onglet visible).
+let minuterie: ReturnType<typeof setInterval> | null = null
+const siVisible = () => { if (document.visibilityState === "visible") oublierReglages() }
+function suivreReglages(): void {
+  if (minuterie || typeof document === "undefined") return
+  document.addEventListener("visibilitychange", siVisible)
+  minuterie = setInterval(siVisible, RELIRE_REGLAGES_MS)
+}
+function arreterSuivi(): void {
+  if (abonnes.size || !minuterie) return
+  clearInterval(minuterie)
+  minuterie = null
+  document.removeEventListener("visibilitychange", siVisible)
+}
 /** Les réglages, ou null tant qu'ils ne sont pas lus ; l'erreur s'il est impossible de les lire. */
 export function useReglages(): { reglages: Reglages | null; erreur: string } {
   const [etat, setEtat] = useState<{ reglages: Reglages | null; erreur: string }>({ reglages: null, erreur: "" })
@@ -87,12 +112,13 @@ export function useReglages(): { reglages: Reglages | null; erreur: string } {
     let vivant = true
     const lire = () => {
       lireReglages()
-        .then((r) => { if (vivant) setEtat({ reglages: r, erreur: "" }) })
+        .then((r) => { if (vivant) setEtat((x) => (memesReglages(x.reglages, r) && !x.erreur ? x : { reglages: memesReglages(x.reglages, r) ? x.reglages : r, erreur: "" })) })
         .catch((e) => { if (vivant) setEtat((x) => ({ ...x, erreur: e instanceof Error ? e.message : String(e) })) })
     }
     lire()
     abonnes.add(lire)
-    return () => { vivant = false; abonnes.delete(lire) }
+    suivreReglages()
+    return () => { vivant = false; abonnes.delete(lire); arreterSuivi() }
   }, [])
   return etat
 }
