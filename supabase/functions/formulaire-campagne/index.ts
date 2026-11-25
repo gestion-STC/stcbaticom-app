@@ -45,6 +45,13 @@ Deno.serve(async (req: Request) => {
           await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: le, desinscrit_canal: "avis" }).eq("id", k)
         }
         await sb.from("cmp_inscriptions").update({ statut: "desinscrit", sortie_le: le }).eq("campagne_id", c).eq("contact_ref", k).eq("statut", "en_cours")
+        // La désinscription compte dans le suivi de la campagne (25/11/2026), rattachée au dernier envoi reçu ; une seule fois.
+        const { count: deja } = await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("type", "desinscription")
+        if (!deja) {
+          const { data: dernier } = await sb.from("cmp_envois").select("id").eq("campagne_id", c).eq("contact_ref", k).eq("statut", "envoye").order("le", { ascending: false }).limit(1)
+          const { error: errEv } = await sb.from("cmp_evenements").insert({ campagne_id: c, envoi_id: (dernier?.[0] as { id?: string } | undefined)?.id ?? null, contact_ref: k, type: "desinscription", le })
+          if (errEv) console.error("désinscription non comptée", errEv.message)
+        }
       }
       return json({ ok: true })
     }

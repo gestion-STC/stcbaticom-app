@@ -11,6 +11,8 @@ import type { Campagne } from "../../prospection/modele"
 import { ORIGINE_TRACABILITE, configDe } from "../../prospection/configCampagne"
 import { NomBase, Onglets, Titre } from "./morceaux"
 import { fr, pct, useVue } from "./outils"
+import { ConfirmerLancement } from "./moteur/Lancement"
+import { relancable } from "../../prospection/lancement"
 
 const ROLE = { brouillon: "inerte", active: "fait", pause: "attente", terminee: "inerte" } as const
 const LIB = { brouillon: "Brouillon", active: "Active", pause: "En pause", terminee: "Terminée" } as const
@@ -26,9 +28,12 @@ export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => v
   const lignes = useMemo(() => mes.map((c) => ({ c, i: indicateurs(c, v.base(c.baseId)!, v.etat.contacts, v.etat.inscriptions, v.etat.envois, v.evenements, v.etat.leads, v.etat.appels) })), [mes, v])
   const somme = (f: (x: (typeof lignes)[number]) => number) => lignes.reduce((s, x) => s + f(x), 0)
   const touches = somme((x) => x.i.engagement.touches), cliqueurs = somme((x) => x.i.engagement.cliqueurs)
-  const basculer = (c: Campagne) => depot.changerStatut(c.id, c.statut === "active" ? "pause" : "active")
+  // Mettre en pause : direct. Lancer ou reprendre : la même vérification et la même confirmation que l'éditeur (25/11/2026).
+  const [aLancer, setALancer] = useState<Campagne | null>(null)
+  const basculer = (c: Campagne) => { if (c.statut === "active") depot.changerStatut(c.id, "pause"); else if (relancable(c)) setALancer(c) }
   return (
     <div className="space-y-6">
+      {aLancer ? <ConfirmerLancement c={aLancer} onFermer={() => setALancer(null)} /> : null}
       <Titre titre="Campagnes" sous={v.compte.role === "gerant" ? "Toutes les bases" : `Tes bases : ${v.bases.map((b) => b.nom).join(", ")}`} droite={<Bouton variante="plein" icone={<Plus />} onClick={creer}>Créer une campagne</Bouton>} />
       <Bandeau cases={[
         { libelle: "Actives", valeur: mes.filter((c) => c.statut === "active").length },
@@ -43,7 +48,7 @@ export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => v
       <Table colonnes={[{ titre: "", largeur: "44px" }, { titre: "Campagne" }, ...(v.bases.length > 1 ? [{ titre: "Base", largeur: "170px" }] : []), { titre: "Statut", largeur: "120px" }, { titre: "En cours", largeur: "76px", droite: true }, { titre: "Touchés", largeur: "76px", droite: true }, { titre: "Ouverture", largeur: "84px", droite: true }, { titre: "Clic", largeur: "70px", droite: true }, { titre: "Leads", largeur: "64px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }, { titre: "Coût", largeur: "76px", droite: true }, { titre: "", largeur: "28px" }]}
         vide="Aucune campagne : crée la première."
         lignes={lignes.map(({ c, i }) => ({ cle: c.id, cellules: [
-          tracabilite(c) ? <span /> : <Interrupteur allume={c.statut === "active"} onChange={() => basculer(c)} libelle={c.statut === "active" ? "Mettre en pause" : "Lancer"} />,
+          tracabilite(c) || c.statut === "terminee" ? <span /> : <Interrupteur allume={c.statut === "active"} onChange={() => basculer(c)} libelle={c.statut === "active" ? "Mettre en pause" : c.statut === "pause" ? "Reprendre" : "Lancer"} />,
           <button type="button" onClick={() => ouvrir(c.id)} className="block w-full truncate py-1.5 text-left"><span className="font-medium text-encre hover:underline">{c.nom}</span><span className="block truncate text-colonne text-encre-2">{criteres(c)}</span></button>,
           ...(v.bases.length > 1 ? [<NomBase base={v.base(c.baseId)} />] : []),
           <Pastille role={tracabilite(c) ? "fait" : ROLE[c.statut]}>{tracabilite(c) ? "Active" : LIB[c.statut]}</Pastille>,

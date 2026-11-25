@@ -97,6 +97,8 @@ export type Inscription = {
 export type Envoi = {
   id: Id; campagneId: Id; inscriptionId: Id; contactId: Id; etapeId: Id; varianteId: Id | null
   canal: Canal; le: string; statut: "en_cours" | "envoye" | "erreur" | "saute"; cause: string
+  /** Mode test : parti vers l'adresse de test, Instantly ne renvoie rien (25/11/2026). */
+  test?: boolean
 }
 export type TypeEvenement = "delivre" | "ouvert" | "clic" | "reponse" | "desinscription" | "rebond" | "connexion"
 export type Evenement = { id: Id; campagneId: Id; envoiId: Id | null; contactId: Id; type: TypeEvenement; le: string; lien?: string; robot?: boolean }

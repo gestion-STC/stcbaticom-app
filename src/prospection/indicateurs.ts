@@ -3,8 +3,28 @@
 // « Touché » = au moins un envoi parti. Les taux d'engagement se rapportent aux touchés ; le 1er clic d'un
 // contact est rattaché à l'envoi qui l'a provoqué (l'événement porte l'envoi) ; les gagnés sont les contacts
 // de la campagne passés « gagné » (client, dossier déposé) après leur entrée.
+//
+// CONFIÉ OU PARTI (25/11/2026) : le moteur note un mail « envoyé » dès qu'Instantly l'a ACCEPTÉ ; il part plus tard, dans la
+// plage horaire, ou jamais (forfait non payé, boîte en panne). Pour une campagne qui passe par Instantly, un mail n'est
+// « parti » qu'une fois confirmé : « email_sent » d'Instantly (événement « delivre »), ou une ouverture, un clic, une
+// réponse, un rebond sur cet envoi. « Touchés » et « Délivrés » se comptent sur ces confirmations ; le reste est
+// « en attente chez Instantly ». Le statut en base et la planification du moteur ne changent pas.
 import type { Appel, Base, Campagne, Canal, Contact, Envoi, Etape, Evenement, Inscription, Lead } from "./modele"
 import { LIBELLE_ETAPE, estEligible } from "./modele"
+import { jourDe } from "./moteur"
+import { estBaseAvis } from "./avis"
+import { avecDejaClients } from "./exclusions"
+import { leadsPourAB } from "./abTest"
+
+/** Ses mails passent par Instantly : ni une campagne d'avis (Resend), ni la machine sous-traitants reprise (Resend). */
+export const parInstantly = (c: Pick<Campagne, "baseId" | "origine">) => !estBaseAvis(c.baseId) && c.origine !== "st"
+const CONFIRME: Evenement["type"][] = ["delivre", "ouvert", "clic", "reponse", "rebond"]
+/** Les envois réellement partis : hors Instantly, tout envoi « envoyé » ; chez Instantly, un mail confirmé (ou de test). */
+export function envoisPartis(c: Pick<Campagne, "baseId" | "origine">, envois: Envoi[], evenements: Evenement[]): Set<string> {
+  const confirmes = new Set(evenements.filter((e) => e.envoiId && CONFIRME.includes(e.type)).map((e) => e.envoiId as string))
+  const instantly = parInstantly(c)
+  return new Set(envois.filter((e) => e.statut === "envoye" && (!instantly || (e.canal !== "mail" && e.canal !== "newsletter") || e.test || confirmes.has(e.id))).map((e) => e.id))
+}
 
 const taux = (n: number, sur: number): number | null => (sur > 0 ? n / sur : null)
 const uniques = (evs: Evenement[], type: Evenement["type"]) => new Set(evs.filter((e) => e.type === type).map((e) => e.contactId))
@@ -22,7 +42,8 @@ export type LigneJourSemaine = { jour: number; envoyes: number; ouverts: number;
 
 export type Indicateurs = {
   audience: { eligibles: number; entres: number; enCours: number; terminees: number; sortisLead: number; desinscrits: number; rebonds: number; restants: number }
-  envois: { total: number; envoyes: number; erreurs: number; sautes: number; parCanal: Record<Canal, { envoyes: number; erreurs: number; sautes: number }> }
+  /** envoyes : confiés (statut « envoyé » en base) ; partis : confirmés ; enAttente : confiés à Instantly, pas encore partis. */
+  envois: { total: number; envoyes: number; partis: number; enAttente: number; erreurs: number; sautes: number; parCanal: Record<Canal, { envoyes: number; erreurs: number; sautes: number }> }
   delivrabilite: { delivres: number; rebonds: number; tauxDelivrance: number | null; tauxErreur: number | null }
   engagement: { touches: number; ouvreurs: number; ouvertures: number; cliqueurs: number; clics: number; repondants: number; desinscriptions: number; tauxOuverture: number | null; tauxClic: number | null; tauxClicSurOuvert: number | null; tauxReponse: number | null; tauxDesinscription: number | null }
   conversion: { leads: number; tauxLead: number | null; delaiMedianLeadJ: number | null; leadsTraites: number; appels: number; joints: number; tauxJoint: number | null; gagnes: number; tauxGagne: number | null }
@@ -47,11 +68,17 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
   const apl = appels.filter((a) => a.campagneId === c.id || (inscrits.has(a.contactId) && lds.some((l) => l.contactId === a.contactId)))
   const parContact = new Map(contacts.map((k) => [k.id, k]))
   const gagnes = new Set([...inscrits].filter((id) => parContact.get(id)?.statut === "gagne"))
-  const touches = new Set(env.filter((e) => e.statut === "envoye").map((e) => e.contactId))
+  const partis = envoisPartis(c, env, evs)
+  const touches = new Set(env.filter((e) => partis.has(e.id)).map((e) => e.contactId))
+  const confies = new Set(env.filter((e) => e.statut === "envoye").map((e) => e.contactId))
   const ouvreurs = uniques(evs, "ouvert"), cliqueurs = uniques(evs, "clic"), repondants = uniques(evs, "reponse"), desinsc = uniques(evs, "desinscription")
   const nbSms = env.filter((e) => e.canal === "sms" && e.statut === "envoye").length
   // Éligibles = ceux déjà entrés + ceux qui pourraient encore entrer (un lead ou un désinscrit reste compté).
-  const eligibles = new Set([...inscrits, ...contacts.filter((k) => estEligible(k, c)).map((k) => k.id)]).size
+  // Comme le moteur : « Déjà client » retiré des exclusions, les clients comptent (exclusions.ts).
+  const pourAudience = avecDejaClients(contacts, (c.config as { garde?: { exclusions?: string[] } } | undefined)?.garde?.exclusions)
+  const eligibles = new Set([...inscrits, ...pourAudience.filter((k) => estEligible(k, c)).map((k) => k.id)]).size
+  // Les leads d'un test A/B : la définition du serveur, qui décide de la bascule (abTest.ts, leadsPourAB).
+  const leadsAB = leadsPourAB(c.id, inscriptions, contacts)
 
   // Le 1er clic de chaque contact, et l'envoi qui l'a provoqué.
   const premierClic = new Map<string, Evenement>()
@@ -78,7 +105,7 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
       const ids = new Set(ee.map((e) => e.id))
       const ev = evs.filter((e) => e.envoiId && ids.has(e.envoiId))
       const o = uniques(ev, "ouvert").size, k = uniques(ev, "clic").size
-      parVariante.push({ etapeId: et.id, varianteId: v.id, nom: v.nom, objet: v.objet, envoyes: ee.length, ouvreurs: o, cliqueurs: k, repondants: uniques(ev, "reponse").size, leads: new Set(ee.map((e) => e.contactId).filter((id) => lds.some((l) => l.contactId === id))).size, tauxOuverture: taux(o, ee.length), tauxClic: taux(k, ee.length) })
+      parVariante.push({ etapeId: et.id, varianteId: v.id, nom: v.nom, objet: v.objet, envoyes: ee.length, ouvreurs: o, cliqueurs: k, repondants: uniques(ev, "reponse").size, leads: new Set(ee.map((e) => e.contactId).filter((id) => leadsAB.has(id))).size, tauxOuverture: taux(o, ee.length), tauxClic: taux(k, ee.length) })
     }
   }
 
@@ -101,12 +128,13 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
   })
 
   const jours = new Map<string, LigneJour>()
-  const j = (iso: string) => { const k = iso.slice(0, 10); let l = jours.get(k); if (!l) { l = { jour: k, entres: 0, envoyes: 0, erreurs: 0, ouvreurs: 0, cliqueurs: 0, leads: 0 }; jours.set(k, l) } return l }
+  // Le jour à Paris (25/11/2026) : avant, le jour universel ; un envoi de 0 h 30 l'hiver tombait la veille.
+  const j = (iso: string) => { const k = jourDe(iso); let l = jours.get(k); if (!l) { l = { jour: k, entres: 0, envoyes: 0, erreurs: 0, ouvreurs: 0, cliqueurs: 0, leads: 0 }; jours.set(k, l) } return l }
   for (const i of insc) j(i.entreeLe).entres += 1
   for (const e of env) { if (e.statut === "envoye") j(e.le).envoyes += 1; if (e.statut === "erreur") j(e.le).erreurs += 1 }
   for (const [type, cle] of [["ouvert", "ouvreurs"], ["clic", "cliqueurs"]] as const) {
     const vus = new Set<string>()
-    for (const e of evs) if (e.type === type) { const k = e.le.slice(0, 10) + e.contactId; if (!vus.has(k)) { vus.add(k); j(e.le)[cle] += 1 } }
+    for (const e of evs) if (e.type === type) { const k = jourDe(e.le) + e.contactId; if (!vus.has(k)) { vus.add(k); j(e.le)[cle] += 1 } }
   }
   for (const l of lds) j(l.creeLe).leads += 1
 
@@ -135,8 +163,9 @@ export function indicateurs(c: Campagne, base: Base, contacts: Contact[], inscri
       eligibles, entres: insc.length, enCours: insc.filter((i) => i.statut === "en_cours").length, terminees: insc.filter((i) => i.statut === "terminee").length,
       sortisLead: insc.filter((i) => i.statut === "lead").length, desinscrits: desinsc.size, rebonds, restants: Math.max(0, eligibles - insc.length),
     },
-    envois: { total: env.length, envoyes, erreurs, sautes: env.filter((e) => e.statut === "saute").length, parCanal },
-    delivrabilite: { delivres, rebonds, tauxDelivrance: taux(delivres, touches.size), tauxErreur: taux(erreurs, envoyes + erreurs) },
+    envois: { total: env.length, envoyes, partis: partis.size, enAttente: envoyes - partis.size, erreurs, sautes: env.filter((e) => e.statut === "saute").length, parCanal },
+    // Délivrés : rapportés aux contacts à qui un envoi a été confié (avant : aux touchés, eux-mêmes comptés sur le confié).
+    delivrabilite: { delivres, rebonds, tauxDelivrance: taux(delivres, confies.size), tauxErreur: taux(erreurs, envoyes + erreurs) },
     engagement: {
       touches: touches.size, ouvreurs: ouvreurs.size, ouvertures: evs.filter((e) => e.type === "ouvert").length, cliqueurs: cliqueurs.size, clics: evs.filter((e) => e.type === "clic").length,
       repondants: repondants.size, desinscriptions: desinsc.size, tauxOuverture: taux(ouvreurs.size, touches.size), tauxClic: taux(cliqueurs.size, touches.size),
@@ -187,6 +216,7 @@ export function constats(ind: Indicateurs): Constat[] {
   const out: Constat[] = []
   const envoyeuses = ind.parEtape.filter((e) => e.envoyes > 0)
   const totalPc = envoyeuses.reduce((s, e) => s + e.premiersClics, 0)
+  if (ind.engagement.touches === 0 && ind.envois.enAttente > 0) return [{ ton: "attention", titre: "Confiés à Instantly, rien n'est encore parti.", preuve: `${ind.envois.enAttente} mail${ind.envois.enAttente > 1 ? "s" : ""} accepté${ind.envois.enAttente > 1 ? "s" : ""} par Instantly, aucun confirmé parti. Ils partent dans la plage horaire, sauf si Instantly bloque (forfait, boîtes).`, action: "Voir le rythme" }]
   if (ind.engagement.touches === 0) return [{ ton: "attention", titre: "Rien n'est encore parti.", preuve: `${ind.audience.entres} contacts entrés, aucun envoi : la campagne attend sa plage horaire ou son lancement.`, action: "Voir le rythme" }]
   const meilleure = [...envoyeuses].sort((a, b) => b.premiersClics - a.premiersClics)[0]
   if (meilleure && totalPc >= 5 && meilleure.premiersClics / totalPc >= 0.5) out.push({ ton: "ok", titre: `L'étape ${meilleure.rang + 1} (${meilleure.libelle}) fait l'essentiel.`, preuve: `${meilleure.premiersClics} des ${totalPc} premiers clics, ${meilleure.leads} leads.`, action: "La garder telle quelle" })

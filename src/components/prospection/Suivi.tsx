@@ -7,7 +7,10 @@ import { Copy, Pause, Pencil, Play, Sparkles } from "lucide-react"
 import { Bandeau, Bouton, Pastille, Selecteur } from "../../ui"
 import { Bloc, Etiquette, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
-import { constats, indicateurs, type Constat } from "../../prospection/indicateurs"
+import { constats, envoisPartis, indicateurs, parInstantly, type Constat } from "../../prospection/indicateurs"
+import { relancable } from "../../prospection/lancement"
+import { ConfirmerLancement } from "./moteur/Lancement"
+import { chargerEtatInstantly } from "../../lib/etatInstantly"
 import { verdictAB } from "../../prospection/abTest"
 import { configDe, reglageABDe } from "../../prospection/configCampagne"
 import { LIBELLE_ETAPE } from "../../prospection/modele"
@@ -17,7 +20,7 @@ import MesureAvis from "./moteur/MesureAvis"
 import { chargerFichiers, type Fichier } from "../../lib/fichiersDb"
 import TextesARelire from "./moteur/TextesARelire"
 import { estBaseAvis } from "../../prospection/avis"
-import { alerteLancement } from "../../prospection/alerteLancement"
+import { alerteLancement, alerteSansEnvoi } from "../../prospection/alerteLancement"
 import JournalMoteur from "./moteur/JournalMoteur"
 
 type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "leads" | "contacts" | "appels"
@@ -37,6 +40,11 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
   const c = v.etat.campagnes.find((x) => x.id === id)
   const base = c ? v.base(c.baseId) : undefined
   const ind = useMemo(() => (c && base ? indicateurs(c, base, v.etat.contacts, v.etat.inscriptions, v.etat.envois, v.evenements, v.etat.leads, v.etat.appels) : null), [c, base, v])
+  const partis = useMemo(() => (c ? envoisPartis(c, v.etat.envois.filter((e) => e.campagneId === c.id), v.evenements) : new Set<string>()), [c, v])
+  // Le refus d'Instantly (25/11/2026 : un 402, forfait non payé, bloquait tout sans que l'écran le dise).
+  const [refusInstantly, setRefusInstantly] = useState<string | null>(null)
+  useEffect(() => { chargerEtatInstantly().then((x) => setRefusInstantly(x.erreur)).catch(() => undefined) }, [])
+  const [aLancer, setALancer] = useState(false)
   if (!c || !base || !ind || !v.idsBases.has(c.baseId)) return <p className="text-legende text-encre-2">Campagne introuvable, ou hors de tes bases.</p>
   const analyse = constats(ind)
   const marches = [
@@ -68,11 +76,18 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
         droite={<>
           <Bouton icone={<Pencil />} onClick={modifier}>Modifier</Bouton>
           <Bouton icone={<Copy />} onClick={() => depot.dupliquerCampagne(c.id)}>Dupliquer</Bouton>
-          {c.statut === "active" ? <Bouton icone={<Pause />} onClick={() => depot.changerStatut(c.id, "pause")}>Mettre en pause</Bouton> : <Bouton variante="plein" icone={<Play />} onClick={() => depot.changerStatut(c.id, "active")}>{c.statut === "brouillon" ? "Lancer" : "Reprendre"}</Bouton>}
+          {c.statut === "active" ? <Bouton icone={<Pause />} onClick={() => depot.changerStatut(c.id, "pause")}>Mettre en pause</Bouton> : relancable(c) ? <Bouton variante="plein" icone={<Play />} onClick={() => setALancer(true)}>{c.statut === "brouillon" ? "Lancer" : "Reprendre"}</Bouton> : null}
         </>} />
-  const alerte = alerteLancement(c, v.etat.envois, v.etat.maintenant)
-  const bandeauAlerte = alerte ? <Bandeau role="alerte">{alerte} Vérifie la campagne, ou mets-la en pause.</Bandeau> : null
-  if (estBaseAvis(c.baseId)) return <div className="space-y-6">{entete}{bandeauAlerte}{c.statut === "active" || c.statut === "pause" ? <JournalMoteur campagneId={c.id} /> : null}<MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /></div>
+  // Mettre en pause est direct ; lancer ou reprendre passe par la même vérification que l'éditeur (25/11/2026).
+  const confirmation = aLancer ? <ConfirmerLancement c={c} onFermer={() => setALancer(false)} /> : null
+  const alerte = alerteLancement(c, v.etat.envois, v.etat.maintenant) ?? alerteSansEnvoi(c, v.etat.envois, v.etat.inscriptions, v.etat.maintenant)
+  const avecMails = c.etapes.some((e) => e.type === "mail" || e.type === "newsletter")
+  const bandeauAlerte = <>
+    {refusInstantly && avecMails && parInstantly(c) ? <Bandeau role="alerte">Instantly refuse les envois : {refusInstantly}</Bandeau> : null}
+    {alerte ? <Bandeau role="alerte">{alerte} Vérifie la campagne, ou mets-la en pause.</Bandeau> : null}
+    {confirmation}
+  </>
+  if (estBaseAvis(c.baseId)) return <div className="space-y-6">{entete}{bandeauAlerte}{c.statut === "active" || c.statut === "pause" ? <JournalMoteur campagneId={c.id} /> : null}<MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.evenements} /></div>
   return (
     <div className="space-y-6">
       {entete}
@@ -95,7 +110,7 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
       {/* Les autres chiffres clés, en une ligne */}
       <dl className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-colonne @min-[1100px]:grid-cols-4">
         {([
-          ["Envois partis", fr(ind.envois.envoyes)], ["En erreur", `${fr(ind.envois.erreurs)} · ${pct(ind.delivrabilite.tauxErreur)}`], ["Sautés (pas d'adresse)", fr(ind.envois.sautes)], ["Délivrés", `${fr(ind.delivrabilite.delivres)} · ${pct(ind.delivrabilite.tauxDelivrance)}`],
+          ...(parInstantly(c) ? [["Confiés à Instantly", fr(ind.envois.envoyes)], ["Partis (confirmés)", fr(ind.envois.partis)], ["En attente chez Instantly", fr(ind.envois.enAttente)]] as const : [["Envois partis", fr(ind.envois.envoyes)]] as const), ["En erreur", `${fr(ind.envois.erreurs)} · ${pct(ind.delivrabilite.tauxErreur)}`], ["Sautés (pas d'adresse)", fr(ind.envois.sautes)], ["Délivrés", `${fr(ind.delivrabilite.delivres)} · ${pct(ind.delivrabilite.tauxDelivrance)}`],
           ["Rebonds", fr(ind.delivrabilite.rebonds)], ["Ouvertures (total)", fr(ind.engagement.ouvertures)], ["Clic / ouvreur", pct(ind.engagement.tauxClicSurOuvert)], ["Réponses", `${fr(ind.engagement.repondants)} · ${pct(ind.engagement.tauxReponse)}`],
           ["Désinscrits", `${fr(ind.engagement.desinscriptions)} · ${pct(ind.engagement.tauxDesinscription)}`], ["Lead / touché", pct(ind.conversion.tauxLead)], ["Délai médian jusqu'au lead", ind.conversion.delaiMedianLeadJ == null ? "—" : `${ind.conversion.delaiMedianLeadJ.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} j`], ["Leads traités", `${fr(ind.conversion.leadsTraites)} / ${fr(ind.conversion.leads)}`],
           ["Appels · joints", `${fr(ind.conversion.appels)} · ${fr(ind.conversion.joints)}`], ["Gagnés / touchés", pct(ind.conversion.tauxGagne)], ["SMS · coût", `${fr(ind.couts.sms)} · ${euros(ind.couts.coutSms)}`], ["Coût par lead", euros(ind.couts.coutParLead)],
@@ -166,11 +181,11 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
         </div>
       ) : vue === "envois" ? (
         <div className="space-y-3">
-          <div className="w-48"><Selecteur value={filtreEnvoi} onChange={(e) => setFiltreEnvoi(e.target.value)} aria-label="Statut"><option value="">Tous les envois</option><option value="envoye">Partis</option><option value="erreur">En erreur</option><option value="saute">Sautés</option></Selecteur></div>
+          <div className="w-48"><Selecteur value={filtreEnvoi} onChange={(e) => setFiltreEnvoi(e.target.value)} aria-label="Statut"><option value="">Tous les envois</option><option value="envoye">Confiés ou partis</option><option value="erreur">En erreur</option><option value="saute">Sautés</option></Selecteur></div>
           <Table colonnes={[{ titre: "Quand", largeur: "110px" }, { titre: "Contact" }, { titre: "Étape", largeur: "130px" }, { titre: "Variante", largeur: "140px" }, { titre: "Statut", largeur: "100px" }, { titre: "Suite", largeur: "26%" }]} vide="Aucun envoi."
             lignes={envois.map((e) => { const k = v.contact(e.contactId); const evs = v.evenements.filter((x) => x.envoiId === e.id).map((x) => x.type); const et = c.etapes.find((x) => x.id === e.etapeId); return { cle: e.id, cellules: [
               <span className="chiffres text-encre-2">{dateHeure(e.le)}</span>, <span className="truncate">{k?.nom}</span>, nomEtape(e.etapeId), <span className="truncate text-encre-2">{et && "variantes" in et ? et.variantes.find((x) => x.id === e.varianteId)?.nom ?? "—" : "—"}</span>,
-              <Pastille role={e.statut === "envoye" ? "fait" : e.statut === "erreur" ? "probleme" : "inerte"}>{e.statut === "envoye" ? "Parti" : e.statut === "erreur" ? "Erreur" : "Sauté"}</Pastille>,
+              <Pastille role={e.statut === "envoye" ? (partis.has(e.id) ? "fait" : "attente") : e.statut === "erreur" ? "probleme" : "inerte"}>{e.statut === "envoye" ? (partis.has(e.id) ? "Parti" : "Confié à Instantly") : e.statut === "erreur" ? "Erreur" : "Sauté"}</Pastille>,
               <span className="truncate text-colonne text-encre-2">{e.cause || [...new Set(evs)].map((x) => ({ delivre: "délivré", ouvert: "ouvert", clic: "cliqué", reponse: "a répondu", desinscription: "désinscrit", rebond: "rebond", connexion: "a accepté sur LinkedIn" })[x]).join(" · ") || "—"}</span>,
             ] } })} />
           <p className="text-colonne text-encre-3">Les 80 derniers.</p>
