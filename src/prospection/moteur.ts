@@ -17,7 +17,15 @@ export const heureParis = (d: Date) => { const parts = new Intl.DateTimeFormat("
 const JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 /** Jour ISO de la semaine à Paris (1 = lundi … 7 = dimanche). */
 export const jourParis = (d: Date) => JOURS_FR.indexOf(paris(d, { weekday: "long" })) + 1
-const jourDe = (iso: string) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date(iso))
+/** Le jour à Paris (AAAA-MM-JJ) d'un instant : un envoi de 0 h 30 (heure de Paris) compte pour ce jour-là, pas la veille. */
+export const jourDe = (iso: string) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date(iso))
+/** Minuit à Paris, le jour de `d` : +01:00 l'hiver, +02:00 l'été (25/11/2026 ; avant, +01:00 toute l'année).
+ *  Le changement d'heure a lieu à 1 h UTC : à 0 h UTC, le décalage est encore celui de minuit à Paris. */
+export function debutJourParis(d: Date): Date {
+  const jour = jourDe(d.toISOString())
+  const decalage = Math.round(heureParis(new Date(`${jour}T00:00:00Z`)))
+  return new Date(`${jour}T00:00:00+0${decalage}:00`)
+}
 
 /** Les jours fériés en France (Mahdi, 11/11/2026) : rien ne part ces jours-là, les envois prévus partent le jour ouvré suivant. */
 function paques(annee: number): Date {

@@ -21,6 +21,16 @@ const CHAMP = { leads: "leads", reponses: "repondants", clics: "cliqueurs", ouve
 export const RESULTATS_MIN = 10
 const pct = (x: number) => `${(x * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`
 
+/** Qui compte comme lead dans un test A/B (25/11/2026) : LA définition, la même à l'écran (indicateurs.ts) et au serveur
+ *  (campagnes-moteur, qui décide de la bascule). Un contact sorti « lead » de cette campagne, ou dont la fiche est « lead »
+ *  ou « gagné » (son vrai statut, avant l'option « Déjà client »). Avant, l'écran comptait les leads rattachés à la campagne
+ *  (leads_demarchage) : les deux chiffres ne se recoupaient pas. */
+export function leadsPourAB(campagneId: string, inscriptions: { campagneId: string; contactId: string; statut: string }[], contacts: { id: string; statut: string }[]): Set<string> {
+  const leads = new Set(inscriptions.filter((i) => i.campagneId === campagneId && i.statut === "lead").map((i) => i.contactId))
+  for (const k of contacts) if (k.statut === "lead" || k.statut === "gagne") leads.add(k.id)
+  return leads
+}
+
 export function critereEffectif(l: MesureVariante[], r: ReglageAB): Exclude<CritereAB, "auto"> {
   if (r.critere !== "auto") return r.critere
   const total = (c: keyof typeof CHAMP) => l.reduce((n, x) => n + x[CHAMP[c]], 0)

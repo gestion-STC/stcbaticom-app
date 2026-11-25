@@ -18,10 +18,11 @@
 // exclu ou désinscrit : il est alors dans la session de call de son équipe.
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { passage, heureParis, dansLaPlage } from "../_shared/campagnes/moteur.ts"
+import { passage, heureParis, dansLaPlage, debutJourParis } from "../_shared/campagnes/moteur.ts"
 import { estEligible } from "../_shared/campagnes/modele.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
-import { AB_DEPART, verdictAB, type MesureVariante, type ReglageAB } from "../_shared/campagnes/abTest.ts"
+import { AB_DEPART, leadsPourAB, verdictAB, type MesureVariante, type ReglageAB } from "../_shared/campagnes/abTest.ts"
+import { REBOND_AGENCE, avecDejaClients, exclusionLibre, pasInteresseExclu } from "../_shared/campagnes/exclusions.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
 import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
@@ -43,7 +44,6 @@ const REJOUER_APRES_MIN = [15, 60, 240]
 const TENTATIVES_MAX = 3
 const LIEN_NEUTRE = "https://www.stcbatiment.fr"
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const jourParisIso = (d: Date) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(d)
 
 type Ligne = Record<string, unknown>
 async function tout<T>(q: (d: number, f: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
@@ -108,14 +108,14 @@ async function lienAgence(sb: SupabaseClient, base: string, agenceId: string, ci
 }
 
 type GardeConfig = { retires?: string[]; boites?: string[]; smsDe?: number; smsA?: number; arret?: ReglageArret; signature?: string; libelleLien?: string; ecartCampagnes?: number; exclusions?: string[]; plafondMail?: number; plafondSms?: number; suiviOuvertures?: boolean; montee?: Montee; alerteOuverture?: AlerteOuverture }
-const REBOND = "E-mail rebondi (adresse injoignable)"
-const EXCLUSIONS_CONNUES = ["Déjà client", "Désinscrit", "Adresse en erreur", "Pas intéressé"]
 
 /** Ceux que les garde-fous de la campagne empêchent d'entrer. Une campagne jamais enregistrée n'en a pas. */
 /** Avant un premier envoi : l'adresse est vérifiée (Mahdi, 11/11/2026). Seuls les nouveaux contacts dont l'adresse a passé
  *  la vérification peuvent entrer ; ceux qui n'ont pas de mail (SMS seul) et ceux déjà dans la campagne ne changent pas. */
 async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: Contact[], dejaDedans: Set<string>, maintenant: Date, cle: string, invalides: Set<string>): Promise<{ contacts: Contact[]; refusees: number }> {
   if (!dansLaPlage(c, maintenant)) return { contacts, refusees: 0 }
+  // Sans étape mail (une campagne d'avis par SMS, d'appels…), aucune adresse n'est vérifiée ni bloquée (25/11/2026).
+  if (!c.etapes.some((e) => e.type === "mail" || e.type === "newsletter")) return { contacts, refusees: 0 }
   // Les adresses déjà jugées invalides ne reprennent plus de place dans le lot (17/11/2026 : sinon elles s'empilent en tête
   // et, au bout de quelques semaines, plus personne n'entre).
   const nouveaux = contacts.filter((k) => !dejaDedans.has(k.id) && k.statut === "libre" && k.email && !invalides.has(k.email.trim().toLowerCase()) && estEligible(k, c, maintenant))
@@ -135,7 +135,7 @@ async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: 
 }
 
 /** Le test A/B (Mahdi, 11/11/2026) : une étape dont le créatif demande la bascule n'envoie plus que son gagnant, dès qu'il y en a un. */
-async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["config"], evenements: Evenement[], inscriptions: Inscription[], parContact: Map<string, Contact>): Promise<Campagne> {
+async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["config"], evenements: Evenement[], inscriptions: Inscription[], fiches: Contact[]): Promise<Campagne> {
   const cfg = (config ?? {}) as { actions?: { id: string; creatifId?: string }[]; creatifs?: { id: string; ab?: ReglageAB }[] }
   let etapes = c.etapes
   for (const et of c.etapes) {
@@ -143,8 +143,8 @@ async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["conf
     const r = cfg.creatifs?.find((k) => k.id === cfg.actions?.find((a) => a.id === et.id)?.creatifId)?.ab ?? AB_DEPART
     if (!r.basculer) continue
     const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
-    const leads = new Set(inscriptions.filter((i) => i.campagneId === c.id && i.statut === "lead").map((i) => i.contactId))
-    for (const [id, k] of parContact) if (k.statut === "lead" || k.statut === "gagne") leads.add(id)
+    // La définition partagée avec l'écran (abTest.ts) : les fiches telles qu'en base, avant l'option « Déjà client ».
+    const leads = leadsPourAB(c.id, inscriptions, fiches)
     const mesures: MesureVariante[] = et.variantes.map((v) => {
       const ee = envoyes.filter((e) => e.variante_id === v.id), ids = new Set(ee.map((e) => e.id))
       const ev = evenements.filter((e) => e.envoiId && ids.has(e.envoiId))
@@ -169,21 +169,19 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   }
   const exclusions = garde.exclusions ?? []
   if (baseId !== "artisans" && exclusions.includes("Adresse en erreur")) {
-    const rebonds = await tout<{ agence_id: string }>((d, f) => sb.from("activites").select("agence_id").eq("type", "note").eq("source", "site").eq("titre", REBOND).order("id").range(d, f))
+    const rebonds = await tout<{ agence_id: string }>((d, f) => sb.from("activites").select("agence_id").eq("type", "note").eq("source", "site").eq("titre", REBOND_AGENCE).order("id").range(d, f))
     for (const r of rebonds) bloques.add(r.agence_id)
   }
   if (exclusions.includes("Adresse en erreur")) for (const r of rebondis) bloques.add(r)
   // Pas intéressé : exclu, jusqu'au délai « Le recontacter après » de la campagne (0 : jamais).
   if (exclusions.includes("Pas intéressé")) {
-    const limite = relanceMois > 0 ? new Date(maintenant.getTime() - relanceMois * 30 * JOUR_MS).toISOString() : ""
     const lignes = baseId === "artisans"
       ? (await tout<{ id: string; suivi_le: string | null }>((d, f) => sb.from("st_sous_traitants").select("id, suivi_le").eq("suivi", "pas_interesse").order("id").range(d, f))).map((r) => ({ id: r.id, le: r.suivi_le }))
       : (await tout<{ id: string; etape_depuis: string | null }>((d, f) => sb.from("agences").select("id, etape_depuis").eq("etape", "pas_interesse").order("id").range(d, f))).map((r) => ({ id: r.id, le: r.etape_depuis }))
-    for (const r of lignes) if (!limite || !r.le || r.le > limite) bloques.add(r.id)
+    for (const r of lignes) if (pasInteresseExclu(r.le, relanceMois, maintenant)) bloques.add(r.id)
   }
   // Une exclusion ajoutée à la main (« Endormie », « Orpi »…) : la valeur d'un champ du contact.
-  const libres = exclusions.filter((x) => !EXCLUSIONS_CONNUES.includes(x)).map((x) => x.trim().toLowerCase()).filter(Boolean)
-  if (libres.length) for (const k of contacts) if (Object.values(k.champs).some((v) => v.split(" / ").some((x) => libres.includes(x.trim().toLowerCase())))) bloques.add(k.id)
+  for (const k of contacts) if (exclusionLibre(k.champs, exclusions)) bloques.add(k.id)
   return bloques
 }
 
@@ -201,7 +199,7 @@ async function garderJournal(sb: SupabaseClient, passage: Record<string, unknown
   if (error) console.error("[CAMPAGNES-MOTEUR] journal non écrit :", error.message)
 }
 
-type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; reporte?: boolean; /** LinkedIn : déjà en relation. */ connexion?: boolean }
+type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; reporte?: boolean; /** LinkedIn : déjà en relation. */ connexion?: boolean; /** Un mail parti tout de suite (relance dans le fil) : pas de « email_sent » d'Instantly à attendre. */ parti?: boolean }
 type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[]; ia?: ReglageIA; memeFil?: boolean }
 const IA_MAX_PAR_PASSAGE = 15
 const compteurIA = { n: 0 }
@@ -273,6 +271,9 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   }
   const remplacer = (de: string, par: string) => { texte = texte.split(de).join(par); sujet = sujet.split(de).join(par) }
   const variables = valeursDe(k); texte = remplirVariables(texte, variables); sujet = remplirVariables(sujet, variables)
+  // Le lien de désinscription est-il dans le TEXTE FINAL (25/11/2026) ? Avant, on regardait le modèle : un mail réécrit par
+  // l'IA qui l'avait perdu partait sans lien, et sans la ligne ajoutée d'office.
+  const aSonLienStop = texte.includes("{{lien_desinscription}}")
   // Les formulaires et les pages de la campagne : un lien personnel et signé.
   const creatifs = ((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? [])
   const lienDe = (id: string) => lienPublic(clePassage, String(c.id), id, k.id, test)
@@ -287,7 +288,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     const pageAvis = creatifs.find((x) => x.type === "avis")
     if (!pageAvis) return { ok: false, saute: "pas de page d'avis" }
     const lien = await lienDe(pageAvis.id), stopAvis = `${lien}&stop=1`
-    const sansLien = !corps.includes("{{lien_avis}}"), sansStop = !corps.includes("{{lien_desinscription}}")
+    const sansLien = !texte.includes("{{lien_avis}}"), sansStop = !aSonLienStop
     remplacer("{{lien_avis}}", lien); remplacer("{{lien_desinscription}}", stopAvis)
     if (canal === "sms") {
       const to = test ? String(c.test_mobile ?? "") : k.mobile
@@ -299,7 +300,10 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     const to = test ? String(c.test_email ?? "") : k.email
     if (!to) return { ok: false, saute: test ? "mode test sans mail de test" : "pas de mail" }
     const html = corpsAvecMentions(`${texte}${sansLien ? `\n\n[Donner mon avis](${lien})` : ""}`, sansStop ? stopAvis : undefined, false, mentions)
-    const r = await invoquer(base, service, "envoyer-email", { espace: "demarchage", to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
+    // Les sous-traitants actuels relèvent du recrutement (25/11/2026) : avant, leur demande d'avis partait du démarchage
+    // (contact@), était rangée sans agence (alerte « mail_sans_agence ») et leurs réponses arrivaient au démarchage.
+    const espace = k.baseId === "sous_traitants_actifs" ? "recrutement" : "demarchage"
+    const r = await invoquer(base, service, "envoyer-email", { espace, to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
     return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
   }
   // Mode test : aucun lien ne doit agir sur la vraie fiche (désinscrire l'agence, poser un lead).
@@ -324,13 +328,13 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   }
   if (test) stop = LIEN_NEUTRE
   // Un mail de prospection propose toujours de ne plus en recevoir, agence ou artisan.
-  const desinscription = canal !== "sms" && !corps.includes("{{lien_desinscription}}") ? stop : undefined
+  const desinscription = canal !== "sms" && !aSonLienStop ? stop : undefined
 
   if (canal === "sms") {
     const to = test ? String(c.test_mobile ?? "") : k.mobile
     if (!to) return { ok: false, saute: test ? "mode test sans mobile de test" : "pas de mobile" }
     // Comme un mail : chaque SMS de prospection permet de ne plus en recevoir.
-    const message = corps.includes("{{lien_desinscription}}") ? texte : `${texte}\nSTOP : ${stop}`
+    const message = aSonLienStop ? texte : `${texte}\nSTOP : ${stop}`
     const r = await invoquer(base, service, "envoyer-sms", { to, message: test ? `[TEST] ${message}` : message })
     return r.ok ? { ok: true } : { ok: false, erreur: String(r.data?.error ?? "envoi SMS échoué"), saute: r.data?.code === "non_mobile" ? "numéro non mobile" : undefined }
   }
@@ -342,7 +346,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   // Une relance part dans le fil du mail précédent, sauf si le créatif demande un nouveau mail.
   if (leCreatif?.memeFil !== false && !test) {
     const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription)
-    if (fil) return fil
+    if (fil) return fil.ok ? { ...fil, parti: true } : fil
   }
   return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions, boites: gc?.boites }, k, to, sujet, texte, varianteId, test, desinscription, envoiId)
 }
@@ -393,7 +397,7 @@ Deno.serve(async (req: Request) => {
       if (comptesLi === null) {
         comptesLi = await comptesLinkedIn()
         const { data: liEnvois } = await sb.from("cmp_envois").select("compte_linkedin, le").eq("canal", "linkedin").eq("statut", "envoye").eq("test", false).gte("le", new Date(maintenant.getTime() - 7 * JOUR_MS).toISOString()).limit(5000)
-        faitsLi = faitsParCompte(((liEnvois ?? []) as { compte_linkedin: string | null; le: string }[]).map((x) => ({ compte: x.compte_linkedin, le: x.le })), new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString(), comptesLi[0]?.id ?? "")
+        faitsLi = faitsParCompte(((liEnvois ?? []) as { compte_linkedin: string | null; le: string }[]).map((x) => ({ compte: x.compte_linkedin, le: x.le })), debutJourParis(maintenant).toISOString(), comptesLi[0]?.id ?? "")
       }
       return compteDeCampagne(comptesLi, (l.config as { linkedinCompte?: string } | null)?.linkedinCompte)
     }
@@ -413,7 +417,7 @@ Deno.serve(async (req: Request) => {
       const garde = (ligne.config as { garde?: GardeConfig } | null)?.garde
       const lus = (await tout<Ligne>((d, f) => sb.from("cmp_contacts").select("*").eq("base_id", c.baseId).order("id").range(d, f))).map(versContact)
       // « Déjà client » retiré des exclusions : la campagne a choisi de les toucher aussi. Un désinscrit, lui, ne l'est jamais.
-      const contacts = garde?.exclusions && !garde.exclusions.includes("Déjà client") ? lus.map((k) => (k.statut === "gagne" ? { ...k, statut: "libre" as const } : k)) : lus
+      const contacts = avecDejaClients(lus, garde?.exclusions)
       const parContact = new Map(contacts.map((k) => [k.id, k]))
       const inscriptions = (await tout<Ligne>((d, f) => sb.from("cmp_inscriptions").select("*").or(`campagne_id.eq.${c.id},statut.eq.en_cours`).order("id").range(d, f))).map(versInscription)
       const depuis = new Date(maintenant.getTime() - 14 * JOUR_MS).toISOString()
@@ -438,10 +442,15 @@ Deno.serve(async (req: Request) => {
       if (avecMontee) c.rythme = { ...c.rythme, parJour: envoisDuJour(garde!.montee!, c.rythme.parJour, c.lanceeLe ?? iso, maintenant, boitesSaines(nbEnvoyes, nbRebonds)) }
 
       // 1. Les sorties : un contact devenu lead, gagné, exclu ou désinscrit quitte la séquence.
+      // Une adresse jugée invalide par la vérification (25/11/2026) arrête aussi ceux DÉJÀ inscrits, comme un rebond : avant,
+      // la liste ne filtrait que les nouvelles entrées (cas réel : adresse invalide le 16/11, mail le 17/11, relance le 24/11).
+      // Seulement pour une campagne qui écrit par mail : un SMS ou un appel n'a pas besoin de l'adresse.
+      const ecritParMail = c.etapes.some((e) => e.type === "mail" || e.type === "newsletter")
       for (const i of inscriptions.filter((x) => x.campagneId === c.id && x.statut === "en_cours")) {
         const k = parContact.get(i.contactId)
         // Un mail rebondi (17/11/2026) : l'adresse est morte, les relances ne partent plus.
-        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : rebondis.has(i.contactId) ? "rebond" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" ? "terminee" : null
+        const adresseMorte = rebondis.has(i.contactId) || Boolean(ecritParMail && k?.email && invalides.has(k.email.trim().toLowerCase()))
+        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : adresseMorte ? "rebond" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" ? "terminee" : null
         if (!statut) continue
         await sb.from("cmp_inscriptions").update({ statut, sortie_le: iso }).eq("id", i.id)
         i.statut = statut as Inscription["statut"]
@@ -465,7 +474,7 @@ Deno.serve(async (req: Request) => {
       const verifies = await avecAdressesVerifiees(sb, c, autorises, dejaDedans, maintenant, ins.cle, invalides)
       Object.assign(j, { parJour: c.rythme.parJour, contacts: contacts.length, dejaDedans: dejaDedans.size, bloquesParGardeFous: bloques.size, retires: retires.size, autorises: autorises.length - dejaDedans.size, adressesRefusees: verifies.refusees })
       bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
-      const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, parContact)
+      const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, lus)
       const ecr = passage({ campagne: avecGagnant, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
       const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
       for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }
@@ -474,7 +483,8 @@ Deno.serve(async (req: Request) => {
       const reportees = new Set<string>(), enErreur = new Set<string>()
 
       // 3. Les envois, un par un, avec les garde-fous.
-      const debutJour = new Date(`${jourParisIso(maintenant)}T00:00:00+01:00`).toISOString()
+      // Minuit à Paris, été comme hiver (25/11/2026 : avant, +01:00 fixe, le budget du jour repartait à 23 h l'été).
+      const debutJour = debutJourParis(maintenant).toISOString()
       const { count: mailsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "mail").eq("statut", "envoye").gte("le", debutJour)
       const { count: smsJour } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("campagne_id", c.id).eq("canal", "sms").eq("statut", "envoye").gte("le", debutJour)
       const avis = estBaseAvis(c.baseId)
@@ -516,6 +526,8 @@ Deno.serve(async (req: Request) => {
           const { error: errEnvoye } = await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null, ...(canal === "linkedin" && compteLi ? { compte_linkedin: compteLi.id } : {}) }).eq("id", e.id)
           // Parti, mais pas noté : la ligne reste « en cours », le filet empêche tout renvoi. Le journal le dit.
           if (errEnvoye) erreursCampagne.push(`envoi parti mais non noté (${e.contactId}) : ${errEnvoye.message}`)
+          // Une relance dans le fil part à l'instant (Instantly n'envoie pas de « email_sent ») : elle est confirmée ici (25/11/2026).
+          if (r.parti && !test) await sb.from("cmp_evenements").insert({ campagne_id: c.id, envoi_id: e.id, contact_ref: e.contactId, type: "delivre", le: new Date().toISOString() })
           if (canal === "linkedin") {
             if (compteLi) {
               const f = faitsLi.get(compteLi.id) ?? { jour: 0, semaine: 0 }

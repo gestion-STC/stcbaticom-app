@@ -2,7 +2,7 @@
 // Six parties : Audience (la carte comme Meta), Actions et séquence, Créatifs, Qualification, Garde-fous, Mesure.
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { Check, X } from "lucide-react"
+import { Check } from "lucide-react"
 import { Bandeau, Bouton, Champ, Chargement, Dialogue, Onglets, Selecteur, Zone } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
@@ -20,12 +20,17 @@ import TestSpam from "./moteur/TestSpam"
 import LinkedInReglage from "./moteur/LinkedInReglage"
 import { nombreComptesLinkedIn } from "../../lib/linkedinDb"
 import { ChoixFichiers } from "./moteur/ChoixFichiers"
-import { ARRET_DEPART, BOITES_DEPART, PHRASE_SUIVI, SIGNATURE_PROSPECTION, LIBELLE_LIEN, boitesChoisies, boitesDe, capaciteReelle, conseilsEnvoi, dateFinPrevue, corpsAvecMentions, valeursDe, type ReglageBoites } from "../../prospection/instantlyOutils"
-import { chargerBoites, type BoiteEnvoi } from "../../lib/etatInstantly"
+import { ARRET_DEPART, BOITES_DEPART, SIGNATURE_PROSPECTION, LIBELLE_LIEN, boitesChoisies, boitesDe, capaciteReelle, conseilsEnvoi, dateFinPrevue, valeursDe, type ReglageBoites } from "../../prospection/instantlyOutils"
+import { chargerEtatInstantly, type BoiteEnvoi } from "../../lib/etatInstantly"
+import { chargerFaitsExclusion } from "../../lib/exclusionsCampagne"
+import { avecDejaClients } from "../../prospection/exclusions"
+import { controleLancement, relancable } from "../../prospection/lancement"
+import { DialogueLancement } from "./moteur/Lancement"
+import type { FaitsExclusion } from "../../prospection/audience"
 import { listerComptes, type Compte } from "../../lib/comptes"
 import { compterTextesValides } from "../../lib/campagnesIa"
 import { ALERTE_DEFAUT, MONTEE_DEFAUT, envoisDuJour, type AlerteOuverture, type Montee } from "../../prospection/montee"
-import { GARDE_DEFAUT, ORIGINE_TRACABILITE, avecLinkedInAuto, compiler, configDe, messageVide, type ConfigCampagne } from "../../prospection/configCampagne"
+import { GARDE_DEFAUT, ORIGINE_TRACABILITE, avecLinkedInAuto, compiler, configDe, type ConfigCampagne } from "../../prospection/configCampagne"
 import { MODELES } from "./moteur/modelesCampagne"
 import { Chemin, Creatifs, Libelle, Qualification, Sequence, type MajConfig } from "./moteur/Parties"
 import { Titre } from "./morceaux"
@@ -57,7 +62,9 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const [baseVoulue, setBaseVoulue] = useState<string | null>(null)
   const [boites, setBoites] = useState<BoiteEnvoi[]>([])
   const [comptes, setComptes] = useState<Compte[]>([])
-  useEffect(() => { chargerBoites().then(setBoites).catch(() => undefined); listerComptes().then(setComptes).catch(() => undefined) }, [])
+  // Le refus d'Instantly (402, forfait non payé…) se voit ici aussi (25/11/2026).
+  const [refusInstantly, setRefusInstantly] = useState<string | null>(null)
+  useEffect(() => { chargerEtatInstantly().then((x) => { setBoites(x.boites); setRefusInstantly(x.erreur) }).catch(() => undefined); listerComptes().then(setComptes).catch(() => undefined) }, [])
   const [objectifChoisi, setObjectifChoisi] = useState(Boolean(existante))
   const choisirObjectif = (m: (typeof MODELES)[number] | null) => {
     if (m) { const n = m.creer(); setC((x) => ({ ...x, baseId: m.baseId, nom: x.nom || m.titre, audience: { ...x.audience, filtres: {}, doitAvoir: estBaseAvis(m.baseId) ? ["email"] : x.audience.doitAvoir } })); setCfg(n); setCfgDepart(JSON.stringify(n)); setModeleId(m.id) }
@@ -80,20 +87,24 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const base = v.base(c.baseId)
   const [domaines, setDomaines] = useState<string[]>([])
   const [domaine, setDomaine] = useState("")
-  useEffect(() => { lireParametre("domaines_bloques").then((x) => { const l = JSON.parse(x || "[]") as unknown; setDomaines(Array.isArray(l) ? (l as string[]) : []) }).catch(() => undefined) }, [])
+  // Un réglage commun illisible ne se modifie pas (25/11/2026) : avant, l'écran repartait d'une liste vide, et le premier
+  // changement écrasait en base la vraie liste (domaines bloqués) ou le vrai volume par boîte.
+  const [domainesIllisibles, setDomainesIllisibles] = useState("")
+  useEffect(() => { lireParametre("domaines_bloques").then((x) => { const l = JSON.parse(x || "[]") as unknown; if (!Array.isArray(l)) throw new Error("valeur inattendue en base"); setDomaines(l as string[]) }).catch((e) => setDomainesIllisibles(e instanceof Error ? e.message : String(e))) }, [])
   // L'écart entre deux campagnes protège la personne, pas la campagne : un seul réglage pour toutes (Mahdi, 11/11/2026).
   const [ecartCommun, setEcartCommun] = useState<number | null>(null)
   useEffect(() => { lireParametre("cmp_ecart_campagnes").then((x) => setEcartCommun(x && Number.isFinite(Number(x)) ? Number(x) : null)).catch(() => undefined) }, [])
   const majEcart = (n: number) => { setEcartCommun(n); ecrireParametre("cmp_ecart_campagnes", String(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
   // Le volume conseillé par boîte et la chauffe : pour toutes les campagnes (Mahdi, 11/11/2026).
   const [reglageBoites, setReglageBoites] = useState<ReglageBoites>(BOITES_DEPART)
-  useEffect(() => { lireParametre("cmp_reglage_boites").then((x) => { try { const o = JSON.parse(x || "{}") as Partial<ReglageBoites>; setReglageBoites({ ...BOITES_DEPART, ...o }) } catch { /* par défaut */ } }).catch(() => undefined) }, [])
-  const majBoites = (p: Partial<ReglageBoites>) => setReglageBoites((r) => { const n = { ...r, ...p }; ecrireParametre("cmp_reglage_boites", JSON.stringify(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)); return n })
+  const [boitesIllisibles, setBoitesIllisibles] = useState("")
+  useEffect(() => { lireParametre("cmp_reglage_boites").then((x) => { const o = JSON.parse(x || "{}") as Partial<ReglageBoites>; setReglageBoites({ ...BOITES_DEPART, ...o }) }).catch((e) => setBoitesIllisibles(e instanceof Error ? e.message : String(e))) }, [])
+  const majBoites = (p: Partial<ReglageBoites>) => boitesIllisibles ? undefined : setReglageBoites((r) => { const n = { ...r, ...p }; ecrireParametre("cmp_reglage_boites", JSON.stringify(n)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)); return n })
   const arret = cfg.garde.arret ?? ARRET_DEPART
   // LinkedIn : combien de comptes branchés (pour le récapitulatif avant de lancer).
   const [comptesLi, setComptesLi] = useState(0)
   useEffect(() => { nombreComptesLinkedIn().then(setComptesLi).catch(() => undefined) }, [])
-  const majDomaines = (l: string[]) => { setDomaines(l); ecrireParametre("domaines_bloques", JSON.stringify(l)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
+  const majDomaines = (l: string[]) => { if (domainesIllisibles) return; setDomaines(l); ecrireParametre("domaines_bloques", JSON.stringify(l)).catch((e) => setErreurReglage(`Réglage commun non enregistré : ${e instanceof Error ? e.message : String(e)}`)) }
   const contactsBase = useMemo(() => v.contacts.filter((x) => x.baseId === c.baseId && !domaineBloque(x.email, domaines)), [v.contacts, c.baseId, domaines])
   const compilee = useMemo(() => compiler(c, cfg), [c, cfg])
   // L'audience ne se recalcule que quand ses réglages changent (17/11/2026) : avant, chaque frappe dans un mail ou dans le nom
@@ -103,11 +114,16 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const cleGarde = JSON.stringify([cfg.garde.exclusions, cfg.garde.retires, cfg.garde.ecartCampagnes])
   const gardeAudience = useMemo(() => cfg.garde, [cleGarde]) // eslint-disable-line react-hooks/exhaustive-deps
   // L'audience réelle (lot 4) : les filtres, puis les mêmes exclusions que le moteur (« Toujours exclus », écart, retirés).
-  const parFiltres = useMemo(() => contactsBase.filter((x) => estEligible(x, pourAudience)), [contactsBase, pourAudience])
-  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: gardeAudience, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant }), [c.id, gardeAudience, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant])
+  // 25/11/2026 : exactement comme le moteur (exclusions.ts) : « Déjà client » retiré, les clients entrent ; les rebonds Resend
+  // des agences et les « pas intéressé » sont lus là où le moteur les lit, avec le délai « Le recontacter après ».
+  const [faitsLus, setFaitsLus] = useState<{ baseId: string; faits: FaitsExclusion } | null>(null)
+  useEffect(() => { let vivant = true; chargerFaitsExclusion(c.baseId).then((f) => { if (vivant) setFaitsLus({ baseId: c.baseId, faits: f }) }).catch(() => undefined); return () => { vivant = false } }, [c.baseId])
+  const faits = faitsLus?.baseId === c.baseId ? faitsLus.faits : null
+  const relanceMois = cfg.qualification.relanceMois
+  const parFiltres = useMemo(() => avecDejaClients(contactsBase, gardeAudience.exclusions).filter((x) => estEligible(x, pourAudience)), [contactsBase, pourAudience, gardeAudience])
+  const raison = useMemo(() => raisonsExclusion({ campagneId: c.id, garde: gardeAudience, ecartCommun, envois: v.etat.envois, evenements: v.etat.evenements, inscriptions: v.etat.inscriptions, maintenant: v.etat.maintenant, baseId: c.baseId, relanceMois, faits }), [c.id, c.baseId, gardeAudience, ecartCommun, v.etat.envois, v.etat.evenements, v.etat.inscriptions, v.etat.maintenant, relanceMois, faits])
   const recevront = useMemo(() => (estBaseAvis(c.baseId) ? parFiltres : parFiltres.filter((x) => !raison(x))), [parFiltres, raison, c.baseId])
   const eligibles = recevront.length
-  const vide = messageVide(cfg)
   const avis = estBaseAvis(c.baseId)
   // Le pare-feu, à l'écran : ceux qui sont déjà dans une campagne en cours attendront qu'elle soit finie.
   const enAttente = useMemo(() => {
@@ -147,16 +163,9 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const emailsCible = useMemo(() => parFiltres.filter((x) => x.email).map((x) => x.email), [parFiltres])
   const blocConseils = conseils.length ? <div className="space-y-1">{conseils.map((t) => <p key={t} className="text-colonne text-attention">{t}</p>)}</div> : null
   const pageAvis = cfg.creatifs.find((k) => k.type === "avis")
-  const nbActions = (t: string) => cfg.actions.filter((a) => a.type === t).length
-  const mailsDeLaSuite = cfg.actions.filter((a) => a.type === "mail" || a.type === "newsletter").flatMap((a) => cfg.creatifs.find((k) => k.id === a.creatifId)?.variantes ?? [])
-  const avecPhrase = mailsDeLaSuite.every((x) => corpsAvecMentions(x.corps, "https://x", true).includes(PHRASE_SUIVI))
-  const recapitulatif: [string, boolean][] = [
-    ...(avecLinkedInAuto(cfg) ? [["Un compte LinkedIn est branché", comptesLi > 0] as [string, boolean]] : []),
-    [`${fr(eligibles)} ${base?.unite ?? "contacts"} dans l'audience`, eligibles > 0],
-    [[nbActions("mail") + nbActions("newsletter") ? `${nbActions("mail") + nbActions("newsletter")} mail(s)` : "", nbActions("sms") ? `${nbActions("sms")} SMS` : "", nbActions("appel") ? `${nbActions("appel")} appel(s)` : ""].filter(Boolean).join(", ") || "Aucune action", cfg.actions.length > 0],
-    ["Tous les textes sont remplis", !vide],
-    ...(avis ? [] : [["La phrase sur le suivi des clics est dans chaque mail", avecPhrase] as [string, boolean], ["Le lien de désinscription est dans chaque mail", true] as [string, boolean]]),
-  ]
+  // La vérification avant de lancer : la même que la liste et le suivi (lancement.ts, 25/11/2026).
+  const enCours = v.etat.inscriptions.filter((i) => i.campagneId === c.id && i.statut === "en_cours").length
+  const controle = controleLancement({ cfg, eligibles, enCours, unite: base?.unite ?? "contacts", avis, comptesLinkedIn: comptesLi, refusInstantly })
   const montee = cfg.garde.montee ?? MONTEE_DEFAUT
   const alerte = cfg.garde.alerteOuverture ?? ALERTE_DEFAUT
   const majMontee = (p: Partial<Montee>) => maj((x) => ({ ...x, garde: { ...x.garde, montee: { ...(x.garde.montee ?? { ...MONTEE_DEFAUT, actif: false }), ...p } } }))
@@ -168,11 +177,12 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   return (
     <div className="space-y-5">
       {erreurReglage ? <Bandeau role="alerte">{erreurReglage}</Bandeau> : null}
-      {confirmer ? <Dialogue titre="Lancer pour de vrai ?" description={`${fr(eligibles)} ${base?.unite ?? "contacts"} sont concernés. Les envois partent de ${libelleHeure(c.rythme.heureMin)} à ${libelleHeure(c.rythme.heureMax)}, ${fr(c.rythme.parJour)} nouveaux contacts par jour au plus.`} onFermer={() => setConfirmer(false)} pied={<><Bouton onClick={() => setConfirmer(false)}>Annuler</Bouton><Bouton variante="plein" icone={<Check />} onClick={() => enregistrer("active")}>Lancer la campagne</Bouton></>}><div className="space-y-3"><ul className="space-y-1">{recapitulatif.map(([t, ok]) => <li key={t} className="flex items-center gap-2 text-legende">{ok ? <Check size={14} className="shrink-0 text-ok" /> : <X size={14} className="shrink-0 text-alerte" />}{t}</li>)}</ul>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></div></Dialogue> : null}
+      {confirmer ? <DialogueLancement c={c} controle={controle} eligibles={eligibles} unite={base?.unite ?? "contacts"} reprise={c.statut === "pause"} onFermer={() => setConfirmer(false)} onLancer={() => enregistrer("active")}>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></DialogueLancement> : null}
+      {refusInstantly && !avis && cfg.actions.some((a) => a.type === "mail" || a.type === "newsletter") ? <Bandeau role="alerte">Instantly refuse les envois : {refusInstantly}</Bandeau> : null}
       {baseVoulue ? <Dialogue titre="Changer de cible ?" description="Tes textes et ton parcours seront remplacés par ceux prévus pour cette cible." onFermer={() => setBaseVoulue(null)} pied={<><Bouton onClick={() => setBaseVoulue(null)}>Annuler</Bouton><Bouton variante="plein" onClick={() => appliquerBase(baseVoulue)}>Changer de cible</Bouton></>}><p className="text-legende text-encre-2">Ton audience et tes filtres sont aussi remis à zéro.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}
       <Titre titre={existante ? existante.nom : "Créer une campagne"} sous={tracabilite ? "Ce qui tourne aujourd'hui : les mails envoyés après les appels, avec leurs liens suivis. Cette campagne n'envoie rien toute seule." : existante?.statut === "active" ? "Campagne active : les changements valent pour les prochaines touches." : "Rien ne part tant qu'elle n'est pas lancée."}
-        droite={<><Bouton onClick={() => enregistrer(c.statut)}>Enregistrer</Bouton>{c.statut !== "active" && !tracabilite ? <Bouton variante="plein" icone={<Check />} disabled={!eligibles || vide} title={vide ? "Un message est vide" : !eligibles ? "Personne dans l'audience" : undefined} onClick={() => setConfirmer(true)}>Lancer</Bouton> : null}</>} />
+        droite={<><Bouton onClick={() => enregistrer(c.statut)}>Enregistrer</Bouton>{relancable(c) && !tracabilite ? <Bouton variante="plein" icone={<Check />} disabled={Boolean(controle.bloquant)} title={controle.bloquant ?? undefined} onClick={() => setConfirmer(true)}>{c.statut === "pause" ? "Reprendre" : "Lancer"}</Bouton> : null}</>} />
       <div className="grid gap-10 @min-[1100px]:grid-cols-[minmax(0,1fr)_250px]">
         <div className="min-w-0">
           <Onglets<Partie> valeur={partie} onChange={setPartie} options={avis ? [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "garde", label: "4 · Garde-fous" }, { id: "mesure", label: "5 · Mesure" }] : [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "qualification", label: "4 · Qualification" }, { id: "garde", label: "5 · Garde-fous" }, { id: "mesure", label: "6 · Mesure" }]} />
@@ -242,15 +252,15 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                     <Libelle titre="Signature, en bas de chaque mail" className="!flex flex-col justify-between"><Zone rows={3} value={cfg.garde.signature ?? SIGNATURE_PROSPECTION} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, signature: e.target.value } }))} /></Libelle>
                     <Libelle titre="Texte d'un lien sans libellé" className="!flex flex-col justify-between"><Champ value={cfg.garde.libelleLien ?? LIBELLE_LIEN} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, libelleLien: e.target.value } }))} /></Libelle>
                   </div><p className="mt-2 text-colonne text-encre-2">Garde le nom de la société et son adresse : ils sont obligatoires dans un mail de prospection. Vide : la signature par défaut.</p></Bloc>
-                  {!avis ? <Bloc titre="Volume par boîte" droite="vaut pour toutes les campagnes"><div className="mt-3 flex flex-wrap items-center gap-2 text-legende"><Champ type="number" min={1} className="!w-20" aria-label="Mails par boîte et par jour" value={reglageBoites.mailsParBoite} onChange={(e) => majBoites({ mailsParBoite: Math.max(1, Number(e.target.value) || BOITES_DEPART.mailsParBoite) })} /> mails par boîte et par jour, et <Champ type="number" min={0} className="!w-20" aria-label="Jours de chauffe" value={reglageBoites.joursChauffe} onChange={(e) => majBoites({ joursChauffe: Math.max(0, Number(e.target.value) || 0) })} /> jours de chauffe avant de lancer</div><p className="mt-1 text-colonne text-encre-2">Les mails par jour sont appliqués à chaque boîte chez Instantly au passage suivant du moteur (10 minutes au plus). La chauffe reste un conseil, jamais un blocage.</p></Bloc> : null}
-                  <Bloc titre="Domaines à ne jamais contacter" droite="vaut pour toutes les campagnes"><div className="mt-3 flex flex-wrap items-center gap-1.5">{domaines.map((d) => <span key={d} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{d}<button type="button" aria-label={`Retirer ${d}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => majDomaines(domaines.filter((y) => y !== d))}>×</button></span>)}<span className="w-52"><Champ value={domaine} placeholder="concurrent.fr, puis Entrée" aria-label="Ajouter un domaine" onChange={(e) => setDomaine(e.target.value)} onKeyDown={(e) => { const d = domaine.trim().toLowerCase().replace(/^.*@/, ""); if (e.key === "Enter" && d) { if (!domaines.includes(d)) majDomaines([...domaines, d]); setDomaine("") } }} /></span></div></Bloc>
+                  {!avis ? <Bloc titre="Volume par boîte" droite="vaut pour toutes les campagnes">{boitesIllisibles ? <p className="mt-3 text-colonne text-alerte">Réglage illisible ({boitesIllisibles}) : il ne peut pas être modifié pour l'instant, sans quoi la vraie valeur serait écrasée. Recharge la page.</p> : null}<div className="mt-3 flex flex-wrap items-center gap-2 text-legende"><Champ type="number" min={1} className="!w-20" aria-label="Mails par boîte et par jour" disabled={Boolean(boitesIllisibles)} value={reglageBoites.mailsParBoite} onChange={(e) => majBoites({ mailsParBoite: Math.max(1, Number(e.target.value) || BOITES_DEPART.mailsParBoite) })} /> mails par boîte et par jour, et <Champ type="number" min={0} className="!w-20" aria-label="Jours de chauffe" disabled={Boolean(boitesIllisibles)} value={reglageBoites.joursChauffe} onChange={(e) => majBoites({ joursChauffe: Math.max(0, Number(e.target.value) || 0) })} /> jours de chauffe avant de lancer</div><p className="mt-1 text-colonne text-encre-2">Les mails par jour sont appliqués à chaque boîte chez Instantly au passage suivant du moteur (10 minutes au plus). La chauffe reste un conseil, jamais un blocage.</p></Bloc> : null}
+                  <Bloc titre="Domaines à ne jamais contacter" droite="vaut pour toutes les campagnes">{domainesIllisibles ? <p className="mt-3 text-colonne text-alerte">Liste illisible ({domainesIllisibles}) : elle ne peut pas être modifiée pour l'instant, sans quoi la vraie liste serait effacée. Recharge la page.</p> : null}<div className="mt-3 flex flex-wrap items-center gap-1.5">{domaines.map((d) => <span key={d} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{d}<button type="button" aria-label={`Retirer ${d}`} className="ml-1 text-encre-2 hover:text-encre" disabled={Boolean(domainesIllisibles)} onClick={() => majDomaines(domaines.filter((y) => y !== d))}>×</button></span>)}<span className="w-52"><Champ disabled={Boolean(domainesIllisibles)} value={domaine} placeholder="concurrent.fr, puis Entrée" aria-label="Ajouter un domaine" onChange={(e) => setDomaine(e.target.value)} onKeyDown={(e) => { const d = domaine.trim().toLowerCase().replace(/^.*@/, ""); if (e.key === "Enter" && d) { if (!domaines.includes(d)) majDomaines([...domaines, d]); setDomaine("") } }} /></span></div></Bloc>
                   <Bloc titre="Suivi des ouvertures"><div className="mt-3 space-y-2"><label className="flex items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={cfg.garde.suiviOuvertures !== false} onChange={(e) => maj((x) => ({ ...x, garde: { ...x.garde, suiviOuvertures: e.target.checked } }))} />Savoir qui ouvre mes mails</label><p className="text-colonne text-encre-2">Conseil : la CNIL demande un consentement pour ce suivi, et il peut réduire l'arrivée en boîte de réception. Sans lui, « A ouvert » ne se déclenche pas.</p>{!avis && c.baseId !== "artisans" && cfg.garde.suiviOuvertures !== false ? <div className="space-y-1 border-t-[0.5px] border-trait pt-3"><label className="flex flex-wrap items-center gap-2 text-legende"><input type="checkbox" className="accent-[var(--color-action)]" checked={Boolean(alerte.actif)} onChange={(e) => majAlerte({ actif: e.target.checked })} />Créer un appel au standard quand un contact ouvre {alerte.actif ? <><Champ type="number" min={1} className="!w-16" aria-label="Nombre d'ouvertures" value={alerte.fois} onChange={(e) => majAlerte({ fois: Number(e.target.value) || 1 })} /> fois en <Champ type="number" min={1} className="!w-16" aria-label="Nombre de jours" value={alerte.jours} onChange={(e) => majAlerte({ jours: Number(e.target.value) || 1 })} /> jours</> : "plusieurs fois"}</label><p className="text-colonne text-encre-2">L'appel arrive dans l'Agenda, vers le standard de l'agence, jamais en direct.</p></div> : null}</div></Bloc>
                   <Bloc titre="Toujours exclus"><div className="mt-3 flex flex-wrap items-center gap-1.5">{(cfg.garde.exclusions ?? GARDE_DEFAUT.exclusions).map((m) => <span key={m} className="inline-flex h-7 items-center gap-1 rounded-full bg-fond-3 px-3 text-colonne">{m}{m === "Désinscrit" ? null : <button type="button" aria-label={`Retirer ${m}`} className="ml-1 text-encre-2 hover:text-encre" onClick={() => maj((x) => ({ ...x, garde: { ...x.garde, exclusions: x.garde.exclusions.filter((y) => y !== m) } }))}>×</button>}</span>)}<span className="w-52"><Champ value={ex} placeholder="Ex. Endormie, puis Entrée" aria-label="Ajouter une exclusion" onChange={(e) => setEx(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && ex.trim()) { maj((x) => ({ ...x, garde: { ...x.garde, exclusions: [...x.garde.exclusions, ex.trim()] } })); setEx("") } }} /></span></div></Bloc>
                   {cfg.actions.some((a) => a.type === "sms") ? <Bloc titre="Coûts"><label className="mt-3 flex items-center gap-2 text-legende">Un SMS coûte <Champ type="number" step="0.01" min={0} className="!w-20" value={c.coutSms} onChange={(e) => setC({ ...c, coutSms: Number(e.target.value) })} /> €</label></Bloc> : null}
                 </div>
               ) : (
                 <div className="max-w-[720px] space-y-8">
-                  {avis ? <MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} /> : <MesureCampagne campagne={c} cfg={cfg} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.etat.evenements} />}
+                  {avis ? <MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.evenements} /> : <MesureCampagne campagne={c} cfg={cfg} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.etat.evenements} />}
                 </div>
               )}
           </div>

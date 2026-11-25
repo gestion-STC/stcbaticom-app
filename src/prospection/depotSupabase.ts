@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
 import type { Depot, EtatProspection } from "./depot"
 import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscription, Lead, Tache } from "./modele"
+import { inscriptionAu, inscriptionsParContact } from "./rattachement"
 
 export const BASES: Base[] = [
   {
@@ -45,7 +46,9 @@ export const versCampagne = (l: L): Campagne => ({
 })
 const versLigne = (c: Campagne) => ({
   id: c.id, nom: c.nom, base_id: c.baseId, objectif: c.objectif, statut: c.statut, audience: c.audience, rythme: c.rythme, etapes: c.etapes, signaux: c.signaux,
-  cout_sms: c.coutSms, mode_test: false, test_email: c.testEmail ?? "", test_mobile: c.testMobile ?? "", lancee_le: c.lanceeLe, maj_le: new Date().toISOString(), ...(c.config ? { config: c.config } : {}),
+  // mode_test n'est plus écrit (25/11/2026) : l'écran le forçait à « non » à chaque enregistrement, et défaisait un mode
+  // test posé en base. Une nouvelle campagne prend la valeur par défaut de la table.
+  cout_sms: c.coutSms, test_email: c.testEmail ?? "", test_mobile: c.testMobile ?? "", lancee_le: c.lanceeLe, maj_le: new Date().toISOString(), ...(c.config ? { config: c.config } : {}),
 })
 
 export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void): Depot & { charger: () => Promise<void> } {
@@ -58,7 +61,7 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
 
   async function charger() {
     const [campagnes, inscriptions, envois, evenements, taches, contacts] = await Promise.all([
-      tout<L>("cmp_campagnes", "*"), tout<L>("cmp_inscriptions", "*"), tout<L>("cmp_envois", "id, campagne_id, inscription_id, contact_ref, etape_id, variante_id, canal, le, statut, cause"),
+      tout<L>("cmp_campagnes", "*"), tout<L>("cmp_inscriptions", "*"), tout<L>("cmp_envois", "id, campagne_id, inscription_id, contact_ref, etape_id, variante_id, canal, le, statut, cause, test"),
       tout<L>("cmp_evenements", "*"), tout<L>("cmp_taches", "*"), tout<L>("cmp_contacts", "id, base_id, nom, personne, email, mobile, telephone, champs, statut, desinscrit, proprietaire_id"),
     ])
     const camps = campagnes.map(versCampagne)
@@ -67,16 +70,16 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     // Les clics de robots de sécurité (25/11/2026) ne comptent nulle part : ni taux, ni lead ; ils restent visibles à part.
     const evs = tousEvs.filter((e) => !e.robot), robots = tousEvs.filter((e) => e.robot)
     const cts: Contact[] = contacts.map((l) => ({ id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""), champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null }))
-    const parContact = new Map<string, Inscription>()
-    for (const i of [...insc].sort((a, b) => (a.entreeLe < b.entreeLe ? -1 : 1))) parContact.set(i.contactId, i)
+    // Chaque lead et chaque appel va à l'inscription en cours à sa date (rattachement.ts), pas à la dernière du contact.
+    const parContact = inscriptionsParContact(insc)
     const inscrits = new Set(insc.map((i) => i.contactId))
 
     // Les leads : agences (leads_demarchage) et artisans (le clic, vu par la vue), rattachés à la campagne du contact.
     const depuis = camps.reduce((m, c) => (c.creeLe < m ? c.creeLe : m), new Date().toISOString())
     const leadsAg = await lireParLots<L>((d, f) => sb().from("leads_demarchage").select("id, agence_id, signal, statut, cree_le").gte("cree_le", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)
     const leads: Lead[] = leadsAg.filter((l) => inscrits.has(String(l.agence_id))).map((l) => {
-      const i = parContact.get(String(l.agence_id))!
-      return { id: String(l.id), contactId: String(l.agence_id), baseId: "agences", campagneId: String(l.cree_le) >= i.entreeLe ? i.campagneId : null, signal: String(l.signal ?? ""), creeLe: String(l.cree_le), statut: l.statut === "a_traiter" ? "a_traiter" : "traite", proprietaireId: null }
+      const i = inscriptionAu(parContact, String(l.agence_id), String(l.cree_le))
+      return { id: String(l.id), contactId: String(l.agence_id), baseId: "agences", campagneId: i?.campagneId ?? null, signal: String(l.signal ?? ""), creeLe: String(l.cree_le), statut: l.statut === "a_traiter" ? "a_traiter" : "traite", proprietaireId: null }
     })
     for (const k of cts.filter((x) => x.baseId === "artisans" && (x.statut === "lead" || x.statut === "gagne") && inscrits.has(x.id))) {
       const clic = evs.filter((e) => e.contactId === k.id && e.type === "clic").sort((a, b) => (a.le < b.le ? -1 : 1))[0]
@@ -87,12 +90,12 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     const appelsAg = await lireParLots<L>((d, f) => sb().from("activites").select("id, agence_id, compte_id, date, resultat, issue").eq("type", "appel").gte("date", depuis).neq("resultat", "lance").order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)
     const appelsSt = await lireParLots<L>((d, f) => sb().from("st_appels").select("id, sous_traitant_id, compte_nom, date, resultat, issue").gte("date", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>).catch(() => [] as L[])
     const appels: Appel[] = [
-      ...appelsAg.filter((a) => { const i = parContact.get(String(a.agence_id)); return i && String(a.date) >= i.entreeLe }).map((a) => ({ id: String(a.id), contactId: String(a.agence_id), compteId: String(a.compte_id ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: parContact.get(String(a.agence_id))!.campagneId })),
-      ...appelsSt.filter((a) => { const i = parContact.get(String(a.sous_traitant_id)); return i && String(a.date) >= i.entreeLe }).map((a) => ({ id: String(a.id), contactId: String(a.sous_traitant_id), compteId: String(a.compte_nom ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: parContact.get(String(a.sous_traitant_id))!.campagneId })),
+      ...appelsAg.flatMap((a) => { const i = inscriptionAu(parContact, String(a.agence_id), String(a.date)); return i ? [{ id: String(a.id), contactId: String(a.agence_id), compteId: String(a.compte_id ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: i.campagneId }] : [] }),
+      ...appelsSt.flatMap((a) => { const i = inscriptionAu(parContact, String(a.sous_traitant_id), String(a.date)); return i ? [{ id: String(a.id), contactId: String(a.sous_traitant_id), compteId: String(a.compte_nom ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: i.campagneId }] : [] }),
     ]
     publier({
       ...etat, maintenant: new Date().toISOString(), campagnes: camps, inscriptions: insc, contacts: cts, evenements: evs, robots, leads, appels,
-      envois: envois.map((l): Envoi => ({ id: String(l.id), campagneId: String(l.campagne_id), inscriptionId: String(l.inscription_id), contactId: String(l.contact_ref), etapeId: String(l.etape_id), varianteId: (l.variante_id as string) ?? null, canal: l.canal as Envoi["canal"], le: String(l.le), statut: l.statut as Envoi["statut"], cause: String(l.cause ?? "") })),
+      envois: envois.map((l): Envoi => ({ id: String(l.id), campagneId: String(l.campagne_id), inscriptionId: String(l.inscription_id), contactId: String(l.contact_ref), etapeId: String(l.etape_id), varianteId: (l.variante_id as string) ?? null, canal: l.canal as Envoi["canal"], le: String(l.le), statut: l.statut as Envoi["statut"], cause: String(l.cause ?? ""), test: Boolean(l.test) })),
       taches: taches.map((l): Tache => ({ id: String(l.id), contactId: String(l.contact_ref), campagneId: String(l.campagne_id), etapeId: String(l.etape_id), type: l.type as Tache["type"], consigne: String(l.consigne ?? ""), creeLe: String(l.cree_le), faiteLe: (l.faite_le as string) ?? null })),
     })
   }
