@@ -10,6 +10,8 @@ export type EtatProspection = {
   comptes: Compte[]; equipes: Equipe[]; bases: Base[]; contacts: Contact[]
   campagnes: Campagne[]; inscriptions: Inscription[]; envois: Envoi[]; evenements: Evenement[]
   leads: Lead[]; taches: Tache[]; appels: Appel[]; messages: Message[]
+  /** Les clics de robots de sécurité (25/11/2026) : gardés à part, ils ne comptent nulle part. */
+  robots?: Evenement[]
 }
 
 export type Depot = {

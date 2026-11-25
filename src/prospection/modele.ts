@@ -99,7 +99,7 @@ export type Envoi = {
   canal: Canal; le: string; statut: "en_cours" | "envoye" | "erreur" | "saute"; cause: string
 }
 export type TypeEvenement = "delivre" | "ouvert" | "clic" | "reponse" | "desinscription" | "rebond" | "connexion"
-export type Evenement = { id: Id; campagneId: Id; envoiId: Id | null; contactId: Id; type: TypeEvenement; le: string; lien?: string }
+export type Evenement = { id: Id; campagneId: Id; envoiId: Id | null; contactId: Id; type: TypeEvenement; le: string; lien?: string; robot?: boolean }
 export type Lead = {
   id: Id; contactId: Id; baseId: Id; campagneId: Id | null; signal: string; creeLe: string
   statut: "a_traiter" | "traite"; proprietaireId: Id | null

@@ -418,7 +418,7 @@ Deno.serve(async (req: Request) => {
       const inscriptions = (await tout<Ligne>((d, f) => sb.from("cmp_inscriptions").select("*").or(`campagne_id.eq.${c.id},statut.eq.en_cours`).order("id").range(d, f))).map(versInscription)
       const depuis = new Date(maintenant.getTime() - 14 * JOUR_MS).toISOString()
       const envois = (await tout<Ligne>((d, f) => sb.from("cmp_envois").select("*").eq("campagne_id", c.id).gte("le", depuis).order("id").range(d, f))).map(versEnvoi)
-      const evenements = (await tout<Ligne>((d, f) => sb.from("cmp_evenements").select("*").eq("campagne_id", c.id).order("id").range(d, f))).map(versEvenement)
+      const evenements = (await tout<Ligne>((d, f) => sb.from("cmp_evenements").select("*").eq("campagne_id", c.id).eq("robot", false).order("id").range(d, f))).map(versEvenement)
 
       // Trop de rebonds depuis le dernier arrêt : la campagne se met en pause, et le dit à l'écran.
       const arretConfig = (ligne.config as { arret?: { le?: string } } | null)?.arret

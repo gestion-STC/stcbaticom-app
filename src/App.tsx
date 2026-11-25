@@ -139,7 +139,7 @@ function App() {
               du recrutement sont dans l'espace Recrutement depuis le 26/10. */}
           {vue === "parametrage" && <Parametrage session={session} />}
 
-          {vue === "campagnes" && <PageCampagnes base={null} onSession={() => naviguer("sessions")} />}
+          {vue === "campagnes" && <PageCampagnes base={null} onSession={() => naviguer("sessions")} onOuvrirAgence={(id) => ouvrirAgence(id)} />}
           {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages_st" : p === "st_dossiers" ? "leads_st" : p)} />}
           {vue === "st_reglages" && <ReglagesMachineST />}
           {vue === "st_base" && <BaseST />}

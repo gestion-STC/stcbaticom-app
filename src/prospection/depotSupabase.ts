@@ -63,7 +63,9 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     ])
     const camps = campagnes.map(versCampagne)
     const insc: Inscription[] = inscriptions.map((l) => ({ id: String(l.id), campagneId: String(l.campagne_id), contactId: String(l.contact_ref), entreeLe: String(l.entree_le), etapeIndex: Number(l.etape_index), prochaineLe: String(l.prochaine_le), statut: l.statut as Inscription["statut"], sortieLe: (l.sortie_le as string) ?? null }))
-    const evs: Evenement[] = evenements.map((l) => ({ id: String(l.id), campagneId: String(l.campagne_id), envoiId: (l.envoi_id as string) ?? null, contactId: String(l.contact_ref), type: l.type as Evenement["type"], le: String(l.le), lien: (l.lien as string) ?? undefined }))
+    const tousEvs: Evenement[] = evenements.map((l) => ({ id: String(l.id), campagneId: String(l.campagne_id), envoiId: (l.envoi_id as string) ?? null, contactId: String(l.contact_ref), type: l.type as Evenement["type"], le: String(l.le), lien: (l.lien as string) ?? undefined, robot: Boolean(l.robot) }))
+    // Les clics de robots de sécurité (25/11/2026) ne comptent nulle part : ni taux, ni lead ; ils restent visibles à part.
+    const evs = tousEvs.filter((e) => !e.robot), robots = tousEvs.filter((e) => e.robot)
     const cts: Contact[] = contacts.map((l) => ({ id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""), champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null }))
     const parContact = new Map<string, Inscription>()
     for (const i of [...insc].sort((a, b) => (a.entreeLe < b.entreeLe ? -1 : 1))) parContact.set(i.contactId, i)
@@ -89,7 +91,7 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
       ...appelsSt.filter((a) => { const i = parContact.get(String(a.sous_traitant_id)); return i && String(a.date) >= i.entreeLe }).map((a) => ({ id: String(a.id), contactId: String(a.sous_traitant_id), compteId: String(a.compte_nom ?? ""), le: String(a.date), resultat: a.resultat as Appel["resultat"], issue: String(a.issue ?? ""), campagneId: parContact.get(String(a.sous_traitant_id))!.campagneId })),
     ]
     publier({
-      ...etat, maintenant: new Date().toISOString(), campagnes: camps, inscriptions: insc, contacts: cts, evenements: evs, leads, appels,
+      ...etat, maintenant: new Date().toISOString(), campagnes: camps, inscriptions: insc, contacts: cts, evenements: evs, robots, leads, appels,
       envois: envois.map((l): Envoi => ({ id: String(l.id), campagneId: String(l.campagne_id), inscriptionId: String(l.inscription_id), contactId: String(l.contact_ref), etapeId: String(l.etape_id), varianteId: (l.variante_id as string) ?? null, canal: l.canal as Envoi["canal"], le: String(l.le), statut: l.statut as Envoi["statut"], cause: String(l.cause ?? "") })),
       taches: taches.map((l): Tache => ({ id: String(l.id), contactId: String(l.contact_ref), campagneId: String(l.campagne_id), etapeId: String(l.etape_id), type: l.type as Tache["type"], consigne: String(l.consigne ?? ""), creeLe: String(l.cree_le), faiteLe: (l.faite_le as string) ?? null })),
     })
