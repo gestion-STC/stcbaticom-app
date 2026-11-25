@@ -216,8 +216,10 @@ export async function bilanMails(de: Date): Promise<{ envoyes: number; ouverts: 
   const s = sb(), depuis = de.toISOString()
   const compte = async (q: PromiseLike<{ count: number | null; error: { message: string } | null }>) => { const r = await q; erreur(r.error); return r.count ?? 0 }
   const [envoyes, recus, ouverts, rebonds] = await Promise.all([
-    compte(s.from("messages").select("id", { count: "exact", head: true }).eq("sens", "sortant").eq("espace", "demarchage").gte("created_at", depuis)),
-    compte(s.from("messages").select("id", { count: "exact", head: true }).eq("sens", "entrant").eq("espace", "demarchage").gte("created_at", depuis)),
+    // Seulement les mails rattachés à une agence (25/11/2026) : les demandes d'avis, transferts internes,
+    // validations d'adresse et accusés de réception gonflaient les chiffres du démarchage.
+    compte(s.from("messages").select("id", { count: "exact", head: true }).eq("sens", "sortant").eq("espace", "demarchage").not("agence_id", "is", null).gte("created_at", depuis)),
+    compte(s.from("messages").select("id", { count: "exact", head: true }).eq("sens", "entrant").eq("espace", "demarchage").not("agence_id", "is", null).gte("created_at", depuis)),
     compte(s.from("activites").select("id", { count: "exact", head: true }).eq("type", "note").eq("source", "site").eq("titre", "E-mail ouvert").gte("date", depuis)),
     compte(s.from("activites").select("id", { count: "exact", head: true }).eq("type", "note").eq("source", "site").eq("titre", "E-mail rebondi (adresse injoignable)").gte("date", depuis)),
   ])

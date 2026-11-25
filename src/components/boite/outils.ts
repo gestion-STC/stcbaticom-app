@@ -50,3 +50,9 @@ export function etiquetteTri(m: Pick<Message, "tri" | "triDetail"> | null | unde
 export function dernierTrie(c: Conversation<Message>): Message | null {
   return [...c.messages].reverse().find((x) => x.tri) ?? null
 }
+
+/** Les réponses triées « intéressé » qu'aucune fiche agence n'a recueillies (25/11/2026) : sans agence, elles
+ *  ne créent ni lead ni suite de campagne. La boîte les signale pour qu'on les rattache à la main. */
+export function interessesSansAgence(convs: Conversation<Message>[]): Conversation<Message>[] {
+  return convs.filter((c) => !c.agenceId && c.messages.some((m) => m.sens === "entrant" && m.espace === "demarchage" && m.tri === "interesse" && !m.agenceId))
+}
