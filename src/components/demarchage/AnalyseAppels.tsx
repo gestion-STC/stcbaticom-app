@@ -10,9 +10,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { Fragment, useEffect, useMemo, useState } from "react"
 import { RefreshCw, ShieldCheck, Sparkles } from "lucide-react"
-import { appelsIaPeriode, verifierMiseEnService, type AppelIa, type ControleMiseEnService } from "../../demarchage/appelsIa"
+import { analysesEnEchec, appelsIaPeriode, relancerAnalyses, verifierMiseEnService, type AnalyseEnEchec, type AppelIa, type ControleMiseEnService } from "../../demarchage/appelsIa"
 import {
-  MIN_APPELS, abouti, bilanGlobal, dureeLisible, ecartLisible, pourcent, statsArguments, statsObjections, statsParCommercial, statsParHeure,
+  ESSAIS_MAX_ANALYSE, causeEchecLisible, MIN_APPELS, abouti, bilanGlobal, dureeLisible, ecartLisible, pourcent, statsArguments, statsObjections, statsParCommercial, statsParHeure,
 } from "../../demarchage/analyseOutils"
 import { PERIODES, bornesPeriode, type Periode } from "../../demarchage/aujourdhuiOutils"
 import { ISSUES } from "../../demarchage/modele"
@@ -83,6 +83,21 @@ export default function AnalyseAppels() {
   const objs = useMemo(() => statsObjections(filtres), [filtres])
   const equipe = useMemo(() => statsParCommercial(filtres), [filtres])
   const heures = useMemo(() => statsParHeure(filtres), [filtres])
+  // Les analyses en échec définitif (25/11/2026 : 8 appels du 13/11, crédit IA épuisé, restés sans analyse et sans le dire).
+  const [echecs, setEchecs] = useState<AnalyseEnEchec[]>([])
+  const [relance, setRelance] = useState<"" | "en_cours" | "faite">("")
+  useEffect(() => {
+    let vivant = true
+    analysesEnEchec().then((l) => { if (vivant) setEchecs(l) }).catch(() => { if (vivant) setEchecs([]) })
+    return () => { vivant = false }
+  }, [version])
+  const mesEchecs = useMemo(() => echecs.filter((e) => admin || e.compteNom === moi), [echecs, admin, moi])
+  const causes = useMemo(() => [...new Set(mesEchecs.map((e) => causeEchecLisible(e.erreur)))].join(", "), [mesEchecs])
+  const relancerEchecs = async () => {
+    setRelance("en_cours")
+    try { await relancerAnalyses(mesEchecs.map((e) => e.id)); setEchecs([]); setRelance("faite") }
+    catch (e) { setRelance(""); setErreur(`Les analyses n'ont pas pu être relancées : ${e instanceof Error ? e.message : String(e)}`) }
+  }
   const sansEnregistrement = filtres.filter((a) => a.statut === "sans_enregistrement").length
   const enRoute = filtres.filter((a) => a.statut === "en_attente" || a.statut === "en_cours").length
 
@@ -115,6 +130,12 @@ export default function AnalyseAppels() {
       </BarreFiltres>
 
       {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
+      {mesEchecs.length ? (
+        <Bandeau role="alerte" className="mb-4" action={<Bouton taille="sm" icone={<RefreshCw />} chargement={relance === "en_cours"} onClick={() => void relancerEchecs()}>Relancer {mesEchecs.length > 1 ? "ces analyses" : "cette analyse"}</Bouton>}>
+          {mesEchecs.length} appel{mesEchecs.length > 1 ? "s" : ""} sans analyse, abandonné{mesEchecs.length > 1 ? "s" : ""} après {ESSAIS_MAX_ANALYSE} essais ({causes}) : {mesEchecs.slice(0, 5).map((e) => `${e.agenceNom || "agence ?"} (${dateHeureCourte(e.creeLe)})`).join(", ")}{mesEchecs.length > 5 ? "…" : ""}. Une fois la cause réglée, relance-les : la transcription déjà faite est gardée.
+        </Bandeau>
+      ) : null}
+      {relance === "faite" ? <Bandeau role="ok" className="mb-4">Analyses relancées : elles seront reprises dans les prochaines minutes (4 toutes les 2 minutes).</Bandeau> : null}
       {sansEnregistrement ? (
         <Bandeau role="attention" className="mb-4">
           {sansEnregistrement} appel{sansEnregistrement > 1 ? "s" : ""} sans enregistrement chez Ringover sur la période : l'enregistrement des appels est-il activé sur tous les comptes ?

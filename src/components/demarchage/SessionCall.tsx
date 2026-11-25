@@ -89,6 +89,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const [nbLeads, setNbLeads] = useState<number | null>(null)
   const modeRef = useRef(mode)
   useEffect(() => { modeRef.current = mode }, [mode])
+  const motifsRef = useRef(motifs)
+  useEffect(() => { motifsRef.current = motifs }, [motifs])
 
   // ── Les réglages et la file ──
   const [file, setFile] = useState<File>("a_prospecter")
@@ -1027,7 +1029,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         }
         setAppelees((s) => new Set(s).add(c.agence.id))
         // L'appel demandé par une campagne est fait : sa demande se ferme toute seule (11/11/2026).
-        chargerTachesCampagne(c.agence.id).then((l) => Promise.all(l.filter((t) => t.type === "appel").map((t) => terminerTacheCampagne(t.id)))).then(() => setNbCampagne((n) => Math.max(0, n - 1))).catch((e) => { if (enVie.current) setErreur(`${c.agence.nom} : l'appel demandé par la campagne n'a pas pu être fermé (${messageDe(e)}). Il restera dans l'Agenda : ferme-le à la main.`) })
+        // Le compteur « campagne » ne baisse que si une demande d'appel a réellement été fermée, et pour une fiche
+        // comptée comme campagne (25/11/2026 : il baissait à chaque résultat, même sans demande de campagne).
+        const compteeCampagne = motifsRef.current.get(c.agence.id)?.groupe === "campagne"
+        chargerTachesCampagne(c.agence.id).then((l) => Promise.all(l.filter((t) => t.type === "appel").map((t) => terminerTacheCampagne(t.id)))).then((fermees) => { if (fermees.length && compteeCampagne && enVie.current) setNbCampagne((n) => Math.max(0, n - 1)) }).catch((e) => { if (enVie.current) setErreur(`${c.agence.nom} : l'appel demandé par la campagne n'a pas pu être fermé (${messageDe(e)}). Il restera dans l'Agenda : ferme-le à la main.`) })
         const n = appelId ? "" : chiffresTel(a?.numeroEmission ?? "") // déjà compté au clic
         if (n) {
           setCompteursNumero((prev) => {

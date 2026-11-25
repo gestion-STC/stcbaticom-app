@@ -56,7 +56,7 @@ import { OUTIL, PETITE, PILULE_CLAIRE, PILULE_NOIRE, SOUS_TITRE, TITRE_PAGE, bas
 import { ElementMenu, MenuPoints, SeparateurMenu } from "./boite/MenuPoints"
 import LigneBoite, { EnTeteColonnes } from "./boite/LigneBoite"
 import MessageDuFil from "./boite/MessageDuFil"
-import { etiquetteTri } from "./boite/outils"
+import { etiquetteTri, interessesSansAgence } from "./boite/outils"
 
 type Conv = Conversation<Message>
 type Vue = Dossier
@@ -184,6 +184,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const filtreParPersonne = admin && espace !== "recrutement" ? compteDuChoix(choixPersonne, moi) : null
   const conversations = useMemo(() => grouperEnConversations(filtrerParPersonne(messages, filtreParPersonne)), [messages, filtreParPersonne])
   const nbNonLues = useMemo(() => compterNonLues(conversations), [conversations])
+  // Les réponses « intéressé » sans fiche agence : sans agence, ni lead ni suite (25/11/2026).
+  const interessesPerdus = useMemo(() => (espace === "recrutement" ? [] : interessesSansAgence(conversations)), [conversations, espace])
   const visibles = useMemo(
     () => filtrerConversations(conversations, vue, recherche),
     [conversations, vue, recherche],
@@ -457,6 +459,17 @@ export default function Messages({ espace }: { espace: Espace | null }) {
           </div>
 
           {bandeaux}
+          {interessesPerdus.length > 0 && (
+            <div className={BANDEAU}>
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#C27C0E]" />
+              <span className="min-w-0 flex-1 text-[#3C3C40]">
+                {interessesPerdus.length} réponse{interessesPerdus.length > 1 ? "s" : ""} « intéressé » sans fiche agence (adresse inconnue ou sur plusieurs fiches) : pas de lead tant qu'elle{interessesPerdus.length > 1 ? "s ne sont pas rattachées" : " n'est pas rattachée"} à la bonne agence.
+              </span>
+              {interessesPerdus.slice(0, 3).map((c) => (
+                <button key={c.cle} type="button" className={`${PILULE_CLAIRE} ${PETITE}`} onClick={() => ouvrirConversation(c)}>{nomDe(c)}</button>
+              ))}
+            </div>
+          )}
 
           {/* La liste, pleine largeur, en rangées fines — comme une boîte mail. */}
           <EnTeteColonnes />

@@ -200,6 +200,27 @@ export function nomCle(nom: string): string {
   return (nom || "").trim().replace(/\s+/g, " ").toLowerCase()
 }
 
+// La recherche des listes d'agences, en filtre `or(...)` PostgREST (25/11/2026). La valeur est mise entre
+// guillemets doubles (\ et " échappés par \) : une virgule, une parenthèse ou un guillemet tapés ne cassent plus
+// le filtre. Le % (joker du LIKE) est retiré, comme avant ; les espaces multiples sont réduits.
+export const COLONNES_RECHERCHE_AGENCES = ["nom", "telephone", "email", "adresse", "contact_principal"] as const
+export function filtreRechercheAgences(texte: string): string {
+  const r = (texte || "").replace(/%/g, " ").replace(/\s+/g, " ").trim()
+  const valeur = `"%${r.replace(/[\\"]/g, (c) => `\\${c}`)}%"`
+  return COLONNES_RECHERCHE_AGENCES.map((c) => `${c}.ilike.${valeur}`).join(",")
+}
+
+// Le gestionnaire relevé sur les OS de STC Bâtiment, en contact : premier mot = prénom, le reste = nom ;
+// le premier numéro en ligne directe, le premier portable (06 / 07 / +33 6 / +33 7) en mobile.
+// Le même calcul que la fonction SQL client_signale_confirmer.
+export function contactDuGestionnaire(nomComplet: string, telephones: string[]): { prenom: string; nom: string; ligneDirecte: string; mobile: string } {
+  const [prenom, ...reste] = (nomComplet || "").trim().split(/\s+/)
+  return {
+    prenom: prenom ?? "", nom: reste.join(" "), ligneDirecte: telephones[0] ?? "",
+    mobile: telephones.find((t) => /^(\+33|0)[67]/.test(t.replace(/[\s.]/g, ""))) ?? "",
+  }
+}
+
 // Un code postal à 5 chiffres dans un texte libre (« 75005 », « 92100 Boulogne ») → « 75005 ».
 export function secteurDepuis(texte: string): string | null {
   const m = (texte || "").match(/\b(\d{5})\b/)

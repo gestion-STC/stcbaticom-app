@@ -10,7 +10,30 @@ import {
   secteurDepuis,
   type Agence,
   type Contact,
+  contactDuGestionnaire,
+  filtreRechercheAgences,
 } from "./modele"
+
+describe("recherche des agences (filtre PostgREST)", () => {
+  it("met la valeur entre guillemets sur chaque colonne", () => {
+    expect(filtreRechercheAgences("  Foncia  ")).toBe('nom.ilike."%Foncia%",telephone.ilike."%Foncia%",email.ilike."%Foncia%",adresse.ilike."%Foncia%",contact_principal.ilike."%Foncia%"')
+  })
+  it("une parenthèse, une virgule ou un guillemet ne cassent plus le filtre", () => {
+    expect(filtreRechercheAgences("Agence (Paris), \"Centre\"").split(",telephone.")[0]).toBe('nom.ilike."%Agence (Paris), \\"Centre\\"%"')
+    expect(filtreRechercheAgences("a\\b")).toContain('nom.ilike."%a\\\\b%"')
+  })
+  it("retire le joker % et réduit les espaces", () => {
+    expect(filtreRechercheAgences("10 %  rue")).toContain('nom.ilike."%10 rue%"')
+  })
+})
+
+describe("le gestionnaire signalé en contact", () => {
+  it("prénom, nom, ligne directe et premier portable", () => {
+    expect(contactDuGestionnaire("  Jean  Paul Martin ", ["01 43 00 00 00", "06.12.34.56.78", "07 00 00 00 00"])).toEqual({ prenom: "Jean", nom: "Paul Martin", ligneDirecte: "01 43 00 00 00", mobile: "06.12.34.56.78" })
+    expect(contactDuGestionnaire("Sophie", ["+33 7 12 34 56 78"])).toEqual({ prenom: "Sophie", nom: "", ligneDirecte: "+33 7 12 34 56 78", mobile: "+33 7 12 34 56 78" })
+    expect(contactDuGestionnaire("", [])).toEqual({ prenom: "", nom: "", ligneDirecte: "", mobile: "" })
+  })
+})
 
 function agence(p: Partial<Agence> = {}): Agence {
   return {
