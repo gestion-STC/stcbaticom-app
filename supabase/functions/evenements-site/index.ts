@@ -98,7 +98,9 @@ Deno.serve(async (req: Request) => {
     const { data: lien } = await sb.from("liens_suivis").select("id, agence_id, nb_clics").eq("jeton", jetonStop).maybeSingle()
     const quand = new Date().toISOString()
     if (req.method === "GET") {
-      if (lien?.id) await sb.from("liens_suivis").update({ nb_clics: ((lien.nb_clics as number) || 0) + 1, dernier_clic_le: quand }).eq("id", lien.id)
+      // Le lien de désinscription porte le jeton du lien « Créer un compte » : son ouverture est notée à part
+      // (stop_vu_le), pour ne pas compter un clic sur « Créer un compte » et pour trahir un robot (site_noter_clic).
+      if (lien?.id) await sb.from("liens_suivis").update({ stop_vu_le: quand }).eq("id", lien.id)
       return pageStop(lien?.agence_id ? "confirmer" : "inconnu", jetonStop)
     }
     if (lien?.agence_id) {
@@ -152,6 +154,10 @@ Deno.serve(async (req: Request) => {
     const cible = await retrouverAgence(sb, e)
     if (!cible) return json({ ok: true, ignore: "agence inconnue dans la base de prospection", type: e.type })
     if (e.type === "page_ouverte") {
+      // Un robot de sécurité qui a ouvert les liens du mail peut aussi afficher la page : pas de signal s'il vient
+      // d'être repéré sur cette agence (25/11/2026).
+      const { data: robot } = await sb.from("cmp_evenements").select("id").eq("contact_ref", cible.agenceId).eq("robot", true).gte("le", new Date(new Date(quand).getTime() - 5 * 60_000).toISOString()).limit(1)
+      if (robot?.length) return json({ ok: true, ignore: "robot de sécurité" })
       await poserSignal(sb, cible.agenceId, cible.contactId, "Page « Créer un compte » ouverte", "Sur www.stcbatiment.com, depuis notre e-mail.", quand)
     } else if (e.type === "compte_ouvert") {
       const forme = e.forme === "equipe" ? `une équipe, ${e.nb_gestionnaires ?? 0} gestionnaire${(e.nb_gestionnaires ?? 0) > 1 ? "s" : ""} invité${(e.nb_gestionnaires ?? 0) > 1 ? "s" : ""}` : `un seul compte${e.nb_emails ? `, ${e.nb_emails} adresse${e.nb_emails > 1 ? "s" : ""} rattachée${e.nb_emails > 1 ? "s" : ""}` : ""}`
