@@ -65,26 +65,58 @@ async function retrouverAgence(sb: SupabaseClient, e: { jeton_source?: string; e
   return null
 }
 
+const ATTENTE_ROBOT_MS = 8000
+/** Une tâche qui continue après la réponse (la redirection part tout de suite). */
+function apres(tache: () => Promise<void>): void {
+  const p = tache().catch((e) => console.error("[EVENEMENTS-SITE] tâche après réponse :", e))
+  const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime
+  if (rt?.waitUntil) rt.waitUntil(p)
+}
+
+/** La page du lien de désinscription : confirmer (bouton), c'est fait, ou lien inconnu. */
+function pageStop(etat: "confirmer" | "fait" | "inconnu", jeton: string): Response {
+  const corps = etat === "confirmer"
+    ? `<h1 style="font-size:20px;margin:0 0 10px">Ne plus recevoir nos messages ?</h1><p style="margin:0 0 20px;color:#525252;line-height:1.55">Confirmez pour ne plus recevoir les messages de prospection de STC Bâtiment.</p><form method="post" action="?stop=${encodeURIComponent(jeton)}"><button type="submit" style="background:#17181a;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px;cursor:pointer">Confirmer ma désinscription</button></form>`
+    : etat === "fait"
+      ? `<h1 style="font-size:20px;margin:0 0 10px">C'est noté</h1><p style="margin:0;color:#525252;line-height:1.55">Vous ne recevrez plus nos messages de prospection.<br>STC Bâtiment</p>`
+      : `<h1 style="font-size:20px;margin:0 0 10px">Lien expiré</h1><p style="margin:0;color:#525252;line-height:1.55">Répondez simplement « stop » à notre message et nous ne vous écrirons plus.<br>STC Bâtiment</p>`
+  const page = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Désinscription</title></head><body style="margin:0;background:#f6f6f8;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px"><div style="background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px">${corps}</div></body></html>`
+  return new Response(page, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
+}
+
 Deno.serve(async (req: Request) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   const url = new URL(req.url)
 
-  // ── Ne plus recevoir nos mails de campagne (07/11/2026) : le lien de désinscription d'un mail de prospection ──
-  if (req.method === "GET" && url.searchParams.get("stop")) {
-    const { data: lien } = await sb.from("liens_suivis").select("agence_id").eq("jeton", url.searchParams.get("stop") || "").maybeSingle()
+  // ── Ne plus recevoir nos mails de campagne (07/11/2026 ; en deux temps depuis le 25/11/2026) ──
+  // Les passerelles de sécurité des boîtes mail ouvrent tous les liens d'un mail pour les vérifier : un lien qui
+  // désinscrivait dès l'ouverture a désinscrit 7 agences sans qu'elles le demandent. L'ouverture (GET) montre donc une
+  // page avec un bouton ; seul le bouton (POST, ce qu'un robot ne fait pas) désinscrit. L'ouverture est quand même
+  // notée sur le lien : un autre lien du même mail ouvert dans les 5 s trahit le robot (site_noter_clic).
+  const jetonStop = url.searchParams.get("stop") || ""
+  if (jetonStop && (req.method === "GET" || req.method === "POST")) {
+    const { data: lien } = await sb.from("liens_suivis").select("id, agence_id, nb_clics").eq("jeton", jetonStop).maybeSingle()
     const quand = new Date().toISOString()
-    if (lien?.agence_id) {
-      await sb.from("agences").update({ ne_plus_ecrire_le: quand }).eq("id", lien.agence_id)
-      const { data: d } = await sb.rpc("cmp_dernier_envoi", { p_contact: String(lien.agence_id), p_avant: quand })
-      const dernier = (d as { envoi_id: string; campagne_id: string }[] | null)?.[0]
-      if (dernier) await sb.from("cmp_evenements").insert({ campagne_id: dernier.campagne_id, envoi_id: dernier.envoi_id, contact_ref: String(lien.agence_id), type: "desinscription", le: quand })
-      await poserSignal(sb, lien.agence_id as string, null, "Désinscrit des mails de prospection", "Depuis le lien d'un mail de campagne.", quand)
+    if (req.method === "GET") {
+      if (lien?.id) await sb.from("liens_suivis").update({ nb_clics: ((lien.nb_clics as number) || 0) + 1, dernier_clic_le: quand }).eq("id", lien.id)
+      return pageStop(lien?.agence_id ? "confirmer" : "inconnu", jetonStop)
     }
-    const page = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Désinscription</title></head><body style="margin:0;background:#f6f6f8;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px"><div style="background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px"><h1 style="font-size:20px;margin:0 0 10px">C'est noté</h1><p style="margin:0;color:#525252;line-height:1.55">Vous ne recevrez plus nos messages de prospection.<br>STC Bâtiment</p></div></body></html>`
-    return new Response(page, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
+    if (lien?.agence_id) {
+      const { data: ag } = await sb.from("agences").select("ne_plus_ecrire_le").eq("id", lien.agence_id).maybeSingle()
+      if (!ag?.ne_plus_ecrire_le) {
+        await sb.from("agences").update({ ne_plus_ecrire_le: quand }).eq("id", lien.agence_id)
+        const { data: d } = await sb.rpc("cmp_dernier_envoi", { p_contact: String(lien.agence_id), p_avant: quand })
+        const dernier = (d as { envoi_id: string; campagne_id: string }[] | null)?.[0]
+        if (dernier) await sb.from("cmp_evenements").insert({ campagne_id: dernier.campagne_id, envoi_id: dernier.envoi_id, contact_ref: String(lien.agence_id), type: "desinscription", le: quand })
+        await poserSignal(sb, lien.agence_id as string, null, "Désinscrit des mails de prospection", "Depuis le lien d'un mail de campagne, confirmé avec le bouton.", quand)
+      }
+    }
+    return pageStop("fait", jetonStop)
   }
 
   // ── Un lien suivi cliqué ──
+  // On redirige tout de suite, et on note le clic 8 s plus tard : le temps qu'un robot ait ouvert les autres liens du
+  // mail. site_noter_clic décide alors : vrai clic (noté une fois), doublon (ignoré) ou robot (marqué, ni lead ni taux).
   if (req.method === "GET") {
     const jeton = url.searchParams.get("l") || ""
     if (!jeton) return json({ ok: true, service: "evenements-site" })
@@ -95,9 +127,17 @@ Deno.serve(async (req: Request) => {
     const destination = cible === "creer_compte" ? `${APP_URL}/creer-mon-compte?src=${encodeURIComponent(jeton)}` : (lien.url as string) || APP_URL
     try {
       await sb.from("liens_suivis").update({ nb_clics: ((lien.nb_clics as number) || 0) + 1, dernier_clic_le: quand }).eq("id", lien.id)
+    } catch (e) { console.error("[EVENEMENTS-SITE] clic non compté :", e) }
+    if (lien.agence_id) apres(async () => {
+      await new Promise((r) => setTimeout(r, ATTENTE_ROBOT_MS))
       const doc = cible === "plaquette" ? await nomDocument(sb, (lien.url as string) || "") : ""
-      if (lien.agence_id) await poserSignal(sb, lien.agence_id as string, (lien.contact_id as string | null) ?? null, LIBELLES[cible] || `Lien ouvert · ${cible}`, doc ? `Document : ${doc}. Depuis un e-mail de prospection.` : `Depuis un e-mail de prospection.`, quand)
-    } catch (e) { console.error("[EVENEMENTS-SITE] clic non noté :", e) }
+      const { data: verdict, error } = await sb.rpc("site_noter_clic", {
+        p_lien: lien.id, p_quand: quand, p_titre: LIBELLES[cible] || `Lien ouvert · ${cible}`,
+        p_note: doc ? `Document : ${doc}. Depuis un e-mail de prospection.` : `Depuis un e-mail de prospection.`,
+      })
+      if (error) console.error("[EVENEMENTS-SITE] clic non noté :", error.message)
+      else if (verdict !== "ok") console.log(`[EVENEMENTS-SITE] clic ${verdict} · agence ${lien.agence_id} · ${cible}`)
+    })
     return Response.redirect(destination, 302)
   }
 

@@ -20,11 +20,12 @@ import { estBaseAvis } from "../../prospection/avis"
 import { alerteLancement } from "../../prospection/alerteLancement"
 import JournalMoteur from "./moteur/JournalMoteur"
 
-type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "contacts" | "appels"
+type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "leads" | "contacts" | "appels"
+type FiltreContacts = "" | "ouvert" | "clic" | "lead" | "desinscrit" | "robot"
 const PT: Record<Constat["ton"], string> = { ok: "bg-ok", attention: "bg-attention", alerte: "bg-alerte" }
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
 
-export default function Suivi({ id, modifier, aller }: { id: string; modifier: () => void; aller: (e: "session" | "leads") => void }) {
+export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string; modifier: () => void; aller: (e: "session" | "leads") => void; ouvrirFiche?: (contactId: string) => void }) {
   const v = useVue()
   const depot = useDepot()
   const [vue, setVue] = useState<Vue>("ensemble")
@@ -32,6 +33,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   const [fichiers, setFichiers] = useState<Fichier[]>([])
   useEffect(() => { chargerFichiers().then(setFichiers).catch(() => undefined) }, [])
   const [filtreEnvoi, setFiltreEnvoi] = useState("")
+  const [filtreContacts, setFiltreContacts] = useState<FiltreContacts>("")
   const c = v.etat.campagnes.find((x) => x.id === id)
   const base = c ? v.base(c.baseId) : undefined
   const ind = useMemo(() => (c && base ? indicateurs(c, base, v.etat.contacts, v.etat.inscriptions, v.etat.envois, v.evenements, v.etat.leads, v.etat.appels) : null), [c, base, v])
@@ -44,7 +46,16 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
   const maxPc = Math.max(1, ...ind.parEtape.map((e) => e.premiersClics))
   const seg = ind.parSegment.find((s) => s.champ === (champ || base.champs[0]?.cle)) ?? ind.parSegment[0]
   const envois = v.etat.envois.filter((e) => e.campagneId === c.id && (!filtreEnvoi || e.statut === filtreEnvoi)).slice(-80).reverse()
-  const inscs = v.etat.inscriptions.filter((i) => i.campagneId === c.id).slice(-80).reverse()
+  // Qui a fait quoi (25/11/2026) : chaque contact entré, ce qu'il a fait, filtrable ; les robots à part.
+  const evsCampagne = v.evenements.filter((x) => x.campagneId === c.id)
+  const robotsCampagne = new Set((v.etat.robots ?? []).filter((x) => x.campagneId === c.id).map((x) => x.contactId))
+  const leadsCampagne = v.etat.leads.filter((l) => l.campagneId === c.id).sort((a, b) => (a.creeLe < b.creeLe ? 1 : -1))
+  const aLead = new Set(leadsCampagne.map((l) => l.contactId))
+  const fait = (contactId: string, type: string) => evsCampagne.some((x) => x.contactId === contactId && x.type === type)
+  const toutesInscs = v.etat.inscriptions.filter((i) => i.campagneId === c.id)
+  const garde = (contactId: string, statut: string) => !filtreContacts || (filtreContacts === "lead" ? aLead.has(contactId) : filtreContacts === "desinscrit" ? statut === "desinscrit" || fait(contactId, "desinscription") : filtreContacts === "robot" ? robotsCampagne.has(contactId) : fait(contactId, filtreContacts))
+  const inscsFiltrees = toutesInscs.filter((i) => garde(i.contactId, i.statut))
+  const inscs = (filtreContacts ? inscsFiltrees : inscsFiltrees.slice(-80)).slice().reverse()
   const cfgAb = configDe(c)
   const verdicts = new Map([...new Set(ind.parVariante.map((x) => x.etapeId))].map((eid) => [eid, verdictAB(ind.parVariante.filter((x) => x.etapeId === eid), reglageABDe(cfgAb, eid))]))
   const nomEtape = (eid: string) => { const k = c.etapes.findIndex((e) => e.id === eid); return k >= 0 ? `${k + 1} · ${LIBELLE_ETAPE[c.etapes[k].type]}` : "—" }
@@ -91,7 +102,7 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
         ] as const).map(([l, val]) => <div key={l} className="flex justify-between gap-3 border-b-[0.5px] border-fond-4 py-1"><dt className="text-encre-2">{l}</dt><dd className="chiffres text-encre">{val}</dd></div>)}
       </dl>
 
-      <Onglets<Vue> valeur={vue} onChange={setVue} options={[["ensemble", "Vue d'ensemble"], ["etapes", "Étapes"], ["ab", "Tests A/B", ind.parVariante.length || undefined], ["audience", "Audience"], ["temps", "Dans le temps"], ["envois", "Journal des envois", ind.envois.total], ["contacts", "Contacts", ind.audience.entres], ["appels", "Appels", ind.conversion.appels]]} />
+      <Onglets<Vue> valeur={vue} onChange={setVue} options={[["ensemble", "Vue d'ensemble"], ["etapes", "Étapes"], ["ab", "Tests A/B", ind.parVariante.length || undefined], ["audience", "Audience"], ["temps", "Dans le temps"], ["envois", "Journal des envois", ind.envois.total], ["leads", "Leads", leadsCampagne.length || undefined], ["contacts", "Qui a fait quoi", ind.audience.entres], ["appels", "Appels", ind.conversion.appels]]} />
 
       {vue === "ensemble" ? (
         <div className="grid gap-10 @min-[1200px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -164,15 +175,31 @@ export default function Suivi({ id, modifier, aller }: { id: string; modifier: (
             ] } })} />
           <p className="text-colonne text-encre-3">Les 80 derniers.</p>
         </div>
+      ) : vue === "leads" ? (
+        <div className="space-y-3">
+          <Table colonnes={[{ titre: "Contact" }, { titre: "Ce qu'il a fait" }, { titre: "Quand", largeur: "120px" }, { titre: "Statut", largeur: "110px" }, { titre: "", largeur: "120px" }]} vide="Aucun lead pour l'instant."
+            lignes={leadsCampagne.map((l) => { const k = v.contact(l.contactId); return { cle: l.id, cellules: [
+              <b className="block truncate py-1.5 font-medium">{k?.nom ?? "Contact"}</b>,
+              <span className="block truncate text-colonne text-encre-2">{l.signal || "—"}</span>,
+              <span className="chiffres text-encre-2">{dateHeure(l.creeLe)}</span>,
+              <Pastille role={l.statut === "a_traiter" ? "attente" : "fait"}>{l.statut === "a_traiter" ? "À traiter" : "Traité"}</Pastille>,
+              ouvrirFiche && c.baseId !== "artisans" ? <Bouton taille="sm" variante="discret" onClick={() => ouvrirFiche(l.contactId)}>Ouvrir la fiche</Bouton> : <span />,
+            ] } })} />
+          <p className="text-colonne text-encre-3">Un lead compte pour la campagne s'il arrive après l'entrée du contact dans la campagne, même par un autre mail. Les clics de robots de sécurité ne font jamais de lead.</p>
+        </div>
       ) : vue === "contacts" ? (
+        <div className="space-y-3">
+          <div className="w-56"><Selecteur value={filtreContacts} onChange={(e) => setFiltreContacts(e.target.value as FiltreContacts)} aria-label="Filtrer les contacts"><option value="">Tous les contacts</option><option value="ouvert">Ont ouvert</option><option value="clic">Ont cliqué</option><option value="lead">Devenus leads</option><option value="desinscrit">Désinscrits</option><option value="robot">Robot de sécurité détecté</option></Selecteur></div>
         <Table colonnes={[{ titre: "Contact" }, { titre: "Entré", largeur: "110px" }, { titre: "Où il en est", largeur: "170px" }, { titre: "Prochaine touche", largeur: "130px" }, { titre: "Statut", largeur: "120px" }, { titre: "Signaux", largeur: "22%" }]} vide="Personne n'est encore entré."
           lignes={inscs.map((i) => { const k = v.contact(i.contactId); const evs = v.evenements.filter((x) => x.campagneId === c.id && x.contactId === i.contactId); return { cle: i.id, cellules: [
-            <span className="block truncate py-1.5"><b className="font-medium">{k?.nom}</b><span className="block truncate text-colonne text-encre-2">{base.champs.map((ch) => k?.champs[ch.cle]).filter(Boolean).join(" · ")}</span></span>,
+            <span className="block truncate py-1.5"><b className="font-medium">{ouvrirFiche && c.baseId !== "artisans" ? <button type="button" className="hover:underline" onClick={() => ouvrirFiche(i.contactId)}>{k?.nom}</button> : k?.nom}</b><span className="block truncate text-colonne text-encre-2">{base.champs.map((ch) => k?.champs[ch.cle]).filter(Boolean).join(" · ")}</span></span>,
             <span className="chiffres text-encre-2">{dateHeure(i.entreeLe)}</span>, i.statut === "en_cours" ? `étape ${i.etapeIndex + 1} · ${LIBELLE_ETAPE[c.etapes[i.etapeIndex]?.type ?? "fin"]}` : "—",
             <span className="chiffres text-encre-2">{i.statut === "en_cours" ? dateHeure(i.prochaineLe) : "—"}</span>,
             <Pastille role={i.statut === "lead" ? "fait" : i.statut === "en_cours" ? "actif" : i.statut === "desinscrit" || i.statut === "rebond" ? "probleme" : "inerte"}>{({ en_cours: "En séquence", lead: "Devenu lead", terminee: "Séquence finie", desinscrit: "Désinscrit", rebond: "Rebond" })[i.statut]}</Pastille>,
-            <span className="text-colonne text-encre-2">{`${evs.filter((x) => x.type === "ouvert").length} ouv. · ${evs.filter((x) => x.type === "clic").length} clics${evs.some((x) => x.type === "reponse") ? " · a répondu" : ""}`}</span>,
+            <span className="text-colonne text-encre-2">{`${evs.filter((x) => x.type === "ouvert").length} ouv. · ${evs.filter((x) => x.type === "clic").length} clics${evs.some((x) => x.type === "reponse") ? " · a répondu" : ""}${robotsCampagne.has(i.contactId) ? " · robot détecté" : ""}`}</span>,
           ] } })} />
+          <p className="text-colonne text-encre-3">{filtreContacts ? `${fr(inscs.length)} contact${inscs.length > 1 ? "s" : ""}.` : "Les 80 derniers entrés. Choisis un filtre pour tout voir."} « Robot détecté » : la boîte mail a ouvert tous les liens d'un coup pour les vérifier ; ces clics ne comptent pas.</p>
+        </div>
       ) : (
         ind.parCommercial.length ? (
           <Table colonnes={[{ titre: "Commercial" }, { titre: "Appels", largeur: "90px", droite: true }, { titre: "Joints", largeur: "90px", droite: true }, { titre: "Taux joint", largeur: "100px", droite: true }, { titre: "Issues", largeur: "40%" }]}
