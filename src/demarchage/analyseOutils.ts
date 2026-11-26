@@ -198,7 +198,8 @@ export function entrainement(tous: AppelIa[], nom: string): Entrainement {
 // ── Les analyses en échec définitif (25/11/2026) ──
 // La fonction analyser-appel reprend une analyse en erreur toutes les 2 minutes, au plus ESSAIS_MAX_ANALYSE fois
 // (le même nombre que dans la fonction). Au-delà, plus rien ne la reprend : l'écran doit le dire.
-export const ESSAIS_MAX_ANALYSE = 12
+import { ESSAIS_MAX_ANALYSE } from "./appelsIa"
+export { ESSAIS_MAX_ANALYSE }
 export const enEchecDefinitif = (a: { statut: string; tentatives: number }): boolean => a.statut === "erreur" && a.tentatives >= ESSAIS_MAX_ANALYSE
 /** La cause, en clair, à partir du message brut de l'erreur. */
 export function causeEchecLisible(erreur: string): string {

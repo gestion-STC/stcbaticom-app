@@ -9,7 +9,8 @@
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
 import type { Destinataire } from "../lib/destinataire"
-import { ESSAIS_MAX_ANALYSE } from "./analyseOutils"
+// Nombre d'essais d'analyse avant abandon (repris par analyseOutils) : ici pour éviter une boucle d'imports.
+export const ESSAIS_MAX_ANALYSE = 12
 
 export type StatutIa = "en_attente" | "en_cours" | "pret" | "sans_enregistrement" | "trop_court" | "erreur"
 export type Interet = "nul" | "faible" | "moyen" | "fort"
