@@ -9,7 +9,10 @@
 //   · PARE-FEU : une même personne (mail ou numéro, toutes bases confondues) n'est que dans une campagne à la fois ;
 //   · SMS seulement de 10 h à 17 h (heure de Paris), et seulement vers un mobile ;
 //   · juste avant d'envoyer, la base est relue : jamais deux fois la même étape au même contact ;
-//   · une erreur est rejouée après 15 min, 1 h, 4 h, puis abandonnée ; une limite de débit arrête le passage ;
+//   · une erreur est rejouée (mail : 15 min, 1 h, 4 h, 1 jour, puis l'inscription s'arrête ; SMS : 15 min, 1 h, puis
+//     l'étape est abandonnée) ; une limite de débit arrête le passage ;
+//   · une pause, une sortie ou un retrait agit aussi chez Instantly (lot 2, 27/11/2026) : campagnes Instantly mises en
+//     pause, contacts confiés et pas encore partis retirés ;
 //   · MODE TEST : tout part vers l'adresse et le mobile de test de la campagne, marqué « test ».
 // Les mails partent par Instantly (_shared/campagnes/instantly.ts), JAMAIS par Resend : son règlement interdit la
 // prospection et son compte fait tourner STC Bâtiment. Les SMS passent par envoyer-sms. Les retours arrivent par
@@ -24,8 +27,8 @@ import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
 import { AB_DEPART, leadsAgencesRattaches, leadsArtisansRattaches, leadsPourAB, mesuresAB, verdictAB, type ReglageAB } from "../_shared/campagnes/abTest.ts"
 import { REBOND_AGENCE, avecDejaClients, exclusionLibre, pasInteresseExclu } from "../_shared/campagnes/exclusions.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
-import { lienPublic } from "../_shared/campagnes/lien.ts"
-import { envoyerDansLeFil, envoyerParInstantly, preparerInstantly, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
+import { lienCourt, lienPublic } from "../_shared/campagnes/lien.ts"
+import { campagnesBaticomDansLaCarte, envoyerDansLeFil, envoyerParInstantly, preparerInstantly, retirerContactInstantly, synchroniserPause, type ContexteInstantly } from "../_shared/campagnes/instantly.ts"
 import { ETAPE_ALERTE, aAppelerSurOuverture, boitesSaines, envoisDuJour, type AlerteOuverture, type Montee } from "../_shared/campagnes/montee.ts"
 import { appliquerIA, concerneIA, fichePauvre, objetIA, type ReglageIA } from "../_shared/campagnes/ia.ts"
 import { ceQuiMarche, ficheIA, genererTexteIA, interventionsSecteurs, offreSTC } from "../_shared/campagnes/generationIA.ts"
@@ -34,15 +37,13 @@ import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/
 import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
 import { compteDeCampagne, estAttenteLinkedIn, estSautLinkedIn, faitsParCompte, identifiantLinkedIn, noteInvitation, restantLinkedIn, type CompteLinkedIn } from "../_shared/campagnes/linkedin.ts"
 import { appelUnipile, comptesLinkedIn, profilLinkedIn, reglageLinkedIn, unipileBranche } from "../_shared/campagnes/unipile.ts"
-import { relanceRetenue, type EnvoiPasse } from "../_shared/campagnes/confirmation.ts"
+import { departDuMailPrecedent, rejeuApres, relancePossibleLe, relanceRetenue, varianteAvecTexte, type EnvoiPasse } from "../_shared/campagnes/confirmation.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
 const ENVOIS_MAX_PAR_PASSAGE = 25
 const PLAFOND_JOUR = { mail: 200, sms: 40 } as const
 const CADENCE_MS = { mail: 700, sms: 3000, linkedin: 4000 } as const
-const REJOUER_APRES_MIN = [15, 60, 240]
-const TENTATIVES_MAX = 3
 const LIEN_NEUTRE = "https://www.stcbatiment.fr"
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -175,9 +176,13 @@ async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["conf
   return etapes === c.etapes ? c : { ...c, etapes }
 }
 
-async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null, rebondis: Set<string>): Promise<Set<string>> {
-  const bloques = new Set<string>()
-  if (!garde) return bloques
+/** Rend aussi ceux qui doivent SORTIR de la séquence (lot 2, décision 1 du 26/11/2026) : « Pas intéressé » (même règle et
+ *  même délai qu'à l'entrée) et exclusion ajoutée à la main. Avant, ces exclusions ne valaient que pour les entrées : une
+ *  agence « pas intéressé » au téléphone recevait toutes les relances restantes. Un rebond ne compte que pour une
+ *  campagne qui écrit par mail (un SMS n'a pas besoin de l'adresse). */
+async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: string, garde: GardeConfig | undefined, contacts: Contact[], maintenant: Date, relanceMois: number, ecartCommun: number | null, rebondis: Set<string>, ecritParMail: boolean): Promise<{ bloques: Set<string>; aSortir: Set<string> }> {
+  const bloques = new Set<string>(), aSortir = new Set<string>()
+  if (!garde) return { bloques, aSortir }
   // L'écart commun à toutes les campagnes l'emporte sur l'ancien réglage de la campagne.
   const ecart = ecartCommun ?? garde.ecartCampagnes ?? 0
   if (ecart > 0) {
@@ -186,36 +191,84 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
     for (const r of recus) bloques.add(r.contact_ref)
   }
   const exclusions = garde.exclusions ?? []
-  if (baseId !== "artisans" && exclusions.includes("Adresse en erreur")) {
+  if (ecritParMail && baseId !== "artisans" && exclusions.includes("Adresse en erreur")) {
     const rebonds = await tout<{ agence_id: string }>((d, f) => sb.from("activites").select("agence_id").eq("type", "note").eq("source", "site").eq("titre", REBOND_AGENCE).order("id").range(d, f))
     for (const r of rebonds) bloques.add(r.agence_id)
   }
-  if (exclusions.includes("Adresse en erreur")) for (const r of rebondis) bloques.add(r)
+  if (ecritParMail && exclusions.includes("Adresse en erreur")) for (const r of rebondis) bloques.add(r)
   // Pas intéressé : exclu, jusqu'au délai « Le recontacter après » de la campagne (0 : jamais).
   if (exclusions.includes("Pas intéressé")) {
     const lignes = baseId === "artisans"
       ? (await tout<{ id: string; suivi_le: string | null }>((d, f) => sb.from("st_sous_traitants").select("id, suivi_le").eq("suivi", "pas_interesse").order("id").range(d, f))).map((r) => ({ id: r.id, le: r.suivi_le }))
       : (await tout<{ id: string; etape_depuis: string | null }>((d, f) => sb.from("agences").select("id, etape_depuis").eq("etape", "pas_interesse").order("id").range(d, f))).map((r) => ({ id: r.id, le: r.etape_depuis }))
-    for (const r of lignes) if (pasInteresseExclu(r.le, relanceMois, maintenant)) bloques.add(r.id)
+    for (const r of lignes) if (pasInteresseExclu(r.le, relanceMois, maintenant)) { bloques.add(r.id); aSortir.add(r.id) }
   }
   // Une exclusion ajoutée à la main (« Endormie », « Orpi »…) : la valeur d'un champ du contact.
-  for (const k of contacts) if (exclusionLibre(k.champs, exclusions)) bloques.add(k.id)
-  return bloques
+  for (const k of contacts) if (exclusionLibre(k.champs, exclusions)) { bloques.add(k.id); aSortir.add(k.id) }
+  return { bloques, aSortir }
 }
 
 /** Ses mails passent par Instantly (la règle de l'écran, prospection/indicateurs.ts) : ni une campagne d'avis, ni la
  *  machine sous-traitants reprise (origine « st », ses envois passés sont partis par Resend, sans « délivré »). */
 const parInstantly = (c: { baseId: string; origine?: string }) => !estBaseAvis(c.baseId) && c.origine !== "st"
 
-/** Le mail d'avant est-il parti (26/11/2026) ? Lu en base juste avant l'envoi ; une lecture en échec retient la relance. */
-async function attendConfirmation(sb: SupabaseClient, inscriptionId: string, etapeId: string): Promise<boolean> {
+/** Le mail d'avant est-il parti (26/11/2026) ? Lu en base juste avant l'envoi ; une lecture en échec retient la relance.
+ *  Rend aussi QUAND il est parti (lot 2, 27/11/2026) : l'attente avant la relance compte depuis ce départ réel. */
+type Confirmation = { retenue: boolean; precedent?: { etapeId: string; parti: string } | null }
+async function attendConfirmation(sb: SupabaseClient, inscriptionId: string, etapeId: string): Promise<Confirmation> {
   const { data: envois, error } = await sb.from("cmp_envois").select("id, etape_id, canal, statut, test, le").eq("inscription_id", inscriptionId)
-  if (error) return true
+  if (error) return { retenue: true }
   const liste = (envois ?? []) as EnvoiPasse[]
-  if (!liste.some((e) => e.statut === "envoye")) return false
-  const { data: evs, error: errEv } = await sb.from("cmp_evenements").select("envoi_id").eq("type", "delivre").in("envoi_id", liste.map((e) => e.id))
-  if (errEv) return true
-  return relanceRetenue(liste, new Set(((evs ?? []) as { envoi_id: string }[]).map((x) => x.envoi_id)), etapeId)
+  if (!liste.some((e) => e.statut === "envoye" || e.statut === "erreur")) return { retenue: false }
+  const { data: evs, error: errEv } = await sb.from("cmp_evenements").select("envoi_id, le").eq("type", "delivre").in("envoi_id", liste.map((e) => e.id))
+  if (errEv) return { retenue: true }
+  const delivres = new Map<string, string>()
+  for (const x of (evs ?? []) as { envoi_id: string; le: string }[]) { const le = new Date(x.le).toISOString(); const d = delivres.get(x.envoi_id); if (!d || le < d) delivres.set(x.envoi_id, le) }
+  return { retenue: relanceRetenue(liste, new Set(delivres.keys()), etapeId), precedent: departDuMailPrecedent(liste, delivres, etapeId) }
+}
+
+/** Les mails confiés à Instantly et pas encore partis (aucun « délivré ») d'un contact SORTI de sa campagne (désinscrit,
+ *  rebond, lead, client, exclu, pas intéressé ou exclusion ajoutée à la main) ou retiré d'elle : le contact est retiré chez
+ *  Instantly et l'envoi noté « sauté » (il n'est jamais parti). 14 jours en arrière. La fin normale d'une séquence n'est
+ *  PAS une sortie : son dernier mail, confié juste avant, doit partir. */
+async function retirerNonPartis(sb: SupabaseClient, ins: ContexteInstantly, campagnes: Ligne[], aSortirPar: Map<string, Set<string>>, maintenant: Date): Promise<{ retires: number; refus: string[] }> {
+  const out = { retires: 0, refus: [] as string[] }
+  if (!ins.cle) return out
+  const viaInstantly = new Map(campagnes.filter((l) => parInstantly({ baseId: String(l.base_id), origine: String(l.origine ?? "") })).map((l) => [String(l.id), (l.config as { garde?: GardeConfig } | null)?.garde]))
+  if (!viaInstantly.size) return out
+  const depuis = new Date(maintenant.getTime() - 14 * JOUR_MS).toISOString()
+  const confies = (await tout<{ id: string; campagne_id: string; inscription_id: string; contact_ref: string; fournisseur_id: string }>((d, f) => sb.from("cmp_envois").select("id, campagne_id, inscription_id, contact_ref, fournisseur_id").in("canal", ["mail", "newsletter"]).in("statut", ["envoye", "erreur"]).eq("test", false).not("fournisseur_id", "is", null).gte("le", depuis).in("campagne_id", [...viaInstantly.keys()]).order("id").range(d, f)))
+  if (!confies.length) return out
+  const partis = new Set<string>(), statuts = new Map<string, string>(), fiches = new Map<string, { statut: string; desinscrit: boolean }>()
+  for (let i = 0; i < confies.length; i += 200) {
+    const lot = confies.slice(i, i + 200)
+    const { data: evs, error } = await sb.from("cmp_evenements").select("envoi_id").eq("type", "delivre").in("envoi_id", lot.map((e) => e.id))
+    if (error) { out.refus.push(`lecture des confirmations : ${error.message}`); return out }
+    for (const x of (evs ?? []) as { envoi_id: string }[]) partis.add(x.envoi_id)
+    const { data: insc, error: errI } = await sb.from("cmp_inscriptions").select("id, statut").in("id", [...new Set(lot.map((e) => e.inscription_id))])
+    if (errI) { out.refus.push(`lecture des inscriptions : ${errI.message}`); return out }
+    for (const x of (insc ?? []) as { id: string; statut: string }[]) statuts.set(x.id, x.statut)
+    const { data: ks, error: errK } = await sb.from("cmp_contacts").select("id, statut, desinscrit").in("id", [...new Set(lot.map((e) => e.contact_ref))])
+    if (errK) { out.refus.push(`lecture des contacts : ${errK.message}`); return out }
+    for (const x of (ks ?? []) as { id: string; statut: string; desinscrit: boolean }[]) fiches.set(String(x.id), { statut: String(x.statut), desinscrit: Boolean(x.desinscrit) })
+  }
+  // Un même contact Instantly déjà parti par un autre envoi (renvoi) : on n'y touche pas.
+  const leadsPartis = new Set(confies.filter((e) => partis.has(e.id)).map((e) => e.fournisseur_id))
+  for (const e of confies) {
+    if (partis.has(e.id) || leadsPartis.has(e.fournisseur_id)) continue
+    const garde = viaInstantly.get(e.campagne_id), fiche = fiches.get(e.contact_ref)
+    const clientsVises = Boolean(garde?.exclusions && !garde.exclusions.includes("Déjà client"))
+    const sorti = ["desinscrit", "rebond", "lead"].includes(statuts.get(e.inscription_id) ?? "")
+      || Boolean(fiche && (fiche.desinscrit || fiche.statut === "lead" || fiche.statut === "exclu" || (fiche.statut === "gagne" && !clientsVises)))
+      || Boolean(aSortirPar.get(e.campagne_id)?.has(e.contact_ref))
+      || (garde?.retires ?? []).map(String).includes(e.contact_ref)
+    if (!sorti) continue
+    const r = await retirerContactInstantly(ins, e.fournisseur_id)
+    if (!r.ok) { out.refus.push(r.erreur ?? "retrait refusé"); continue }
+    await sb.from("cmp_envois").update({ statut: "saute", cause: "Retiré chez Instantly avant son départ (contact sorti ou retiré de la campagne)" }).eq("id", e.id).in("statut", ["envoye", "erreur"])
+    out.retires++
+  }
+  return out
 }
 
 /** « 3 × boîte refusée, 1 × adresse vide » : les causes regroupées. */
@@ -232,27 +285,47 @@ async function garderJournal(sb: SupabaseClient, passage: Record<string, unknown
   if (error) console.error("[CAMPAGNES-MOTEUR] journal non écrit :", error.message)
 }
 
-type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; reporte?: boolean; /** LinkedIn : déjà en relation. */ connexion?: boolean; /** Un mail parti tout de suite (relance dans le fil) : pas de « email_sent » d'Instantly à attendre. */ parti?: boolean }
+type Resultat = { ok: boolean; erreur?: string; fournisseurId?: string; saute?: string; /** Reporté, avec sa vraie cause (lot 2). */ reporte?: string; /** LinkedIn : déjà en relation. */ connexion?: boolean; /** Un mail parti tout de suite (relance dans le fil) : pas de « email_sent » d'Instantly à attendre. */ parti?: boolean }
 type CreatifConfig = { id: string; type: string; versId?: string; video?: boolean; remplirPar?: string; variantes?: { id: string }[]; ia?: ReglageIA; memeFil?: boolean }
 const IA_MAX_PAR_PASSAGE = 15
 const compteurIA = { n: 0 }
+// Les générations IA ratées (lot 2, 27/11/2026), par campagne, variante et contact : après 2 échecs, plus d'appel payant.
+// Avant, le même contact était réécrit (et refacturé) toutes les 10 minutes. Gardé dans parametres, relu à chaque passage.
+const IA_ESSAIS_MAX = 2
+const CLE_ECHECS_IA = "cmp_ia_echecs"
+const echecsIA: { carte: Record<string, number> | null; change: boolean } = { carte: null, change: false }
+async function lireEchecsIA(sb: SupabaseClient): Promise<Record<string, number>> {
+  if (echecsIA.carte) return echecsIA.carte
+  const { data } = await sb.from("parametres").select("valeur").eq("cle", CLE_ECHECS_IA).maybeSingle()
+  let carte: Record<string, number> = {}
+  try { carte = JSON.parse(String((data as { valeur?: string } | null)?.valeur ?? "{}")) ?? {} } catch { carte = {} }
+  echecsIA.carte = carte
+  return carte
+}
 
 /** Le texte de l'IA pour ce contact : déjà écrit, sinon écrit maintenant. « Chaque mail » : rien ne part avant validation. */
-async function texteIA(sb: SupabaseClient, c: Ligne, cr: CreatifConfig, r: ReglageIA, varianteId: string, objet: string, corps: string, k: Contact): Promise<{ texte: string } | { reporte: true } | { saute: string }> {
+async function texteIA(sb: SupabaseClient, c: Ligne, cr: CreatifConfig, r: ReglageIA, varianteId: string, objet: string, corps: string, k: Contact): Promise<{ texte: string } | { reporte: string } | { saute: string }> {
   const { data: deja } = await sb.from("cmp_textes_ia").select("texte, valide").eq("campagne_id", c.id).eq("variante_id", varianteId).eq("contact_ref", k.id).maybeSingle()
   const ligne = deja as { texte: string; valide: boolean } | null
-  if (ligne) return r.relecture === "tous" && !ligne.valide ? { reporte: true } : { texte: ligne.texte }
+  if (ligne) return r.relecture === "tous" && !ligne.valide ? { reporte: "texte IA à relire" } : { texte: ligne.texte }
   const fiche = await ficheIA(sb, k, r)
   if (fichePauvre(r, fiche)) return r.pauvre === "attente" ? { saute: "fiche trop pauvre" } : { texte: "" }
-  if (compteurIA.n >= IA_MAX_PAR_PASSAGE) return { reporte: true }
+  // Deux générations ratées : traité comme une fiche trop pauvre (le mail part sans le texte de l'IA, ou l'étape est sautée).
+  const echecs = await lireEchecsIA(sb), cleEchec = `${c.id}|${varianteId}|${k.id}`
+  if ((echecs[cleEchec] ?? 0) >= IA_ESSAIS_MAX) return r.pauvre === "attente" ? { saute: `texte IA impossible (${IA_ESSAIS_MAX} essais ratés)` } : { texte: "" }
+  if (compteurIA.n >= IA_MAX_PAR_PASSAGE) return { reporte: `IA : ${IA_MAX_PAR_PASSAGE} textes par passage` }
   compteurIA.n++
   try {
     const g = await genererTexteIA({ baseId: k.baseId, reglage: r, campagneNom: String(c.nom), objet, corps, fiche, offre: await offreSTC(sb), appels: await ceQuiMarche(sb, k.baseId, r), interventions: await interventionsSecteurs(sb) })
     const valide = r.relecture !== "tous"
     const { error } = await sb.from("cmp_textes_ia").upsert({ campagne_id: c.id, creatif_id: cr.id, variante_id: varianteId, contact_ref: k.id, texte: g.texte, valide, cout: g.cout }, { onConflict: "campagne_id,variante_id,contact_ref" })
     if (error) throw new Error(error.message)
-    return valide ? { texte: g.texte } : { reporte: true }
-  } catch (e) { console.error("[CAMPAGNES-MOTEUR] IA", e); return { reporte: true } }
+    return valide ? { texte: g.texte } : { reporte: "texte IA à relire" }
+  } catch (e) {
+    console.error("[CAMPAGNES-MOTEUR] IA", e)
+    echecs[cleEchec] = (echecs[cleEchec] ?? 0) + 1; echecsIA.change = true
+    return { reporte: "génération IA ratée" }
+  }
 }
 /** Le bouton du mail vers sa page ou son formulaire : dans le HTML s'il y en a, sinon une ligne de texte. */
 function ajouterBouton(texte: string, url: string, libelle: string): string {
@@ -263,14 +336,14 @@ function ajouterBouton(texte: string, url: string, libelle: string): string {
 /** Une étape LinkedIn automatique (11/11/2026) : par le compte branché chez Unipile. Jamais en mode essai. */
 async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: string, texte: string, test: boolean, compteChoisi?: CompteLinkedIn | null): Promise<Resultat> {
   if (test) return { ok: false, saute: "mode essai : rien ne part sur LinkedIn" }
-  if (!unipileBranche()) return { ok: false, reporte: true }
+  if (!unipileBranche()) return { ok: false, reporte: "LinkedIn : Unipile non branché" }
   // Le compte est choisi par le passage (ses plafonds y sont comptés) ; à défaut, relu ici.
   const compte = compteChoisi ?? compteDeCampagne(await comptesLinkedIn(), (c.config as { linkedinCompte?: string } | null)?.linkedinCompte)
-  if (!compte) return { ok: false, reporte: true }
+  if (!compte) return { ok: false, reporte: "LinkedIn : aucun compte branché" }
   const ident = identifiantLinkedIn(k.champs.linkedin ?? "")
   if (!ident) return { ok: false, saute: "profil LinkedIn illisible" }
   const p = await profilLinkedIn(compte.id, ident)
-  if (!p.ok) return estAttenteLinkedIn(p.r.status, p.r.type) ? { ok: false, reporte: true } : estSautLinkedIn(p.r.type) ? { ok: false, saute: "profil LinkedIn introuvable" } : { ok: false, erreur: `LinkedIn (${p.r.status}) ${p.r.type}` }
+  if (!p.ok) return estAttenteLinkedIn(p.r.status, p.r.type) ? { ok: false, reporte: "LinkedIn : en attente d'Unipile" } : estSautLinkedIn(p.r.type) ? { ok: false, saute: "profil LinkedIn introuvable" } : { ok: false, erreur: `LinkedIn (${p.r.status}) ${p.r.type}` }
   // Un message LinkedIn est du texte : un lien [texte](adresse) devient « texte : adresse ».
   const propre = texte.replace(/<[^>]+>/g, " ").replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 : $2").replace(/[ \t]+\n/g, "\n").trim()
   if (mode === "invitation") {
@@ -278,7 +351,7 @@ async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: s
     const r = await appelUnipile(`/${encodeURIComponent(compte.id)}/users/me/relation-requests`, { json: { user_id: p.providerId, ...(propre ? { message: noteInvitation(propre) } : {}) } })
     if (r.ok) return { ok: true, fournisseurId: `${p.providerId}|${String(r.data.id ?? "")}` }
     if (/already_connected|already_related|existing_relation/.test(r.type)) return { ok: false, saute: "déjà en relation sur LinkedIn", connexion: true }
-    if (estAttenteLinkedIn(r.status, r.type)) return { ok: false, reporte: true }
+    if (estAttenteLinkedIn(r.status, r.type)) return { ok: false, reporte: "LinkedIn : en attente d'Unipile" }
     if (estSautLinkedIn(r.type)) return { ok: false, saute: /already_invited/.test(r.type) ? "déjà invité récemment" : "invitation impossible (refusée ou profil fermé)" }
     return { ok: false, erreur: `LinkedIn (${r.status}) ${r.type}` }
   }
@@ -286,18 +359,18 @@ async function envoyerLinkedIn(sb: SupabaseClient, c: Ligne, k: Contact, mode: s
   if (!propre) return { ok: false, saute: "message LinkedIn vide" }
   const r = await appelUnipile(`/${encodeURIComponent(compte.id)}/chats/send`, { json: { users_ids: p.providerId, text: propre } })
   if (r.ok) return { ok: true, fournisseurId: `${p.providerId}|${String(r.data.chat_id ?? "")}` }
-  if (estAttenteLinkedIn(r.status, r.type)) return { ok: false, reporte: true }
+  if (estAttenteLinkedIn(r.status, r.type)) return { ok: false, reporte: "LinkedIn : en attente d'Unipile" }
   return { ok: false, erreur: `LinkedIn (${r.status}) ${r.type}` }
 }
 
-async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter" | "linkedin", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number, modeLinkedIn = "", compteLinkedIn: CompteLinkedIn | null = null, envoiId = ""): Promise<Resultat> {
+async function envoyer(sb: SupabaseClient, base: string, service: string, c: Ligne, k: Contact, canal: "mail" | "sms" | "newsletter" | "linkedin", objet: string, corps: string, test: boolean, varianteId: string | null, clePassage: string, ins: ContexteInstantly, plafond: number, modeLinkedIn = "", compteLinkedIn: CompteLinkedIn | null = null, envoiId = "", debutJour = ""): Promise<Resultat> {
   // Les variables et les liens, selon la base.
   let texte = corps, sujet = objet
   const gc = (c.config as { garde?: GardeConfig } | null)?.garde, mentions: Mentions = { signature: gc?.signature, libelleLien: gc?.libelleLien }
   const creatifIA = canal === "sms" ? undefined : (((c.config as { creatifs?: CreatifConfig[] } | null)?.creatifs ?? []).find((x) => x.variantes?.some((v) => v.id === varianteId)))
   if (creatifIA?.ia?.actif && varianteId && concerneIA(creatifIA.ia, k)) {
     const r = await texteIA(sb, c, creatifIA, creatifIA.ia, varianteId, objet, corps, k)
-    if ("reporte" in r) return { ok: false, reporte: true }
+    if ("reporte" in r) return { ok: false, reporte: r.reporte }
     if ("saute" in r) return { ok: false, saute: r.saute }
     texte = appliquerIA(corps, creatifIA.ia.mode, r.texte)
     sujet = objetIA(objet, creatifIA.ia.mode, r.texte) // le mail entier : l'objet est celui de l'IA
@@ -322,14 +395,18 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     if (!pageAvis) return { ok: false, saute: "pas de page d'avis" }
     const lien = await lienDe(pageAvis.id), stopAvis = `${lien}&stop=1`
     const sansLien = !texte.includes("{{lien_avis}}"), sansStop = !aSonLienStop
-    remplacer("{{lien_avis}}", lien); remplacer("{{lien_desinscription}}", stopAvis)
     if (canal === "sms") {
       const to = test ? String(c.test_mobile ?? "") : k.mobile
       if (!to) return { ok: false, saute: test ? "mode test sans mobile de test" : "pas de mobile" }
-      const message = `${test ? "[TEST] " : ""}${texte}${sansLien ? `\n${lien}` : ""}${sansStop ? `\nSTOP : ${stopAvis}` : ""}`
+      // Un seul lien, COURT (lot 2, décision 9 du 26/11/2026) : la page propose de ne plus rien recevoir, et le SMS dit
+      // « répondez STOP ». Avant : le long lien signé, puis une ligne « STOP : » qui le répétait (4 SMS facturés).
+      const court = (await lienCourt(sb, String(c.id), pageAvis.id, k.id, test)) ?? lien
+      remplacer("{{lien_avis}}", court); remplacer("{{lien_desinscription}}", court)
+      const message = `${test ? "[TEST] " : ""}${texte}${sansLien ? `\n${court}` : ""}${sansStop ? "\nSTOP : répondez STOP" : ""}`
       const r = await invoquer(base, service, "envoyer-sms", { to, message })
       return r.ok ? { ok: true } : { ok: false, erreur: String(r.data?.error ?? "envoi SMS échoué"), saute: r.data?.code === "non_mobile" ? "numéro non mobile" : undefined }
     }
+    remplacer("{{lien_avis}}", lien); remplacer("{{lien_desinscription}}", stopAvis)
     const to = test ? String(c.test_email ?? "") : k.email
     if (!to) return { ok: false, saute: test ? "mode test sans mail de test" : "pas de mail" }
     const html = corpsAvecMentions(`${texte}${sansLien ? `\n\n[Donner mon avis](${lien})` : ""}`, sansStop ? stopAvis : undefined, false, mentions)
@@ -382,7 +459,7 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
   if (!varianteId) return { ok: false, saute: "mail sans texte" }
   // Une relance part dans le fil du mail précédent, sauf si le créatif demande un nouveau mail.
   if (leCreatif?.memeFil !== false && !test) {
-    const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription)
+    const fil = await envoyerDansLeFil(sb, ins, { id: String(c.id), baseId: k.baseId, mentions }, k.id, to, sujet, texte, desinscription, debutJour || undefined)
     if (fil) return fil.ok ? { ...fil, parti: true } : fil
   }
   return envoyerParInstantly(sb, ins, { id: String(c.id), nom: String(c.nom), baseId: k.baseId, rythme: c.rythme as { jours: number[]; heureMin: number; heureMax: number }, plafond, suiviOuvertures: gc?.suiviOuvertures !== false, mentions, boites: gc?.boites }, k, to, sujet, texte, varianteId, test, desinscription, envoiId)
@@ -397,6 +474,7 @@ Deno.serve(async (req: Request) => {
   const attendue = String((p as { valeur?: unknown } | null)?.valeur ?? "").replace(/^"|"$/g, "")
   if (!(attendue.length >= 20 && req.headers.get("x-passage-cle") === attendue)) return json({ error: "non autorisé" }, 401)
   compteurIA.n = 0
+  echecsIA.carte = null; echecsIA.change = false
   const maintenant = new Date()
   const iso = maintenant.toISOString()
   const bilan: Record<string, number | string> = { campagnes: 0, entrees: 0, envois: 0, erreurs: 0, sautes: 0, reportes: 0, sorties: 0, taches: 0 }
@@ -404,6 +482,16 @@ Deno.serve(async (req: Request) => {
   try {
     const ins = await preparerInstantly(sb, base, iso)
     const { data: actives } = await sb.from("cmp_campagnes").select("*").eq("statut", "active")
+    // Chez Instantly aussi (lot 2, 27/11/2026) : une campagne en pause, terminée ou supprimée met en pause ses campagnes
+    // Instantly AVANT tout envoi du passage ; les mails déjà confiés n'y partent plus.
+    const { data: toutes, error: errToutes } = await sb.from("cmp_campagnes").select("id, statut, base_id, origine, config")
+    const statutDe = new Map(((toutes ?? []) as Ligne[]).map((l) => [String(l.id), String(l.statut)]))
+    const refusInstantly: string[] = []
+    // Lecture en échec : rien n'est touché chez Instantly ce passage (sinon tout serait mis en pause à tort).
+    const synchroInstantly = !errToutes && toutes !== null
+    if (synchroInstantly) for (const id of campagnesBaticomDansLaCarte(ins.carte)) if (statutDe.get(id) !== "active") refusInstantly.push(...await synchroniserPause(sb, ins, id, true))
+    const misesEnPause = new Set<string>()
+    const aSortirPar = new Map<string, Set<string>>()
     // Le pare-feu regarde toutes les bases, une fois par passage.
     const annuaire = new Map((await tout<Coordonnees>((d, f) => sb.from("cmp_contacts").select("id, email, mobile, telephone").order("id").range(d, f))).map((k) => [k.id, k]))
     const entresCePassage: Coordonnees[] = []
@@ -471,6 +559,10 @@ Deno.serve(async (req: Request) => {
         await sb.from("cmp_campagnes").update({ statut: "pause", maj_le: iso, config: { ...((ligne.config as Ligne | null) ?? {}), arret: { le: iso, envois: nbEnvoyes, rebonds: nbRebonds } } }).eq("id", c.id)
         console.warn("[CAMPAGNES-MOTEUR] mise en pause, rebonds", c.nom, nbRebonds, "/", nbEnvoyes)
         j.miseEnPause = `${nbRebonds} rebonds sur ${nbEnvoyes} envois`
+        // Le but de l'arrêt est de protéger les boîtes : les mails déjà confiés à Instantly ne partent plus non plus.
+        misesEnPause.add(c.id)
+        const refus = await synchroniserPause(sb, ins, c.id, true)
+        if (refus.length) { erreursCampagne.push(...refus); refusInstantly.push(...refus) }
         continue
       }
 
@@ -483,11 +575,15 @@ Deno.serve(async (req: Request) => {
       // la liste ne filtrait que les nouvelles entrées (cas réel : adresse invalide le 16/11, mail le 17/11, relance le 24/11).
       // Seulement pour une campagne qui écrit par mail : un SMS ou un appel n'a pas besoin de l'adresse.
       const ecritParMail = c.etapes.some((e) => e.type === "mail" || e.type === "newsletter")
+      const { bloques, aSortir } = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun, rebondis, ecritParMail)
+      aSortirPar.set(c.id, aSortir)
       for (const i of inscriptions.filter((x) => x.campagneId === c.id && x.statut === "en_cours")) {
         const k = parContact.get(i.contactId)
-        // Un mail rebondi (17/11/2026) : l'adresse est morte, les relances ne partent plus.
-        const adresseMorte = rebondis.has(i.contactId) || Boolean(ecritParMail && k?.email && invalides.has(k.email.trim().toLowerCase()))
-        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : adresseMorte ? "rebond" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" ? "terminee" : null
+        // Un mail rebondi (17/11/2026) : l'adresse est morte, les relances ne partent plus. Seulement pour une campagne qui
+        // écrit par mail (lot 2, 27/11/2026) : un artisan au mail rebondi garde ses SMS.
+        const adresseMorte = ecritParMail && (rebondis.has(i.contactId) || Boolean(k?.email && invalides.has(k.email.trim().toLowerCase())))
+        // « Pas intéressé » et exclusion ajoutée à la main arrêtent aussi la séquence en cours (décision 1 du 26/11/2026).
+        const statut = !k ? "terminee" : k.desinscrit ? "desinscrit" : adresseMorte ? "rebond" : k.statut === "lead" ? "lead" : k.statut === "gagne" || k.statut === "exclu" || aSortir.has(k.id) ? "terminee" : null
         if (!statut) continue
         await sb.from("cmp_inscriptions").update({ statut, sortie_le: iso }).eq("id", i.id)
         i.statut = statut as Inscription["statut"]
@@ -496,7 +592,6 @@ Deno.serve(async (req: Request) => {
 
       // 2. La décision, par le moteur pur.
       const dejaDedans = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
-      const bloques = await contactsBloques(sb, c.id, c.baseId, garde, contacts, maintenant, Number((ligne.config as { qualification?: { relanceMois?: number } } | null)?.qualification?.relanceMois ?? 0), ecartCommun, rebondis)
       const actifs = [...inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => annuaire.get(i.contactId) ?? []), ...entresCePassage]
       // Campagne d'avis des locataires : chacun entre au moment réglé après la fin de son chantier.
       const pasPrets = new Set<string>()
@@ -512,7 +607,10 @@ Deno.serve(async (req: Request) => {
       Object.assign(j, { parJour: c.rythme.parJour, contacts: contacts.length, dejaDedans: dejaDedans.size, bloquesParGardeFous: bloques.size, retires: retires.size, autorises: autorises.length - dejaDedans.size, adressesRefusees: verifies.refusees })
       bilan.adressesRefusees = Number(bilan.adressesRefusees ?? 0) + verifies.refusees
       const avecGagnant = await avecGagnants(sb, c, ligne.config as Ligne["config"], evenements, inscriptions, lus)
-      const ecr = passage({ campagne: avecGagnant, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye"), evenements }, maintenant, () => crypto.randomUUID())
+      // Les 48 h entre deux touches comptent depuis le départ réel d'un mail Instantly (lot 2, 27/11/2026), pas depuis sa remise.
+      const delivreLe = new Map<string, string>()
+      if (parInstantly(c)) for (const ev of evenements) if (ev.type === "delivre" && ev.envoiId && (!delivreLe.has(ev.envoiId) || ev.le < delivreLe.get(ev.envoiId)!)) delivreLe.set(ev.envoiId, ev.le)
+      const ecr = passage({ campagne: avecGagnant, contacts: verifies.contacts, inscriptions, envois: envois.filter((e) => e.statut === "envoye").map((e) => (delivreLe.has(e.id) && delivreLe.get(e.id)! > e.le ? { ...e, le: delivreLe.get(e.id)! } : e)), evenements }, maintenant, () => crypto.randomUUID())
       const nouvelles = new Map(ecr.inscriptions.map((i) => [i.id, i]))
       for (const i of ecr.inscriptions) { const k = annuaire.get(i.contactId); if (k) entresCePassage.push(k) }
       const majs = new Map(ecr.majInscriptions.map((i) => [i.id, i]))
@@ -540,13 +638,32 @@ Deno.serve(async (req: Request) => {
         // Une relance ne part qu'après la confirmation du mail d'avant (26/11/2026) : « confié à Instantly » n'est pas « parti ».
         // Seulement pour une campagne qui passe par Instantly (lot 6) : la confirmation « délivré » vient d'Instantly ; une
         // campagne envoyée par Resend (origine « st » : 623 envois sur 1 130 sans « délivré ») restait retenue à vie.
-        if (!nouvelles.has(e.inscriptionId) && e.statut !== "saute" && !ligne.mode_test && parInstantly(c) && await attendConfirmation(sb, e.inscriptionId, e.etapeId)) {
+        const confirmation: Confirmation = (!nouvelles.has(e.inscriptionId) && e.statut !== "saute" && !ligne.mode_test && parInstantly(c) && await attendConfirmation(sb, e.inscriptionId, e.etapeId)) || { retenue: false }
+        if (confirmation.retenue) {
           const cause = "mail précédent pas encore confirmé parti"
           reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[cause] = (reports[cause] ?? 0) + 1; continue
         }
+        // L'attente compte depuis le DÉPART RÉEL du mail d'avant (lot 2, 27/11/2026), pas depuis sa remise à Instantly : un
+        // mail confié le 19/11 et parti le 23/11 n'a sa relance qu'à partir du 30/11 (« Attendre 7 jours »), pas le 26/11.
+        if (confirmation.precedent) {
+          const possible = relancePossibleLe(c.etapes as { id: string; type: string; jours?: number }[], confirmation.precedent.etapeId, e.etapeId, confirmation.precedent.parti, c.rythme.ecartMinH)
+          if (possible > maintenant.getTime()) {
+            const cause = "attente comptée depuis le départ réel du mail d'avant"
+            reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[cause] = (reports[cause] ?? 0) + 1
+            await sb.from("cmp_inscriptions").update({ prochaine_le: new Date(possible).toISOString() }).eq("id", e.inscriptionId).eq("statut", "en_cours")
+            continue
+          }
+        }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
-        const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null
+        const v = etape && "variantes" in etape ? (canal === "linkedin" ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : varianteAvecTexte(etape.variantes, e.varianteId)) : null
+        // Aucune variante écrite pour cette étape (lot 2, 27/11/2026) : rien ne part, l'envoi attend le texte. Une variante
+        // vide (B ajoutée, pas encore écrite) est remplacée par l'autre : avant, elle partait vide à la moitié des contacts.
+        if (etape && "variantes" in etape && canal !== "linkedin" && e.statut !== "saute" && !v) {
+          const cause = "étape sans texte (variante vide)"
+          reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[cause] = (reports[cause] ?? 0) + 1; continue
+        }
+        if (v && v.id !== e.varianteId) e.varianteId = v.id
         // L'inscription doit exister avant l'envoi (la clé étrangère) : une nouvelle est écrite tout de suite, au pas d'avant.
         const nouvelle = nouvelles.get(e.inscriptionId)
         if (nouvelle) {
@@ -555,17 +672,20 @@ Deno.serve(async (req: Request) => {
           bilan.entrees = Number(bilan.entrees) + 1
         }
         // Dernier filet : cette étape est-elle déjà partie (ou sautée) pour ce contact ?
-        const { count: deja } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).in("statut", ["envoye", "saute", "en_cours"])
+        // Un envoi d'essai (mode test) ne compte pas pour un vrai envoi (lot 2, 27/11/2026) : il est parti vers l'adresse de test.
+        const test = Boolean(ligne.mode_test)
+        const filet = sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).in("statut", ["envoye", "saute", "en_cours"])
+        const { count: deja } = await (test ? filet : filet.eq("test", false))
         if ((deja ?? 0) > 0) continue
         const { count: essais } = await sb.from("cmp_envois").select("id", { count: "exact", head: true }).eq("inscription_id", e.inscriptionId).eq("etape_id", e.etapeId).eq("statut", "erreur")
         const tentative = (essais ?? 0) + 1
         const k = parContact.get(e.contactId)!
-        const test = Boolean(ligne.mode_test)
         const { error: errLigne } = await sb.from("cmp_envois").insert({ id: e.id, campagne_id: c.id, inscription_id: e.inscriptionId, contact_ref: e.contactId, etape_id: e.etapeId, variante_id: e.varianteId, canal: e.canal, le: iso, statut: "en_cours", tentative, test })
         // Sans sa ligne, l'envoi ne serait pas tracé : il ne part pas (il sera rejoué au passage suivant).
         if (errLigne) { reportees.add(e.inscriptionId); erreursCampagne.push(`ligne d'envoi non écrite : ${errLigne.message}`); continue }
-        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "", compteLi, e.id)
-        if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports["texte IA à relire"] = (reports["texte IA à relire"] ?? 0) + 1; continue }
+        const r = e.statut === "saute" ? { ok: false, saute: e.cause } as Resultat : await envoyer(sb, base, service, ligne, k, canal, v?.objet ?? "", v?.corps ?? "", test, e.varianteId, clePassage, ins, garde?.plafondMail ?? PLAFOND_JOUR.mail, etape && "linkedin" in etape ? etape.linkedin ?? "" : "", compteLi, e.id, debutJour)
+        // La vraie cause du report dans le journal (lot 2, 27/11/2026) : avant, tout report était noté « texte IA à relire ».
+        if (r.reporte) { await sb.from("cmp_envois").delete().eq("id", e.id); reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[r.reporte] = (reports[r.reporte] ?? 0) + 1; continue }
         if (r.ok) {
           const { error: errEnvoye } = await sb.from("cmp_envois").update({ statut: "envoye", fournisseur_id: r.fournisseurId || null, ...(canal === "linkedin" && compteLi ? { compte_linkedin: compteLi.id } : {}) }).eq("id", e.id)
           // Parti, mais pas noté : la ligne reste « en cours », le filet empêche tout renvoi. Le journal le dit.
@@ -592,11 +712,19 @@ Deno.serve(async (req: Request) => {
           await sb.from("cmp_envois").update({ statut: "erreur", cause }).eq("id", e.id)
           erreursCampagne.push(cause)
           bilan.erreurs = Number(bilan.erreurs) + 1
-          if (tentative < TENTATIVES_MAX) {
+          const rejeu = rejeuApres(canal, tentative)
+          if (rejeu !== null) {
             // On revient sur l'étape, rejouée plus tard (la mise à jour du moteur pour ce contact n'est pas écrite).
             reportees.add(e.inscriptionId)
             enErreur.add(e.inscriptionId)
-            await sb.from("cmp_inscriptions").update({ etape_index: etapeIndex, prochaine_le: new Date(maintenant.getTime() + REJOUER_APRES_MIN[tentative - 1] * 60_000).toISOString() }).eq("id", e.inscriptionId)
+            await sb.from("cmp_inscriptions").update({ etape_index: etapeIndex, prochaine_le: new Date(maintenant.getTime() + rejeu * 60_000).toISOString() }).eq("id", e.inscriptionId).eq("etape_index", avant.get(e.inscriptionId)?.etapeIndex ?? 0)
+          } else if (canal === "mail") {
+            // Un mail jamais parti après tous ses rejeux (lot 2, 27/11/2026) : l'inscription s'arrête. Avant, la séquence
+            // continuait et la relance (« je reviens vers vous ») partait 7 jours plus tard sans premier mail.
+            reportees.add(e.inscriptionId)
+            await sb.from("cmp_inscriptions").update({ statut: "terminee", sortie_le: iso }).eq("id", e.inscriptionId)
+            await sb.from("cmp_envois").update({ cause: `${cause} ; abandonné après ${tentative} essais, séquence arrêtée` }).eq("id", e.id)
+            bilan.sorties = Number(bilan.sorties) + 1
           }
           if (/débit/.test(cause)) arret = true
         }
@@ -607,12 +735,17 @@ Deno.serve(async (req: Request) => {
         if (reportees.has(id)) continue
         const a = avant.get(id)
         if (a && a.etapeIndex === i.etapeIndex && a.prochaineLe === i.prochaineLe && a.statut === i.statut) continue
-        await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id)
+        // Écrite seulement si la position n'a pas bougé depuis la lecture (lot 2, 27/11/2026) : des étapes modifiées pendant
+        // le passage sont recalées par le déclencheur cmp_campagnes_recaler_inscriptions ; une position calculée sur les
+        // anciennes étapes ne doit pas l'écraser. Le passage suivant repart de la position recalée (le filet par étape
+        // empêche tout double envoi).
+        const { data: ecrite } = await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id).eq("etape_index", a?.etapeIndex ?? 0).eq("statut", "en_cours").select("id")
+        if (!ecrite?.length) erreursCampagne.push("position non écrite : étapes modifiées ou contact sorti pendant le passage")
       }
       for (const [id, i] of nouvelles) {
         if (reportees.has(id)) continue
         const { data: existe } = await sb.from("cmp_inscriptions").select("id").eq("id", id).maybeSingle()
-        if (existe) await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id)
+        if (existe) await sb.from("cmp_inscriptions").update({ etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }).eq("id", id).eq("etape_index", 0)
         else { await sb.from("cmp_inscriptions").insert({ id, campagne_id: c.id, contact_ref: i.contactId, entree_le: i.entreeLe, etape_index: i.etapeIndex, prochaine_le: i.prochaineLe, statut: i.statut, sortie_le: i.sortieLe }); bilan.entrees = Number(bilan.entrees) + 1 }
       }
       // Un envoi en erreur est rejoué à SON étape : les tâches d'avant (un appel) ne seront pas refaites, on les écrit donc.
@@ -641,6 +774,19 @@ Deno.serve(async (req: Request) => {
       console.log("[CAMPAGNES-MOTEUR] campagne", JSON.stringify(j))
       journal.push(j)
     }
+    // Les contacts sortis (désinscrit, lead, client, exclu, pas intéressé, rebond, réponse…) ou retirés d'une campagne, dont un
+    // mail confié à Instantly n'est pas encore parti : retirés chez Instantly (lot 2, 27/11/2026). Avant, il partait quand
+    // même, jusqu'à 4 jours plus tard. Toutes les sorties sont vues ici, celles du moteur comme celles des autres fonctions
+    // (formulaire, réponses, déclencheurs) ; un retrait refusé est rejoué au passage suivant.
+    if (synchroInstantly) {
+      const retraits = await retirerNonPartis(sb, ins, (toutes ?? []) as Ligne[], aSortirPar, maintenant)
+      if (retraits.retires) bilan.retiresInstantly = retraits.retires
+      refusInstantly.push(...retraits.refus)
+    }
+    // Reprise : les campagnes actives réactivent leurs campagnes Instantly, APRÈS les sorties et les retraits ci-dessus.
+    if (synchroInstantly) for (const id of campagnesBaticomDansLaCarte(ins.carte)) if (statutDe.get(id) === "active" && !misesEnPause.has(id)) refusInstantly.push(...await synchroniserPause(sb, ins, id, false))
+    if (refusInstantly.length) bilan.instantly = Object.entries(compter(refusInstantly)).map(([k, n]) => `${n} × ${k}`).join(" ; ").slice(0, 500)
+    if (echecsIA.change && echecsIA.carte) await sb.from("parametres").upsert({ cle: CLE_ECHECS_IA, valeur: JSON.stringify(echecsIA.carte) }, { onConflict: "cle" })
     bilan.ms = Date.now() - debutPassage
     bilan.boites = `${ins.pretes.length} prête(s) sur ${ins.boites.length}`
     if (interrompus?.length) bilan.envoisInterrompus = interrompus.length

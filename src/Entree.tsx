@@ -7,6 +7,7 @@ const FormationPublique = lazy(() => import("./components/public/FormationPubliq
 
 export default function Entree() {
   if (new URLSearchParams(window.location.search).has("formation")) return <Suspense fallback={null}><FormationPublique /></Suspense>
-  if (new URLSearchParams(window.location.search).has("fc")) return <Suspense fallback={null}><FormulairePublic /></Suspense>
+  // « ?a=… » : le lien court d'un SMS d'avis (lot 2, 27/11/2026).
+  if (new URLSearchParams(window.location.search).has("fc") || new URLSearchParams(window.location.search).has("a")) return <Suspense fallback={null}><FormulairePublic /></Suspense>
   return <App />
 }
