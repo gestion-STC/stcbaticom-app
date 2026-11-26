@@ -144,3 +144,16 @@ describe("D78 : un compte ouvert sans fiche Baticom retrouve la fiche par l'adre
     expect(ouvert).toContain(`.is("acces_ouvert_le", null)`)
   })
 })
+
+import { droitContrats } from "../../supabase/functions/_shared/droitsContrats"
+describe("docusign-envoyer : le serveur refuse ce que l'écran n'offre pas", () => {
+  it("réglages DocuSign aux administrateurs, contrats à qui a la base Artisans", () => {
+    expect(droitContrats("admin", undefined, "installer_connect").ok).toBe(true)
+    expect(droitContrats("telepro", "recrutement", "installer_connect").ok).toBe(false)
+    expect(droitContrats("telepro", "recrutement", "envoyer").ok).toBe(true)
+    expect(droitContrats("telepro", undefined, "statut").ok).toBe(true)
+    expect(droitContrats("telepro", "commercial", "acces_envoyer").ok).toBe(false)
+    expect(droitContrats("", undefined, "modeles").ok).toBe(false)
+    expect(envoyer).toMatch(/const droit = droitContrats\(qui\.role, fonction, corps\.action \?\? "envoyer"\)\s*\n\s*if \(!droit\.ok\) return json/)
+  })
+})

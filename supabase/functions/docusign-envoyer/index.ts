@@ -15,6 +15,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { apiJson, configDepuisEnv, estDemo, jetonDocusign } from "../_shared/docusign.ts"
 import { envoyerLienAcces } from "../_shared/acces-partenaire.ts"
 import { traiterEnveloppe } from "../_shared/contratSigne.ts"
+import { droitContrats } from "../_shared/droitsContrats.ts"
 
 // Appelée depuis le navigateur : les en-têtes CORS sur chaque réponse, et la pré-requête OPTIONS.
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
@@ -26,13 +27,13 @@ type ModeleDetail = { templateId: string; name: string; recipients?: { signers?:
 export type RoleModele = { roleName: string; routingOrder: number; champs: string[]; requis: string[] }
 export type ModeleResume = { templateId: string; nom: string; roles: RoleModele[] }
 
-async function utilisateurConnecte(req: Request, base: string, anon: string): Promise<{ id: string; email: string; admin: boolean } | null> {
+async function utilisateurConnecte(req: Request, base: string, anon: string): Promise<{ id: string; email: string; role: string } | null> {
   const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
   if (!jeton) return null
   const r = await fetch(`${base}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${jeton}` } })
   if (!r.ok) return null
   const u = await r.json()
-  return u?.id ? { id: u.id, email: u.email ?? "", admin: u.app_metadata?.role === "admin" } : null
+  return u?.id ? { id: u.id, email: u.email ?? "", role: String(u.app_metadata?.role ?? "") } : null
 }
 
 /** Les rôles d'un modèle : qui signe, dans quel ordre, avec quels champs texte. */
@@ -79,6 +80,15 @@ Deno.serve(async (req: Request) => {
   try { corps = await req.json() } catch { /* corps vide */ }
   const sb = createClient(base, service)
 
+  // ── Les droits (lot 8) : rôle d'équipe, base Artisans dans le périmètre, réglages aux administrateurs ──
+  let fonction: string | undefined
+  if (qui.role === "telepro") {
+    const { data: f } = await sb.from("parametres").select("valeur").eq("cle", "fonctions_comptes").maybeSingle()
+    try { fonction = (JSON.parse(String((f as { valeur?: string } | null)?.valeur ?? "{}")) as Record<string, string>)[qui.id] } catch { fonction = undefined }
+  }
+  const droit = droitContrats(qui.role, fonction, corps.action ?? "envoyer")
+  if (!droit.ok) return json({ error: droit.erreur }, droit.statut)
+
   // ── Envoyer (ou renvoyer) le lien « ouvrir mon accès » : contrats signés obligatoires ──
   if (corps.action === "acces_envoyer") {
     if (!corps.sous_traitant_id) return json({ error: "sous_traitant_id manquant" }, 400)
@@ -106,8 +116,6 @@ Deno.serve(async (req: Request) => {
 
     // ── Poser l'abonnement Connect (une fois) ──
     if (corps.action === "installer_connect") {
-      // L'écran « Contrats DocuSign » n'est offert qu'aux administrateurs (lot 8) : le serveur refuse les autres.
-      if (!qui.admin) return json({ error: "Réservé aux administrateurs." }, 403)
       const secret = Deno.env.get("DOCUSIGN_CONNECT_SECRET") || ""
       if (!secret) return json({ error: "Secret DOCUSIGN_CONNECT_SECRET manquant" }, 500)
       const url = `${base}/functions/v1/docusign-evenements?cle=${encodeURIComponent(secret)}`
