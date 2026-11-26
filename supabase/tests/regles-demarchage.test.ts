@@ -537,8 +537,10 @@ describe("les piles : un seul calcul, la base de chacun", () => {
   })
 })
 
-// ── 14/10 : « chacun ses clients » — le secteur pour la prospection, l'agence travaillée à qui l'a travaillée ──
-describe("qui a quelle agence : le secteur pour prospecter, celui qui l'a travaillée pour la suite", () => {
+// ── Qui a quelle agence : LE SECTEUR (aligné sur la prod le 26/11/2026) ──
+// La garde « agence travaillée » (14/10 : une agence travaillée restait à celui qui l'avait travaillée) n'a jamais été
+// appliquée en base. Ce qui tourne : l'agence est au démarcheur de son secteur, sauf « Attribuée à » choisi à la main.
+describe("qui a quelle agence : le démarcheur de son secteur", () => {
   const HORLANN = "7c1e6a3e-1111-4c4c-9a9a-000000000001"
   const commeHorlann = () => q(`select set_config('request.jwt.claims', '{"sub":"${HORLANN}","role":"authenticated","user_metadata":{"nom":"Horlann"}}', false)`)
   const commeMahdi = () => q(`select set_config('request.jwt.claims', '{"sub":"${MAHDI}","role":"authenticated","app_metadata":{"role":"admin"},"user_metadata":{"nom":"Mahdi"}}', false)`)
@@ -551,60 +553,41 @@ describe("qui a quelle agence : le secteur pour prospecter, celui qui l'a travai
     return r.id
   }
 
-  it("une agence jamais travaillée appartient au démarcheur de son secteur", async () => {
+  it("une agence neuve appartient au démarcheur de son secteur", async () => {
     const id = await agenceDeMahdi("T-neuve")
     expect(await proprio(id)).toBe(MAHDI)
   })
-  it("Horlann rend intéressée une agence du secteur de Mahdi : elle est à Horlann", async () => {
+  it("Horlann rend intéressée une agence du secteur de Mahdi : elle reste à Mahdi", async () => {
     const id = await agenceDeMahdi("T-intéressée par Horlann")
     await commeHorlann()
     try { await appel(id, "joint", "interesse") } finally { await commeMahdi() }
-    expect(await proprio(id)).toBe(HORLANN)
-  })
-  it("Horlann promet un rappel : l'agence est à Horlann, et le rappel est dans SA pile", async () => {
-    const id = await agenceDeMahdi("T-rappel promis par Horlann")
-    await commeHorlann()
-    try { await appel(id, "joint", "a_rappeler", { rappel: new Date(Date.now() - 60_000).toISOString() }) } finally { await commeMahdi() }
-    expect(await proprio(id)).toBe(HORLANN)
-    // la date du rappel est passée : il tombe dans « À rappeler aujourd'hui » de Horlann, pas de Mahdi
-    const pile = async (c: string) => (await q<{ id: string }>(`select agence->>'id' as id from public.pile_demarchage('rappels', $1)`, [c])).map((x) => x.id)
-    await q(`update public.activites set date = now() - interval '1 day' where agence_id = $1 and type = 'appel'`, [id])
-    expect(await pile(HORLANN)).toContain(id)
-    expect(await pile(MAHDI)).not.toContain(id)
-  })
-  it("le secteur change de main : les agences travaillées restent à celui qui les a travaillées", async () => {
-    const neuve = await agenceDeMahdi("T-neuve 2")
-    const travaillee = await agenceDeMahdi("T-travaillée par Mahdi")
-    await appel(travaillee, "joint", "interesse")
-    expect(await proprio(travaillee)).toBe(MAHDI)
-    await q(`select public.attribuer_secteur('75008', $1::uuid)`, [HORLANN])
-    expect(await proprio(neuve)).toBe(HORLANN)
-    expect(await proprio(travaillee)).toBe(MAHDI)
-    await q(`select public.attribuer_secteur('75008', $1::uuid)`, [MAHDI])
-  })
-  it("pas intéressée : elle n'est plus travaillée, elle retourne au démarcheur du secteur", async () => {
-    const id = await agenceDeMahdi("T-pas intéressée")
-    await commeHorlann()
-    try {
-      await appel(id, "joint", "interesse")
-      expect(await proprio(id)).toBe(HORLANN)
-      await q(`update public.activites set date = now() - interval '1 day' where agence_id = $1 and type = 'appel'`, [id])
-      await appel(id, "joint", "pas_interesse")
-    } finally { await commeMahdi() }
     expect(await proprio(id)).toBe(MAHDI)
   })
-  it("passée à la main en « Intéressé » sur la fiche : elle est à celui qui l'a passée", async () => {
+  it("passée à la main en « Intéressé » par Horlann : elle reste à Mahdi", async () => {
     const id = await agenceDeMahdi("T-fiche")
     await commeHorlann()
     try { await q(`update public.agences set etape = 'interesse' where id = $1`, [id]) } finally { await commeMahdi() }
-    expect(await proprio(id)).toBe(HORLANN)
+    expect(await proprio(id)).toBe(MAHDI)
   })
-  it("la santé signale une agence travaillée qui n'est à personne", async () => {
-    const id = await agenceDeMahdi("T-orpheline")
-    await appel(id, "joint", "interesse")
-    await q(`update public.agences set commercial_id = null where id = $1`, [id])
-    const e = await q<{ code: string }>(`select code from public.sante_demarchage()`)
-    expect(e.map((x) => x.code)).toContain("travaillee_sans_proprietaire")
+  it("le secteur change de main : toutes ses agences suivent, travaillées ou non", async () => {
+    const neuve = await agenceDeMahdi("T-neuve 2")
+    const travaillee = await agenceDeMahdi("T-travaillée par Mahdi")
+    await appel(travaillee, "joint", "interesse")
+    try {
+      await q(`select public.attribuer_secteur('75008', $1::uuid)`, [HORLANN])
+      expect(await proprio(neuve)).toBe(HORLANN)
+      expect(await proprio(travaillee)).toBe(HORLANN)
+    } finally {
+      await q(`select public.attribuer_secteur('75008', $1::uuid)`, [MAHDI])
+    }
+  })
+  it("« Attribuée à » choisi à la main : gardé, et signalé par la santé (hors de son secteur)", async () => {
+    const id = await agenceDeMahdi("T-attribuée à Horlann")
+    await q(`update public.agences set commercial_id = $2 where id = $1`, [id, HORLANN])
+    expect(await proprio(id)).toBe(HORLANN)
+    const e = await q<{ code: string; exemples: string }>(`select code, exemples from public.sante_demarchage()`)
+    expect(e.find((x) => x.code === "proprietaire_hors_secteur")?.exemples ?? "").toContain("T-attribuée à Horlann")
+    expect(e.map((x) => x.code)).not.toContain("regle_modifiee")
     await q(`update public.agences set commercial_id = $2 where id = $1`, [id, MAHDI])
   })
 })
