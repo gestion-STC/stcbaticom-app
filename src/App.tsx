@@ -126,7 +126,7 @@ function App() {
           {vue === "agences" && <Agences onOuvrirSession={ouvrirSession} etapeInitiale={etapePourAgences} />}
           {vue === "agenda" && <Agenda onOuvrirAgence={ouvrirAgence} onOuvrirSession={ouvrirSession} />}
           {vue === "agenda_st" && <AgendaST session={session} onAppeler={(id) => { naviguer("sessions_st"); setArtisanPourSession(id) }} />}
-          {vue === "croissance" && <Croissance />}
+          {vue === "croissance" && <Croissance onOuvrirAgence={ouvrirAgence} />}
           {vue === "dashboard_st" && <div className="page @container"><RecrutementTableau onDemarrer={() => naviguer("sessions_st")} /></div>}
           {vue === "qualification_st" && <QualificationsST />}
           {vue === "avis" && <BibliothequeAvis />}

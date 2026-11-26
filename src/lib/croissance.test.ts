@@ -1,12 +1,13 @@
 // Le dashboard Croissance (Mahdi, 11/11/2026) : la cadence, les entonnoirs, la réserve.
 import { describe, expect, it } from "vitest"
-import { calculerDirect, COCKPIT_DEPART, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, lundisRecents, moisCompare, parSemaine, planCroissance, previsionCroissance, semainesRestantes, tauxPassage, trajectoire } from "./croissance"
+import { COCKPIT_DEPART, echeanceDe, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, parSemaine, planCroissance, previsionCroissance, semainesJusquA, trajectoire } from "./croissance"
+import { lundisRecents } from "./cockpitTelepro"
 
 const maintenant = new Date(2026, 10, 11, 12)
 
 describe("la croissance", () => {
   it("douze semaines, du lundi, la plus ancienne d'abord", () => {
-    const l = lundisRecents(maintenant)
+    const l = lundisRecents(maintenant, 12)
     expect(l).toHaveLength(12)
     expect(l[11]).toEqual(new Date(2026, 10, 9))
     expect(l[0]).toEqual(new Date(2026, 7, 24))
@@ -14,7 +15,6 @@ describe("la croissance", () => {
   it("compte par semaine et par mois", () => {
     const l = lundisRecents(maintenant, 2)
     expect(parSemaine([new Date(2026, 10, 3).toISOString(), new Date(2026, 10, 10).toISOString(), new Date(2026, 10, 11).toISOString(), null, new Date(2025, 0, 1).toISOString()], l)).toEqual([1, 2])
-    expect(moisCompare([new Date(2026, 10, 2).toISOString(), new Date(2026, 9, 30).toISOString(), new Date(2026, 8, 1).toISOString()], maintenant)).toEqual({ mois: 1, avant: 1 })
   })
   it("l'entonnoir du démarchage : un client compte à toutes les marches", () => {
     const e = entonnoirDemarchage([
@@ -30,19 +30,33 @@ describe("la croissance", () => {
     expect(e.map((m) => m.valeur)).toEqual([3, 2, 2, 1, 1, 1])
     for (let i = 1; i < e.length; i++) expect(e[i].valeur).toBeLessThanOrEqual(e[i - 1].valeur)
   })
-  it("la réserve et les taux", () => {
-    expect(semainesRestantes(1996, 150)).toBe(14)
-    expect(semainesRestantes(10, 0)).toBeNull()
-    expect(tauxPassage(200, 50)).toBe(0.25)
-    expect(tauxPassage(0, 1)).toBeNull()
+})
+
+// Le 1er avril 2026 : 52 semaines jusqu'au 31/03/2027, 26 semaines jusqu'au 30/09/2026.
+const avril = new Date(2026, 3, 1)
+describe("l'échéance fixe de l'objectif (26/11/2026)", () => {
+  it("sans date réglée : le 11/11/2026 + le nombre de mois du réglage", () => {
+    const e = echeanceDe({ moisPourYArriver: 6 })
+    expect([e.getFullYear(), e.getMonth() + 1, e.getDate()]).toEqual([2027, 5, 11])
+  })
+  it("une date réglée fait foi, et les semaines restantes ne reculent plus", () => {
+    const e = echeanceDe({ moisPourYArriver: 6, echeance: "2026-09-30" })
+    expect([e.getFullYear(), e.getMonth() + 1, e.getDate()]).toEqual([2026, 9, 30])
+    expect(semainesJusquA(e, avril)).toBe(26)
+    expect(semainesJusquA(e, new Date(2026, 6, 1))).toBeLessThan(14) // trois mois plus tard, il reste moins de temps
+    expect(semainesJusquA(e, new Date(2027, 0, 1))).toBe(1) // échéance passée : au moins 1
+  })
+  it("une date illisible retombe sur l'échéance par défaut", () => {
+    const e = echeanceDe({ moisPourYArriver: 6, echeance: "bientôt" })
+    expect([e.getFullYear(), e.getMonth() + 1, e.getDate()]).toEqual([2027, 5, 11])
   })
 })
 
 describe("le cockpit de la croissance", () => {
   it("de 200 000 € par mois à ce qu'il faut sortir chaque semaine", () => {
-    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 200_000, moisPourYArriver: 12, caParClient: 4_000, caParArtisan: 10_000 }, { clientsActuels: 48, artisansActifs: 20, tauxClient: 48 / 622, tauxArtisan: 0.1, clientsParSemaine: 0.5, artisansParSemaine: 0.5, agencesAppeleesParSemaine: 150 })
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 200_000, echeance: "2027-03-31", caParClient: 4_000 }, { clientsActuels: 48, tauxClient: 48 / 622, clientsParSemaine: 0.5, agencesAppeleesParSemaine: 150 }, null, avril)
     expect(p.clientsNecessaires).toBe(50)
-    expect(p.artisansNecessaires).toBe(20)
+    expect(p.leviers.map((l) => l.libelle)).toEqual(["Nouveaux clients", "Agences à appeler"]) // plus de levier « sous-traitants »
     expect(p.leviers[0].ilFaut).toBe(0.04) // 2 clients manquants en 52 semaines
     expect(p.leviers[0].trajectoire).toBe("bonne")
     expect(p.caEstime).toBe(192_000)
@@ -52,7 +66,7 @@ describe("le cockpit de la croissance", () => {
     expect(trajectoire(8, 10)).toBe("juste")
     expect(trajectoire(10, 10)).toBe("bonne")
     expect(trajectoire(null, 10)).toBe("inconnue")
-    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 300_000, moisPourYArriver: 6 }, { clientsActuels: 10, artisansActifs: 5, tauxClient: 0.05, tauxArtisan: 0.1, clientsParSemaine: 0.5, artisansParSemaine: 0.2, agencesAppeleesParSemaine: 100 })
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 300_000, echeance: "2026-09-30" }, { clientsActuels: 10, tauxClient: 0.05, clientsParSemaine: 0.5, agencesAppeleesParSemaine: 100 }, null, avril)
     expect(p.clientsNecessaires).toBe(75)
     expect(p.leviers[1].ilFaut).toBe(Math.ceil((65 / (6 * 52 / 12)) / 0.05))
     expect(p.global).toBe("retard")
@@ -61,23 +75,22 @@ describe("le cockpit de la croissance", () => {
 })
 
 describe("le prévisionnel : où on arrive à l'échéance, au rythme actuel", () => {
-  const r = { ...COCKPIT_DEPART, objectifMensuel: 100_000, moisPourYArriver: 6 } // 26 semaines
+  const r = { ...COCKPIT_DEPART, objectifMensuel: 100_000, echeance: "2026-09-30" } // 26 semaines depuis le 1er avril
   it("le chiffre d'affaires d'aujourd'hui, plus les clients gagnés au rythme actuel", () => {
-    const p = previsionCroissance(r, { clientsActuels: 10, artisansActifs: 4, clientsParSemaine: 0.5, artisansParSemaine: 0.25 }, { caEstime: 40_000, caParClient: 2_000 })
+    const p = previsionCroissance(r, { clientsActuels: 10, clientsParSemaine: 0.5 }, { caEstime: 40_000, caParClient: 2_000 }, avril)
     expect(p.clientsPrevus).toBe(23) // 10 + 0,5 × 26
-    expect(p.artisansPrevus).toBe(11) // 4 + 0,25 × 26 = 10,5
     expect(p.caPrevu).toBe(66_000) // 40 000 + 13 clients × 2 000
     expect(p.pctObjectif).toBe(66)
     expect(p.manque).toBe(34_000)
     expect(p.semainesPourObjectif).toBe(60) // 60 000 € à gagner, 1 000 € de plus par semaine
   })
   it("sans nouveau client, on reste où on est et l'objectif n'est jamais atteint", () => {
-    const p = previsionCroissance(r, { clientsActuels: 10, artisansActifs: 4, clientsParSemaine: 0, artisansParSemaine: 0 }, { caEstime: 40_000, caParClient: 2_000 })
+    const p = previsionCroissance(r, { clientsActuels: 10, clientsParSemaine: 0 }, { caEstime: 40_000, caParClient: 2_000 }, avril)
     expect(p.caPrevu).toBe(40_000)
     expect(p.semainesPourObjectif).toBeNull()
   })
   it("objectif déjà atteint : rien ne manque", () => {
-    const p = previsionCroissance(r, { clientsActuels: 10, artisansActifs: 4, clientsParSemaine: 1, artisansParSemaine: 0 }, { caEstime: 120_000, caParClient: 2_000 })
+    const p = previsionCroissance(r, { clientsActuels: 10, clientsParSemaine: 1 }, { caEstime: 120_000, caParClient: 2_000 }, avril)
     expect(p.manque).toBe(0)
     expect(p.semainesPourObjectif).toBe(0)
   })
@@ -123,28 +136,22 @@ describe("les agences actives et ce qu'elles rapportent (algorithme validé par 
     expect(lireReelStc(null)).toBeNull()
     expect(lireReelStc("{pas du json")).toBeNull()
   })
+  it("sans ca_annee : comportement d'avant (pas de facturé de l'année)", () => {
+    expect(lireReelStc(brut)!.caAnnee).toBeNull()
+  })
+  it("lit ca_annee (janvier → mois en cours), dans l'ordre, sans toucher à la moyenne des 3 mois clos", () => {
+    const c = JSON.parse(brut)
+    c.ca_annee = [{ mois: "2026-11", ht: 8_000.5 }, { mois: "2026-10", ht: 31_924 }, { mois: "2026-01", ht: "12345.67" }, { mois: "pas un mois", ht: 1 }]
+    const r = lireReelStc(JSON.stringify(c))!
+    expect(r.caAnnee).toEqual([{ mois: "2026-01", ht: 12_345.67 }, { mois: "2026-10", ht: 31_924 }, { mois: "2026-11", ht: 8_000.5 }])
+    expect(r.caAnnee!.reduce((t, x) => t + x.ht, 0)).toBeCloseTo(52_270.17, 2) // le facturé depuis janvier
+    expect(r.caMensuel).toBe(lireReelStc(brut)!.caMensuel) // la moyenne des 3 mois clos ne bouge pas
+  })
   it("les agences portent l'objectif moins les particuliers ; le chiffre d'affaires est le réel", () => {
     const r = lireReelStc(brut)!
-    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 200_000 }, { clientsActuels: r.agencesActives, artisansActifs: 0, tauxClient: null, tauxArtisan: null, clientsParSemaine: 0, artisansParSemaine: 0, agencesAppeleesParSemaine: 0 }, r)
+    const p = planCroissance({ ...COCKPIT_DEPART, objectifMensuel: 200_000 }, { clientsActuels: r.agencesActives, tauxClient: null, clientsParSemaine: 0, agencesAppeleesParSemaine: 0 }, r, maintenant)
     expect(p.caParClient).toBe(r.caParAgence)
     expect(p.clientsNecessaires).toBe(Math.ceil((200_000 - r.caParticuliersMensuel) / r.caParAgence))
     expect(p.caEstime).toBe(r.caMensuel)
-  })
-})
-
-describe("en direct : les appels du jour et de la semaine", () => {
-  const maintenant = new Date(2026, 10, 11, 16, 30) // un mercredi
-  const a = (j: number, h: number, compte: string, resultat: string, issue = "") => ({ date: new Date(2026, 10, j, h, 5).toISOString(), compte_id: compte, compte_nom: compte.toUpperCase(), resultat, issue })
-  it("compte aujourd'hui, la semaine depuis lundi, heure par heure et par personne", () => {
-    const d = calculerDirect({
-      appels: [a(11, 9, "x", "joint", "interesse"), a(11, 9, "x", "pas_de_reponse"), a(11, 14, "y", "joint", "pas_interesse"), a(10, 10, "x", "joint", "rdv"), a(9, 10, "y", "standard"), a(8, 10, "y", "joint")],
-      appelsSt: [{ date: new Date(2026, 10, 11, 15, 0).toISOString(), compte_id: "y", compte_nom: "Y", resultat: "joint" }],
-      rdv: [{ cree_le: new Date(2026, 10, 10, 10, 6).toISOString(), compte_id: "x", compte_nom: "X" }],
-    }, maintenant)
-    expect(d.jour).toEqual({ appels: 3, joints: 2, interesses: 1, rdv: 0, artisans: 1 })
-    expect(d.semaine).toEqual({ appels: 5, joints: 3, interesses: 2, rdv: 1, artisans: 1 }) // le samedi 8 n'est pas dans la semaine
-    expect(d.parHeure.find((h) => h.heure === 9)!.appels).toBe(2)
-    expect(d.parHeure.find((h) => h.heure === 15)!.appels).toBe(1)
-    expect(d.parPersonne.map((p) => [p.nom, p.jour.appels, p.semaine.appels])).toEqual([["X", 2, 3], ["Y", 1, 2]])
   })
 })
