@@ -8,6 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { estDansLaReserve, normaliser } from "../lib/numerosEmission"
 import { chiffresTel, formaterTelephone } from "../lib/telephone"
+import { estFerie } from "../prospection/moteur"
 import { dansNJoursA } from "./aujourdhuiOutils"
 import type { BilanAppel } from "./db"
 import {
@@ -19,6 +20,7 @@ import {
   type Resultat,
   ISSUES,
   RESULTATS,
+  libelleEntrant,
   libelleEtape,
   libelleIssue,
   libelleMotif,
@@ -170,7 +172,8 @@ export function datePassee(iso: string | null | undefined, maintenant: Date): bo
 
 export function choixComplet(c: { resultat: Resultat | null; issue: Issue | ""; motif: Motif | ""; rappelLe: string | null; rdvLe: string | null }, maintenant?: Date): boolean {
   if (!c.resultat) return false
-  if (c.resultat !== "joint") return true
+  // « Pas de réponse » ou « standard » : la date « rappeler le… » est facultative, mais jamais passée (27/11/2026).
+  if (c.resultat !== "joint") return !(c.rappelLe && maintenant && datePassee(c.rappelLe, maintenant))
   if (!c.issue) return false
   if (c.issue === "a_rappeler") return Boolean(c.rappelLe) && !(maintenant && datePassee(c.rappelLe, maintenant))
   if (c.issue === "rdv") return Boolean(c.rdvLe) && !(maintenant && datePassee(c.rdvLe, maintenant))
@@ -250,8 +253,13 @@ export function plusJours(d: Date, jours: number): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + jours, d.getHours(), d.getMinutes())
 }
 // Le défaut de « À rappeler le… » et d'un RDV : demain, à l'heure des relances (Réglages, 10 h).
+// 27/11/2026 (décision 6) : le jour ouvré suivant (ni samedi, ni dimanche, ni jour férié), comme la base.
 export function demainALHeure(maintenant: Date, heure: number): string {
-  return dateHeureLocale(dansNJoursA(maintenant, 1, heure))
+  for (let n = 1; ; n++) {
+    const d = dansNJoursA(maintenant, n, heure)
+    const jour = `${d.getFullYear()}-${deux(d.getMonth() + 1)}-${deux(d.getDate())}`
+    if (d.getDay() !== 0 && d.getDay() !== 6 && !estFerie(jour)) return dateHeureLocale(d)
+  }
 }
 // « 2026-10-10T10:00 » (heure locale) → ISO, ou null si ce n'est pas une date.
 export function versIso(local: string): string | null {
@@ -328,7 +336,12 @@ export function trierRappels<T extends Parameters<typeof lectureRappel>[0]>(list
 
 export function resumeEcriture(bilan: Pick<BilanAppel, "etape" | "tacheId" | "tentatives">, choix: ChoixResultat, maintenant: Date, relanceJours: number): string {
   const parts = [`Étape → ${libelleEtape(bilan.etape)}`]
-  if (choix.resultat === "pas_de_reponse" || choix.resultat === "standard") parts.push(`tentative ${bilan.tentatives}`)
+  if (choix.resultat === "pas_de_reponse" || choix.resultat === "standard") {
+    parts.push(`tentative ${bilan.tentatives}`)
+    // 27/11/2026 (décision 3) : la date choisie, ou le rappel échu reposé par la base au jour ouvré suivant.
+    if (choix.rappelLe) parts.push(`tâche Rappeler le ${dateHeureCourte(choix.rappelLe)}`)
+    else if (bilan.tacheId && bilan.etape !== "interesse" && bilan.etape !== "rdv_planifie") parts.push("rappel reposé au prochain jour ouvré")
+  }
   if (choix.resultat === "joint") {
     if (choix.issue === "rdv") parts.push(`RDV le ${dateHeureCourte(choix.rdvLe)}`)
     else if (choix.issue === "a_rappeler") parts.push(`tâche Rappeler le ${dateHeureCourte(choix.rappelLe)}`)
@@ -348,7 +361,7 @@ export function decrireActivite(a: Activite): DescriptionActivite {
   const qui = a.compteNom ? ` · ${a.compteNom}` : ""
   switch (a.type) {
     case "appel": {
-      if (a.sens === "entrant") return { titre: "Appel entrant", detail: `${a.numeroUtilise ? formaterTelephone(a.numeroUtilise) : ""}${qui}`.replace(/^ · /, ""), etat: "" }
+      if (a.sens === "entrant") return { titre: `Appel entrant${libelleEntrant(a.resultat) ? ` · ${libelleEntrant(a.resultat)}` : ""}`, detail: `${a.numeroUtilise ? formaterTelephone(a.numeroUtilise) : ""}${qui}`.replace(/^ · /, ""), etat: "" }
       const issue = a.issue ? ` → ${libelleIssue(a.issue)}` : ""
       const motif = a.motif ? ` (${libelleMotif(a.motif)})` : ""
       const duree = a.dureeS ? `${Math.floor(a.dureeS / 60)} min ${deux(a.dureeS % 60)}` : ""

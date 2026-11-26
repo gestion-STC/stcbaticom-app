@@ -166,7 +166,7 @@ function App() {
         </main>
       </div>
 
-      {ficheOuverte && <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => setFicheOuverte(null)} onChange={() => setVersionAgences((v) => v + 1)} onOuvrirSession={ouvrirSession} />}
+      {ficheOuverte && <FicheAgence key={ficheOuverte} id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => setFicheOuverte(null)} onChange={() => setVersionAgences((v) => v + 1)} onOuvrirSession={ouvrirSession} />}
       {espaces.includes("demarchage") ? <RappelsRdv /> : null}
       <TelephoneRingover onOuvrirAgence={espaces.includes("demarchage") ? ouvrirAgence : undefined} espaces={espaces} />
     </div>

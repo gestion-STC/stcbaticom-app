@@ -65,15 +65,51 @@ begin
   return v;
 end $$;
 grant execute on function public.reglage_demarchage(text) to authenticated;
+-- Les jours fériés en France : même liste que estFerie (src/prospection/moteur.ts), Pâques compris.
+create or replace function public.jour_ferie(p_jour date) returns boolean
+language plpgsql
+immutable
+set search_path to 'public'
+as $$
+declare
+  y integer := extract(year from p_jour)::integer;
+  a integer := y % 19;
+  b integer := y / 100;
+  c integer := y % 100;
+  d integer := b / 4;
+  e integer := b % 4;
+  f integer := (b + 8) / 25;
+  g integer := (b - f + 1) / 3;
+  h integer := (19 * a + b - d - g + 15) % 30;
+  i integer := c / 4;
+  k integer := c % 4;
+  l integer := (32 + 2 * e + 2 * i - h - k) % 7;
+  m integer := (a + 11 * h + 22 * l) / 451;
+  v_paques date;
+begin
+  if to_char(p_jour, 'MM-DD') in ('01-01', '05-01', '05-08', '07-14', '08-15', '11-01', '11-11', '12-25') then return true; end if;
+  v_paques := make_date(y, (h + l - 7 * m + 114) / 31, ((h + l - 7 * m + 114) % 31) + 1);
+  -- Lundi de Pâques, Ascension, lundi de Pentecôte.
+  return p_jour in (v_paques + 1, v_paques + 39, v_paques + 50);
+end $$;
+grant execute on function public.jour_ferie(date) to authenticated;
+
 -- La date d'une relance ou d'un rappel : dans N jours, à l'heure réglée, heure de Paris.
+-- 27/11/2026 (décision 6) : une date calculée ici ne tombe jamais un samedi, un dimanche ni un jour férié :
+-- elle passe au jour ouvré suivant. Une date tapée à la main ne passe pas par ici et reste telle quelle.
 create or replace function public.demarchage_echeance(p_jours integer) returns timestamptz
-language sql
+language plpgsql
 stable
 set search_path to 'public'
 as $$
-  select (date_trunc('day', now() at time zone 'Europe/Paris') + (p_jours || ' days')::interval
-          + (public.reglage_demarchage('heure_relance') || ' hours')::interval) at time zone 'Europe/Paris'
-$$;
+declare
+  v_jour date := (now() at time zone 'Europe/Paris')::date + p_jours;
+begin
+  while extract(isodow from v_jour) in (6, 7) or public.jour_ferie(v_jour) loop
+    v_jour := v_jour + 1;
+  end loop;
+  return (v_jour + make_interval(hours => public.reglage_demarchage('heure_relance'))) at time zone 'Europe/Paris';
+end $$;
 
 -- ── La vue des listes (compteurs = appels SORTANTS) ──
 create or replace view public.agences_liste with (security_invoker = true) as
@@ -207,6 +243,8 @@ declare
   v_sommeil_apres integer := public.reglage_demarchage('sommeil_apres_tentatives');
   v_sommeil_jours integer := public.reglage_demarchage('sommeil_jours');
   v_relance_le timestamptz := public.demarchage_echeance(public.reglage_demarchage('relance_interesse_jours'));
+  v_rappel_titre text;
+  v_rappel_contact uuid;
 begin
   select * into a from public.agences where id = p_agence_id for update;
   if not found then raise exception 'agence introuvable'; end if;
@@ -240,6 +278,11 @@ begin
     returning id into v_appel;
   end if;
 
+  -- Le rappel échu que cet appel vient honorer (le plus récent), avant qu'il ne soit marqué fait.
+  select t.titre, t.contact_id into v_rappel_titre, v_rappel_contact from public.activites t
+   where t.agence_id = p_agence_id and t.type = 'tache' and t.fait_le is null and t.echeance <= now() and t.titre like 'Rappeler%'
+   order by t.echeance desc limit 1;
+
   -- 1. L'appel a eu lieu : ce qui est échu (rappel passé, en retard) est fait. Jamais un RDV ou un rappel à venir,
   --    même plus tard dans la journée (25/11/2026 : un RDV de 16 h était fermé par un appel de 14 h 58).
   update public.activites set fait_le = now()
@@ -270,6 +313,13 @@ begin
       -- Intéressée injoignable : on la relance au prochain tour (10 jours).
       insert into public.activites (agence_id, contact_id, type, date, echeance, compte_id, compte_nom, titre, source)
       values (p_agence_id, p_contact_id, 'tache', now(), v_relance_le, v_compte, p_compte_nom, 'Relancer' || case when v_contact <> '' then ' ' || v_contact else '' end, coalesce(p_source, 'session'))
+      returning id into v_tache;
+    elsif v_rappel_titre is not null and v_etape <> 'endormie' then
+      -- 27/11/2026 (décision 3) : le rappel demandé par le gestionnaire tombe sur personne ou sur le standard :
+      -- il est reposé au jour ouvré suivant, à l'heure des relances (avant, il disparaissait et l'agence
+      -- retombait dans « À prospecter »). L'agence qui s'endort (6 tentatives) n'est plus rappelée.
+      insert into public.activites (agence_id, contact_id, type, date, echeance, compte_id, compte_nom, titre, source)
+      values (p_agence_id, coalesce(p_contact_id, v_rappel_contact), 'tache', now(), public.demarchage_echeance(1), v_compte, p_compte_nom, v_rappel_titre, coalesce(p_source, 'session'))
       returning id into v_tache;
     end if;
   elsif p_resultat = 'joint' then
@@ -493,7 +543,10 @@ as $function$
              or exists (select 1 from public.leads_demarchage l where l.agence_id = a.id and l.statut = 'a_traiter')
              or exists (select 1 from public.cmp_taches k where k.contact_ref = a.id::text and k.type = 'appel' and k.faite_le is null) as exempte,
            -- 25/11/2026 : un rappel ou un RDV dû maintenant : la fiche passe, même déjà appelée aujourd'hui.
-           exists (select 1 from public.activites t where t.agence_id = a.id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance <= now()) as du_maintenant
+           exists (select 1 from public.activites t where t.agence_id = a.id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance <= now())
+             -- 27/11/2026 (décision 4) : un lead ouvert né APRÈS le dernier appel de la fiche passe aussi (même règle qu'appel_verifier).
+             or exists (select 1 from public.leads_demarchage l where l.agence_id = a.id and l.statut = 'a_traiter'
+                           and l.cree_le > coalesce((select max(x.date) from public.activites x where x.agence_id = a.id and x.type = 'appel' and x.sens <> 'entrant'), '-infinity'::timestamptz)) as du_maintenant
       from public.agences a
   ),
   raisons as (
@@ -656,7 +709,11 @@ begin
   end if;
 
   -- 25/11/2026 : le rappel ou le RDV convenu pour maintenant passe, même si le numéro a déjà été composé aujourd'hui.
-  v_du_maintenant := exists (select 1 from public.activites t where t.agence_id = p_agence_id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance <= now());
+  v_du_maintenant := exists (select 1 from public.activites t where t.agence_id = p_agence_id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance <= now())
+    -- 27/11/2026 (décision 4) : un lead ouvert né APRÈS le dernier appel de la fiche (plaquette ouverte après l'appel) :
+    -- on le rappelle le jour même (même règle que demarchage_repos).
+    or exists (select 1 from public.leads_demarchage l where l.agence_id = p_agence_id and l.statut = 'a_traiter'
+                  and l.cree_le > coalesce((select max(x.date) from public.activites x where x.agence_id = p_agence_id and x.type = 'appel' and x.sens <> 'entrant'), '-infinity'::timestamptz));
   if not v_du_maintenant and length(v_tel) >= 9 and exists (
        select 1 from public.activites x join public.agences g on g.id = x.agence_id
         where x.type = 'appel' and x.sens <> 'entrant' and x.date >= v_debut_jour
@@ -735,13 +792,13 @@ as $$
       ('agence_suit_son_secteur', 'abf3e0af93d90b8e30f0cf88eaae6dfc'),
       ('agences_etape_journal', 'fc6f7ba67ce22c7dc068d2559317e3db'),
       ('agences_etape_relances', '8d48310d52142575ba5bf13577d055e5'),
-      ('appel_enregistrer', '1d0f84b249f8a6fa2d98d304eafa0f49'),
+      ('appel_enregistrer', '80398a1fb5fc5defb81e6c9f74b49bb7'),
       ('appel_lancer', '1a7719fcc50f051173c9dc47b44fabe4'),
-      ('appel_verifier', '1dd14dbd2ba7d97333c52b540cf5eb9d'),
+      ('appel_verifier', '4b33e591f02e0dd33cdabf6ec5806328'),
       ('attribuer_secteur', 'cd29f67af19b0117e051e335ed76a608'),
       ('compter_piles', '39d8a4494285f07bac32bcee6230b5c8'),
-      ('demarchage_echeance', 'a2efbf4b3e0b715a9fb230baadb6729f'),
-      ('demarchage_repos', 'd9e7e08228add86de0e7c321afd296f7'),
+      ('demarchage_echeance', '5418f8440b401ca2ee49e5d8c56648c4'),
+      ('demarchage_repos', '57390055647cb7de5e3a8d8c18ca95c3'),
       ('messages_rattacher_agence', '048234c54d592573007f2c1b1e111c98'),
       ('pile_demarchage', '3cd1e7b0ac2229e590c044c06e88774b'),
       ('reglage_demarchage', '13b69e49ccdcad93f543dc2abfd032bb'),

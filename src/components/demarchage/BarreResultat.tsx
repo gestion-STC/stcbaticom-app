@@ -17,7 +17,7 @@ import { useReglages } from "../../demarchage/reglages"
 import OptionsMotifs from "../prospection/moteur/OptionsMotifs"
 import { ISSUES, MOTIFS, RESULTATS, effetAnnonce, nomContact, type Agence, type Contact, type Issue, type Motif, type Resultat } from "../../demarchage/modele"
 import { TYPES_RDV, choixComplet, datePassee, estChampDeSaisie, issuePourTouche, resultatPourTouche, versIso, type ChoixResultat, type TypeRdv } from "../../demarchage/sessionOutils"
-import { Bouton, Etiquette, Champ, Selecteur } from "../../ui"
+import { Bouton, Case, Etiquette, Champ, Selecteur } from "../../ui"
 
 const NOUVEAU_CONTACT = "__nouveau__"
 
@@ -93,6 +93,9 @@ export default function BarreResultat({
   const [issueChoisie, setIssue] = useState<Issue | "">("")
   const [motif, setMotif] = useState<Motif | "">("")
   const [rappel, setRappel] = useState(defautRappel)
+  // « Pas de réponse » ou « standard » : rappeler à une date choisie (27/11/2026, décision 3). Sans date, la base
+  // repose d'elle-même un rappel échu au jour ouvré suivant.
+  const [rappelerQuandMeme, setRappelerQuandMeme] = useState(false)
   const [rdv, setRdv] = useState(defautRdv)
   const [rdvType, setRdvType] = useState<TypeRdv>("telephone")
 
@@ -115,7 +118,8 @@ export default function BarreResultat({
   // validation : l'IA a donc toujours son temps.
   const [mailManuel, setMailManuel] = useState(false)
   const mailAttend = avecMail && envoyer && ia?.etat === "attente" && !mailManuel
-  const rappelLe = issue === "a_rappeler" ? versIso(rappel) : null
+  const sansGestionnaire = resultat === "pas_de_reponse" || resultat === "standard"
+  const rappelLe = issue === "a_rappeler" || (sansGestionnaire && rappelerQuandMeme) ? versIso(rappel) : null
   const rdvLe = issue === "rdv" ? versIso(rdv) : null
   const complet = choixComplet({ resultat, issue, motif, rappelLe, rdvLe }, new Date())
   const MSG_PASSEE = "Cette date est déjà passée : vérifie le jour et le mois."
@@ -235,6 +239,20 @@ export default function BarreResultat({
               </Etiquette>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {sansGestionnaire ? (
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <Case texte="Rappeler le…" checked={rappelerQuandMeme} onChange={(e) => setRappelerQuandMeme(e.target.checked)} />
+          {rappelerQuandMeme ? (
+            <div className="max-w-xs">
+              <Champ type="datetime-local" value={rappel} onChange={(e) => setRappel(e.target.value)} aria-label="Rappeler le" />
+              {datePassee(rappelLe, new Date()) ? <p className="mt-1 text-colonne text-alerte">{MSG_PASSEE}</p> : null}
+            </div>
+          ) : (
+            <span className="text-colonne text-encre-2">Sans date, un rappel prévu aujourd'hui est reposé au prochain jour ouvré.</span>
+          )}
         </div>
       ) : null}
 

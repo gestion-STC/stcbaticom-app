@@ -70,6 +70,12 @@ export function libelleResultat(code: string): string {
   if (code === "apporteur") return "Passée en apporteur d'affaires"
   return RESULTATS.find((r) => r.code === code)?.libelle ?? code
 }
+/** Un appel REÇU (27/11/2026) : écrit sans résultat à la sonnerie, puis « décroché » ou « manqué ». Jamais « Gestionnaire joint ». */
+export function libelleEntrant(code: string): string {
+  if (code === "joint") return "décroché"
+  if (code === "manque") return "manqué"
+  return ""
+}
 export function libelleIssue(code: string): string {
   return ISSUES.find((r) => r.code === code)?.libelle ?? code
 }

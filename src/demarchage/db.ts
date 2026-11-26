@@ -199,10 +199,10 @@ export async function compterLeads(proprietaire: Proprietaire): Promise<number> 
 // ── La page Aujourd'hui, vues « L'équipe en direct » et « Tableau de bord » (06/11/2026) ──
 /** Les appels sortants d'une période, avec le nom de l'agence (parcours, victoires, chiffres du jour). */
 export async function appelsSortants(de: Date, a: Date): Promise<AppelLu[]> {
-  type L = { id: string; date: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; agence_id: string; agences: { nom: string } | null }
-  const lignes = await lireParLots<L>((d, f) => sb().from("activites").select("id, date, compte_id, compte_nom, resultat, issue, agence_id, agences(nom)").eq("type", "appel").eq("sens", "sortant")
+  type L = { id: string; date: string; compte_id: string | null; compte_nom: string; resultat: string; issue: string; agence_id: string; agences: { nom: string; type: string } | null }
+  const lignes = await lireParLots<L>((d, f) => sb().from("activites").select("id, date, compte_id, compte_nom, resultat, issue, agence_id, agences(nom, type)").eq("type", "appel").eq("sens", "sortant")
     .gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f) as unknown as PromiseLike<LotDe<L>>)
-  return lignes.map((l) => ({ id: l.id, date: l.date, compteId: l.compte_id, compteNom: l.compte_nom ?? "", resultat: l.resultat ?? "", issue: l.issue ?? "", agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "" }))
+  return lignes.map((l) => ({ id: l.id, date: l.date, compteId: l.compte_id, compteNom: l.compte_nom ?? "", resultat: l.resultat ?? "", issue: l.issue ?? "", agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", apporteur: l.agences?.type === "apporteur" }))
 }
 /** Les résultats des appels depuis une date : seulement l'heure et le résultat (les meilleures heures). */
 export async function resultatsAppelsDepuis(de: Date): Promise<{ date: string; resultat: string }[]> {
@@ -504,9 +504,19 @@ export async function appelsANoter(minutes: number): Promise<AppelANoter[]> {
 // Un même appel (identifiant Ringover) ne s'écrit qu'une fois (lot 4, 26/11/2026) : la base refuse le second
 // (index unique activites_appel_entrant_unique) quand deux onglets ou deux collègues reçoivent le même appel ;
 // ce refus veut dire « déjà sur la fiche », pas une erreur.
-export async function journaliserAppelEntrant(agenceId: string, contactId: string | null, callId: string, compteNom: string): Promise<void> {
-  const { error } = await sb().from("activites").insert({ agence_id: agenceId, contact_id: contactId, type: "appel", resultat: "joint", sens: "entrant", call_id: callId, compte_nom: compteNom, note: "Appel entrant", source: "session" })
+// 27/11/2026 : écrit SANS résultat à la sonnerie (avant : « joint » d'office, un appel perdu ressemblait à un appel
+// traité) ; `resultat` est l'état déjà connu (décroché, manqué) si l'appel a avancé avant que la fiche soit reconnue.
+export async function journaliserAppelEntrant(agenceId: string, contactId: string | null, callId: string, compteNom: string, resultat: "" | "joint" | "manque" = ""): Promise<void> {
+  const { error } = await sb().from("activites").insert({ agence_id: agenceId, contact_id: contactId, type: "appel", resultat, sens: "entrant", call_id: callId, compte_nom: compteNom, note: "Appel entrant", source: "session" })
   if (error && (error as { code?: string }).code === "23505") return
+  erreur(error)
+}
+/** L'appel reçu a été décroché (« joint ») ou a raccroché sans réponse (« manque ») : sa ligne est complétée.
+ *  Un appel décroché ne redevient jamais « manqué ». */
+export async function completerAppelEntrant(callId: string, resultat: "joint" | "manque"): Promise<void> {
+  if (!callId) return
+  const { error } = await sb().from("activites").update({ resultat }).eq("type", "appel").eq("sens", "entrant").eq("call_id", callId)
+    .in("resultat", resultat === "joint" ? ["", "manque"] : [""])
   erreur(error)
 }
 

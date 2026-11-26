@@ -29,6 +29,7 @@ import {
 import { useSession } from "../../lib/auth"
 import { estAdmin, nomAffiche } from "../../lib/comptes"
 import { lancerAppelRingover } from "../../lib/ringover"
+import { versionPerimee } from "../../lib/versionEnLigne"
 import { formaterTelephone } from "../../lib/telephone"
 import { Bandeau, Bouton, Champ, Chargement, Etiquette, Onglets, Pastille, Selecteur, Vide, Zone } from "../../ui"
 import { Section } from "../demarchage/session/morceaux"
@@ -166,6 +167,8 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
   }
   const appeler = async () => {
     if (!courant?.st.telephone) { setErreur("Cette fiche n'a pas de numéro."); return }
+    // Même garde que la session des agences (27/11/2026) : un onglet sur une ancienne version n'appelle pas.
+    if (versionPerimee()) { setErreur("Une nouvelle version du logiciel est en ligne : recharge la page avant d'appeler. (Tu peux toujours copier le numéro.)"); return }
     setErreur("")
     const r = await lancerAppelRingover(courant.st.telephone)
     if (!r.ok) { setErreur(r.message || "Appel impossible pour le moment."); return }

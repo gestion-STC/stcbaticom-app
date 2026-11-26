@@ -139,6 +139,11 @@ describe("choixComplet", () => {
     expect(choixComplet({ ...base, resultat: "joint", issue: "pas_interesse" })).toBe(false)
     expect(choixComplet({ ...base, resultat: "joint", issue: "pas_interesse", motif: "pas_de_besoin" })).toBe(true)
   })
+  it("pas de réponse ou standard : « rappeler le… » est facultatif, mais jamais dans le passé (27/11/2026)", () => {
+    const m = new Date("2026-10-10T12:00:00.000Z")
+    expect(choixComplet({ ...base, resultat: "standard", rappelLe: "2026-10-12T08:00:00.000Z" }, m)).toBe(true)
+    expect(choixComplet({ ...base, resultat: "standard", rappelLe: "2026-10-09T08:00:00.000Z" }, m)).toBe(false)
+  })
 })
 
 describe("observerAppel (la surveillance de l'appel)", () => {
@@ -208,8 +213,11 @@ describe("durées et compte à rebours", () => {
 describe("dates", () => {
   it("écrit et relit une date locale pour un champ datetime-local", () => {
     expect(dateHeureLocale(new Date(2026, 9, 10, 9, 5))).toBe("2026-10-10T09:05")
-    expect(demainALHeure(midi, 10)).toBe("2026-10-10T10:00")
-    expect(demainALHeure(midi, 14)).toBe("2026-10-10T14:00")
+    // Le vendredi 9/10 : le jour ouvré suivant est le lundi 12/10 (décision 6, 27/11/2026).
+    expect(demainALHeure(midi, 10)).toBe("2026-10-12T10:00")
+    expect(demainALHeure(midi, 14)).toBe("2026-10-12T14:00")
+    expect(demainALHeure(new Date(2026, 9, 7, 12), 10)).toBe("2026-10-08T10:00") // mercredi → jeudi
+    expect(demainALHeure(new Date(2026, 11, 24, 12), 10)).toBe("2026-12-28T10:00") // jeudi 24/12 → lundi 28 (Noël, week-end)
     const iso = versIso("2026-10-10T10:00")
     expect(iso).not.toBeNull()
     expect(dateHeureCourte(iso)).toBe("10/10 10:00")
@@ -228,6 +236,9 @@ describe("resumeEcriture", () => {
   it("résume l'étape et la tâche posées", () => {
     expect(resumeEcriture({ etape: "interesse", tacheId: "t", tentatives: 1 }, choix({ issue: "interesse" }), midi, 7)).toBe("Étape → Intéressé · tâche Relancer le 16/10")
     expect(resumeEcriture({ etape: "a_prospecter", tacheId: null, tentatives: 3 }, choix({ resultat: "pas_de_reponse" }), midi, 7)).toBe("Étape → À prospecter · tentative 3")
+    // 27/11/2026 (décision 3) : le rappel échu reposé par la base, ou la date choisie dans la barre.
+    expect(resumeEcriture({ etape: "gestionnaire_joint", tacheId: "t", tentatives: 1 }, choix({ resultat: "standard" }), midi, 7)).toBe("Étape → Gestionnaire joint · tentative 1 · rappel reposé au prochain jour ouvré")
+    expect(resumeEcriture({ etape: "gestionnaire_joint", tacheId: "t", tentatives: 1 }, choix({ resultat: "pas_de_reponse", rappelLe: new Date(2026, 9, 16, 10, 0).toISOString() }), midi, 7)).toBe("Étape → Gestionnaire joint · tentative 1 · tâche Rappeler le 16/10 10:00")
     expect(resumeEcriture({ etape: "gestionnaire_joint", tacheId: "t", tentatives: 1 }, choix({ issue: "a_rappeler", rappelLe: new Date(2026, 9, 16, 10, 0).toISOString() }), midi, 7)).toBe("Étape → Gestionnaire joint · tâche Rappeler le 16/10 10:00")
     expect(resumeEcriture({ etape: "pas_interesse", tacheId: null, tentatives: 1 }, choix({ issue: "pas_interesse", motif: "deja_prestataire" }), midi, 7)).toBe("Étape → Pas intéressé · motif « Déjà un prestataire »")
     expect(resumeEcriture({ etape: "hors_cible", tacheId: null, tentatives: 1 }, choix({ resultat: "faux_numero" }), midi, 7)).toBe("Étape → Hors cible")

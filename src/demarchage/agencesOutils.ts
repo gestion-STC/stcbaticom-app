@@ -24,6 +24,7 @@ import {
   ETAPES,
   SORTIES,
   dureeLisible,
+  libelleEntrant,
   libelleEtape,
   libelleIssue,
   libelleMotif,
@@ -236,7 +237,7 @@ export function texteActivite(a: Activite): { titre: string; detail: string } {
   switch (a.type) {
     case "appel": {
       const tete = a.sens === "entrant" ? "Appel entrant" : "Appel"
-      const resultat = a.resultat ? libelleResultat(a.resultat) : ""
+      const resultat = a.sens === "entrant" ? libelleEntrant(a.resultat) : a.resultat ? libelleResultat(a.resultat) : ""
       const issue = a.issue ? ` → ${libelleIssue(a.issue)}` : ""
       const motif = a.motif ? ` (${libelleMotif(a.motif)})` : ""
       const detail = [dureeLisible(a.dureeS), a.numeroUtilise ? `depuis le ${a.numeroUtilise}` : ""].filter(Boolean).join(" · ")

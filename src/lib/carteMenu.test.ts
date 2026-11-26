@@ -37,9 +37,9 @@ describe("carte du menu", () => {
     expect(espacesVisibles("telepro", undefined)).toEqual(LES_DEUX)
     expect(espacesVisibles("telepro", "direction")).toEqual(LES_DEUX)
   })
-  it("un téléprospecteur ne voit que ses tâches et RDV, un administrateur tout", () => {
+  it("« mes tâches » : celles des agences dont je suis responsable (décision 7), un administrateur tout", () => {
     const t = { compteId: "a", agenceCommercialId: "b" }
-    expect(aMoi(t, "a", false)).toBe(true)
+    expect(aMoi(t, "a", false)).toBe(false) // l'auteur ne la voit qu'en « Toute l'équipe »
     expect(aMoi(t, "b", false)).toBe(true)
     expect(aMoi(t, "c", false)).toBe(false)
     expect(aMoi(t, "c", true)).toBe(true)

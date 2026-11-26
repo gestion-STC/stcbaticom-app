@@ -361,7 +361,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
         </>
       ) : null}
 
-      {ficheOuverte ? <FicheAgence id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => { setFicheOuverte(null); setFicheSurEtape(false) }} onChange={recharger} onOuvrirSession={onOuvrirSession} /> : null}
+      {ficheOuverte ? <FicheAgence key={ficheOuverte} id={ficheOuverte} ouvrirEtape={ficheSurEtape} onFermer={() => { setFicheOuverte(null); setFicheSurEtape(false) }} onChange={recharger} onOuvrirSession={onOuvrirSession} /> : null}
       {nouvelle ? <NouvelleAgence onFermer={() => setNouvelle(false)} onCree={(id) => { setNouvelle(false); setFicheOuverte(id); recharger() }} /> : null}
     </div>
   )

@@ -5,7 +5,7 @@
 import { heureDeParis } from "./analyseOutils"
 
 /** Un appel sortant tel que la page le lit. */
-export type AppelLu = { id: string; date: string; compteId: string | null; compteNom: string; resultat: string; issue: string; agenceId: string; agenceNom: string }
+export type AppelLu = { id: string; date: string; compteId: string | null; compteNom: string; resultat: string; issue: string; agenceId: string; agenceNom: string; apporteur?: boolean }
 
 // ── Quand joindre un gestionnaire : le taux de « joint » par heure de Paris ──
 export type LigneHeure = { heure: number; appels: number; joints: number; taux: number }
