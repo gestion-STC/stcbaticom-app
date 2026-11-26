@@ -4,7 +4,7 @@
 //   · envoyer : enregistre les réponses ; pour une agence, pose le lead dans la session de call.
 // En mode test, rien n'est enregistré : le formulaire s'affiche et répond, c'est tout.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { signer } from "../_shared/campagnes/lien.ts"
+import { URL_PUBLIQUE, signer } from "../_shared/campagnes/lien.ts"
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } })
@@ -20,10 +20,18 @@ async function clePassage(sb: SupabaseClient): Promise<string> {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS })
+  // L'adresse de l'en-tête List-Unsubscribe des mails d'avis (26/11/2026) : ?fc&f&k&s[&t]&stop=1.
+  //   · POST (bouton « Se désinscrire » de Gmail/Yahoo, RFC 8058, corps « List-Unsubscribe=One-Click ») : désinscrit ;
+  //   · GET (une messagerie qui ouvre l'adresse dans le navigateur) : renvoie vers la page publique, qui demande de confirmer.
+  const adresse = new URL(req.url).searchParams
+  const unClic = adresse.has("stop") && adresse.has("fc")
+  if (unClic && req.method === "GET") return new Response(null, { status: 302, headers: { Location: `${URL_PUBLIQUE}?${adresse.toString()}` } })
   if (req.method !== "POST") return json({ error: "Méthode non autorisée." }, 405)
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
   try {
-    const b = await req.json().catch(() => ({})) as { action?: string; c?: string; f?: string; k?: string; s?: string; t?: string; reponses?: Record<string, unknown> }
+    const b = unClic
+      ? { action: "desinscrire", c: adresse.get("fc") ?? "", f: adresse.get("f") ?? "", k: adresse.get("k") ?? "", s: adresse.get("s") ?? "", t: adresse.get("t") ?? "" } as { action?: string; c?: string; f?: string; k?: string; s?: string; t?: string; reponses?: Record<string, unknown> }
+      : await req.json().catch(() => ({})) as { action?: string; c?: string; f?: string; k?: string; s?: string; t?: string; reponses?: Record<string, unknown> }
     const c = String(b.c ?? ""), f = String(b.f ?? ""), k = String(b.k ?? ""), test = b.t === "1"
     if (!/^[0-9a-f-]{36}$/i.test(c) || !f || !k || !b.s) return json({ error: "Lien incomplet." }, 400)
     const cle = await clePassage(sb)

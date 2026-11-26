@@ -17,6 +17,8 @@
 // Et une réponse d'artisan qui dit « stop », « désinscription », « ne plus me
 // contacter »… DÉSINSCRIT la fiche à l'instant (séquence arrêtée, adresse
 // exclue), sauf si c'est une réponse automatique d'absence.
+// Une AGENCE (ou un client gestionnaire) qui répond la même chose est désinscrite de la même façon (26/11/2026,
+// obligation légale) : « ne plus écrire » posé sur sa fiche, comme par instantly-evenements.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { lireReponse } from "../_shared/campagnes/generationIA.ts";
@@ -41,6 +43,12 @@ function entete(headers: unknown, nom: string): string {
   return "";
 }
 const nomSur = (n: string) => (n || "fichier").replace(/[^\w.\-éèêàçùïöüâîôû ]+/gi, "_").slice(0, 120);
+
+/** Une réponse envoyée par un automate (absence, accusé de réception) : jamais une demande d'arrêt (RFC 3834). */
+export function reponseAutomatique(headers: unknown): boolean {
+  const auto = entete(headers, "auto-submitted").trim().toLowerCase();
+  return (auto !== "" && auto !== "no") || entete(headers, "x-autoreply") !== "" || entete(headers, "x-autorespond") !== "";
+}
 
 /** Une demande d'arrêt, dans l'objet ou le début du corps. */
 export function demandeArret(objet: string, corps: string): boolean {
@@ -170,11 +178,17 @@ Deno.serve(async (req: Request) => {
 
     // ── LA DÉSINSCRIPTION PAR RÉPONSE ──
     let desinscrit = false;
-    if (sousTraitantId && statutSt !== "desinscrit" && demandeArret(objet, corpsText)) {
+    const arret = !reponseAutomatique(d.headers) && demandeArret(objet, corpsText);
+    if (sousTraitantId && statutSt !== "desinscrit" && arret) {
       const now = new Date().toISOString();
       await admin.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: now, desinscrit_canal: "reponse_email", statut_motif: `réponse : ${objet.slice(0, 80)}` }).eq("id", sousTraitantId);
       await admin.from("st_exclusions").upsert({ email: de || null, telephone: null, motif: "désinscription par réponse e-mail" }, { onConflict: "email", ignoreDuplicates: true });
       desinscrit = true;
+    }
+    // Une agence ou un client gestionnaire (la base a rangé le mail sur sa fiche) : « ne plus écrire », une seule fois.
+    if (!sousTraitantId && agenceId && arret) {
+      const { data: faite } = await admin.from("agences").update({ ne_plus_ecrire_le: new Date().toISOString() }).eq("id", agenceId).is("ne_plus_ecrire_le", null).select("id");
+      desinscrit = (faite ?? []).length > 0;
     }
 
     console.log(`[RECEVOIR-EMAIL] de=${de} espace=${espace} (${raison}) corps=${corpsText.length}t/${corpsHtml.length}h pj=${pieces.length}/${attachs.length}${desinscrit ? " DÉSINSCRIT" : ""}`);

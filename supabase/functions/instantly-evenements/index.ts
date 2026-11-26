@@ -1,6 +1,7 @@
 // LES RETOURS D'INSTANTLY (09/11/2026). Déployée SANS vérification de JWT : Instantly prouve qui il est par l'en-tête
 // x-baticom-cle, posé par notre branchement à l'installation.
-//   · email_sent       → le mail est rangé sur la fiche, et l'envoi est confirmé parti (événement « delivre ») ;
+//   · email_sent       → le mail est rangé sur la fiche, et l'envoi est confirmé parti (événement « delivre ») ; un envoi
+//                        noté « non parti » (erreur) redevient « envoyé » ;
 //   · email_opened     → ouverture dans la campagne ;
 //   · reply_received   → la réponse arrive dans la boîte de réception (les déclencheurs posent l'événement et le lead) ;
 //   · email_bounced    → rebond, l'adresse n'est plus utilisée ;
@@ -68,6 +69,9 @@ Deno.serve(async (req: Request) => {
       const envoi = await envoiDeLEvenement()
       if (envoi) {
         await sb.from("cmp_envois").update({ fournisseur_id: messageId }).eq("id", envoi)
+        // Un envoi noté « non parti » (statut erreur, 26/11/2026) qu'Instantly envoie finalement : il redevient « envoyé »,
+        // et le moteur ne le renvoie pas une seconde fois.
+        await sb.from("cmp_envois").update({ statut: "envoye" }).eq("id", envoi).eq("statut", "erreur")
         // Le mail est PARTI (25/11/2026) : jusqu'ici il n'était que confié à Instantly. L'écran compte « touchés » et
         // « délivrés » sur cette confirmation ; une seule par envoi.
         const { count } = await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("envoi_id", envoi).eq("type", "delivre")

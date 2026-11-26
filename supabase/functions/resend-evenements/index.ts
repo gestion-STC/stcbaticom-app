@@ -8,12 +8,14 @@
 //   · email.bounced   → rebond DÉFINITIF : la fiche passe « injoignable »,
 //                       l'adresse est marquée invalide et exclue ;
 //   · email.complained → l'artisan a signalé l'e-mail comme indésirable :
-//                       fiche « désinscrite », adresse exclue.
+//                       fiche « désinscrite », adresse exclue ; une agence ou un client
+//                       gestionnaire : « ne plus écrire » sur sa fiche (26/11/2026).
 // L'envoi est retrouvé par son identifiant Resend (st_envois.resend_id) ; à
 // défaut, la fiche par l'adresse destinataire.
 //
-// Signature : Resend signe chaque appel (en-têtes svix-*). Si le secret
-// RESEND_WEBHOOK_SECRET est posé, un appel mal signé est refusé.
+// Signature : Resend signe chaque appel (en-têtes svix-*). Un appel mal signé est
+// refusé, et SANS le secret RESEND_WEBHOOK_SECRET tout appel l'est (26/11/2026 : avant,
+// sans secret, n'importe qui pouvait poser de faux rebonds ou de fausses plaintes).
 //
 // Installation (une fois) : GET ?action=installer avec la clé service_role en
 // Authorization crée le webhook chez Resend par l'API et renvoie le secret de
@@ -156,7 +158,8 @@ Deno.serve(async (req: Request) => {
   try {
     const corps = await req.text()
     const secret = Deno.env.get("RESEND_WEBHOOK_SECRET")
-    if (secret && !(await signatureValide(req, corps, secret))) return json({ error: "signature invalide" }, 401)
+    if (!secret) { console.error("[RESEND-EVENEMENTS] RESEND_WEBHOOK_SECRET absent : appel refusé"); return json({ error: "signature non vérifiable" }, 401) }
+    if (!(await signatureValide(req, corps, secret))) return json({ error: "signature invalide" }, 401)
 
     const payload = JSON.parse(corps)
     const type = String(payload?.type || "")
@@ -209,6 +212,24 @@ Deno.serve(async (req: Request) => {
           if (type === "email.opened") await sb.from("agences").update({ dernier_signal_le: quand, dernier_signal: "E-mail ouvert" }).eq("id", agenceId)
         }
         return json({ ok: true, type, demarchage: true, agence_id: agenceId })
+      }
+    }
+    // Une plainte d'agence ou de client gestionnaire (26/11/2026) : son envoi de campagne (mail d'avis), sinon le mail
+    // de démarchage envoyé depuis sa fiche. « Ne plus écrire », comme une demande d'arrêt.
+    if (type === "email.complained" && !envoi && resendId) {
+      let agenceId: string | null = null
+      const { data: ce } = await sb.from("cmp_envois").select("contact_ref, campagne_id").eq("fournisseur_id", resendId).maybeSingle()
+      if (ce) {
+        const { data: camp } = await sb.from("cmp_campagnes").select("base_id").eq("id", ce.campagne_id).maybeSingle()
+        if (["agences", "apporteurs", "clients_gestionnaires"].includes(String(camp?.base_id ?? ""))) agenceId = String(ce.contact_ref)
+      }
+      if (!agenceId) {
+        const { data: m } = await sb.from("messages").select("agence_id").eq("message_id", resendId).not("agence_id", "is", null).limit(1).maybeSingle()
+        agenceId = (m?.agence_id as string | null) ?? null
+      }
+      if (agenceId) {
+        await sb.from("agences").update({ ne_plus_ecrire_le: quand }).eq("id", agenceId).is("ne_plus_ecrire_le", null)
+        if (!stId) return json({ ok: true, type, agence_id: agenceId })
       }
     }
     if (!envoi && !stId) return json({ ok: true, ignore: "hors recrutement" })
