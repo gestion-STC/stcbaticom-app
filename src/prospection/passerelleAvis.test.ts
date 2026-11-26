@@ -38,4 +38,7 @@ describe("à qui demander un avis", () => {
     expect(aRetirer(ex, ["os:1"], new Set(["c"]))).toEqual(["b"])
     expect(aRetirer(ex, [], new Set())).toEqual([])
   })
+  it("un désinscrit n'est jamais retiré : sa désinscription reste (27/11/2026)", () => {
+    expect(aRetirer([{ id: "a", ref_stc: "os:1", desinscrit: true }, { id: "b", ref_stc: "os:2", desinscrit: false }], ["os:9"], new Set())).toEqual(["b"])
+  })
 })

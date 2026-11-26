@@ -8,7 +8,7 @@ import { statutDossier } from "./dossierStatut"
 import type { SousTraitant } from "../recrutement"
 import type { Espace } from "./messagesDb"
 import { AUCUN_FAIT, etapeDuSousTraitant, niveauDe, positionDans, type Faits } from "./parcoursLead"
-import { campagneParContact, niveauAgence, type LeadRecu, type Niveau } from "./leadsRecus"
+import { campagneParContact, leadPrioritaire, niveauAgence, type LeadRecu, type Niveau } from "./leadsRecus"
 import type { PositionCampagne } from "../prospection/mesureCampagne"
 import { versCampagne } from "../prospection/depotSupabase"
 import { ORIGINE_TRACABILITE, configDe, qualificationDeDepart, type Creatif, type Qualification } from "../prospection/configCampagne"
@@ -38,7 +38,8 @@ function faitsAgence(a: LigneAgence | undefined, l: LigneLead | undefined): Fait
   return {
     ...AUCUN_FAIT, interet: Boolean(l), jointInteresse: interesse, formulaireProspect: l?.source === "formulaire",
     rdv: l?.resultat === "rdv" || a?.etape === "rdv_planifie", compteOuvert: Boolean(a?.compte_ouvert_le), premierOs: Boolean(a?.premier_os_le) || a?.etape === "client",
-    perdu: l?.statut === "retombe" || ["pas_interesse", "injoignable", "apporteur"].includes(l?.resultat ?? "") || ETAPES_PERDUES.includes(a?.etape ?? ""),
+    // Fermé par la désinscription (27/11/2026) : perdu, comme un « pas intéressé ».
+    perdu: l?.statut === "retombe" || ["pas_interesse", "injoignable", "apporteur", "desinscrit"].includes(l?.resultat ?? "") || ETAPES_PERDUES.includes(a?.etape ?? ""),
   }
 }
 function faitsArtisan(s: LigneArtisan | undefined, dossier: { traiteLe?: string | null; completLe?: string | null } | undefined): Faits {
@@ -78,7 +79,7 @@ export async function validerEtape(campagneId: string, contactRef: string, etape
   if (error) throw new Error(error.message)
 }
 
-type Brut = { id: string; espace: Espace; contactRef: string; niveau: Niveau; nom: string; signal: string; detail: string; quand: string; proprietaireId: string | null; cible: LeadRecu["cible"]; faits: Faits; contacte: boolean; etat?: LeadRecu["etat"] }
+type Brut = { id: string; espace: Espace; contactRef: string; niveau: Niveau; nom: string; signal: string; detail: string; quand: string; depuis?: string; proprietaireId: string | null; cible: LeadRecu["cible"]; faits: Faits; contacte: boolean; etat?: LeadRecu["etat"] }
 
 export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[]; positions: PositionCampagne[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
@@ -122,7 +123,13 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
   }
 
   // La campagne de chacun : la dernière où il est entré.
-  const leadsParAgence = new Map(lignesLeads.map((l) => [l.agence_id, l]))
+  // Le lead d'une agence (27/11/2026) : l'ouvert s'il y en a un, sinon le plus récent (avant : le dernier par identifiant,
+  // donc au hasard entre un ancien lead traité et le nouveau).
+  const leadsParAgence = new Map<string, LigneLead>()
+  for (const l of lignesLeads) {
+    const deja = leadsParAgence.get(l.agence_id)
+    if (!deja || leadPrioritaire(l, deja)) leadsParAgence.set(l.agence_id, l)
+  }
   const dossiersParFiche = new Map(dossiers.filter((d) => d.sousTraitantId).map((d) => [d.sousTraitantId as string, d]))
   const refs = [...agencesParId.keys(), ...artisansParId.keys()]
   const inscriptions: { campagneId: string; contactRef: string; entreeLe: string }[] = []
@@ -142,7 +149,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
       const pos = positionDans(horsCampagne[b.espace], b.faits, new Set(), b.contacte)
       if (!pos.estLead) return null
       const etapeLead = b.espace === "recrutement" ? etapeDuSousTraitant(pos.etape, b.faits.compteOuvert, decisions.get(b.contactRef)) : pos.etape
-      return { id: b.id, espace: b.espace, niveau: b.niveau, nom: b.nom, signal: b.signal, detail: b.detail, quand: b.quand, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef, campagne: null, aTraiterSous: horsCampagne[b.espace].delaiH, cible: b.cible }
+      return { id: b.id, espace: b.espace, niveau: b.niveau, nom: b.nom, signal: b.signal, detail: b.detail, quand: b.quand, depuis: b.depuis, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef, campagne: null, aTraiterSous: horsCampagne[b.espace].delaiH, cible: b.cible }
     }
     const valides = new Set(progression.filter((p) => p.campagne_id === camp.c.id && p.contact_ref === b.contactRef).map((p) => p.etape_id))
     // Les formulaires remplis pour ce contact dans cette campagne : ce sont des faits, et ils donnent la qualité.
@@ -155,7 +162,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     positions.push({ campagneId: camp.c.id, atteintes: pos.atteintes, estLead: pos.estLead, etape: etapeLead, contactId: b.contactRef })
     if (!pos.estLead) return null
     return {
-      id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
+      id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, depuis: b.depuis, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,
       campagne: { id: camp.c.id, nom: camp.c.nom }, aTraiterSous: camp.q.delaiH, cible: b.cible, qualite: niveauDe(camp.q, pos.atteintes, Object.assign({}, ...Object.values(reponses))),
       parcours: { etapes: camp.q.etapes, leadA: camp.q.leadA, gagneA: camp.q.gagneA, atteintes: pos.atteintes, valides: [...valides], courante: pos.courante, formulaires: camp.formulaires, reponses },
     }
@@ -167,7 +174,9 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
       return construire({
         id: `a:${a.id}`, espace: "demarchage", contactRef: a.id, niveau: l ? niveauAgence(l.source) : "interet", nom: a.nom || "Agence",
         signal: l?.signal ?? "Joint au téléphone, intéressé", detail: l?.detail ?? "",
-        quand: l?.dernier_signal_le ?? l?.cree_le ?? a.derniere_activite_le ?? "", proprietaireId: a.commercial_id, cible: { type: "agence", id: a.id }, faits: faitsAgence(a, l), contacte: (l?.tentatives ?? 0) > 0,
+        quand: l?.dernier_signal_le ?? l?.cree_le ?? a.derniere_activite_le ?? "", depuis: l?.cree_le, proprietaireId: a.commercial_id, cible: { type: "agence", id: a.id }, faits: faitsAgence(a, l),
+        // Un lead traité (joint au téléphone, « à rappeler »…) a été contacté, même sans tentative comptée (27/11/2026).
+        contacte: (l?.tentatives ?? 0) > 0 || l?.statut === "traite",
       })
     }),
     ...dossiers.map((d) => {

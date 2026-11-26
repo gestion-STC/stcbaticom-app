@@ -38,23 +38,25 @@ Deno.serve(async (req: Request) => {
     if (!cle || (await signer(cle, c, k, test)) !== b.s) return json({ error: "Ce lien n'est pas valide." }, 403)
 
     const { data: camp } = await sb.from("cmp_campagnes").select("id, base_id, config").eq("id", c).maybeSingle()
-    const config = (camp as { config?: { creatifs?: Creatif[] } } | null)?.config
-    const creatif = config?.creatifs?.find((x) => x.id === f)
-    if (!camp || !creatif || (creatif.type !== "formulaire" && creatif.type !== "page" && creatif.type !== "avis")) return json({ error: "Ce contenu n'existe plus." }, 404)
-
-    const baseId = (camp as { base_id: string }).base_id
-    // Se désinscrire depuis un message d'avis : la personne n'est plus jamais sollicitée.
+    const baseId = String((camp as { base_id?: string } | null)?.base_id ?? "")
+    // Se désinscrire depuis un message d'avis : la personne n'est plus jamais sollicitée. Traité AVANT de chercher la page
+    // (27/11/2026) : la signature prouve le contact, et une page retirée de la campagne ne doit pas rendre le lien STOP
+    // (ni le bouton « Se désinscrire » de la messagerie) inopérant. Un échec d'enregistrement répond 500 : jamais « c'est noté ».
     if (b.action === "desinscrire") {
       if (!test) {
         const le = new Date().toISOString()
-        if (baseId === "clients_gestionnaires") await sb.from("agences").update({ ne_plus_ecrire_le: le }).eq("id", k)
-        else {
-          await sb.from("avis_contacts").update({ desinscrit: true }).eq("id", k)
-          await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: le, desinscrit_canal: "avis" }).eq("id", k)
+        if (baseId === "clients_gestionnaires") {
+          const { error } = await sb.from("agences").update({ ne_plus_ecrire_le: le }).eq("id", k).is("ne_plus_ecrire_le", null)
+          if (error) throw new Error(`désinscription non enregistrée : ${error.message}`)
+        } else {
+          const { error } = await sb.from("avis_contacts").update({ desinscrit: true }).eq("id", k)
+          if (error) throw new Error(`désinscription non enregistrée : ${error.message}`)
+          const { error: eSt } = await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: le, desinscrit_canal: "avis" }).eq("id", k)
+          if (eSt) throw new Error(`désinscription non enregistrée : ${eSt.message}`)
         }
-        await sb.from("cmp_inscriptions").update({ statut: "desinscrit", sortie_le: le }).eq("campagne_id", c).eq("contact_ref", k).eq("statut", "en_cours")
+        if (camp) await sb.from("cmp_inscriptions").update({ statut: "desinscrit", sortie_le: le }).eq("campagne_id", c).eq("contact_ref", k).eq("statut", "en_cours")
         // La désinscription compte dans le suivi de la campagne (25/11/2026), rattachée au dernier envoi reçu ; une seule fois.
-        const { count: deja } = await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("type", "desinscription")
+        const { count: deja } = camp ? await sb.from("cmp_evenements").select("id", { count: "exact", head: true }).eq("campagne_id", c).eq("contact_ref", k).eq("type", "desinscription") : { count: 1 }
         if (!deja) {
           const { data: dernier } = await sb.from("cmp_envois").select("id").eq("campagne_id", c).eq("contact_ref", k).eq("statut", "envoye").order("le", { ascending: false }).limit(1)
           const { error: errEv } = await sb.from("cmp_evenements").insert({ campagne_id: c, envoi_id: (dernier?.[0] as { id?: string } | undefined)?.id ?? null, contact_ref: k, type: "desinscription", le })
@@ -63,6 +65,10 @@ Deno.serve(async (req: Request) => {
       }
       return json({ ok: true })
     }
+
+    const config = (camp as { config?: { creatifs?: Creatif[] } } | null)?.config
+    const creatif = config?.creatifs?.find((x) => x.id === f)
+    if (!camp || !creatif || (creatif.type !== "formulaire" && creatif.type !== "page" && creatif.type !== "avis")) return json({ error: "Ce contenu n'existe plus." }, 404)
     if (creatif.type === "avis" && b.action === "lire") {
       // Avis = avis GOOGLE uniquement (17/11/2026) : la page renvoie aussitôt sur Google. On note le passage, une fois.
       if (!test && creatif.lienGoogle) {

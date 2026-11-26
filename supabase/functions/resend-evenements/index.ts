@@ -169,7 +169,9 @@ Deno.serve(async (req: Request) => {
     const sb = createClient(base, service)
     const resendId = String(d.email_id || "")
     const destinataire = String((Array.isArray(d.to) ? d.to[0] : d.to) || "").toLowerCase().trim()
-    const quand = String(d.created_at || payload.created_at || new Date().toISOString())
+    // L'heure de L'ÉVÉNEMENT (payload.created_at), pas celle de l'envoi du mail (data.created_at) : avant le 27/11/2026,
+    // ouvertures, rebonds et plaintes étaient datés à l'envoi (103 ouvertures sur 103), et le « dernier signal » reculait.
+    const quand = String(payload.created_at || d.created_at || new Date().toISOString())
 
     // ── Le mail de la BOÎTE (26/11/2026) : un rebond le marque « non remis », l'écran le montre au lieu
     // d'« E-mail envoyé » (avant : seule une note sur la fiche agence le disait). Démarchage et recrutement.
@@ -230,7 +232,18 @@ Deno.serve(async (req: Request) => {
       const { data: ce } = await sb.from("cmp_envois").select("contact_ref, campagne_id").eq("fournisseur_id", resendId).maybeSingle()
       if (ce) {
         const { data: camp } = await sb.from("cmp_campagnes").select("base_id").eq("id", ce.campagne_id).maybeSingle()
-        if (["agences", "apporteurs", "clients_gestionnaires"].includes(String(camp?.base_id ?? ""))) agenceId = String(ce.contact_ref)
+        const baseId = String(camp?.base_id ?? "")
+        if (["agences", "apporteurs", "clients_gestionnaires"].includes(baseId)) agenceId = String(ce.contact_ref)
+        // Un mail d'AVIS (locataire, sous-traitant actuel) signalé indésirable (27/11/2026) : la personne est désinscrite,
+        // comme par le lien du mail (formulaire-campagne) ; avant, seul l'événement était noté et les relances continuaient.
+        if (["locataires", "sous_traitants_actifs"].includes(baseId)) {
+          const k = String(ce.contact_ref)
+          const { error: eAvis } = await sb.from("avis_contacts").update({ desinscrit: true, maj_le: quand }).eq("id", k)
+          if (eAvis) throw new Error(`plainte d'avis non enregistrée : ${eAvis.message}`)
+          await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: quand, desinscrit_canal: "plainte", statut_motif: "signalé comme indésirable" }).eq("id", k).neq("statut", "desinscrit")
+          await sb.from("cmp_inscriptions").update({ statut: "desinscrit", sortie_le: quand }).eq("campagne_id", ce.campagne_id).eq("contact_ref", k).eq("statut", "en_cours")
+          if (!stId) return json({ ok: true, type, avis: k })
+        }
       }
       if (!agenceId) {
         const { data: m } = await sb.from("messages").select("agence_id").eq("message_id", resendId).not("agence_id", "is", null).limit(1).maybeSingle()
@@ -259,11 +272,13 @@ Deno.serve(async (req: Request) => {
         if (st?.email) await sb.from("st_exclusions").upsert({ email: String(st.email).toLowerCase().trim() || null, telephone: null, motif: "adresse e-mail injoignable (rebond)" }, { onConflict: "email", ignoreDuplicates: true })
       }
     } else if (type === "email.complained" && stId) {
-      const { data: st } = await sb.from("st_sous_traitants").select("email, statut").eq("id", stId).maybeSingle()
+      const { data: st } = await sb.from("st_sous_traitants").select("email, telephone, statut").eq("id", stId).maybeSingle()
       if (st && st.statut !== "desinscrit") {
         await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: quand, desinscrit_canal: "plainte", statut_motif: "signalé comme indésirable" }).eq("id", stId)
       }
-      if (st?.email) await sb.from("st_exclusions").upsert({ email: String(st.email).toLowerCase().trim() || null, telephone: null, motif: "signalé comme indésirable" }, { onConflict: "email", ignoreDuplicates: true })
+      // L'adresse ET le numéro (27/11/2026 : le numéro n'entrait pas, 4 artisans concernés) ; la ligne déjà là est complétée.
+      const { error: eExcl } = await sb.rpc("st_exclure", { p_email: st?.email ?? "", p_telephone: st?.telephone ?? "", p_motif: "signalé comme indésirable" })
+      if (eExcl) throw new Error(`exclusion non enregistrée : ${eExcl.message}`)
     }
     return json({ ok: true, type, envoi: envoi?.id ?? null, sous_traitant_id: stId })
   } catch (e) {

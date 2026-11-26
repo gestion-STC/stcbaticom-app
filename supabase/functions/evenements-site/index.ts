@@ -66,6 +66,8 @@ async function retrouverAgence(sb: SupabaseClient, e: { jeton_source?: string; e
 }
 
 const ATTENTE_ROBOT_MS = 8000
+/** La page « Créer un compte » : jugée après la fin de la rafale d'un robot (ses clics tombent jusqu'à 10 s avant elle). */
+const ATTENTE_PAGE_MS = 10_000
 /** Une tâche qui continue après la réponse (la redirection part tout de suite). */
 function apres(tache: () => Promise<void>): void {
   const p = tache().catch((e) => console.error("[EVENEMENTS-SITE] tâche après réponse :", e))
@@ -74,14 +76,14 @@ function apres(tache: () => Promise<void>): void {
 }
 
 /** La page du lien de désinscription : confirmer (bouton), c'est fait, ou lien inconnu. */
-function pageStop(etat: "confirmer" | "fait" | "inconnu", jeton: string): Response {
+function pageStop(etat: "confirmer" | "fait" | "inconnu", jeton: string, statut = 200): Response {
   const corps = etat === "confirmer"
     ? `<h1 style="font-size:20px;margin:0 0 10px">Ne plus recevoir nos messages ?</h1><p style="margin:0 0 20px;color:#525252;line-height:1.55">Confirmez pour ne plus recevoir les messages de prospection de STC Bâtiment.</p><form method="post" action="?stop=${encodeURIComponent(jeton)}"><button type="submit" style="background:#17181a;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px;cursor:pointer">Confirmer ma désinscription</button></form>`
     : etat === "fait"
       ? `<h1 style="font-size:20px;margin:0 0 10px">C'est noté</h1><p style="margin:0;color:#525252;line-height:1.55">Vous ne recevrez plus nos messages de prospection.<br>STC Bâtiment</p>`
       : `<h1 style="font-size:20px;margin:0 0 10px">Lien expiré</h1><p style="margin:0;color:#525252;line-height:1.55">Répondez simplement « stop » à notre message et nous ne vous écrirons plus.<br>STC Bâtiment</p>`
   const page = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Désinscription</title></head><body style="margin:0;background:#f6f6f8;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px"><div style="background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px">${corps}</div></body></html>`
-  return new Response(page, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
+  return new Response(page, { status: statut, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
 }
 
 Deno.serve(async (req: Request) => {
@@ -106,7 +108,13 @@ Deno.serve(async (req: Request) => {
     if (lien?.agence_id) {
       const { data: ag } = await sb.from("agences").select("ne_plus_ecrire_le").eq("id", lien.agence_id).maybeSingle()
       if (!ag?.ne_plus_ecrire_le) {
-        await sb.from("agences").update({ ne_plus_ecrire_le: quand }).eq("id", lien.agence_id)
+        // L'enregistrement échoue (coupure, délai) : pas de « C'est noté » (27/11/2026). La page « répondez stop », en
+        // erreur 500 : le bouton « Se désinscrire » de la messagerie retente.
+        const { error: eDes } = await sb.from("agences").update({ ne_plus_ecrire_le: quand }).eq("id", lien.agence_id)
+        if (eDes) {
+          console.error("[EVENEMENTS-SITE] désinscription NON enregistrée", lien.agence_id, eDes.message)
+          return pageStop("inconnu", jetonStop, 500)
+        }
         const { data: d } = await sb.rpc("cmp_dernier_envoi", { p_contact: String(lien.agence_id), p_avant: quand })
         const dernier = (d as { envoi_id: string; campagne_id: string }[] | null)?.[0]
         if (dernier) await sb.from("cmp_evenements").insert({ campagne_id: dernier.campagne_id, envoi_id: dernier.envoi_id, contact_ref: String(lien.agence_id), type: "desinscription", le: quand })
@@ -154,11 +162,18 @@ Deno.serve(async (req: Request) => {
     const cible = await retrouverAgence(sb, e)
     if (!cible) return json({ ok: true, ignore: "agence inconnue dans la base de prospection", type: e.type })
     if (e.type === "page_ouverte") {
-      // Un robot de sécurité qui a ouvert les liens du mail peut aussi afficher la page : pas de signal s'il vient
-      // d'être repéré sur cette agence (25/11/2026).
-      const { data: robot } = await sb.from("cmp_evenements").select("id").eq("contact_ref", cible.agenceId).eq("robot", true).gte("le", new Date(new Date(quand).getTime() - 5 * 60_000).toISOString()).limit(1)
-      if (robot?.length) return json({ ok: true, ignore: "robot de sécurité" })
-      await poserSignal(sb, cible.agenceId, cible.contactId, "Page « Créer un compte » ouverte", "Sur www.stcbatiment.com, depuis notre e-mail.", quand)
+      // Un robot de sécurité qui a ouvert les liens du mail affiche aussi la page, 7 à 12 s après ses clics (25/11/2026).
+      // 27/11/2026 : on attend la fin de la rafale (10 s), puis on juge sur les liens eux-mêmes (site_robot_recent :
+      // rafale, lien stop ouvert, clic moins d'une minute après le mail), y compris pour un mail envoyé depuis la fiche,
+      // qui n'a pas d'envoi de campagne. STC Bâtiment a sa réponse tout de suite.
+      apres(async () => {
+        await new Promise((r) => setTimeout(r, ATTENTE_PAGE_MS))
+        const { data: robot, error } = await sb.rpc("site_robot_recent", { p_agence: cible.agenceId, p_quand: quand })
+        if (error) console.error("[EVENEMENTS-SITE] page ouverte non jugée :", error.message)
+        if (robot === true) { console.log(`[EVENEMENTS-SITE] page ouverte par un robot · agence ${cible.agenceId}`); return }
+        await poserSignal(sb, cible.agenceId, cible.contactId, "Page « Créer un compte » ouverte", "Sur www.stcbatiment.com, depuis notre e-mail.", quand)
+      })
+      return json({ ok: true, agence_id: cible.agenceId, juge_dans_s: ATTENTE_PAGE_MS / 1000 })
     } else if (e.type === "compte_ouvert") {
       const forme = e.forme === "equipe" ? `une équipe, ${e.nb_gestionnaires ?? 0} gestionnaire${(e.nb_gestionnaires ?? 0) > 1 ? "s" : ""} invité${(e.nb_gestionnaires ?? 0) > 1 ? "s" : ""}` : `un seul compte${e.nb_emails ? `, ${e.nb_emails} adresse${e.nb_emails > 1 ? "s" : ""} rattachée${e.nb_emails > 1 ? "s" : ""}` : ""}`
       await poserSignal(sb, cible.agenceId, cible.contactId, "Compte ouvert sur STC Bâtiment", `${e.nom || ""} · ${e.email || ""} · ${forme}. À confirmer : passe-t-elle « Client » ?`, quand, { email: e.email || "" })

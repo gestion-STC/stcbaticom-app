@@ -29,11 +29,19 @@ async function dejaRange(sb: SupabaseClient, sens: string, messageId: string): P
   const { count } = await sb.from("messages").select("id", { count: "exact", head: true }).eq("sens", sens).eq("message_id", messageId)
   return (count ?? 0) > 0
 }
+// Un échec d'enregistrement remonte (27/11/2026) : la fonction répond 500 et Instantly renvoie l'événement, au lieu de
+// le croire traité. Une agence déjà désinscrite garde sa première date.
 async function desinscrire(sb: SupabaseClient, base: string, contact: string, email: string, canal: string, le: string) {
   if (base === "artisans") {
-    await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: le, desinscrit_canal: canal, statut_motif: "désinscription via Instantly" }).eq("id", contact)
-    if (email) await sb.from("st_exclusions").upsert({ email, telephone: null, motif: "désinscription via Instantly" }, { onConflict: "email", ignoreDuplicates: true })
-  } else await sb.from("agences").update({ ne_plus_ecrire_le: le }).eq("id", contact)
+    const { error } = await sb.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: le, desinscrit_canal: canal, statut_motif: "désinscription via Instantly" }).eq("id", contact).neq("statut", "desinscrit")
+    if (error) throw new Error(`désinscription non enregistrée : ${error.message}`)
+    const { data: st } = await sb.from("st_sous_traitants").select("email, telephone").eq("id", contact).maybeSingle()
+    const { error: eExcl } = await sb.rpc("st_exclure", { p_email: email || (st?.email as string | undefined) || "", p_telephone: (st?.telephone as string | undefined) ?? "", p_motif: "désinscription via Instantly" })
+    if (eExcl) throw new Error(`exclusion non enregistrée : ${eExcl.message}`)
+  } else {
+    const { error } = await sb.from("agences").update({ ne_plus_ecrire_le: le }).eq("id", contact).is("ne_plus_ecrire_le", null)
+    if (error) throw new Error(`désinscription non enregistrée : ${error.message}`)
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -82,14 +90,16 @@ Deno.serve(async (req: Request) => {
       await evenement("rebond")
       if (artisan) await sb.from("st_sous_traitants").update({ email_invalide: true }).eq("id", contact)
     } else if (type === "lead_unsubscribed") {
-      await evenement("desinscription")
+      // La désinscription d'abord : si elle échoue, Instantly renvoie l'événement sans qu'il soit compté deux fois.
       await desinscrire(sb, baseId, contact, email, "instantly", le)
+      await evenement("desinscription")
     } else if (type === "reply_received" && messageId && !(await dejaRange(sb, "entrant", messageId))) {
       const objet = String(b.reply_subject ?? ""), texte = String(b.reply_text ?? "")
+      // La demande d'arrêt d'abord (27/11/2026) : une fois la réponse rangée, un nouvel essai d'Instantly serait ignoré.
+      if (demandeArret(objet, texte)) await desinscrire(sb, baseId, contact, email, "reponse_email", le)
       const { tri, detail: tri_detail } = await lireReponse(objet, texte)
       const { error } = await sb.from("messages").insert({ sens: "entrant", de: email, a: String(b.email_account ?? ""), objet, corps_text: texte, corps_html: String(b.reply_html ?? ""), message_id: messageId, lu: false, brut: b, tri, tri_detail, ...lien })
       if (error) throw new Error(error.message)
-      if (demandeArret(objet, texte)) await desinscrire(sb, baseId, contact, email, "reponse_email", le)
     }
     return json({ ok: true })
   } catch (e) {

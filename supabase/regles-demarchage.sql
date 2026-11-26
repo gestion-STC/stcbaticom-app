@@ -384,7 +384,12 @@ language plpgsql
 as $$
 begin
   perform set_config('app.source', coalesce(p_source, 'fiche'), true);
-  update public.agences set etape = 'client', premier_os_le = coalesce(premier_os_le, p_date, (now() at time zone 'Europe/Paris')::date), derniere_activite_le = now() where id = p_agence_id;
+  -- Venant de STC Bâtiment (27/11/2026), la date la plus ancienne l'emporte : une fiche datée plus tard est recalée.
+  update public.agences set etape = 'client',
+         premier_os_le = case when p_source = 'stc_batiment' and p_date is not null then least(premier_os_le, p_date)
+                              else coalesce(premier_os_le, p_date, (now() at time zone 'Europe/Paris')::date) end,
+         derniere_activite_le = now()
+   where id = p_agence_id;
 end $$;
 
 -- ── Les mails rangés sur leur agence ──
@@ -726,7 +731,7 @@ as $$
 -- empreintes:debut
       ('activites_relance_continue', '277f6b48012f23a8b1b17e557dd191cf'),
       ('activites_touche_agence', '9d1cd0ea5bd09eac1ad897a706b74b1c'),
-      ('agence_premier_os', 'ec639a4844d765424b15d87f25eb2bb8'),
+      ('agence_premier_os', 'ee5d5ca1562e6506fd155ce4d23d262f'),
       ('agence_suit_son_secteur', 'abf3e0af93d90b8e30f0cf88eaae6dfc'),
       ('agences_etape_journal', 'fc6f7ba67ce22c7dc068d2559317e3db'),
       ('agences_etape_relances', '8d48310d52142575ba5bf13577d055e5'),

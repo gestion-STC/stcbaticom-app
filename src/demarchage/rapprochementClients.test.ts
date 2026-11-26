@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { candidats, candidatSolide, domaineGenerique, nomCle, telCle, type AgenceRef } from "../../supabase/functions/synchro-clients/rapprochement"
+import { candidats, candidatSolide, domaineGenerique, nomCle, premierOsARecaler, telCle, type AgenceRef } from "../../supabase/functions/synchro-clients/rapprochement"
 
 const agence = (p: Partial<AgenceRef> & { id: string; nom: string }): AgenceRef => ({
   secteur: null, telephone: "", email: "", etape: "a_prospecter", premierOsLe: null, contactsEmails: [], contactsTels: [], ...p,
@@ -60,5 +60,18 @@ describe("candidats", () => {
   })
   it("aucun indice : aucun candidat", () => {
     expect(candidats({ societe: "Inconnue SARL", nom: "", email: "a@b.fr", telephones: [], nomsAgence: "", codesPostaux: "" }, base)).toEqual([])
+  })
+})
+
+describe("le premier OS recalé sur STC Bâtiment (27/11/2026)", () => {
+  it("une cliente datée plus tard que son premier OS chez STC Bâtiment : recalée au jour de Paris", () => {
+    expect(premierOsARecaler({ etape: "client", premierOsLe: "2026-05-12" }, "2026-04-13T22:30:00Z")).toBe("2026-04-14")
+  })
+  it("même date, date plus récente, plus cliente, sans date : rien", () => {
+    expect(premierOsARecaler({ etape: "client", premierOsLe: "2026-04-14" }, "2026-04-14T08:00:00Z")).toBeNull()
+    expect(premierOsARecaler({ etape: "client", premierOsLe: "2026-04-14" }, "2026-05-01T08:00:00Z")).toBeNull()
+    expect(premierOsARecaler({ etape: "interesse", premierOsLe: "2026-05-12" }, "2026-04-14T08:00:00Z")).toBeNull()
+    expect(premierOsARecaler({ etape: "client", premierOsLe: "2026-05-12" }, null)).toBeNull()
+    expect(premierOsARecaler(undefined, "2026-04-14T08:00:00Z")).toBeNull()
   })
 })
