@@ -17,10 +17,10 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { ArrowLeft, ChevronLeft, ChevronRight, Forward, Loader2, Mail, RefreshCw, Reply, Search, Send, Trash2, X } from "lucide-react"
-import { deciderReponse, piecesPourTransfert } from "../lib/messagesDb"
+import { chargerLies, clesDe, deciderReponse, fusionner, piecesPourTransfert, rechercherMessages, TRANCHE_RECENTS } from "../lib/messagesDb"
 import { creerContact } from "../demarchage/db"
 import {
-  chargerMessages,
+  chargerBoite,
   type Espace,
   marquerLus,
   marquerNonLus,
@@ -34,7 +34,8 @@ import { TOUS, compteDuChoix, filtrerParPersonne, type Personne } from "../lib/f
 import FiltrePersonne from "./boite/FiltrePersonne"
 import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
-import { objetReponse, objetTransfert } from "../lib/messagesUtils"
+import { destinatairesReponse, filDeReponse, messageATransferer, objetReponse, objetTransfert } from "../lib/messagesUtils"
+import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
 import {
   compterNonLues,
   etiquetteDe,
@@ -62,22 +63,19 @@ type Conv = Conversation<Message>
 type Vue = Dossier
 type Mode = "repondre" | "transferer" | null
 
-const ADRESSE_VALIDE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // Le bandeau gris de STC, au-dessus du fil.
 const BANDEAU = "mt-3 flex flex-wrap items-center gap-3 rounded-[10px] bg-[#F6F6F7] px-3.5 py-2.5"
 // Une ligne « À / Objet » du composeur, soulignée d'un filet (STC).
 const LIGNE_COMPO = "flex min-h-[38px] items-center gap-2.5 border-b-[0.5px] border-[#E6E6EA]"
 
-// Corps pré-rempli pour un transfert : cite le message d'origine.
-function corpsTransfert(m: Message): string {
-  const contenu = m.corpsText || "(contenu non textuel — voir le mail d'origine)"
-  return (
-    "\n\n---------- Message transféré ----------\n" +
-    `De : ${m.de}\n` +
-    `Date : ${new Date(m.date).toLocaleString("fr-FR")}\n` +
-    `Objet : ${m.objet}\n\n` +
-    contenu
-  )
+// Un brouillon de réponse ou de transfert, gardé tant qu'on ne l'envoie ni ne l'annule (26/11/2026 : « Retour »
+// puis « Répondre » effaçait ce qu'on avait écrit). En mémoire seulement, par conversation.
+type Brouillon = { mode: Exclude<Mode, null>; cible: string | null; to: string; cc: string; cci: string; copies: boolean; corps: string; pieces: PieceJointe[] }
+
+// Une liste d'adresses saisie : valide si elle en contient au moins une (À) et aucune fausse.
+function adressesOk(texte: string, obligatoire: boolean): boolean {
+  const l = decouperAdresses(texte)
+  return (!obligatoire || l.length > 0) && adressesInvalides(l).length === 0
 }
 
 function LigneCompo({ libelle, children }: { libelle: string; children: ReactNode }) {
@@ -131,6 +129,13 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const prenomCommercial = prenomDe(nomSignataire)
 
   const [messages, setMessages] = useState<Message[]>([])
+  // Les envois les plus récents lus (Envoyés, Tous) ; « Plus anciens » en lit davantage. Réception est toujours complète.
+  const [nbRecents, setNbRecents] = useState(TRANCHE_RECENTS)
+  const [encore, setEncore] = useState(false)
+  const [version, setVersion] = useState(0)
+  // Les messages trouvés par la recherche du serveur, dans toute la boîte.
+  const [trouves, setTrouves] = useState<ReadonlySet<string>>(new Set())
+  const [rechercheEnCours, setRechercheEnCours] = useState(false)
   const [agences, setAgences] = useState<Record<string, string>>({}) // id → nom, pour nommer les conversations
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState("")
@@ -146,6 +151,12 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const [mode, setMode] = useState<Mode>(null)
   const [nouveau, setNouveau] = useState(false)
   const [compoTo, setCompoTo] = useState("")
+  const [compoCc, setCompoCc] = useState("")
+  const [compoCci, setCompoCci] = useState("")
+  const [copiesOuvertes, setCopiesOuvertes] = useState(false)
+  // Le message auquel on répond, ou qu'on transfère (celui sur lequel on a cliqué) ; null = le choix par défaut.
+  const [cibleId, setCibleId] = useState<string | null>(null)
+  const [brouillons, setBrouillons] = useState<Record<string, Brouillon>>({})
   const [compoObjet, setCompoObjet] = useState("")
   const [compoCorps, setCompoCorps] = useState("")
   const [compoPieces, setCompoPieces] = useState<PieceJointe[]>([])
@@ -157,8 +168,10 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     setChargement(true)
     setErreur("")
     try {
-      const liste = await chargerMessages(espace ?? undefined)
+      const { messages: liste, encore: plus } = await chargerBoite(espace ?? undefined, nbRecents)
       setMessages(liste)
+      setEncore(plus)
+      setVersion((v) => v + 1)
       // Le nom de l'agence de chaque conversation (par lots : la liste d'ids peut être longue).
       const ids = [...new Set(liste.map((m) => m.agenceId).filter(Boolean))] as string[]
       if (ids.length && supabase) {
@@ -174,12 +187,35 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     } finally {
       setChargement(false)
     }
-  }, [espace])
+  }, [espace, nbRecents])
 
   useEffect(() => {
     const t = setTimeout(charger, 0)
     return () => clearTimeout(t)
   }, [charger])
+
+  // LA RECHERCHE PORTE SUR TOUTE LA BOÎTE (26/11/2026) : le serveur cherche, on ajoute ce qu'il trouve (et le reste de
+  // ces conversations) à la liste. Avant, elle ne voyait que les 500 derniers messages.
+  useEffect(() => {
+    const q = recherche.trim()
+    let annule = false
+    const t = setTimeout(async () => {
+      if (q.length < 2) { setTrouves(new Set()); setRechercheEnCours(false); return }
+      setRechercheEnCours(true)
+      try {
+        const res = await rechercherMessages(espace ?? undefined, q)
+        const lies = res.length ? await chargerLies(espace ?? undefined, clesDe(res)) : []
+        if (annule) return
+        setMessages((prev) => fusionner(prev, res, lies))
+        setTrouves(new Set(res.map((m) => m.id)))
+      } catch (e) {
+        if (!annule) setErreur(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!annule) setRechercheEnCours(false)
+      }
+    }, 350)
+    return () => { annule = true; clearTimeout(t) }
+  }, [recherche, espace, version])
 
   const filtreParPersonne = admin && espace !== "recrutement" ? compteDuChoix(choixPersonne, moi) : null
   const conversations = useMemo(() => grouperEnConversations(filtrerParPersonne(messages, filtreParPersonne)), [messages, filtreParPersonne])
@@ -187,8 +223,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   // Les réponses « intéressé » sans fiche agence : sans agence, ni lead ni suite (25/11/2026).
   const interessesPerdus = useMemo(() => (espace === "recrutement" ? [] : interessesSansAgence(conversations)), [conversations, espace])
   const visibles = useMemo(
-    () => filtrerConversations(conversations, vue, recherche),
-    [conversations, vue, recherche],
+    () => filtrerConversations(conversations, vue, recherche, trouves),
+    [conversations, vue, recherche, trouves],
   )
   const pagination = useMemo(() => paginer(visibles, pageListe), [visibles, pageListe])
   const ouverte: Conv | null = useMemo(() => conversations.find((c) => c.cle === cleOuverte) ?? null, [conversations, cleOuverte])
@@ -214,7 +250,27 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const [creation, setCreation] = useState(false)
   const [contactCree, setContactCree] = useState("")
 
+  // Le brouillon en cours, gardé pour la conversation (rien n'est écrit en base).
+  function garderBrouillon() {
+    if (!cleOuverte || mode === null) return
+    const b: Brouillon = { mode, cible: cibleId, to: compoTo, cc: compoCc, cci: compoCci, copies: copiesOuvertes, corps: compoCorps, pieces: compoPieces }
+    const vide = !b.corps.trim() && !b.pieces.length && (mode === "repondre" || !b.to.trim())
+    setBrouillons((prev) => {
+      const n = { ...prev }
+      if (vide) delete n[cleOuverte]
+      else n[cleOuverte] = b
+      return n
+    })
+  }
+  function oublierBrouillon(cle: string | null) {
+    if (cle) setBrouillons((prev) => { const n = { ...prev }; delete n[cle]; return n })
+  }
+  function reprendreBrouillon(b: Brouillon) {
+    setMode(b.mode); setCibleId(b.cible); setCompoTo(b.to); setCompoCc(b.cc); setCompoCci(b.cci); setCopiesOuvertes(b.copies); setCompoCorps(b.corps); setCompoPieces(b.pieces)
+  }
+
   function retourListe() {
+    garderBrouillon()
     setCleOuverte(null)
     setMode(null)
     setEnvoiErreur("")
@@ -244,6 +300,11 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     // Le dernier message est déplié, les autres repliés (comme Gmail).
     setDepiles([c.dernier.id])
     marquer(c.messages.filter((m) => m.sens === "entrant" && !m.lu).map((m) => m.id), true)
+    // Un brouillon laissé dans cette conversation revient tel quel.
+    const b = brouillons[c.cle]
+    if (b) reprendreBrouillon(b)
+    // Toute l'histoire de la conversation, même ses messages plus anciens que ceux déjà lus.
+    chargerLies(espace ?? undefined, clesDe(c.messages)).then((l) => { if (l.length) setMessages((prev) => fusionner(prev, l)) }).catch(() => undefined)
   }
 
   function basculerLu(c: Conv) {
@@ -261,22 +322,45 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     setDepiles((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  // Ouvre la zone « Répondre » ou « Transférer » sous la conversation.
-  function ouvrirCompo(m: Mode) {
+  // Ouvre la zone « Répondre » ou « Transférer » sous la conversation, pour le message choisi (sinon le choix par défaut).
+  function ouvrirCompo(m: Exclude<Mode, null>, choisi: Message | null = null) {
+    if (!ouverte) return
     setEnvoiOk("")
     setEnvoiErreur("")
-    setCompoTo("")
-    setCompoCorps(m === "transferer" && ouverte ? corpsTransfert(ouverte.dernier) : "")
+    // Déjà ouvert sur ce message : rien à refaire (on ne perd pas ce qui est écrit).
+    if (mode === m && (choisi === null || cibleId === choisi.id)) return
+    // Une autre action était en cours : son brouillon est gardé.
+    garderBrouillon()
+    // Le brouillon de la même action sur le même message revient (« Retour » puis « Répondre »).
+    const b = brouillons[ouverte.cle]
+    if (b && b.mode === m && (choisi === null || b.cible === choisi.id)) { reprendreBrouillon(b); return }
+    setCibleId(choisi?.id ?? null)
+    setCompoCorps("")
     setCompoPieces([])
+    setCompoCci("")
+    if (m === "repondre") {
+      // À : l'expéditeur du dernier message REÇU (jamais notre propre adresse), modifiable ; Cc et Cci possibles.
+      const d = destinatairesReponse(ouverte.messages, choisi)
+      setCompoTo(joindreAdresses(d.to))
+      setCompoCc(joindreAdresses(d.cc))
+      setCopiesOuvertes(d.cc.length > 0)
+    } else {
+      setCompoTo("")
+      setCompoCc("")
+      setCopiesOuvertes(false)
+    }
     setMode(m)
-    // Transférer emporte les pièces jointes du message (17/11/2026 : seul le texte partait). On peut en retirer avant d'envoyer.
-    const recues = m === "transferer" && ouverte ? [...ouverte.messages].reverse().find((x) => x.piecesJointes.length)?.piecesJointes ?? [] : []
-    if (recues.length) piecesPourTransfert(recues).then((l) => setCompoPieces((actuelles) => (actuelles.length ? actuelles : l))).catch((e) => setEnvoiErreur(`Pièces jointes non reprises : ${e instanceof Error ? e.message : String(e)}. Ajoute-les à la main.`))
+    // Transférer emporte le message choisi (par défaut le dernier reçu), sa mise en page et SES pièces jointes.
+    const recues = m === "transferer" ? messageATransferer(ouverte.messages, choisi)?.piecesJointes ?? [] : []
+    if (recues.some((p) => !p.nonGardee)) piecesPourTransfert(recues).then((l) => setCompoPieces((actuelles) => (actuelles.length ? actuelles : l))).catch((e) => setEnvoiErreur(`Pièces jointes non reprises : ${e instanceof Error ? e.message : String(e)}. Ajoute-les à la main.`))
   }
 
   function ouvrirNouveau() {
+    garderBrouillon()
     setEnvoiOk("")
     setEnvoiErreur("")
+    setCompoCc("")
+    setCompoCci("")
     setCompoTo("")
     setCompoObjet("")
     setCompoCorps("")
@@ -290,8 +374,16 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     setNouveau(false)
     setEnvoiErreur("")
   }
+  // « Annuler » : le brouillon est jeté (geste voulu), contrairement à « Retour ».
+  function annulerCompo() {
+    oublierBrouillon(cleOuverte)
+    fermerCompo()
+  }
 
   const ouvert = ouverte
+  const cible = ouvert && cibleId ? ouvert.messages.find((m) => m.id === cibleId) ?? null : null
+  const aTransferer = ouvert && mode === "transferer" ? messageATransferer(ouvert.messages, cible) : null
+  const objetCible = (cible ?? ouvert?.dernier)?.objet ?? ""
   // La réponse à trancher : la dernière reçue d'une agence, côté démarchage.
   const reponseATrancher = ouvert && ouvert.agenceId ? [...ouvert.messages].reverse().find((m) => m.sens === "entrant" && m.espace === "demarchage") ?? null : null
   async function creerLeContact() {
@@ -315,12 +407,15 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     } catch (e) { setErreur(e instanceof Error ? e.message : String(e)) } finally { setDecision(null) }
   }
 
+  // LinkedIn et la boîte de prospection répondent dans leur propre conversation : pas de champ À.
+  const canalFixe = !!ouvert && mode === "repondre" && (!!messageLinkedIn(ouvert.messages) || !!messageDeProspection(ouvert.messages))
+  const copiesOk = adressesOk(compoCc, false) && adressesOk(compoCci, false)
   const pretAEnvoyer = !piecesTropLourdes(compoPieces) && (
     nouveau
-      ? ADRESSE_VALIDE.test(compoTo.trim()) && compoCorps.trim() !== ""
+      ? adressesOk(compoTo, true) && compoCorps.trim() !== ""
       : mode === "repondre"
-        ? compoCorps.trim() !== ""
-        : ADRESSE_VALIDE.test(compoTo.trim()) && compoCorps.trim() !== "")
+        ? compoCorps.trim() !== "" && (canalFixe || (adressesOk(compoTo, true) && copiesOk))
+        : adressesOk(compoTo, true) && copiesOk && (compoCorps.trim() !== "" || !!aTransferer))
 
   async function envoyer() {
     if (!pretAEnvoyer || envoiEnCours) return
@@ -328,8 +423,9 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     setEnvoiErreur("")
     const pieces = piecesAEnvoyer(compoPieces)
     try {
+      const cleEnvoyee = cleOuverte
       if (nouveau) {
-        await repondreMessage({ to: compoTo.trim(), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml: signaturePour(espace ?? "demarchage"), commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
+        await repondreMessage({ to: decouperAdresses(compoTo), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml: signaturePour(espace ?? "demarchage"), commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
         setEnvoiOk(`Message envoyé à ${compoTo.trim()}.`)
       } else if (ouvert && mode === "repondre" && messageLinkedIn(ouvert.messages)) {
         if (pieces?.length) throw new Error("Pas de pièce jointe sur LinkedIn : mets plutôt un lien.")
@@ -337,40 +433,52 @@ export default function Messages({ espace }: { espace: Espace | null }) {
         setEnvoiOk(`Réponse envoyée sur LinkedIn à ${nomDe(ouvert)}.`)
       } else if (ouvert && mode === "repondre" && messageDeProspection(ouvert.messages)) {
         if (pieces?.length) throw new Error("Pas de pièce jointe sur une réponse à un prospect : mets plutôt un lien.")
-        await repondreParInstantly({ message: messageDeProspection(ouvert.messages)!.id, objet: objetReponse(ouvert.dernier.objet), corps: compoCorps.trim(), signatureHtml: signaturePour(ouvert.dernier.espace) })
+        await repondreParInstantly({ message: messageDeProspection(ouvert.messages)!.id, objet: objetReponse(objetCible), corps: compoCorps.trim(), signatureHtml: signaturePour(ouvert.dernier.espace) })
         setEnvoiOk(`Réponse envoyée à ${nomDe(ouvert)}.`)
       } else if (ouvert && mode === "repondre") {
-        const dernier = ouvert.dernier
+        // Le fil : le Message-ID du mail reçu auquel on répond, jamais l'identifiant d'un de nos envois.
+        const fil = filDeReponse(ouvert.messages, cible)
+        const to = decouperAdresses(compoTo)
         await repondreMessage({
-          to: ouvert.adresse,
-          objet: objetReponse(dernier.objet),
+          to,
+          cc: decouperAdresses(compoCc),
+          cci: decouperAdresses(compoCci),
+          objet: objetReponse(objetCible),
           corps: compoCorps.trim(),
-          inReplyTo: dernier.messageId,
+          inReplyTo: fil.inReplyTo,
+          references: fil.references,
           agenceId: ouvert.agenceId,
-          signatureHtml: signaturePour(ouvert.dernier.espace),
+          signatureHtml: signaturePour((cible ?? ouvert.dernier).espace),
           commercial: prenomCommercial,
-          espace: ouvert.dernier.espace,
+          espace: (cible ?? ouvert.dernier).espace,
           pieces,
         })
-        setEnvoiOk(`Réponse envoyée à ${nomDe(ouvert)}.`)
-      } else if (ouvert && mode === "transferer") {
+        setEnvoiOk(`Réponse envoyée à ${joindreAdresses(to)}.`)
+      } else if (ouvert && mode === "transferer" && aTransferer) {
         await repondreMessage({
-          to: compoTo.trim(),
-          objet: objetTransfert(ouvert.dernier.objet),
+          to: decouperAdresses(compoTo),
+          cc: decouperAdresses(compoCc),
+          cci: decouperAdresses(compoCci),
+          objet: objetTransfert(aTransferer.objet),
           corps: compoCorps.trim(),
           inReplyTo: null,
           agenceId: null,
-          signatureHtml: signaturePour(ouvert.dernier.espace),
+          signatureHtml: signaturePour(aTransferer.espace),
           commercial: prenomCommercial,
-          espace: ouvert.dernier.espace,
+          espace: aTransferer.espace,
           pieces,
+          citation: { de: aTransferer.de, a: aTransferer.a, date: aTransferer.date, objet: aTransferer.objet, html: aTransferer.corpsHtml, texte: aTransferer.corpsText },
         })
-        setEnvoiOk(`Message transféré à ${compoTo.trim()}.`)
+        setEnvoiOk(`Message transféré à ${joindreAdresses(decouperAdresses(compoTo))}.`)
       }
       setCompoCorps("")
       setCompoTo("")
+      setCompoCc("")
+      setCompoCci("")
       setCompoObjet("")
       setCompoPieces([])
+      setCibleId(null)
+      if (!nouveau) oublierBrouillon(cleEnvoyee)
       fermerCompo()
       charger()
     } catch (e) {
@@ -416,6 +524,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
               <h1 className={TITRE_PAGE}>Boîte de réception</h1>
               <p className={SOUS_TITRE}>
                 {libelleBoite} · <span className="tabular-nums">{visibles.length}</span> conversation{visibles.length > 1 ? "s" : ""}
+                {encore && vue !== "reception" && vue !== "nonlus" && !recherche.trim() && <> (les plus récentes)</>}
+                {rechercheEnCours && <> · recherche dans toute la boîte…</>}
                 {nbNonLues > 0 && <> · <span className="tabular-nums">{nbNonLues}</span> non lue{nbNonLues > 1 ? "s" : ""}</>}
               </p>
             </div>
@@ -499,6 +609,14 @@ export default function Messages({ espace }: { espace: Espace | null }) {
               </button>
               <button type="button" className={OUTIL} disabled={pages.page >= pages.pages} onClick={() => setPageListe(pages.page + 1)} aria-label="Page suivante">
                 <ChevronRight className="h-[15px] w-[15px]" strokeWidth={1.8} />
+              </button>
+            </div>
+          )}
+          {/* Rien n'est caché : les envois plus anciens se lisent à la demande (la Réception, elle, est toujours complète). */}
+          {encore && pages.page >= pages.pages && vue !== "reception" && vue !== "nonlus" && (
+            <div className="flex justify-center pt-3">
+              <button type="button" className={`${PILULE_CLAIRE} ${PETITE}`} disabled={chargement} onClick={() => setNbRecents((n) => n + TRANCHE_RECENTS)}>
+                {chargement && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Plus anciens
               </button>
             </div>
           )}
@@ -607,7 +725,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
           {/* Le fil : une surface, des messages séparés par un filet, comme Gmail. */}
           <div className="flex-1">
             {ouvert.messages.map((m) => (
-              <MessageDuFil key={m.id} m={m} ouvert={depiles.includes(m.id)} objetDuFil={ouvert.objet} onToggle={() => basculerMessage(m.id)} />
+              <MessageDuFil key={m.id} m={m} ouvert={depiles.includes(m.id)} objetDuFil={ouvert.objet} onToggle={() => basculerMessage(m.id)}
+                onRepondre={linkedIn ? undefined : () => ouvrirCompo("repondre", m)} onTransferer={() => ouvrirCompo("transferer", m)} />
             ))}
           </div>
 
@@ -626,7 +745,7 @@ export default function Messages({ espace }: { espace: Espace | null }) {
               </div>
             ) : (
               <div className="max-h-[55vh] overflow-y-auto">
-                {mode === "repondre" ? (
+                {canalFixe ? (
                   <div className={LIGNE_COMPO}>
                     <span className="w-12 shrink-0 text-[#8E8E93]">À</span>
                     <span className="min-w-0 truncate">
@@ -635,15 +754,32 @@ export default function Messages({ espace }: { espace: Espace | null }) {
                     </span>
                   </div>
                 ) : (
-                  <LigneCompo libelle="À">
-                    <input value={compoTo} onChange={(e) => setCompoTo(e.target.value)} autoFocus placeholder="destinataire@exemple.fr" aria-label="Destinataire"
-                      className="min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6]" />
-                  </LigneCompo>
+                  <>
+                    {/* À modifiable, plusieurs adresses possibles ; Cc et Cci d'un clic, comme sur la fiche agence. */}
+                    <LigneCompo libelle="À">
+                      <input value={compoTo} onChange={(e) => setCompoTo(e.target.value)} onBlur={() => setCompoTo(joindreAdresses(decouperAdresses(compoTo)))} autoFocus={mode === "transferer"}
+                        placeholder="destinataire@exemple.fr" aria-label="Destinataire"
+                        className={`min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6] ${adressesOk(compoTo, false) ? "" : "text-[#C9302C]"}`} />
+                      {!copiesOuvertes && <button type="button" onClick={() => setCopiesOuvertes(true)} className="shrink-0 text-[11px] text-[#6B6B70] hover:text-[#111113]">Cc · Cci</button>}
+                    </LigneCompo>
+                    {copiesOuvertes && (
+                      <>
+                        <LigneCompo libelle="Cc">
+                          <input value={compoCc} onChange={(e) => setCompoCc(e.target.value)} onBlur={() => setCompoCc(joindreAdresses(decouperAdresses(compoCc)))} placeholder="En copie, visible par tous" aria-label="Copie"
+                            className={`min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6] ${adressesOk(compoCc, false) ? "" : "text-[#C9302C]"}`} />
+                        </LigneCompo>
+                        <LigneCompo libelle="Cci">
+                          <input value={compoCci} onChange={(e) => setCompoCci(e.target.value)} onBlur={() => setCompoCci(joindreAdresses(decouperAdresses(compoCci)))} placeholder="En copie cachée" aria-label="Copie cachée"
+                            className={`min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6] ${adressesOk(compoCci, false) ? "" : "text-[#C9302C]"}`} />
+                        </LigneCompo>
+                      </>
+                    )}
+                  </>
                 )}
                 {!(mode === "repondre" && linkedIn) && (
                   <div className={LIGNE_COMPO}>
                     <span className="w-12 shrink-0 text-[#8E8E93]">Objet</span>
-                    <span className="min-w-0 truncate">{mode === "repondre" ? objetReponse(ouvert.dernier.objet) : objetTransfert(ouvert.dernier.objet)}</span>
+                    <span className="min-w-0 truncate">{mode === "repondre" ? objetReponse(objetCible) : objetTransfert(aTransferer?.objet ?? "")}</span>
                   </div>
                 )}
                 <textarea
@@ -651,17 +787,22 @@ export default function Messages({ espace }: { espace: Espace | null }) {
                   onChange={(e) => setCompoCorps(e.target.value)}
                   rows={mode === "repondre" ? 4 : 8}
                   autoFocus={mode === "repondre"}
-                  placeholder="Rédigez votre message… (la signature est ajoutée automatiquement)"
+                  placeholder={mode === "transferer" ? "Un mot pour accompagner le transfert (facultatif)…" : "Rédigez votre message… (la signature est ajoutée automatiquement)"}
                   aria-label="Message"
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void envoyer() }}
                   className="block max-h-[500px] min-h-[96px] w-full resize-none border-0 bg-transparent py-2 text-[13px] leading-[1.65] outline-none placeholder:text-[#A1A1A6]"
                 />
+                {aTransferer && (
+                  <p className="pb-2 text-[11px] text-[#8E8E93]">
+                    Le message de {aTransferer.de || "?"} du {new Date(aTransferer.date).toLocaleString("fr-FR")} suit, avec sa mise en page.
+                  </p>
+                )}
                 <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
                 <div className="flex flex-wrap items-center gap-1.5">
                   {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
                   {envoiErreur && <span className="min-w-0 text-[11px] text-[#C9302C]">{envoiErreur}</span>}
                   <span className="flex-1" />
-                  <button type="button" className="px-2 text-[11px] text-[#6B6B70] hover:text-[#111113] hover:underline" onClick={fermerCompo}>Annuler</button>
+                  <button type="button" className="px-2 text-[11px] text-[#6B6B70] hover:text-[#111113] hover:underline" onClick={annulerCompo}>Annuler</button>
                   <button type="button" onClick={() => void envoyer()} disabled={envoiEnCours || !pretAEnvoyer} aria-label={envoiEnCours ? "Envoi…" : "Envoyer"} title="Envoyer (Ctrl + Entrée)"
                     className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#111113] text-white hover:bg-[#2A2A2E] disabled:opacity-50">
                     {envoiEnCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-[15px] w-[15px]" strokeWidth={1.8} />}

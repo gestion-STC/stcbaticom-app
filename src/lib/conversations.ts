@@ -98,10 +98,13 @@ export function grouperEnConversations<M extends MessageConv>(messages: M[]): Co
 }
 
 // Le dossier, puis la recherche (nom, adresse, objet, contenu).
+// `trouves` (26/11/2026) : les messages que la recherche du SERVEUR a trouvés dans toute la boîte (y compris dans la
+// mise en page HTML) ; une conversation qui en contient un est gardée.
 export function filtrerConversations<M extends MessageConv>(
   convs: Conversation<M>[],
   dossier: Dossier,
   recherche = "",
+  trouves?: ReadonlySet<string>,
 ): Conversation<M>[] {
   const parDossier = convs.filter((c) =>
     dossier === "tous" ? true : dossier === "reception" ? c.aRecu : dossier === "nonlus" ? c.nonLus > 0 : c.aEnvoye,
@@ -109,6 +112,7 @@ export function filtrerConversations<M extends MessageConv>(
   const q = recherche.trim().toLowerCase()
   if (!q) return parDossier
   return parDossier.filter((c) =>
+    (trouves?.size ? c.messages.some((m) => trouves.has(m.id)) : false) ||
     [c.nom, c.adresse, c.objet, ...c.messages.map((m) => m.objet), ...c.messages.map((m) => m.corpsText || "")].some(
       (v) => (v || "").toLowerCase().includes(q),
     ),

@@ -19,7 +19,8 @@
 // L'ancienne copie du dépôt (contrat A seul) ne correspondait plus à la prod.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { estServeur, jetonDe, membre } from "../_shared/acces.ts";
-import { ADRESSE_GENERALE, compteQuiEnvoie, expediteurDemarchage, signatureAvecAdresse } from "../_shared/boitesMail.ts";
+import { ADRESSE_GENERALE, adresseAncree, compteQuiEnvoie, expediteurDemarchage, signatureAvecAdresse } from "../_shared/boitesMail.ts";
+import { cheminDuJournal, citationTransfert, enteteDeFil, listeAdresses } from "../_shared/fil.ts";
 //  11/11/2026 — UNE ADRESSE PAR COMMERCIAL (comme STC Bâtiment) : un mail du démarchage part de l'adresse
 //  dédiée de la personne qui envoie (table equipe, colonne email_reception) : « Prénom Nom — STC Bâtiment
 //  <prenom@crm.stcbatiment.fr> », réponses à la même adresse, et la signature la montre. La personne qui
@@ -138,12 +139,13 @@ Deno.serve(async (req: Request) => {
       if (!objetFinal && !corpsHtmlFinal) return json({ error: "Email vide (ni objet ni contenu)." }, 400);
       // PLUSIEURS DESTINATAIRES (08/10/2026) : un seul e-mail, tous en « À »,
       // journalisé une fois avec toutes les adresses.
-      const tous = (Array.isArray(to) ? to : [to]).map(adresse).filter((a) => a.includes("@"));
+      // Une adresse enregistrée qui est une liste (« a@x, b@y ») est découpée (26/11/2026).
+      const tous = listeAdresses(to);
       if (tous.length === 0) return json({ error: "Aucune adresse de destinataire valide." }, 400);
       destinataire = tous[0];
       // Cc et Cci (Mahdi, 09/10/2026) : des listes d'adresses, journalisées avec le message.
-      const cc = (Array.isArray(corps?.cc) ? corps.cc : []).map(adresse).filter((a: string) => a.includes("@") && !tous.includes(a));
-      const bcc = (Array.isArray(corps?.bcc) ? corps.bcc : []).map(adresse).filter((a: string) => a.includes("@") && !tous.includes(a) && !cc.includes(a));
+      const cc = listeAdresses(corps?.cc).filter((a) => !tous.includes(a));
+      const bcc = listeAdresses(corps?.bcc).filter((a) => !tous.includes(a) && !cc.includes(a));
       aPourMessage = tous.join(", ") + (cc.length ? " · cc : " + cc.join(", ") : "") + (bcc.length ? " · cci : " + bcc.join(", ") : "");
       if (tailleTotale(corps?.pieces) > PLAFOND_PIECES) return json({ error: "Pièces jointes trop lourdes (35 Mo au total au maximum)." }, 400);
       const attachments = enPiecesJointes(corps?.pieces);
@@ -160,7 +162,7 @@ Deno.serve(async (req: Request) => {
       }
     } else {
       // ── Contrat B (moteur / boîte) : composition serveur ──
-      const { to, email_id, modele_nom, objet, corps: corpsDirect, in_reply_to, signature_html, commercial } = corps ?? {};
+      const { to, email_id, modele_nom, objet, corps: corpsDirect, in_reply_to, references, signature_html, commercial, citation } = corps ?? {};
       // Les variables des modèles : l'agence et son contact principal, s'ils sont connus.
       type Fiche = { contact: string; entreprise: string; email: string; telephone: string; arrondissement: string };
       let fiche: Fiche | null = null;
@@ -168,8 +170,14 @@ Deno.serve(async (req: Request) => {
         const { data: a } = await admin.from("agences_liste").select("nom, email, telephone, secteur_libelle, contact_principal").eq("id", agenceId).maybeSingle();
         if (a) fiche = { contact: a.contact_principal ?? "", entreprise: a.nom ?? "", email: a.email ?? "", telephone: a.telephone ?? "", arrondissement: a.secteur_libelle ?? "" };
       }
-      destinataire = adresse(to || fiche?.email || "");
-      if (!destinataire.includes("@")) return json({ error: "Destinataire manquant ou invalide." }, 400);
+      // Plusieurs destinataires, Cc et Cci en réponse (26/11/2026) ; une adresse enregistrée « a@x, b@y » ou
+      // « h2i@… · cc : … » est découpée proprement (avant : envoi refusé).
+      const tousB = listeAdresses(to || fiche?.email || "");
+      destinataire = tousB[0] ?? "";
+      if (!destinataire) return json({ error: "Destinataire manquant ou invalide." }, 400);
+      const ccB = listeAdresses(corps?.cc).filter((a) => !tousB.includes(a));
+      const bccB = listeAdresses(corps?.bcc).filter((a) => !tousB.includes(a) && !ccB.includes(a));
+      aPourMessage = tousB.join(", ") + (ccB.length ? " · cc : " + ccB.join(", ") : "") + (bccB.length ? " · cci : " + bccB.join(", ") : "");
       type ModeleLu = { nom: string; objet: string; corps: string; pieces_jointes: unknown };
       let modele: ModeleLu | null = null;
       if (email_id || modele_nom) {
@@ -180,7 +188,8 @@ Deno.serve(async (req: Request) => {
       }
       objetFinal = String(modele?.objet ?? objet ?? "").trim();
       corpsTextFinal = String(modele?.corps ?? corpsDirect ?? "").trim();
-      if (!objetFinal || !corpsTextFinal) return json({ error: "Objet et corps requis (directs ou via modèle)." }, 400);
+      // Un transfert peut partir sans mot d'accompagnement : le message transféré suffit.
+      if (!objetFinal || (!corpsTextFinal && !citationTransfert(citation))) return json({ error: "Objet et corps requis (directs ou via modèle)." }, 400);
       const { data: params } = await admin.from("parametres").select("cle, valeur").in("cle", ["signature", "commercial"]);
       const param = (k: string) => (params as Array<{ cle: string; valeur: string }> | null)?.find((x) => x.cle === k)?.valeur ?? "";
       // Le compte connecté l'emporte (boîte de réception : signature_html + commercial).
@@ -200,11 +209,28 @@ Deno.serve(async (req: Request) => {
       objetFinal = subst(objetFinal);
       corpsTextFinal = subst(corpsTextFinal);
       corpsHtmlFinal = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${escHtml(corpsTextFinal).replace(/\n/g, "<br>")}</div>` + (signature ? `<br><br>${subst(signature)}` : "");
+      // Un TRANSFERT (26/11/2026) : le message choisi suit, avec sa mise en page (HTML nettoyé), sous la signature.
+      const cite = citationTransfert(citation);
+      if (cite) { corpsHtmlFinal += cite.html; corpsTextFinal += cite.texte; }
       // Les pièces du modèle, plus celles ajoutées à la main (réponse depuis la boîte de réception).
       if (tailleTotale(modele?.pieces_jointes, corps?.pieces) > PLAFOND_PIECES) return json({ error: "Pièces jointes trop lourdes (35 Mo au total au maximum)." }, 400);
       const attachments = enPiecesJointes(modele?.pieces_jointes, corps?.pieces);
       joints = attachments;
-      payload = { from, to: [destinataire], subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(attachments.length ? { attachments } : {}), ...(exp.replyTo ? { reply_to: exp.replyTo } : {}), ...(in_reply_to ? { headers: { "In-Reply-To": in_reply_to, References: in_reply_to } } : {}) };
+      // Le fil (26/11/2026) : seul un VRAI Message-ID (avec « @ », celui d'un mail reçu) va dans les en-têtes ; un
+      // identifiant Resend (notre propre envoi) n'y va plus : la relance après notre réponse cassait le fil.
+      const fil = enteteDeFil(in_reply_to, references);
+      payload = { from, to: tousB, subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(ccB.length ? { cc: ccB } : {}), ...(bccB.length ? { bcc: bccB } : {}), ...(attachments.length ? { attachments } : {}), ...(exp.replyTo ? { reply_to: exp.replyTo } : {}), ...(fil ? { headers: fil } : {}) };
+    }
+
+    // L'ADRESSE DE RÉPONSE PORTE LE MESSAGE (26/11/2026) : Resend remplace notre Message-ID par celui d'Amazon, une
+    // réponse ne pouvait donc jamais être rattachée par le fil. L'identifiant de la ligne du journal (fixé ici, avant
+    // l'envoi) passe dans l'adresse de réponse : « prenom-r-<id>@crm.stcbatiment.fr » ; recevoir-email le relit.
+    // Une adresse de réponse hors de notre domaine n'est jamais touchée.
+    const idJournal = crypto.randomUUID();
+    {
+      const porte = typeof payload.reply_to === "string" ? payload.reply_to : adresse(from);
+      const ancree = adresseAncree(porte, idJournal);
+      if (ancree) payload.reply_to = ancree;
     }
 
     const r = await fetch("https://api.resend.com/emails", {
@@ -225,11 +251,12 @@ Deno.serve(async (req: Request) => {
 
     // Journal de la boîte (les 2 contrats), rangé sur l'agence quand on la connaît.
     const { error: errJournal } = await admin.from("messages").insert({
-      sens: "sortant", de: adresse(from), a: aPourMessage || destinataire, objet: objetFinal,
+      id: idJournal, sens: "sortant", de: adresse(from), a: aPourMessage || destinataire, objet: objetFinal,
       corps_text: corpsTextFinal, corps_html: corpsHtmlFinal, message_id: id || null,
-      in_reply_to: (corps?.in_reply_to as string) ?? null, lu: true,
-      // Les pièces envoyées, visibles dans le fil (le « chemin » d'un envoi est l'adresse publique du fichier).
-      ...(joints.length ? { pieces_jointes: joints.map((j) => ({ nom: j.filename, chemin: j.path, taille: 0, type: "" })) } : {}),
+      in_reply_to: typeof corps?.in_reply_to === "string" && corps.in_reply_to ? corps.in_reply_to : null, lu: true,
+      // Les pièces envoyées, visibles dans le fil : l'adresse publique du fichier, ou — pièce d'un mail reçu
+      // (transfert) — son chemin dans le stockage privé : le lien d'une heure expirait (26/11/2026).
+      ...(joints.length ? { pieces_jointes: joints.map((j) => ({ nom: j.filename, chemin: cheminDuJournal(j.path), taille: 0, type: "" })) } : {}),
       espace, sous_traitant_id: sousTraitantIdPourMessage, ...(agenceId && espace === "demarchage" ? { agence_id: agenceId } : {}),
       // Le propriétaire du message (la boîte de qui) ; sans lui, la base le déduit (déclencheur messages_vers_proprietaire).
       ...(compteExpediteur && espace === "demarchage" ? { compte_id: compteExpediteur } : {}),
