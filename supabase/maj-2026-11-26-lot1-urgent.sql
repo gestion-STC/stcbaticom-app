@@ -59,7 +59,7 @@ update public.cmp_inscriptions i
 -- B4. La fiche : le statut d'avant. Leur séquence (ancienne machine) est finie pour tous : « termine » (Séquence finie),
 --     comme les 300 autres fiches de la même séquence ; « en_sequence » la relancerait (sequenceur-st tourne encore).
 update public.st_sous_traitants s
-   set statut = 'termine', termine_le = coalesce(s.termine_le, now()), desinscrit_le = null, desinscrit_canal = null,
+   set statut = 'termine', termine_le = coalesce(s.termine_le, now()), desinscrit_le = null, desinscrit_canal = '',
        statut_motif = 'réactivé le 26/11/2026 : la désinscription du ' || to_char(s.desinscrit_le at time zone 'Europe/Paris', 'DD/MM HH24:MI') || ' venait d''un robot de sécurité'
   from lot1_robots r
  where s.id = r.id;
