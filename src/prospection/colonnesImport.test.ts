@@ -16,6 +16,9 @@ describe("les colonnes d'un import", () => {
   it("réécrit seulement la ligne des titres", () => {
     expect(appliquerColonnes([["a", "b"], ["1", "2"]], ["Agence", IGNORER])).toEqual([["Agence", ""], ["1", "2"]])
   })
+  it("sans ligne de titres, ajoute les titres au lieu d'écraser la 1re ligne (lot f6)", () => {
+    expect(appliquerColonnes([["", ""], ["Orpi", "01"]], ["Agence", IGNORER], false)).toEqual([["", ""], ["Agence", ""], ["Orpi", "01"]])
+  })
   it("l'import des agences lit les titres réécrits", () => {
     const titres = ["Agence", "Code postal", "Téléphone", "Contact", "E-mail du contact", "Ligne directe"]
     expect(estEntete(titres)).toBe(true)

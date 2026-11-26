@@ -202,8 +202,10 @@ export function nomCle(nom: string): string {
 
 // Le texte « à plat » des recherches : minuscules, sans accents (œ → oe), espaces réduits.
 // Le même calcul que la fonction SQL texte_plat (unaccent + lower) : « societe » trouve « Société ».
+// unaccent redresse aussi les apostrophes courbes (’ ‘ ʼ → ') et les tirets longs (– — → -) et les guillemets (« » → << >>) : « porte d'orleans »
+// trouve « Porte d’Orléans », et une apostrophe courbe tapée (iPhone, Mac) trouve « L'Adresse » (lot f6, 27/11/2026).
 export function textePlat(s: unknown): string {
-  return String(s ?? "").toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim()
+  return String(s ?? "").toLowerCase().replace(/[’‘ʼ]/g, "'").replace(/[–—]/g, "-").replace(/«/g, "<<").replace(/»/g, ">>").replace(/œ/g, "oe").replace(/æ/g, "ae").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim()
 }
 // Un numéro tapé dans une recherche (« 0140211515 », « 01 40 21 15 15 », « +33 1 40… ») → ses chiffres, au format
 // national (+33 / 0033 → 0) ; « » si le texte n'est pas un numéro. Le même calcul que la fonction SQL chiffres_telephone.
@@ -220,11 +222,13 @@ export function numeroCherche(texte: string): string {
 // 26/11/2026 (lot 4) : la base compare des textes « à plat » (agences_liste.recherche_plat : nom, enseigne, e-mail,
 // adresse, contact principal, secteur, sans accents) et des numéros en chiffres seuls (telephone_chiffres,
 // contact_ligne_chiffres) : « 0140211515 » trouve « 01 40 21 15 15 », « societe » trouve « Société ».
+// 27/11/2026 (lot f6) : recherche_plat porte aussi le nom et l'e-mail de TOUS les contacts présents, et
+// contacts_chiffres leurs lignes directes et mobiles : l'adresse ou le portable d'un gestionnaire trouve son agence.
 export function filtreRechercheAgences(texte: string): string {
   const entre = (v: string) => `"%${v.replace(/[\\"]/g, (c) => `\\${c}`)}%"`
   const parties = [`recherche_plat.ilike.${entre(textePlat((texte || "").replace(/%/g, " ")))}`]
   const numero = numeroCherche(texte)
-  if (numero) parties.push(`telephone_chiffres.like.${entre(numero)}`, `contact_ligne_chiffres.like.${entre(numero)}`)
+  if (numero) parties.push(`telephone_chiffres.like.${entre(numero)}`, `contact_ligne_chiffres.like.${entre(numero)}`, `contacts_chiffres.like.${entre(numero)}`)
   return parties.join(",")
 }
 // Deux numéros sont le même s'ils finissent par les mêmes 9 chiffres (« 01 40 21 15 15 » = « +33 1 40 21 15 15 »).

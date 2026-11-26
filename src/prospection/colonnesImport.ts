@@ -51,9 +51,14 @@ export function devinerColonnes(entete: string[], baseId: string): string[] {
   })
 }
 
-/** Le fichier avec ses titres réécrits selon le choix. */
-export function appliquerColonnes(lignes: string[][], choix: string[]): string[][] {
+/**
+ * Le fichier avec ses titres réécrits selon le choix. Sans ligne de titres (`avecTitres` faux), la ligne des titres
+ * est AJOUTÉE avant la première ligne : elle n'écrase plus la première agence du fichier (lot f6, 27/11/2026).
+ */
+export function appliquerColonnes(lignes: string[][], choix: string[], avecTitres = true): string[][] {
   const i = indexEntete(lignes)
   if (i < 0) return lignes
-  return lignes.map((l, n) => (n === i ? choix.map((c) => (c === IGNORER ? "" : c)) : l))
+  const titres = choix.map((c) => (c === IGNORER ? "" : c))
+  if (!avecTitres) return [...lignes.slice(0, i), titres, ...lignes.slice(i)]
+  return lignes.map((l, n) => (n === i ? titres : l))
 }

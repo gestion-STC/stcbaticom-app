@@ -19,7 +19,10 @@ import { creerAgence, creerContact } from "./db"
 import { enseigneDe, nomCle, secteurDepuis, type TypeAgence } from "./modele"
 import { assurerSecteurs } from "./secteursOutils"
 
-export type ContactImport = { nom: string; email: string; ligne: string; linkedin?: string }
+// Le prénom à part (lot f6, 27/11/2026) : collé devant le nom, il laissait {{prenom}} vide dans les campagnes.
+export type ContactImport = { nom: string; email: string; ligne: string; linkedin?: string; prenom?: string }
+/** « Prénom Nom » d'un contact importé : la clé qui reconnaît un contact déjà là. */
+export const nomComplet = (c: { nom: string; prenom?: string }) => `${c.prenom ?? ""} ${c.nom}`.trim()
 export type LigneImport = {
   numero: number // le numéro de la ligne dans le fichier, pour en parler à l'humain
   apercu: string // les premières cellules, pour montrer une ligne sans nom
@@ -31,6 +34,7 @@ export type LigneImport = {
   enseigne: string
   type: TypeAgence
   contactNom: string
+  contactPrenom: string
   contactEmail: string
   contactLigne: string
   contactLinkedin?: string
@@ -48,7 +52,9 @@ export type Analyse = {
   total: number // lignes non vides lues (hors en-tête)
 }
 export type AgenceConnue = { id: string; nomCle: string; secteur: string | null; telephone: string; emails?: string[] }
-export type FichierLu = { lignes: string[][]; feuille: string }
+// entete : true quand l'écran a posé la ligne des titres (colonnes choisies à l'étape 2), false sans titres,
+// absent = deviné (estEntete).
+export type FichierLu = { lignes: string[][]; feuille: string; entete?: boolean }
 
 // ── Petits outils de lecture ──
 const norm = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim()
@@ -141,16 +147,20 @@ function typeDepuis(texte: string, large: boolean): TypeAgence {
 const propre = (s: string) => (s || "").replace(/\s+/g, " ").replace(/^[·.,;:\s\-–—]+|[·.,;:\s\-–—]+$/g, "").trim()
 
 // Une ligne brute → une ligne d'import. Null si la ligne est vide.
-export function lireLigne(cellules: string[], numero: number, cols: Colonnes): LigneImport | null {
-  const cel = cellules.map((c) => (c ?? "").trim())
-  if (!cel.some(Boolean)) return null
-  const avecEntete = cols.nom !== undefined || cols.telephone !== undefined || cols.email !== undefined
-  const lire = (k: keyof Colonnes) => (cols[k] !== undefined ? cel[cols[k]] ?? "" : "")
-  const apercu = cel.filter(Boolean).slice(0, 3).join(" · ").slice(0, 80)
-
-  const nom = propre(avecEntete && cols.nom !== undefined ? lire("nom") : cel[0])
+// Avec une ligne de titres, SEULES les colonnes nommées sont lues (lot f6, 27/11/2026) : une colonne laissée
+// sur « Ignorer » (Ville, Site…) ne devient plus un faux contact (« Bonjour Paris, »), ni un standard ou un e-mail.
+// La recherche « partout sur la ligne » reste pour les fichiers sans titres.
+export function lireLigne(cellules: string[], numero: number, cols: Colonnes, entete = Object.keys(cols).length > 0): LigneImport | null {
+  const brut = cellules.map((c) => (c ?? "").trim())
+  if (!brut.some(Boolean)) return null
+  const avecEntete = entete
   const colonnesPrises = new Set(Object.values(cols).filter((v): v is number => v !== undefined))
-  const reste = cel.filter((_, i) => !colonnesPrises.has(i) && i !== 0)
+  const cel = avecEntete ? brut.map((c, i) => (colonnesPrises.has(i) ? c : "")) : brut
+  const lire = (k: keyof Colonnes) => (cols[k] !== undefined ? cel[cols[k]] ?? "" : "")
+  const apercu = brut.filter(Boolean).slice(0, 3).join(" · ").slice(0, 80)
+
+  const nom = propre(avecEntete ? lire("nom") : cel[0])
+  const reste = avecEntete ? [] : cel.filter((_, i) => !colonnesPrises.has(i) && i !== 0)
 
   // Téléphones : la colonne nommée d'abord, puis tout ce qu'on trouve ailleurs (le 2e devient la ligne directe).
   const telsColonne = trouverTelephones([lire("telephone")])
@@ -160,7 +170,7 @@ export function lireLigne(cellules: string[], numero: number, cols: Colonnes): L
   const contactLigne = telsLigne[0] ?? telsAilleurs.shift() ?? ""
 
   // E-mails : la colonne nommée d'abord ; sans en-tête, l'e-mail d'une note « Nom: … Mail: … » est celui du contact.
-  const note = cols.note !== undefined ? lire("note") : trouverNote(cel, colonnesPrises)
+  const note = cols.note !== undefined ? lire("note") : avecEntete ? "" : trouverNote(cel, colonnesPrises)
   const emailsColonne = trouverEmails([lire("email")])
   const emailsContact = trouverEmails([lire("contactEmail")])
   const emailsNote = /nom\s*:|mail\s*:/i.test(note) ? trouverEmails([note]) : []
@@ -180,22 +190,26 @@ export function lireLigne(cellules: string[], numero: number, cols: Colonnes): L
   // Le contact : la colonne nommée telle quelle (c'est déjà un nom), sinon ce qu'on lit dans la note,
   // une fois les numéros et e-mails retirés (« Mme Martin 06 11 22 33 44 » → « Mme Martin »).
   const sansCoordonnees = (t: string) => t.replace(new RegExp(RE_TEL.source, "g"), " ").replace(new RegExp(RE_EMAIL.source, "gi"), " ")
-  const brutContact = [lire("contactPrenom"), lire("contactNom")].map((x) => x.trim()).filter(Boolean).join(" ")
-  const contactNom = brutContact ? (/nom\s*:|mail\s*:/i.test(brutContact) ? extraireNom(sansCoordonnees(brutContact)) : propre(brutContact)) : extraireNom(sansCoordonnees(note))
+  // Le prénom reste dans son champ (contacts.prenom, la variable {{prenom}}) ; sans colonne Prénom, rien n'est deviné.
+  const contactPrenom = propre(lire("contactPrenom"))
+  const brutContact = lire("contactNom").trim()
+  const contactNom = brutContact ? (/nom\s*:|mail\s*:/i.test(brutContact) ? extraireNom(sansCoordonnees(brutContact)) : propre(brutContact)) : contactPrenom ? "" : extraireNom(sansCoordonnees(note))
 
   const type = cols.type !== undefined ? typeDepuis(lire("type"), false) : typeDepuis(cel.join(" | "), true)
 
   // Le profil LinkedIn : la colonne nommée, sinon une adresse linkedin.com trouvée dans la ligne.
   const contactLinkedin = (lire("contactLinkedin") || cel.find((x) => /linkedin\.com\/(in|sales)\//i.test(x)) || "").trim()
-  return { numero, apercu, nom, telephone, email, adresse, secteur, enseigne: enseigneDe(nom), type, contactNom, contactEmail, contactLigne, contactLinkedin, autresContacts: [] }
+  return { numero, apercu, nom, telephone, email, adresse, secteur, enseigne: enseigneDe(nom), type, contactNom, contactPrenom, contactEmail, contactLigne, contactLinkedin, autresContacts: [] }
 }
 
 // Les lignes brutes → les lignes d'import, sans les inutilisables, sans les doublons du fichier.
-export function preparerLignes(brutes: string[][]): { lignes: LigneImport[]; ignorees: Ignoree[]; total: number } {
+export function preparerLignes(brutes: string[][], entete?: boolean): { lignes: LigneImport[]; ignorees: Ignoree[]; total: number } {
   let debut = 0
   while (debut < brutes.length && !brutes[debut].some((c) => c && c.trim())) debut++
   let cols: Colonnes = {}
-  if (debut < brutes.length && estEntete(brutes[debut])) { cols = repererColonnes(brutes[debut]); debut++ }
+  // Les titres posés par l'écran font foi (une seule colonne choisie, « LinkedIn » seul…) ; sinon on devine.
+  const avecTitres = entete ?? (debut < brutes.length && estEntete(brutes[debut]))
+  if (avecTitres && debut < brutes.length) { cols = repererColonnes(brutes[debut]); debut++ }
 
   const lignes: LigneImport[] = []
   const ignorees: Ignoree[] = []
@@ -203,7 +217,7 @@ export function preparerLignes(brutes: string[][]): { lignes: LigneImport[]; ign
   const parCle = new Map<string, LigneImport>()
   const parTel = new Map<string, LigneImport>()
   for (let i = debut; i < brutes.length; i++) {
-    const l = lireLigne(brutes[i], i + 1, cols)
+    const l = lireLigne(brutes[i], i + 1, cols, avecTitres)
     if (!l) continue
     total++
     if (!l.nom) { ignorees.push({ ligne: l, raison: "Pas de nom d'agence" }); continue }
@@ -215,7 +229,7 @@ export function preparerLignes(brutes: string[][]): { lignes: LigneImport[]; ign
     if (premiere) {
       // Même agence qu'une ligne précédente : on garde la première, on lui rattache le contact s'il est nouveau.
       const nouveau = contactDe(l)
-      const dejaNomme = nouveau && [contactDe(premiere), ...premiere.autresContacts].some((c) => c && nomCle(c.nom) === nomCle(nouveau.nom))
+      const dejaNomme = nouveau && [contactDe(premiere), ...premiere.autresContacts].some((c) => c && nomCle(nomComplet(c)) === nomCle(nomComplet(nouveau)))
       if (nouveau && !dejaNomme) premiere.autresContacts.push(nouveau)
       ignorees.push({ ligne: l, raison: `En double dans le fichier (même agence que la ligne ${premiere.numero})${nouveau && !dejaNomme ? ", son contact est rattaché à celle-ci" : ""}` })
       continue
@@ -229,7 +243,7 @@ export function preparerLignes(brutes: string[][]): { lignes: LigneImport[]; ign
 
 // Le contact d'une ligne, ou null si elle n'en nomme pas.
 export function contactDe(l: LigneImport): ContactImport | null {
-  return l.contactNom ? { nom: l.contactNom, email: l.contactEmail, ligne: l.contactLigne, ...(l.contactLinkedin ? { linkedin: l.contactLinkedin } : {}) } : null
+  return l.contactNom || l.contactPrenom ? { nom: l.contactNom, email: l.contactEmail, ligne: l.contactLigne, ...(l.contactPrenom ? { prenom: l.contactPrenom } : {}), ...(l.contactLinkedin ? { linkedin: l.contactLinkedin } : {}) } : null
 }
 // Tous les contacts d'une ligne (le sien, puis ceux des lignes en double).
 export function contactsDe(l: LigneImport): ContactImport[] {
@@ -259,7 +273,7 @@ export function rapprocher(lignes: LigneImport[], connues: AgenceConnue[], conta
     const contactsAAjouter: ContactImport[] = []
     const liens: ContactImport[] = []
     for (const c of contactsDe(l)) {
-      const k = nomCle(c.nom)
+      const k = nomCle(nomComplet(c))
       if (connus.includes(k)) { if (c.linkedin) liens.push(c); continue }
       connus.push(k)
       contactsAAjouter.push(c)
@@ -270,8 +284,8 @@ export function rapprocher(lignes: LigneImport[], connues: AgenceConnue[], conta
 }
 
 // Toute l'analyse, sans la base (testable) : les lignes brutes, ce que la base connaît, les secteurs qui existent.
-export function analyserLignes(brutes: string[][], connues: AgenceConnue[], contactsParAgence: Map<string, string[]>, secteursConnus: Set<string>, feuille = ""): Analyse {
-  const p = preparerLignes(brutes)
+export function analyserLignes(brutes: string[][], connues: AgenceConnue[], contactsParAgence: Map<string, string[]>, secteursConnus: Set<string>, feuille = "", entete?: boolean): Analyse {
+  const p = preparerLignes(brutes, entete)
   const r = rapprocher(p.lignes, connues, contactsParAgence)
   const secteursInconnus = [...new Set(r.aCreer.map((l) => l.secteur).filter((s): s is string => !!s && !secteursConnus.has(s)))].sort()
   return { aCreer: r.aCreer, dejaLa: r.dejaLa, ignorees: p.ignorees, secteursInconnus, feuille, total: p.total }
@@ -288,9 +302,18 @@ function celluleEnTexte(v: ExcelJS.CellValue): string {
   }
   return String(v).trim()
 }
+// Un CSV « point-virgule » enregistré par Excel en français est en Windows-1252 : lu en UTF-8, chaque é devenait « � »,
+// le nom était abîmé et le doublon n'était plus reconnu. UTF-8 strict d'abord, sinon Windows-1252 (lot f6, 27/11/2026).
+export function decoderTexte(octets: ArrayBuffer | Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(octets)
+  } catch {
+    return new TextDecoder("windows-1252").decode(octets)
+  }
+}
 export async function lireFichier(fichier: File): Promise<FichierLu> {
   const nom = fichier.name.toLowerCase()
-  if (nom.endsWith(".csv") || nom.endsWith(".txt")) return { lignes: parseCsv(await fichier.text()), feuille: fichier.name }
+  if (nom.endsWith(".csv") || nom.endsWith(".txt")) return { lignes: parseCsv(decoderTexte(await fichier.arrayBuffer())), feuille: fichier.name }
   if (nom.endsWith(".xls")) throw new Error("Format .xls (ancien Excel) non lisible. Dans Excel ou Google Sheets : enregistrer en .xlsx, puis réimporter.")
   const Excel = (await import("exceljs")).default // chargé seulement maintenant
   const wb = new Excel.Workbook()
@@ -352,18 +375,18 @@ async function chargerCodesSecteurs(): Promise<Set<string>> {
 export async function analyserLignesDuFichier(lu: FichierLu): Promise<Analyse> {
   const [connues, secteurs] = await Promise.all([chargerAgencesConnues(), chargerCodesSecteurs()])
   // Un premier passage trouve les agences déjà là ; on lit alors leurs contacts, puis on refait le rapprochement avec.
-  const premier = analyserLignes(lu.lignes, connues, new Map(), secteurs, lu.feuille)
+  const premier = analyserLignes(lu.lignes, connues, new Map(), secteurs, lu.feuille, lu.entete)
   const ids = [...new Set(premier.dejaLa.map((d) => d.agenceId))]
   const contacts = ids.length ? await chargerNomsContacts(ids) : new Map<string, string[]>()
-  return analyserLignes(lu.lignes, connues, contacts, secteurs, lu.feuille)
+  return analyserLignes(lu.lignes, connues, contacts, secteurs, lu.feuille, lu.entete)
 }
 
 // ── Écrire ──
 export type Progression = { fait: number; total: number; enCours: string }
-export type Bilan = { agencesCreees: number; contactsAjoutes: number; secteursCrees: number; erreurs: { ligne: LigneImport; message: string }[] }
+export type Bilan = { agencesCreees: number; contactsAjoutes: number; liensPoses: number; secteursCrees: number; erreurs: { ligne: LigneImport; message: string }[] }
 
 export async function executerImport(analyse: Analyse, onProgres: (p: Progression) => void, origine?: { fichierId: string; source: string }): Promise<Bilan> {
-  const bilan: Bilan = { agencesCreees: 0, contactsAjoutes: 0, secteursCrees: 0, erreurs: [] }
+  const bilan: Bilan = { agencesCreees: 0, contactsAjoutes: 0, liensPoses: 0, secteursCrees: 0, erreurs: [] }
   const aCompleter = analyse.dejaLa.filter((d) => d.contactsAAjouter.length)
   const total = analyse.aCreer.length + aCompleter.length
   let fait = 0
@@ -380,7 +403,7 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
       const id = await creerAgence({ nom: l.nom, enseigne: l.enseigne, type: l.type, secteur: l.secteur, adresse: l.adresse, telephone: l.telephone, email: l.email }, { source: origine?.source || "import", fichierId: origine?.fichierId ?? null })
       bilan.agencesCreees++
       for (const c of contactsDe(l)) {
-        await creerContact(id, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: l.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
+        await creerContact(id, { prenom: c.prenom ?? "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: l.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
         bilan.contactsAjoutes++
       }
     } catch (e) {
@@ -392,7 +415,7 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
     onProgres({ fait, total, enCours: d.ligne.nom })
     try {
       for (const c of d.contactsAAjouter) {
-        await creerContact(d.agenceId, { prenom: "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: d.ligne.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
+        await creerContact(d.agenceId, { prenom: c.prenom ?? "", nom: c.nom, email: c.email, ligneDirecte: c.ligne, role: d.ligne.type === "apporteur" ? "apporteur" : "gestionnaire", ...(c.linkedin ? { linkedin: c.linkedin } : {}) })
         bilan.contactsAjoutes++
       }
     } catch (e) {
@@ -403,10 +426,14 @@ export async function executerImport(analyse: Analyse, onProgres: (p: Progressio
   // Les contacts déjà là : on pose leur profil LinkedIn s'ils n'en ont pas.
   for (const d of analyse.dejaLa.filter((x) => x.liens?.length)) {
     try {
-      const { data } = await sb().from("contacts").select("id, prenom, nom, linkedin").eq("agence_id", d.agenceId)
+      const { data, error } = await sb().from("contacts").select("id, prenom, nom, linkedin").eq("agence_id", d.agenceId)
+      if (error) throw new Error(error.message)
       for (const c of d.liens ?? []) {
-        const fiche = ((data ?? []) as { id: string; prenom: string | null; nom: string | null; linkedin: string | null }[]).find((x) => !x.linkedin && nomCle(`${x.prenom ?? ""} ${x.nom ?? ""}`) === nomCle(c.nom))
-        if (fiche) await sb().from("contacts").update({ linkedin: c.linkedin }).eq("id", fiche.id)
+        const fiche = ((data ?? []) as { id: string; prenom: string | null; nom: string | null; linkedin: string | null }[]).find((x) => !x.linkedin && nomCle(`${x.prenom ?? ""} ${x.nom ?? ""}`) === nomCle(nomComplet(c)))
+        if (!fiche) continue
+        const maj = await sb().from("contacts").update({ linkedin: c.linkedin }).eq("id", fiche.id)
+        if (maj.error) throw new Error(maj.error.message)
+        bilan.liensPoses++
       }
     } catch (e) { bilan.erreurs.push({ ligne: d.ligne, message: message(e) }) }
   }

@@ -186,8 +186,9 @@ export async function creerSousTraitant(st: Partial<SousTraitant>): Promise<Sous
   return vers(data as LigneST)
 }
 
-// Import en lot (fichier Excel/CSV). Renvoie le nombre inséré.
-export async function insererSousTraitants(liste: Partial<SousTraitant>[], fichierId?: string): Promise<number> {
+// Import en lot (fichier Excel/CSV). Renvoie le nombre inséré. `onLot` reçoit le total déjà inséré après chaque lot :
+// si un lot suivant échoue, l'écran sait ce qui est entré et ne reprend que le reste (lot f6, 27/11/2026).
+export async function insererSousTraitants(liste: Partial<SousTraitant>[], fichierId?: string, onLot?: (inseres: number) => void): Promise<number> {
   if (!supabase) throw new Error("Supabase non configuré")
   if (liste.length === 0) return 0
   let total = 0
@@ -198,6 +199,7 @@ export async function insererSousTraitants(liste: Partial<SousTraitant>[], fichi
       .select("id")
     if (error) throw new Error(error.message)
     total += (data as { id: string }[]).length
+    onLot?.(total)
   }
   return total
 }

@@ -136,6 +136,14 @@ export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> 
   return lignes.slice(0, limite).map(versAgence)
 }
 
+// Les agences que la recherche de la base trouve (agences_recherche : tous les contacts présents, textes à plat,
+// numéros en chiffres), pour filtrer les files, chargées sans recherche (lot f6, 27/11/2026).
+export async function chercherIdsAgences(texte: string): Promise<Set<string>> {
+  if (!texte.trim()) return new Set()
+  const lignes = await lireParLots<{ id: string }>((de, a) => sb().from("agences_recherche").select("id").or(filtreRechercheAgences(texte)).order("id").range(de, a))
+  return new Set(lignes.map((l) => l.id))
+}
+
 // ── Les piles de la session : CALCULÉES PAR LA BASE (14/10) ──
 // L'ordre (jamais appelées d'abord…), le repos, le « standard », un numéro = un appel par jour,
 // les fiches au même standard, la base de chacun : tout est dans `pile_demarchage`
@@ -254,8 +262,15 @@ export async function leadsTraites(limite = 40): Promise<LeadTraite[]> {
   return ((data ?? []) as unknown as L[]).map((l) => ({ id: l.id, agenceId: l.agence_id, agenceNom: l.agences?.nom ?? "", etapeAgence: l.agences?.etape ?? "", commercialId: l.agences?.commercial_id ?? null, signal: l.signal, creeLe: l.cree_le, traiteLe: l.traite_le, traitePar: l.traite_par, resultat: l.resultat ?? "", tentatives: l.tentatives ?? 0 }))
 }
 
-export async function compterParEtape(): Promise<Record<string, number>> {
-  const lignes = await lireParLots<{ id: string; etape: string }>((de, a) => sb().from("agences").select("id, etape").neq("type", "apporteur").order("id").range(de, a))
+// Les compteurs d'étapes et « Toutes » suivent « Attribuée à », comme les quatre files (lot f6, 27/11/2026) :
+// « Ma base » à 0 agence ne montre plus « Toutes : 1 937 » au-dessus d'une liste vide.
+export async function compterParEtape(proprietaire: Proprietaire = "tous"): Promise<Record<string, number>> {
+  const lignes = await lireParLots<{ id: string; etape: string }>((de, a) => {
+    let q = sb().from("agences").select("id, etape").neq("type", "apporteur")
+    if (proprietaire === "non_attribuees") q = q.is("commercial_id", null)
+    else if (proprietaire !== "tous") q = q.eq("commercial_id", proprietaire.compteId)
+    return q.order("id").range(de, a)
+  })
   const out: Record<string, number> = {}
   for (const l of lignes) out[l.etape] = (out[l.etape] ?? 0) + 1
   return out

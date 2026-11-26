@@ -18,12 +18,16 @@ import {
 } from "./modele"
 
 describe("recherche des agences (filtre PostgREST)", () => {
+  it("redresse apostrophes courbes et tirets longs, comme unaccent en base (lot f6)", () => {
+    expect(textePlat("CENTURY 21 Porte d’Orléans – Paris 14")).toBe("century 21 porte d'orleans - paris 14")
+    expect(filtreRechercheAgences("l’adresse")).toBe('recherche_plat.ilike."%l\'adresse%"')
+  })
   it("cherche le texte à plat (sans accents, minuscules) dans recherche_plat", () => {
     expect(filtreRechercheAgences("  Société  Générale ")).toBe('recherche_plat.ilike."%societe generale%"')
     expect(filtreRechercheAgences("Lafôret Œuvre")).toBe('recherche_plat.ilike."%laforet oeuvre%"')
   })
   it("un numéro tapé sans espaces, avec espaces ou en +33 cherche aussi les chiffres des standards et lignes directes", () => {
-    const attendu = 'recherche_plat.ilike."%0140211515%",telephone_chiffres.like."%0140211515%",contact_ligne_chiffres.like."%0140211515%"'
+    const attendu = 'recherche_plat.ilike."%0140211515%",telephone_chiffres.like."%0140211515%",contact_ligne_chiffres.like."%0140211515%",contacts_chiffres.like."%0140211515%"'
     expect(filtreRechercheAgences("0140211515")).toBe(attendu)
     expect(filtreRechercheAgences("01 40 21 15 15").split(",").slice(1).join(",")).toBe(attendu.split(",").slice(1).join(","))
     expect(filtreRechercheAgences("+33 1 40 21 15 15")).toContain('telephone_chiffres.like."%0140211515%"')
