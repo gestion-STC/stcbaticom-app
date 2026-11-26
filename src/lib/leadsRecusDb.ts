@@ -11,7 +11,8 @@ import { AUCUN_FAIT, etapeDuSousTraitant, niveauDe, positionDans, type Faits } f
 import { campagneParContact, niveauAgence, type LeadRecu, type Niveau } from "./leadsRecus"
 import type { PositionCampagne } from "../prospection/mesureCampagne"
 import { versCampagne } from "../prospection/depotSupabase"
-import { ORIGINE_TRACABILITE, configDe, type Creatif, type Qualification } from "../prospection/configCampagne"
+import { ORIGINE_TRACABILITE, configDe, qualificationDeDepart, type Creatif, type Qualification } from "../prospection/configCampagne"
+import { estLeadRobot } from "../prospection/abTest"
 import type { Campagne } from "../prospection/modele"
 
 function sb() {
@@ -81,23 +82,28 @@ type Brut = { id: string; espace: Espace; contactRef: string; niveau: Niveau; no
 
 export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: LeadRecu[]; positions: PositionCampagne[] }> {
   const depuis = new Date(maintenant.getTime() - JOURS_TRAITES * 86_400_000).toISOString()
-  const [lignesLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression, lignesReponses, lignesQualifs] = await Promise.all([
+  const [tousLeads, agencesSuivies, dossiers, artisans, lignesCampagnes, progression, lignesReponses, lignesQualifs] = await Promise.all([
     lireParLots<LigneLead>((d, f) => sb().from("leads_demarchage").select("id, agence_id, source, signal, detail, cree_le, dernier_signal_le, statut, resultat, tentatives").or(`statut.eq.a_traiter,cree_le.gte.${depuis}`).order("id").range(d, f) as unknown as Lot<LigneLead>),
     lireParLots<LigneAgence>((d, f) => sb().from("agences").select(COLS_AGENCE).in("etape", ETAPES_INTERESSEES).gte("derniere_activite_le", depuis).order("id").range(d, f) as unknown as Lot<LigneAgence>),
     chargerDossiers(),
     lireParLots<LigneArtisan>((d, f) => sb().from("st_sous_traitants").select(COLS_ARTISAN).or("bareme_vu_le.not.is.null,candidature_clic_le.not.is.null,nb_clics.gt.0,suivi.eq.va_deposer").order("id").range(d, f) as unknown as Lot<LigneArtisan>),
     sb().from("cmp_campagnes").select("*").then(({ data, error }) => { if (error) throw new Error(error.message); return (data ?? []) as Record<string, unknown>[] }),
-    // La table arrive avec le SQL de cette étape : absente, personne n'a encore rien validé à la main.
-    sb().from("cmp_progression").select("campagne_id, contact_ref, etape_id").then(({ data }) => (data ?? []) as { campagne_id: string; contact_ref: string; etape_id: string }[]),
+    // Lues EN ENTIER (26/11/2026) : au-delà de 1 000 lignes, la suite était perdue sans rien dire.
+    lireParLots<{ campagne_id: string; contact_ref: string; etape_id: string }>((d, f) => sb().from("cmp_progression").select("campagne_id, contact_ref, etape_id").order("campagne_id").order("contact_ref").order("etape_id").range(d, f) as unknown as Lot<{ campagne_id: string; contact_ref: string; etape_id: string }>),
     // Du plus ancien au plus récent : la dernière réponse à un formulaire remplace les précédentes.
-    sb().from("cmp_reponses").select("campagne_id, creatif_id, contact_ref, reponses").order("cree_le").limit(1000).then(({ data }) => (data ?? []) as { campagne_id: string; creatif_id: string; contact_ref: string; reponses: Record<string, string> }[]),
-    sb().from("st_qualifications").select("sous_traitant_id, decision").not("decision", "is", null).then(({ data }) => (data ?? []) as { sous_traitant_id: string; decision: string }[]),
+    lireParLots<{ campagne_id: string; creatif_id: string; contact_ref: string; reponses: Record<string, string> }>((d, f) => sb().from("cmp_reponses").select("campagne_id, creatif_id, contact_ref, reponses").order("cree_le").order("id").range(d, f) as unknown as Lot<{ campagne_id: string; creatif_id: string; contact_ref: string; reponses: Record<string, string> }>),
+    lireParLots<{ sous_traitant_id: string; decision: string }>((d, f) => sb().from("st_qualifications").select("sous_traitant_id, decision").not("decision", "is", null).order("sous_traitant_id").range(d, f) as unknown as Lot<{ sous_traitant_id: string; decision: string }>),
   ])
+  // Les faux leads des robots de sécurité (fermés « robot ») ne sont pas des leads : ni ici, ni dans les campagnes.
+  const lignesLeads = tousLeads.filter((l) => !estLeadRobot(l))
 
   const campagnes = lignesCampagnes.map(versCampagne)
   const parId = new Map<string, { c: Campagne; q: Qualification; formulaires: Creatif[] }>(campagnes.map((c) => { const cfg = configDe(c); return [c.id, { c, q: cfg.qualification, formulaires: cfg.creatifs.filter((k) => k.type === "formulaire") }] }))
   // Sans campagne, un contact relève de la campagne qui tourne pour sa base.
   const parDefaut: Record<Espace, Campagne | undefined> = { demarchage: campagnes.find((c) => c.origine === ORIGINE_TRACABILITE), recrutement: campagnes.find((c) => c.origine === "st") }
+  // Et s'il n'y en a pas (26/11/2026 : la campagne « traçabilité » n'existe plus), il reste un lead « hors campagne », lu
+  // avec les règles d'avant : avant, il disparaissait, et 5 leads à traiter ne s'affichaient nulle part.
+  const horsCampagne: Record<Espace, Qualification> = { demarchage: qualificationDeDepart("agences", ORIGINE_TRACABILITE), recrutement: qualificationDeDepart("artisans", "st") }
 
   // Les agences des leads et les fiches des dossiers qui ne sont pas déjà chargées.
   const agencesParId = new Map(agencesSuivies.map((a) => [a.id, a]))
@@ -132,7 +138,12 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
   const construire = (b: Brut): LeadRecu | null => {
     const inscrite = parContact.get(b.contactRef)
     const camp = (inscrite && parId.get(inscrite.id)) || (parDefaut[b.espace] ? parId.get(parDefaut[b.espace]!.id) : undefined)
-    if (!camp) return null
+    if (!camp) {
+      const pos = positionDans(horsCampagne[b.espace], b.faits, new Set(), b.contacte)
+      if (!pos.estLead) return null
+      const etapeLead = b.espace === "recrutement" ? etapeDuSousTraitant(pos.etape, b.faits.compteOuvert, decisions.get(b.contactRef)) : pos.etape
+      return { id: b.id, espace: b.espace, niveau: b.niveau, nom: b.nom, signal: b.signal, detail: b.detail, quand: b.quand, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef, campagne: null, aTraiterSous: horsCampagne[b.espace].delaiH, cible: b.cible }
+    }
     const valides = new Set(progression.filter((p) => p.campagne_id === camp.c.id && p.contact_ref === b.contactRef).map((p) => p.etape_id))
     // Les formulaires remplis pour ce contact dans cette campagne : ce sont des faits, et ils donnent la qualité.
     const reponses: Record<string, Record<string, string>> = {}

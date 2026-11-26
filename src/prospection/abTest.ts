@@ -21,14 +21,60 @@ const CHAMP = { leads: "leads", reponses: "repondants", clics: "cliqueurs", ouve
 export const RESULTATS_MIN = 10
 const pct = (x: number) => `${(x * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`
 
-/** Qui compte comme lead dans un test A/B (25/11/2026) : LA définition, la même à l'écran (indicateurs.ts) et au serveur
- *  (campagnes-moteur, qui décide de la bascule). Un contact sorti « lead » de cette campagne, ou dont la fiche est « lead »
- *  ou « gagné » (son vrai statut, avant l'option « Déjà client »). Avant, l'écran comptait les leads rattachés à la campagne
- *  (leads_demarchage) : les deux chiffres ne se recoupaient pas. */
-export function leadsPourAB(campagneId: string, inscriptions: { campagneId: string; contactId: string; statut: string }[], contacts: { id: string; statut: string }[]): Set<string> {
-  const leads = new Set(inscriptions.filter((i) => i.campagneId === campagneId && i.statut === "lead").map((i) => i.contactId))
-  for (const k of contacts) if (k.statut === "lead" || k.statut === "gagne") leads.add(k.id)
-  return leads
+/** Un lead d'agence fermé « robot » (25/11/2026) : un robot de sécurité a ouvert les liens, ce n'est pas un lead. */
+export const estLeadRobot = (l: { resultat?: string | null }) => l.resultat === "robot"
+
+type EntreeCampagne = { campagneId: string; contactId: string; entreeLe: string }
+/** La campagne d'un contact à un instant : son inscription la plus récente entrée avant (ou à) cet instant ; aucune : null. */
+function campagnesAu(inscriptions: EntreeCampagne[]): (contactId: string, quand: string) => string | null {
+  const m = new Map<string, EntreeCampagne[]>()
+  for (const i of [...inscriptions].sort((a, b) => new Date(a.entreeLe).getTime() - new Date(b.entreeLe).getTime())) m.set(i.contactId, [...(m.get(i.contactId) ?? []), i])
+  return (contactId, quand) => {
+    const l = m.get(contactId) ?? [], t = new Date(quand).getTime()
+    for (let k = l.length - 1; k >= 0; k--) if (new Date(l[k].entreeLe).getTime() <= t) return l[k].campagneId
+    return null
+  }
+}
+
+export type LeadRattache = { contactId: string; campagneId: string | null }
+/** QUI EST LEAD D'UNE CAMPAGNE (26/11/2026) : LA règle de la liste des campagnes et du Suivi, reprise telle quelle par le
+ *  test A/B (écran et moteur, qui décide de la bascule). Un lead d'agence (leads_demarchage, hors robots) revient à la
+ *  campagne où l'agence était entrée à sa date ; avant toute entrée, à aucune. */
+export function leadsAgencesRattaches(leads: { agenceId: string; creeLe: string; resultat?: string | null }[], inscriptions: EntreeCampagne[]): LeadRattache[] {
+  const au = campagnesAu(inscriptions)
+  return leads.filter((l) => !estLeadRobot(l)).map((l) => ({ contactId: l.agenceId, campagneId: au(l.agenceId, l.creeLe) }))
+}
+/** Un artisan inscrit, passé « lead » ou « gagné », revient à la campagne de son premier vrai clic (les clics de robots
+ *  sont retirés avant). Sans clic, il n'est le lead d'aucune campagne. */
+export function leadsArtisansRattaches(fiches: { id: string; statut: string }[], clics: { contactId: string; campagneId: string; le: string }[], inscrits: Set<string>): LeadRattache[] {
+  const premier = new Map<string, { campagneId: string; le: string }>()
+  for (const e of clics) { const p = premier.get(e.contactId); if (!p || e.le < p.le) premier.set(e.contactId, e) }
+  return fiches.filter((k) => (k.statut === "lead" || k.statut === "gagne") && inscrits.has(k.id) && premier.has(k.id)).map((k) => ({ contactId: k.id, campagneId: premier.get(k.id)!.campagneId }))
+}
+/** Les contacts lead de cette campagne. Avant (25/11), le test A/B comptait toute fiche « lead » ou « gagné », même
+ *  devenue lead ailleurs ou avant d'entrer : les leads du test ne recoupaient pas ceux de la liste et du Suivi. */
+export function leadsPourAB(campagneId: string, leads: LeadRattache[]): Set<string> {
+  return new Set(leads.filter((l) => l.campagneId === campagneId).map((l) => l.contactId))
+}
+
+const CONFIRME = ["delivre", "ouvert", "clic", "reponse", "rebond"]
+/** Un envoi PARTI (26/11/2026), la règle de « Touchés » partout : « envoyé » en base ; et pour un mail confié à
+ *  Instantly, confirmé (délivré, ouvert, cliqué, répondu ou rebondi). */
+export function envoiParti(e: { id: string; statut: string; canal: string; test?: boolean }, instantly: boolean, confirmes: Set<string>): boolean {
+  return e.statut === "envoye" && (!instantly || (e.canal !== "mail" && e.canal !== "newsletter") || Boolean(e.test) || confirmes.has(e.id))
+}
+export const envoisConfirmes = (evenements: { envoiId: string | null; type: string }[]) => new Set(evenements.filter((e) => e.envoiId && CONFIRME.includes(e.type)).map((e) => e.envoiId as string))
+
+/** Les chiffres de chaque variante d'une étape, calculés de la même façon à l'écran et au moteur : les envois PARTIS
+ *  (hors envois de test), et ceux de leurs contacts qui ont ouvert, cliqué, répondu, ou sont leads de la campagne. */
+export function mesuresAB(variantes: { id: string; nom: string }[], envois: { id: string; contactId: string; varianteId: string | null; statut: string; canal: string; test?: boolean }[], evenements: { envoiId: string | null; contactId: string; type: string }[], leads: Set<string>, instantly: boolean): MesureVariante[] {
+  const confirmes = envoisConfirmes(evenements)
+  return variantes.map((v) => {
+    const ee = envois.filter((e) => e.varianteId === v.id && !e.test && envoiParti(e, instantly, confirmes)), ids = new Set(ee.map((e) => e.id))
+    const ev = evenements.filter((e) => e.envoiId && ids.has(e.envoiId))
+    const qui = (t: string) => new Set(ev.filter((e) => e.type === t).map((e) => e.contactId)).size
+    return { varianteId: v.id, nom: v.nom, envoyes: ee.length, leads: new Set(ee.map((e) => e.contactId).filter((x) => leads.has(x))).size, repondants: qui("reponse"), cliqueurs: qui("clic"), ouvreurs: qui("ouvert") }
+  })
 }
 
 export function critereEffectif(l: MesureVariante[], r: ReglageAB): Exclude<CritereAB, "auto"> {

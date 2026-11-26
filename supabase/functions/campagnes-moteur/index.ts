@@ -21,7 +21,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { passage, heureParis, dansLaPlage, debutJourParis } from "../_shared/campagnes/moteur.ts"
 import { estEligible } from "../_shared/campagnes/modele.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
-import { AB_DEPART, leadsPourAB, verdictAB, type MesureVariante, type ReglageAB } from "../_shared/campagnes/abTest.ts"
+import { AB_DEPART, leadsAgencesRattaches, leadsArtisansRattaches, leadsPourAB, mesuresAB, verdictAB, type ReglageAB } from "../_shared/campagnes/abTest.ts"
 import { REBOND_AGENCE, avecDejaClients, exclusionLibre, pasInteresseExclu } from "../_shared/campagnes/exclusions.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
@@ -60,7 +60,7 @@ async function tout<T>(q: (d: number, f: number) => PromiseLike<{ data: T[] | nu
 const versCampagne = (l: Ligne): Campagne => ({
   id: String(l.id), nom: String(l.nom), baseId: String(l.base_id), objectif: String(l.objectif ?? ""), statut: l.statut as Campagne["statut"],
   audience: l.audience as Campagne["audience"], rythme: l.rythme as Campagne["rythme"], etapes: l.etapes as Campagne["etapes"], signaux: (l.signaux ?? []) as Campagne["signaux"],
-  creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0),
+  creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0), origine: String(l.origine ?? ""),
 })
 const versContact = (l: Ligne): Contact => ({
   id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""),
@@ -136,22 +136,39 @@ async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: 
 }
 
 /** Le test A/B (Mahdi, 11/11/2026) : une étape dont le créatif demande la bascule n'envoie plus que son gagnant, dès qu'il y en a un. */
+/** Les leads de CETTE campagne, comme la liste et le Suivi les comptent (abTest.ts) : lus seulement quand un test A/B
+ *  doit décider d'une bascule. Agences : leads_demarchage hors robots, rattachés à la campagne où l'agence était entrée à
+ *  leur date ; artisans : « lead » ou « gagné », rattachés à la campagne de leur premier vrai clic. */
+async function leadsDeLaCampagne(sb: SupabaseClient, c: Campagne, inscriptions: Inscription[], fiches: Contact[]): Promise<Set<string>> {
+  const inscrits = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
+  const parLots = async <T,>(ids: string[], lire: (lot: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> => {
+    const out: T[] = []
+    for (let i = 0; i < ids.length; i += 200) { const { data, error } = await lire(ids.slice(i, i + 200)); if (error) throw new Error(error.message); out.push(...(data ?? [])) }
+    return out
+  }
+  if (c.baseId === "artisans") {
+    const candidats = fiches.filter((k) => inscrits.has(k.id) && (k.statut === "lead" || k.statut === "gagne")).map((k) => k.id)
+    const clics = await parLots<{ contact_ref: string; campagne_id: string; le: string }>(candidats, (lot) => sb.from("cmp_evenements").select("contact_ref, campagne_id, le").eq("type", "clic").eq("robot", false).in("contact_ref", lot))
+    return leadsPourAB(c.id, leadsArtisansRattaches(fiches, clics.map((e) => ({ contactId: e.contact_ref, campagneId: e.campagne_id, le: e.le })), inscrits))
+  }
+  const lignes = (await tout<{ agence_id: string; cree_le: string; resultat: string | null }>((d, f) => sb.from("leads_demarchage").select("agence_id, cree_le, resultat").gte("cree_le", c.creeLe).order("id").range(d, f))).filter((l) => inscrits.has(String(l.agence_id)))
+  const entrees = await parLots<{ campagne_id: string; contact_ref: string; entree_le: string }>([...new Set(lignes.map((l) => String(l.agence_id)))], (lot) => sb.from("cmp_inscriptions").select("campagne_id, contact_ref, entree_le").in("contact_ref", lot))
+  return leadsPourAB(c.id, leadsAgencesRattaches(lignes.map((l) => ({ agenceId: String(l.agence_id), creeLe: l.cree_le, resultat: l.resultat })), entrees.map((i) => ({ campagneId: i.campagne_id, contactId: i.contact_ref, entreeLe: i.entree_le }))))
+}
+
 async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["config"], evenements: Evenement[], inscriptions: Inscription[], fiches: Contact[]): Promise<Campagne> {
   const cfg = (config ?? {}) as { actions?: { id: string; creatifId?: string }[]; creatifs?: { id: string; ab?: ReglageAB }[] }
   let etapes = c.etapes
+  let leads: Set<string> | null = null
   for (const et of c.etapes) {
     if (!("variantes" in et) || et.variantes.length < 2) continue
     const r = cfg.creatifs?.find((k) => k.id === cfg.actions?.find((a) => a.id === et.id)?.creatifId)?.ab ?? AB_DEPART
     if (!r.basculer) continue
-    const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
-    // La définition partagée avec l'écran (abTest.ts) : les fiches telles qu'en base, avant l'option « Déjà client ».
-    const leads = leadsPourAB(c.id, inscriptions, fiches)
-    const mesures: MesureVariante[] = et.variantes.map((v) => {
-      const ee = envoyes.filter((e) => e.variante_id === v.id), ids = new Set(ee.map((e) => e.id))
-      const ev = evenements.filter((e) => e.envoiId && ids.has(e.envoiId))
-      const qui = (t: string) => new Set(ev.filter((e) => e.type === t).map((e) => e.contactId)).size
-      return { varianteId: v.id, nom: v.nom, envoyes: ee.length, leads: new Set(ee.map((e) => e.contact_ref).filter((x) => leads.has(x))).size, repondants: qui("reponse"), cliqueurs: qui("clic"), ouvreurs: qui("ouvert") }
-    })
+    const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null; statut: string; canal: string; test: boolean }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id, statut, canal, test").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
+    // Les mêmes chiffres qu'à l'écran (abTest.ts, 26/11/2026) : envois PARTIS (confirmés chez Instantly), leads de la campagne.
+    leads ??= await leadsDeLaCampagne(sb, c, inscriptions, fiches)
+    const instantly = !estBaseAvis(c.baseId) && c.origine !== "st"
+    const mesures = mesuresAB(et.variantes, envoyes.map((e) => ({ id: e.id, contactId: e.contact_ref, varianteId: e.variante_id, statut: e.statut, canal: e.canal, test: e.test })), evenements, leads, instantly)
     const g = verdictAB(mesures, r).gagnant
     if (g) etapes = etapes.map((e) => (e.id === et.id && "variantes" in e ? { ...e, variantes: e.variantes.filter((v) => v.id === g) } : e))
   }

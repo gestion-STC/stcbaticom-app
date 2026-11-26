@@ -2,6 +2,7 @@
 // un lead et un gagné. Une étape compte tous ceux qui l'ont passée, même s'ils ont sauté celles d'avant. Fichier PUR.
 import type { ConfigCampagne } from "./configCampagne"
 import type { Envoi, Evenement, Inscription } from "./modele"
+import { envoiParti, envoisConfirmes } from "./abTest"
 
 export type PositionCampagne = { campagneId: string; atteintes: string[]; estLead: boolean; etape: string }
 export type LigneMesure = { libelle: string; n: number; part: number | null; badge?: "LEAD" | "GAGNÉ" }
@@ -9,10 +10,12 @@ export type Mesure = { lignes: LigneMesure[]; leads: number; gagnes: number; sms
 
 const arrondi = (x: number) => Math.round(x * 100) / 100
 
-export function mesureCampagne(cfg: ConfigCampagne, campagneId: string, coutUnitaireSms: number, inscriptions: Inscription[], envois: Envoi[], evenements: Evenement[], positions: PositionCampagne[], coutIA = 0): Mesure {
+export function mesureCampagne(cfg: ConfigCampagne, campagneId: string, coutUnitaireSms: number, inscriptions: Inscription[], envois: Envoi[], evenements: Evenement[], positions: PositionCampagne[], coutIA = 0, /** Ses mails passent par Instantly (indicateurs.ts, parInstantly). */ instantly = false): Mesure {
   const q = cfg.qualification
   const miens = positions.filter((p) => p.campagneId === campagneId)
-  const partis = envois.filter((e) => e.campagneId === campagneId && e.statut === "envoye")
+  // « Touchés » : un envoi confirmé parti, la même règle que le Suivi et la liste (26/11/2026 : ici 60, là 30).
+  const confirmes = envoisConfirmes(evenements.filter((e) => e.campagneId === campagneId))
+  const partis = envois.filter((e) => e.campagneId === campagneId && envoiParti(e, instantly, confirmes))
   const distincts = (type: Evenement["type"]) => new Set(evenements.filter((e) => e.campagneId === campagneId && e.type === type).map((e) => e.contactId)).size
   const iGagne = q.etapes.findIndex((e) => e.id === q.gagneA)
   const derniere = (p: PositionCampagne) => q.etapes.reduce((m, e, i) => (p.atteintes.includes(e.id) ? i : m), -1)
