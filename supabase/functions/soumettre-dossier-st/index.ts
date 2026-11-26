@@ -9,6 +9,7 @@
 // l'artisan dépose avec une autre adresse e-mail que celle de la base.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { filtreAdresseExacte } from "../_shared/adresseExacte.ts";
 
 const DESTINATAIRE = "service-travaux@stcbatiment.fr";
 const EXPEDITEUR = "STC Bâtiment <notifications@os.stcbatiment.fr>";
@@ -58,7 +59,11 @@ Deno.serve(async (req: Request) => {
       sousTraitantId = data?.id ?? null;
     }
     if (!sousTraitantId) {
-      const { data } = await admin.from("st_sous_traitants").select("id").ilike("email", email).limit(1).maybeSingle();
+      // L'adresse EXACTE, sans tenir compte des majuscules (lot 1, 27/11/2026) : « % » ou « _ » tapés dans le
+      // formulaire public ne sont plus des jokers qui rattachent le dossier à une fiche au hasard.
+      const f = filtreAdresseExacte(email);
+      const q = admin.from("st_sous_traitants").select("id");
+      const { data } = await (f.op === "eq" ? q.eq("email", f.valeur) : q.ilike("email", f.valeur)).limit(1).maybeSingle();
       sousTraitantId = data?.id ?? null;
     }
 

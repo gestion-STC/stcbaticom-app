@@ -4,7 +4,7 @@ import type { Email, PieceJointe } from "../emails"
 import { chargerEmails } from "../lib/emailsDb"
 import { piecesTropLourdes } from "../lib/envoiEmail"
 import { basculerDocument, bibliothequeDocuments, estJoint } from "../lib/documentsBibliotheque"
-import { formatTaille, supprimerFichier, televerser } from "../lib/stockage"
+import { formatTaille, televerser } from "../lib/stockage"
 import { PETITE, PILULE_CLAIRE } from "./agenda/dessinBureau"
 
 /**
@@ -38,9 +38,8 @@ export default function PiecesCompo({ pieces, onChange }: { pieces: PieceJointe[
   }
 
   function retirer(pj: PieceJointe) {
+    // La pièce quitte ce message seulement : aucun fichier n'est effacé du stockage (lot 1, 27/11/2026).
     onChange((l) => l.filter((x) => x.chemin !== pj.chemin))
-    // On ne supprime du stockage QUE les fichiers ajoutés pour cet envoi, jamais un document du logiciel.
-    if (!bibliotheque.some((d) => d.chemin === pj.chemin)) supprimerFichier(pj.chemin).catch(() => {})
   }
 
   // Le dessin de STC Bâtiment (11/11/2026) : « Joindre » en pilule claire, les documents du logiciel en
