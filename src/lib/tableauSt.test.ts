@@ -5,14 +5,14 @@ import type { LigneSt } from "./cockpitStc"
 import { clicsHorsRobots, moisAuJour, origineParEmail, parCorps, parMois, parSecteur, parSemaines, premiersContacts, stDuCorps, zoneRangee } from "./tableauSt"
 
 const m = new Date(2026, 10, 26, 12, 40)
-const clic = (s: string, t: string, destination: ClicST["destination"] = "candidature"): ClicST => ({ id: s + t, sousTraitantId: s, cliqueLe: t, destination })
+const clic = (s: string, t: string, destination: ClicST["destination"] = "candidature", robot = false): ClicST => ({ id: s + t, sousTraitantId: s, cliqueLe: t, destination, robot })
 const fiche = (o: Partial<SousTraitant>): SousTraitant => ({ entreprise: "X", contact: "", email: "", telephone: "0600000000", metier: "", zone: "", statut: "a_contacter", etapeCourante: 0, nbClics: 0, nbEnvoisOk: 0, nbEnvoisErreur: 0, ...o })
 
 describe("les clics hors robots", () => {
-  it("une rafale (moins de 2 s entre deux clics) est un robot ; un artisan qui n'a que des rafales ne compte pas", () => {
+  it("un clic marqué robot par la base ne compte pas ; un artisan qui n'a que des clics de robot non plus", () => {
     const r = clicsHorsRobots([
-      clic("a", "2026-10-12T09:00:00.000Z"), clic("a", "2026-10-12T09:00:01.000Z"), // rafale
-      clic("b", "2026-10-12T09:00:00.000Z"), clic("b", "2026-10-12T09:00:00.500Z"), clic("b", "2026-10-13T10:00:00.000Z"), // rafale puis un vrai clic
+      clic("a", "2026-10-12T09:00:00.000Z", "candidature", true), clic("a", "2026-10-12T09:00:01.000Z", "bareme", true), // robot
+      clic("b", "2026-10-12T09:00:00.000Z", "candidature", true), clic("b", "2026-10-12T09:00:00.500Z", "bareme", true), clic("b", "2026-10-13T10:00:00.000Z"), // robot puis un vrai clic
       clic("c", "2026-10-14T10:00:00.000Z", "stop"), // désinscription : pas un clic
       clic("d", "2026-10-15T10:00:00.000Z"),
     ])

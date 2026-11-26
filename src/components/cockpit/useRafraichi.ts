@@ -3,6 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 export const RAFRAICHIR_MS = 60_000
 
+/** Les lectures secondaires d'un tableau de bord (26/11/2026) : en échec, elles prennent leur valeur de repli MAIS l'erreur
+ *  est gardée pour le bandeau. Avant, un `.catch(() => [])` muet affichait des zéros comme si de rien n'était. */
+export function lecturesPartielles(): { manques: string[]; repli: <T>(quoi: string, valeur: T) => (e: unknown) => T } {
+  const manques: string[] = []
+  return { manques, repli: (quoi, valeur) => (e) => { manques.push(`${quoi} : ${e instanceof Error ? e.message : String(e)}`); return valeur } }
+}
+
 export function useRafraichi<T>(lire: (maintenant: Date) => Promise<T>, cle: unknown = null): { d: T | null; erreur: string; recharger: () => void } {
   const [d, setD] = useState<T | null>(null)
   const [erreur, setErreur] = useState("")

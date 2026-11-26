@@ -59,12 +59,13 @@ export async function chargerEnvoisDe(sousTraitantId: string): Promise<EnvoiST[]
 type LigneClic = { id: string; sous_traitant_id: string; clique_le: string; destination: string }
 const versClic = (c: LigneClic): ClicST => ({ id: c.id, sousTraitantId: c.sous_traitant_id, cliqueLe: c.clique_le, destination: (c.destination === "bareme" || c.destination === "stop" ? c.destination : "candidature") })
 export async function chargerClicsDepuis(depuis: string): Promise<ClicST[]> {
-  const { data, error } = await client().from("st_clics").select("id, sous_traitant_id, clique_le, destination").gte("clique_le", depuis).order("clique_le", { ascending: false }).limit(5000)
+  // Hors robots (26/11/2026) : la règle unique posée par la base sur chaque clic (colonne robot).
+  const { data, error } = await client().from("st_clics").select("id, sous_traitant_id, clique_le, destination").eq("robot", false).gte("clique_le", depuis).order("clique_le", { ascending: false }).limit(5000)
   if (error) throw new Error(error.message)
   return (data as LigneClic[]).map(versClic)
 }
 export async function chargerClicsDe(sousTraitantId: string): Promise<ClicST[]> {
-  const { data, error } = await client().from("st_clics").select("id, sous_traitant_id, clique_le, destination").eq("sous_traitant_id", sousTraitantId).order("clique_le", { ascending: true })
+  const { data, error } = await client().from("st_clics").select("id, sous_traitant_id, clique_le, destination").eq("sous_traitant_id", sousTraitantId).eq("robot", false).order("clique_le", { ascending: true })
   if (error) throw new Error(error.message)
   return (data as LigneClic[]).map(versClic)
 }

@@ -32,6 +32,16 @@ export function stats(appels: Appel[], os: OsDate[], de: Date, a: Date): StatsCo
     premiersOs: os.filter((o) => osDans(o.date, de, a)).length,
   }
 }
+/** La ligne « Équipe » du tableau par commercial (26/11/2026) : EXACTEMENT les commerciaux affichés (leurs appels, les
+ *  premiers OS de leurs agences), et à part ce que le tableau ne montre pas : les appels et premiers OS des comptes hors
+ *  classement (direction, recrutement), et les premiers OS d'agences sans commercial. Avant, « Équipe » comptait tout,
+ *  et l'info-bulle « sans commercial attribué » comptait aussi les agences d'un compte hors classement. */
+export function equipeEtReste(appels: Appel[], os: OsDate[], comptes: string[], de: Date, a: Date): { equipe: StatsCockpit; horsClassement: { appels: number; premiersOs: number }; sansCommercial: number } {
+  const ids = new Set(comptes)
+  const equipe = stats(appels.filter((x) => x.compteId && ids.has(x.compteId)), os.filter((o) => o.commercialId && ids.has(o.commercialId)), de, a)
+  const hors = stats(appels.filter((x) => !x.compteId || !ids.has(x.compteId)), os.filter((o) => o.commercialId && !ids.has(o.commercialId)), de, a)
+  return { equipe, horsClassement: { appels: hors.appels, premiersOs: hors.premiersOs }, sansCommercial: stats([], os.filter((o) => !o.commercialId), de, a).premiersOs }
+}
 /** Par commercial : ses appels, et les premiers OS des agences dont il est responsable. */
 export function statsParCompte(appels: Appel[], os: OsDate[], comptes: string[], de: Date, a: Date): Record<string, StatsCockpit> {
   return Object.fromEntries(comptes.map((id) => [id, stats(appels.filter((x) => x.compteId === id), os.filter((o) => o.commercialId === id), de, a)]))

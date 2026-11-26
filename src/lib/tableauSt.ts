@@ -3,8 +3,9 @@
 // Fichier PUR (tableauSt.test.ts). Les sous-traitants qui travaillent chez STC Bâtiment : lib/cockpitStc.ts.
 // Règles :
 //   · contacté = au moins un envoi réussi de la machine (sa date : le premier envoi réussi) ;
-//   · a cliqué = un lien de candidature ou le barème ouvert, HORS ROBOTS : un clic à moins de 2 secondes d'un autre
-//     clic du même artisan est une rafale de robot de messagerie (les liens ouverts d'un coup pour les vérifier) ;
+//   · a cliqué = un lien de candidature ou le barème ouvert, HORS ROBOTS : la règle unique posée par la base sur chaque
+//     clic (st_clics.robot, 26/11/2026) — un autre lien du même artisan ouvert à 5 s près, ou son lien de désinscription :
+//     un robot de messagerie qui ouvre les liens d'un coup pour les vérifier. Avant : une règle à 2 s propre à cet écran ;
 //   · lien avec STC Bâtiment = l'e-mail : un compte STC « issu de la machine » porte l'e-mail d'une fiche ou d'un
 //     dossier du recrutement ; « site, hors base » = l'e-mail n'est que celui d'un dossier sans fiche ;
 //   · mois et semaines à l'heure du poste (Paris) ; comparaisons de mois à jours égaux (du 1er au même quantième).
@@ -14,27 +15,24 @@ import { CORPS_METIERS, dispoAContacter, exerceCorps } from "./recrutementCalc"
 import { estActif, type LigneSt } from "./cockpitStc"
 
 const JOUR = 86_400_000
-export const RAFALE_MS = 2_000
 const moisIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 const norm = (s: string) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
 
-/** Les artisans qui ont vraiment cliqué (hors rafales de robots), et la date de leur premier vrai clic. */
+/** Les artisans qui ont vraiment cliqué (hors clics de robots), et la date de leur premier vrai clic. */
 export function clicsHorsRobots(clics: ClicST[]): { premier: Map<string, string>; robotsSeuls: number; rafale: { clics: number; artisans: number } } {
-  const par = new Map<string, number[]>()
-  for (const c of clics) if (c.destination !== "stop") par.set(c.sousTraitantId, [...(par.get(c.sousTraitantId) ?? []), new Date(c.cliqueLe).getTime()])
+  const par = new Map<string, ClicST[]>()
+  for (const c of clics) if (c.destination !== "stop") par.set(c.sousTraitantId, [...(par.get(c.sousTraitantId) ?? []), c])
   const premier = new Map<string, string>()
-  let robotsSeuls = 0, nRafale = 0, artisansRafale = 0
+  let robotsSeuls = 0, nRobots = 0, artisansRobots = 0
   for (const [id, l] of par) {
-    const t = [...l].sort((a, b) => a - b)
-    const rafale = t.map((x, i) => (i > 0 && x - t[i - 1] < RAFALE_MS) || (i + 1 < t.length && t[i + 1] - x < RAFALE_MS))
-    const vrais = t.filter((_, i) => !rafale[i])
-    const r = rafale.filter(Boolean).length
-    nRafale += r
-    if (r) artisansRafale++
+    const vrais = l.filter((c) => !c.robot).map((c) => new Date(c.cliqueLe).getTime()).sort((a, b) => a - b)
+    const r = l.length - vrais.length
+    nRobots += r
+    if (r) artisansRobots++
     if (vrais.length) premier.set(id, new Date(vrais[0]).toISOString())
     else robotsSeuls++
   }
-  return { premier, robotsSeuls, rafale: { clics: nRafale, artisans: artisansRafale } }
+  return { premier, robotsSeuls, rafale: { clics: nRobots, artisans: artisansRobots } }
 }
 
 /** Le premier envoi réussi de chaque fiche : sa date de premier contact. */

@@ -12,7 +12,7 @@ import { Play } from "lucide-react"
 import { Bandeau as BandeauAlerte, Bouton, Chargement } from "../../ui"
 import { chargerTableauSt } from "../../lib/tableauStDb"
 import { erreursParCause } from "../../lib/statsMachine"
-import { estActif, lignesSt, lireChiffres, moisIso, mouvementsSt } from "../../lib/cockpitStc"
+import { estActif, lignesSt, lireChiffres, lireSousTraitantsStc, moisIso, mouvementsSt } from "../../lib/cockpitStc"
 import { clicsHorsRobots, joursDepuis, moisAuJour, origineParEmail, parCorps, parMois, parSecteur, parSemaines, parZone, premiersContacts, zoneRangee } from "../../lib/tableauSt"
 import { lundisRecents } from "../../lib/cockpitTelepro"
 import { useRafraichi } from "../cockpit/useRafraichi"
@@ -43,7 +43,7 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
     const m = d.maintenant
     // ── STC Bâtiment ──
     const brut = lireChiffres(d.brutStc)
-    const sts = brut?.sous_traitants ?? null
+    const sts = lireSousTraitantsStc(d.brutStcSt, brut)
     const st = sts ? { lignes: lignesSt(sts, m), mouvements: mouvementsSt(sts, m), comptes: sts.length, ouverts: sts.filter((s) => s.compte_actif).length } : null
     const actifs = st ? st.lignes.filter(estActif) : []
     const origine = origineParEmail(d.fiches, d.dossiers)
@@ -170,7 +170,7 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
             courbe={<MiniCourbe barres valeurs={c.mois.contactes.n} enCours />} title="Premier envoi bien parti. Barres : par mois. La cote : ce mois contre le mois d'avant au même jour." />
           <Tuile periode="année" libelle="Ont cliqué" valeur={c.cliqueurs} cote={<Cote n={c.auJour.cliqueurs.mois} avant={c.auJour.cliqueurs.avant} />}
             repere={<>{moisC} {c.auJour.cliqueurs.mois} · {moisAv} {c.auJour.cliqueurs.avant} · hors robots</>}
-            courbe={<MiniCourbe barres valeurs={c.mois.cliqueurs.n} enCours />} title={`Artisans ayant ouvert un lien de candidature ou le barème. Écartés : les liens ouverts en rafale par les robots des messageries (${c.rafale.clics} clics chez ${c.rafale.artisans} artisans).`} />
+            courbe={<MiniCourbe barres valeurs={c.mois.cliqueurs.n} enCours />} title={`Artisans ayant ouvert un lien de candidature ou le barème. Écartés : les liens ouverts par les robots des messageries, un autre lien ouvert à 5 s près (${c.rafale.clics} clics chez ${c.rafale.artisans} artisans).`} />
           <Tuile periode="année" libelle="Dossiers déposés" valeur={c.dossiers} cote={<Cote n={c.auJour.dossiers.mois} avant={c.auJour.dossiers.avant} />}
             repere={<>{moisC} {c.auJour.dossiers.mois} · <span className={c.aTraiter.length ? "text-alerte" : ""}>{c.aTraiter.length} à traiter</span></>}
             courbe={<MiniCourbe barres valeurs={c.mois.dossiers.n} enCours />} title="Dossiers déposés sur le site. Barres : par mois." />

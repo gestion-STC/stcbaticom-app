@@ -10,12 +10,13 @@ import { Courbe } from "../demarchage/aujourdhui/courtier"
 import { Bandeau as BandeauAlerte, Bouton, Chargement } from "../../ui"
 import { nomCle } from "../../demarchage/modele"
 import { echeanceDe, type ReglageCockpit } from "../../lib/croissance"
-import { caMoisCompare, estActif, lignesAgences, lignesSt, lireChiffres, mouvementsAgences, mouvementsSt, moisIso, osRecus, type StatutCockpit } from "../../lib/cockpitStc"
+import { caMoisCompare, estActif, lignesAgences, lignesSt, lireChiffres, lireSousTraitantsStc, mouvementsAgences, mouvementsSt, moisIso, osRecus, type StatutCockpit } from "../../lib/cockpitStc"
 import { ListeSousTraitants, ResumeSt, SoldeSousTraitants } from "../cockpit/sousTraitants"
 import { bornes, joursDuMois, leadsPeriode, moyenneJour, semaineJours, stats, statsParCompte } from "../../lib/cockpitTelepro"
 import { agencesClientes, campagnesEnCours } from "../../lib/cockpitDb"
 import { chargerCommun } from "../cockpit/donnees"
-import { useRafraichi } from "../cockpit/useRafraichi"
+import { lecturesPartielles, useRafraichi } from "../cockpit/useRafraichi"
+import { lireParametre } from "../../lib/parametresDb"
 import { PrevisionComplete } from "../cockpit/PanneauPrevision"
 import ReglageObjectif from "../cockpit/ReglageObjectif"
 import { AttenteStc, BandeauCotes, Colonnes, Cote, Direct, Grille, Jauge, Legende, MiniCourbe, Mouvements, Panneau, TeteEcran, Tuile, Unites } from "../cockpit/pieces"
@@ -36,8 +37,16 @@ const seance = (d: Date) => `Séance du ${d.toLocaleDateString("fr-FR", { weekda
 const DEBUT_BATICOM = "2026-07"
 
 async function lire(maintenant: Date) {
-  const [commun, campagnes, clientes] = await Promise.all([chargerCommun(maintenant), campagnesEnCours().catch(() => null), agencesClientes().catch(() => [] as { id: string; nom: string }[])])
-  return { commun, campagnes, clientes }
+  // Une lecture secondaire en échec : le reste s'affiche, et l'erreur est dite dans le bandeau (pas des cases vides muettes).
+  const { manques, repli } = lecturesPartielles()
+  const [commun, campagnes, clientes, stcSt] = await Promise.all([
+    chargerCommun(maintenant),
+    campagnesEnCours().catch(repli("les campagnes", null)),
+    agencesClientes().catch(repli("le lien vers les fiches des agences clientes", [] as { id: string; nom: string }[])),
+    // Les sous-traitants de STC Bâtiment, rangés à part (administrateurs seulement) depuis le 26/11/2026.
+    lireParametre("chiffres_stc_st").catch(repli("les sous-traitants de STC Bâtiment", null)),
+  ])
+  return { commun, campagnes, clientes, stcSt, manques }
 }
 
 export default function Croissance({ onOuvrirAgence }: { onOuvrirAgence?: (agenceId: string) => void }) {
@@ -64,7 +73,7 @@ export default function Croissance({ onOuvrirAgence }: { onOuvrirAgence?: (agenc
     const agences = brut ? lignesAgences(brut.agences, seuils, mv?.dejaActives ?? new Set(), moisCourbe, m).filter((a) => a.os_90 > 0 || a.statut !== "pas_active" || !etendu) : []
     const actives = agences.filter((a) => a.statut === "active" || a.statut === "surveiller")
     const os = brut?.os_recents ? osRecus(brut.os_recents, m) : null
-    const sts = brut?.sous_traitants ?? null
+    const sts = lireSousTraitantsStc(d.stcSt, brut)
     const st = sts ? { lignes: lignesSt(sts, m), mouvements: mouvementsSt(sts, m) } : null
     // ── Baticom ──
     const bM = bornes("mois", m), bMD = bornes("moisDernier", m), bS = bornes("semaine", m), bJ = bornes("jour", m)
@@ -133,6 +142,7 @@ export default function Croissance({ onOuvrirAgence }: { onOuvrirAgence?: (agenc
 
       <div className="space-y-2 bg-fond-2 p-3">
         {erreur ? <BandeauAlerte role="attention">Dernière mise à jour impossible : {erreur}</BandeauAlerte> : null}
+        {d?.manques.length ? <BandeauAlerte role="attention" action={<Bouton taille="sm" variante="discret" onClick={recharger}>Réessayer</Bouton>}>Lecture incomplète, ces chiffres manquent : {d.manques.join(" · ")}</BandeauAlerte> : null}
         {/* ═══ LE BANDEAU DE COTES ═══ */}
         <BandeauCotes treize>
           <Tuile periode="année" libelle="CA facturé" valeur={caDepuisJanvier !== null ? `${k(caDepuisJanvier)}€` : "—"} repere={caDepuisJanvier !== null ? <>{euros(caDepuisJanvier)} HT, avoirs déduits</> : "en attente de STC Bâtiment"}

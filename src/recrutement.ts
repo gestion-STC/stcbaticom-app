@@ -139,7 +139,9 @@ export type EnvoiST = {
   ouvertLe?: string | null
 }
 
-export type ClicST = { id: string; sousTraitantId: string; cliqueLe: string; destination: "candidature" | "bareme" | "stop" }
+/** robot : posé par la base (lien-st, 26/11/2026) quand un AUTRE lien du même artisan a été ouvert à 5 s près, ou son
+ *  lien de désinscription : un robot de sécurité de messagerie, pas l'artisan. Ne compte nulle part. */
+export type ClicST = { id: string; sousTraitantId: string; cliqueLe: string; destination: "candidature" | "bareme" | "stop"; robot?: boolean }
 
 // Un passage du moteur.
 export type PassageST = {
