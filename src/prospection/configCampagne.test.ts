@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ORIGINE_TRACABILITE, compiler, configDe, filtreDesZones, messageVide, versEtapes, versSignaux } from "./configCampagne"
+import { ORIGINE_TRACABILITE, compiler, configDe, filtreDesZones, messageVide, recalerEtapeIndex, versEtapes, versSignaux } from "./configCampagne"
 import { estEligible, type Campagne, type Contact, type Etape } from "./modele"
 
 const etapes: Etape[] = [
@@ -74,5 +74,28 @@ describe("le réglage complet d'une campagne (09/11/2026)", () => {
     expect(messageVide(cfg)).toBe(false)
     cfg.creatifs[0].variantes = [{ id: "v", nom: "A", objet: "", corps: " " }]
     expect(messageVide(cfg)).toBe(true)
+  })
+})
+
+describe("recalage des inscrits quand on modifie les étapes d'une campagne active (D20)", () => {
+  // « histoires » : mail, attendre 7 j, mail, attendre 7 j, mail, …, fin. 27 agences attendent le 2e mail (position 2).
+  const ids = (l: string) => l.split(" ").map((id) => ({ id }))
+  const histoires = ids("b c d e f g h i j k")
+  it("supprimer le premier « Attendre 7 j » : ils reçoivent toujours le 2e mail", () => {
+    const apres = ids("b d e f g h i j k")
+    expect(recalerEtapeIndex(histoires, apres, 2)).toBe(1)
+    expect(apres[recalerEtapeIndex(histoires, apres, 2)].id).toBe("d")
+    expect(recalerEtapeIndex(histoires, apres, 0)).toBe(0)
+  })
+  it("remonter le 2e mail d'un cran : ils le suivent", () => {
+    expect(recalerEtapeIndex(histoires, ids("b d c e f g h i j k"), 2)).toBe(1)
+  })
+  it("ajouter une étape avant : la position avance d'autant", () => {
+    expect(recalerEtapeIndex(histoires, ids("b x c d e f g h i j k"), 2)).toBe(3)
+  })
+  it("étape supprimée : la suivante encore présente ; plus rien après : la fin", () => {
+    expect(recalerEtapeIndex(histoires, ids("b c e f g h i j k"), 2)).toBe(2)
+    expect(recalerEtapeIndex(ids("a b c"), ids("a"), 1)).toBe(1)
+    expect(recalerEtapeIndex(ids("a b"), ids("a b c"), 2)).toBe(3)
   })
 })

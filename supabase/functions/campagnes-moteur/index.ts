@@ -167,7 +167,7 @@ async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["conf
     const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null; statut: string; canal: string; test: boolean }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id, statut, canal, test").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
     // Les mêmes chiffres qu'à l'écran (abTest.ts, 26/11/2026) : envois PARTIS (confirmés chez Instantly), leads de la campagne.
     leads ??= await leadsDeLaCampagne(sb, c, inscriptions, fiches)
-    const instantly = !estBaseAvis(c.baseId) && c.origine !== "st"
+    const instantly = parInstantly(c)
     const mesures = mesuresAB(et.variantes, envoyes.map((e) => ({ id: e.id, contactId: e.contact_ref, varianteId: e.variante_id, statut: e.statut, canal: e.canal, test: e.test })), evenements, leads, instantly)
     const g = verdictAB(mesures, r).gagnant
     if (g) etapes = etapes.map((e) => (e.id === et.id && "variantes" in e ? { ...e, variantes: e.variantes.filter((v) => v.id === g) } : e))
@@ -202,6 +202,10 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   for (const k of contacts) if (exclusionLibre(k.champs, exclusions)) bloques.add(k.id)
   return bloques
 }
+
+/** Ses mails passent par Instantly (la règle de l'écran, prospection/indicateurs.ts) : ni une campagne d'avis, ni la
+ *  machine sous-traitants reprise (origine « st », ses envois passés sont partis par Resend, sans « délivré »). */
+const parInstantly = (c: { baseId: string; origine?: string }) => !estBaseAvis(c.baseId) && c.origine !== "st"
 
 /** Le mail d'avant est-il parti (26/11/2026) ? Lu en base juste avant l'envoi ; une lecture en échec retient la relance. */
 async function attendConfirmation(sb: SupabaseClient, inscriptionId: string, etapeId: string): Promise<boolean> {
@@ -534,7 +538,9 @@ Deno.serve(async (req: Request) => {
         const causeReport = arret ? "limite de débit du prestataire" : envoisPassage >= ENVOIS_MAX_PAR_PASSAGE ? `plafond de ${ENVOIS_MAX_PAR_PASSAGE} envois par passage` : canal === "linkedin" && liBloque ? "LinkedIn : compte absent ou quota atteint" : canal !== "linkedin" && budget[canal] <= 0 ? `plafond du jour (${canal})` : canal === "sms" && !hSms ? "hors des heures SMS" : canal === "mail" && !avis && !ins.pretes.length ? "aucune boîte Instantly prête" : ""
         if (causeReport) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[causeReport] = (reports[causeReport] ?? 0) + 1; continue }
         // Une relance ne part qu'après la confirmation du mail d'avant (26/11/2026) : « confié à Instantly » n'est pas « parti ».
-        if (!nouvelles.has(e.inscriptionId) && e.statut !== "saute" && !ligne.mode_test && !avis && await attendConfirmation(sb, e.inscriptionId, e.etapeId)) {
+        // Seulement pour une campagne qui passe par Instantly (lot 6) : la confirmation « délivré » vient d'Instantly ; une
+        // campagne envoyée par Resend (origine « st » : 623 envois sur 1 130 sans « délivré ») restait retenue à vie.
+        if (!nouvelles.has(e.inscriptionId) && e.statut !== "saute" && !ligne.mode_test && parInstantly(c) && await attendConfirmation(sb, e.inscriptionId, e.etapeId)) {
           const cause = "mail précédent pas encore confirmé parti"
           reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[cause] = (reports[cause] ?? 0) + 1; continue
         }

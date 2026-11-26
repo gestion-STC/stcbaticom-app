@@ -23,10 +23,10 @@ import ClientsAConfirmer from "./ClientsAConfirmer"
 import { Entonnoir } from "./aujourdhui/courtier"
 import { chargerTachesCampagne } from "../../lib/tachesCampagne"
 import { tacheCampagnePourMoi } from "../../lib/perimetre"
-import { agencesQuiBougent, attenduMois, bornes, cadence, joursDuMois, leadsPeriode, lundisRecents, moyenneJour, repartirAAppeler, semaineJours, stats, statsParCompte, STATS_ZERO, type PeriodeCockpit, type StatsCockpit } from "../../lib/cockpitTelepro"
+import { agencesQuiBougent, attenduMois, bornes, cadence, equipeEtReste, joursDuMois, leadsPeriode, lundisRecents, moyenneJour, repartirAAppeler, semaineJours, stats, statsParCompte, STATS_ZERO, type PeriodeCockpit, type StatsCockpit } from "../../lib/cockpitTelepro"
 import { baseDesAgences, signauxDepuis } from "../../lib/cockpitDb"
 import { chargerCommun } from "../cockpit/donnees"
-import { useRafraichi } from "../cockpit/useRafraichi"
+import { lecturesPartielles, useRafraichi } from "../cockpit/useRafraichi"
 import { PrevisionCompacte } from "../cockpit/PanneauPrevision"
 import { BandeauCotes, Barre, Colonnes, Cote, Direct, Grille, Jauge, Legende, MiniCourbe, Panneau, TeteEcran, Tuile, Unites } from "../cockpit/pieces"
 import { fr, moisCourt, pct } from "../cockpit/format"
@@ -42,7 +42,6 @@ const seance = (d: Date) => `Séance du ${d.toLocaleDateString("fr-FR", { weekda
 const joursEntre = (de: Date, a: Date) => Math.round((new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime() - new Date(de.getFullYear(), de.getMonth(), de.getDate()).getTime()) / 86_400_000)
 const moisIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 const jourSemaine = (d: Date) => { const s = d.toLocaleDateString("fr-FR", { weekday: "short" }); return `${s[0].toUpperCase()}${s.slice(1)} ${d.getDate()}` }
-const somme = (l: StatsCockpit[]) => l.reduce((t, s) => ({ appels: t.appels + s.appels, joints: t.joints + s.joints, interesses: t.interesses + s.interesses, rdv: t.rdv + s.rdv, premiersOs: t.premiersOs + s.premiersOs }), { ...STATS_ZERO })
 
 type Choix = { choix: string; options: { value: string; label: string }[]; proprietaire: Proprietaire; base: string }
 type Extra = { heures: LigneHeure[]; signaux: Awaited<ReturnType<typeof signauxDepuis>>; mails: Awaited<ReturnType<typeof bilanMails>> | null }
@@ -53,15 +52,17 @@ async function lire(maintenant: Date, choixLocal: string | null, moiId: string, 
   // Un administrateur regarde toute la base par défaut ; un téléprospecteur, la sienne (09/11/2026).
   const choix = normaliserChoix(choixLocal, admin, libre, choixParDefautPourRegarder(admin))
   const proprietaire = proprietaireDepuisChoix(choixLocal, moiId, admin, libre, choixParDefautPourRegarder(admin))
+  // Leads et appels demandés par les campagnes : en échec, la liste « À faire » reste affichée, et l'erreur est dite.
+  const { manques, repli } = lecturesPartielles()
   const [commun, base, leads, taches, campagne] = await Promise.all([
     chargerCommun(maintenant),
     baseDesAgences(),
-    chargerLeads(proprietaire).catch(() => [] as { agence: Agence; lead: Lead }[]),
+    chargerLeads(proprietaire).catch(repli("les leads", [] as { agence: Agence; lead: Lead }[])),
     chargerTachesDuJour(maintenant).then((l) => l.filter((t) => dansLaBase(t.agenceCommercialId, proprietaire))),
-    chargerTachesCampagne().then((l) => [...new Set(l.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moiId, admin, ["demarchage"])).map((t) => t.contactRef))]).catch(() => [] as string[]),
+    chargerTachesCampagne().then((l) => [...new Set(l.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moiId, admin, ["demarchage"])).map((t) => t.contactRef))]).catch(repli("les appels demandés par les campagnes", [] as string[])),
   ])
   const choixBase: Choix = { choix, options: optionsBase(admin, libre, comptes, moiId), proprietaire, base: libelleBase(choix, comptes) }
-  return { commun, base, leads, taches, campagne, choixBase }
+  return { commun, base, leads, taches, campagne, choixBase, manques }
 }
 
 export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer, onOuvrirEtape }: {
@@ -169,9 +170,10 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   // Par commercial, sur la période choisie.
   const lignesCom = c.commerciaux.map((x) => ({ ...x, st: c.parPeriode[periode][x.id] ?? STATS_ZERO })).sort((a, b) => b.st.appels - a.st.appels || b.st.joints - a.st.joints || a.nom.localeCompare(b.nom, "fr"))
   const bP = bornes(periode, m)
-  const totalCom = periode ? stats(d.commun.appels, d.commun.os, bP.de, bP.a) : somme(lignesCom.map((l) => l.st))
-  const sansCommercial = totalCom.premiersOs - somme(lignesCom.map((l) => l.st)).premiersOs
-  const equipeCad = cadence(d.commun.appels, c.lundis, m)
+  // « Équipe » = les commerciaux affichés ; le reste (comptes hors classement, agences sans commercial) est dit à part.
+  const { equipe: totalCom, horsClassement, sansCommercial } = equipeEtReste(d.commun.appels, d.commun.os, c.commerciaux.map((x) => x.id), bP.de, bP.a)
+  const idsCom = new Set(c.commerciaux.map((x) => x.id))
+  const equipeCad = cadence(d.commun.appels.filter((a) => a.compteId && idsCom.has(a.compteId)), c.lundis, m)
   const serie = choisi === "equipe" ? equipeCad : (c.cadences[choisi] ?? equipeCad)
   const nomChoisi = choisi === "equipe" ? "Équipe" : (c.commerciaux.find((x) => x.id === choisi)?.nom ?? "Équipe")
   const LIBELLE: Record<PeriodeCockpit, string> = { jour: "aujourd'hui", semaine: `depuis lundi ${lundiCourt(c.lundis[c.lundis.length - 1])}`, mois: `du 1er au ${m.getDate()} ${moisCourt(moisIso(m))}`, moisDernier: `${moisAvantCourt} entier`, annee: "depuis janvier" }
@@ -217,6 +219,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
 
       <div className="space-y-2 bg-fond-2 p-3">
         {erreur ? <BandeauAlerte role="attention">Dernière mise à jour impossible : {erreur}</BandeauAlerte> : null}
+        {d.manques.length ? <BandeauAlerte role="attention" action={<Bouton taille="sm" variante="discret" onClick={recharger}>Réessayer</Bouton>}>Lecture incomplète, ces chiffres manquent : {d.manques.join(" · ")}</BandeauAlerte> : null}
         {erreurAction ? <BandeauAlerte role="alerte" action={<Bouton taille="sm" variante="discret" onClick={() => setErreurAction("")}>Fermer</Bouton>}>{erreurAction}</BandeauAlerte> : null}
 
         {/* ═══ LE BANDEAU DE COTES : l'année → le mois → la semaine → le jour ═══ */}
@@ -270,7 +273,15 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
                   <span className="ml-auto block w-[88px]"><MiniCourbe valeurs={c.cadences[id]?.appels ?? []} h={18} /></span>],
               }))}
               pied={[<button type="button" className={`underline-offset-4 hover:underline ${choisi === "equipe" ? "" : "text-encre-2"}`} onClick={() => setChoisi("equipe")}>Équipe</button>, fr(totalCom.appels), fr(totalCom.joints), pct(totalCom.joints, totalCom.appels), totalCom.interesses, totalCom.rdv,
-                <span title={sansCommercial > 0 ? `dont ${sansCommercial} agence(s) sans commercial attribué` : undefined}>{totalCom.premiersOs}</span>, pct(totalCom.premiersOs, totalCom.interesses), <span className="ml-auto block w-[88px]"><MiniCourbe valeurs={equipeCad.appels} h={18} ton="encre" /></span>]} />
+                totalCom.premiersOs, pct(totalCom.premiersOs, totalCom.interesses), <span className="ml-auto block w-[88px]"><MiniCourbe valeurs={equipeCad.appels} h={18} ton="encre" /></span>]} />
+            {horsClassement.appels || horsClassement.premiersOs || sansCommercial ? (
+              <p className="mt-1 text-colonne text-encre-2">
+                Hors de ce tableau : {[
+                  horsClassement.appels || horsClassement.premiersOs ? `${fr(horsClassement.appels)} appel${horsClassement.appels > 1 ? "s" : ""} et ${horsClassement.premiersOs} premier${horsClassement.premiersOs > 1 ? "s" : ""} OS des comptes hors classement (direction, recrutement)` : "",
+                  sansCommercial ? `${sansCommercial} premier${sansCommercial > 1 ? "s" : ""} OS d'agence${sansCommercial > 1 ? "s" : ""} sans commercial attribué` : "",
+                ].filter(Boolean).join(" · ")}.
+              </p>
+            ) : null}
             <div className="mt-2 border-t-[0.5px] border-trait pt-2">
               <div className="mb-1 flex items-center justify-between gap-3">
                 <span className="text-colonne text-encre"><b className="font-semibold">{nomChoisi}</b> <span className="text-encre-2">· appels et joints par semaine, depuis le {lundiCourt(c.lundis[0])}</span></span>

@@ -11,6 +11,7 @@ create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
 $$;
 do $$ begin create role authenticated; exception when duplicate_object then null; end $$;
+do $$ begin create role anon; exception when duplicate_object then null; end $$;
 
 create table public.secteurs (
   code text primary key, libelle text not null, zone text not null, ordre integer not null default 0, commercial_id uuid
@@ -50,6 +51,26 @@ create table public.messages (
   lu boolean not null default false, brut jsonb, pieces_jointes jsonb not null default '[]',
   espace text not null default 'demarchage' check (espace in ('demarchage','recrutement')), sous_traitant_id uuid,
   agence_id uuid references public.agences(id) on delete set null, contact_id uuid references public.contacts(id) on delete set null
+);
+-- Lues par demarchage_repos (25/11/2026 : un lead ouvert ou une demande d'appel d'une campagne n'attend pas la fin du repos).
+-- (leads_demarchage : la définition de supabase/maj-2026-11-06-leads.sql, que le banc des leads rejoue ensuite.)
+create table public.leads_demarchage (
+  id uuid primary key default gen_random_uuid(),
+  agence_id uuid not null references public.agences(id) on delete cascade,
+  contact_id uuid references public.contacts(id) on delete set null,
+  source text not null check (source in ('compte', 'page_compte', 'mail', 'plaquette', 'manuel')),
+  signal text not null,
+  detail text not null default '',
+  cree_le timestamptz not null default now(),
+  dernier_signal_le timestamptz not null default now(),
+  statut text not null default 'a_traiter' check (statut in ('a_traiter', 'traite', 'retombe')),
+  traite_le timestamptz,
+  traite_par uuid,
+  resultat text not null default '',
+  tentatives integer not null default 0
+);
+create table public.cmp_taches (
+  id uuid primary key default gen_random_uuid(), contact_ref text not null, type text not null default 'appel', faite_le timestamptz
 );
 grant usage on schema public, auth to authenticated;
 grant all on all tables in schema public to authenticated;

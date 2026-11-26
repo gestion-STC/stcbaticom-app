@@ -5,6 +5,8 @@ import { lireParLots } from "./pagination"
 import { lireParametre } from "./parametresDb"
 import { COCKPIT_DEPART, entonnoirDemarchage, type ReglageCockpit } from "./croissance"
 import type { OsDate, SignalSite } from "./cockpitTelepro"
+import { lignesCampagnesCockpit, type CampagneCockpit } from "./cockpitCampagnes"
+import { BASES, creerDepotSupabase } from "../prospection/depotSupabase"
 
 type Lot<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>
 const sb = () => { if (!supabase) throw new Error("Supabase n'est pas configuré."); return supabase }
@@ -39,34 +41,13 @@ export async function signauxDepuis(de: Date): Promise<(SignalSite & { commercia
   return l.filter((x) => x.agences?.type !== "apporteur").map((x) => ({ date: x.date, titre: x.titre, agenceId: x.agence_id, agenceNom: x.agences?.nom ?? "", etape: x.agences?.etape ?? "", commercialId: x.agences?.commercial_id ?? null }))
 }
 
-export type CampagneCockpit = { id: string; nom: string; base: string; envoyes: number; ouverts: number | null; clics: number; leads: number }
-/** Les campagnes en cours : envoyés (hors tests), ouverts, clics et leads HORS ROBOTS (un lead compte s'il vient d'un vrai clic). */
+export type { CampagneCockpit } from "./cockpitCampagnes"
+/** Les campagnes en cours, comptées EXACTEMENT comme la liste des campagnes et le Suivi (lib/cockpitCampagnes.ts) : le
+ *  même chargement (depotSupabase) et le même calcul (indicateurs). */
 export async function campagnesEnCours(): Promise<CampagneCockpit[]> {
-  const { data, error } = await sb().from("cmp_campagnes").select("id, nom, base_id").eq("statut", "active").order("nom")
-  if (error) throw new Error(error.message)
-  const camps = (data ?? []) as { id: string; nom: string; base_id: string }[]
-  if (!camps.length) return []
-  const ids = camps.map((c) => c.id)
-  type E = { id: string; campagne_id: string; canal: string }
-  type V = { id: string; campagne_id: string; envoi_id: string | null; contact_ref: string; type: string }
-  type I = { id: string; campagne_id: string; contact_ref: string }
-  const [envois, evenements, inscriptions] = await Promise.all([
-    lireParLots<E>((d, f) => sb().from("cmp_envois").select("id, campagne_id, canal").in("campagne_id", ids).eq("statut", "envoye").eq("test", false).order("id").range(d, f) as unknown as Lot<E>),
-    lireParLots<V>((d, f) => sb().from("cmp_evenements").select("id, campagne_id, envoi_id, contact_ref, type").in("campagne_id", ids).in("type", ["ouvert", "clic"]).eq("robot", false).order("id").range(d, f) as unknown as Lot<V>),
-    lireParLots<I>((d, f) => sb().from("cmp_inscriptions").select("id, campagne_id, contact_ref").in("campagne_id", ids).eq("statut", "lead").order("id").range(d, f) as unknown as Lot<I>),
-  ])
-  return camps.map((c) => {
-    const env = envois.filter((e) => e.campagne_id === c.id)
-    const ev = evenements.filter((e) => e.campagne_id === c.id)
-    const cliqueurs = new Set(ev.filter((e) => e.type === "clic").map((e) => e.contact_ref))
-    const mesurable = env.some((e) => e.canal !== "sms")
-    return {
-      id: c.id, nom: c.nom, base: c.base_id, envoyes: env.length,
-      ouverts: mesurable ? new Set(ev.filter((e) => e.type === "ouvert").map((e) => e.envoi_id ?? e.contact_ref)).size : null,
-      clics: ev.filter((e) => e.type === "clic").length,
-      leads: inscriptions.filter((i) => i.campagne_id === c.id && cliqueurs.has(i.contact_ref)).length,
-    }
-  })
+  const depot = creerDepotSupabase({ id: "", nom: "", role: "gerant" }, () => {})
+  await depot.charger()
+  return lignesCampagnesCockpit(depot.lire(), (id) => BASES.find((b) => b.id === id))
 }
 
 /** Le réglage de l'objectif (Campagnes › Dashboard) et les chiffres bruts de STC Bâtiment. */

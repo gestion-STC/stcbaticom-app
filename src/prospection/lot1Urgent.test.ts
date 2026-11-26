@@ -29,9 +29,9 @@ describe("une relance attend la confirmation du mail d'avant", () => {
     expect(relanceRetenue(l, new Set(["a", "b"]), "m3")).toBe(false)
     expect(relanceRetenue([env("t", { test: true })], new Set(), "m2")).toBe(false)
   })
-  it("le moteur la lit avant chaque envoi, hors entrée, essai et avis", () => {
+  it("le moteur la lit avant chaque envoi, hors entrée, essai, et seulement pour une campagne Instantly (lot 6)", () => {
     expect(moteur).toContain("await attendConfirmation(sb, e.inscriptionId, e.etapeId)")
-    expect(moteur).toContain("!nouvelles.has(e.inscriptionId) && e.statut !== \"saute\" && !ligne.mode_test && !avis")
+    expect(moteur).toContain("!nouvelles.has(e.inscriptionId) && e.statut !== \"saute\" && !ligne.mode_test && parInstantly(c)")
     expect(instantly).toContain('update({ statut: "envoye" }).eq("id", envoi).eq("statut", "erreur")')
   })
 })

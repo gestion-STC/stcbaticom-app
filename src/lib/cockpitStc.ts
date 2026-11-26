@@ -44,6 +44,19 @@ export function lireChiffres(valeur: string | null): ChiffresEtendus | null {
   } catch { return null }
 }
 
+/** Les sous-traitants de STC Bâtiment (e-mails, paiements, missions). Depuis le 26/11/2026 la synchro les range à part,
+ *  dans parametres.chiffres_stc_st, que seuls les administrateurs lisent ; tant qu'elle n'est pas repassée, ils sont
+ *  encore dans chiffres_stc. null : rien de lisible. */
+export function lireSousTraitantsStc(valeurSt: string | null, brut: ChiffresEtendus | null): SousTraitantStc[] | null {
+  if (valeurSt) {
+    try {
+      const l = JSON.parse(valeurSt) as unknown
+      if (Array.isArray(l)) return l as SousTraitantStc[]
+    } catch { /* l'ancien emplacement */ }
+  }
+  return brut?.sous_traitants ?? null
+}
+
 /** « AAAA-MM-JJ » à l'heure du poste (Paris). */
 export const jourIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 export const moisIso = (d: Date) => jourIso(d).slice(0, 7)

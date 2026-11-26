@@ -28,6 +28,12 @@ describe("audience réelle", () => {
     expect(r(k("e"))).toBeNull()
     expect(r(k("x"))).toBe("Retiré de cette campagne")
   })
+  it("un contact déjà lead n'entre pas (le moteur ne prend que les libres), sauf s'il est déjà dedans", () => {
+    const inscriptions = [{ campagneId: "c", contactId: "dedans" }] as Inscription[]
+    const r = raisonsExclusion(ctx({ inscriptions }))
+    expect(r({ ...k("l"), statut: "lead" })).toBe("Déjà lead")
+    expect(r({ ...k("dedans"), statut: "lead" })).toBeNull()
+  })
   it("retire puis remet", () => {
     const r1 = basculerRetire(g({}), "a")
     expect(r1.retires).toEqual(["a"])

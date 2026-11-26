@@ -121,84 +121,27 @@ end $$;
 drop trigger if exists activites_touche_agence on public.activites;
 create trigger activites_touche_agence after insert on public.activites for each row execute function public.activites_touche_agence();
 
--- ── Qui a quelle agence (Mahdi, 14/10) ──
--- Le SECTEUR décide pour la prospection. Une agence TRAVAILLÉE reste à celui qui l'a travaillée,
--- même si son secteur appartient à un collègue : « chacun ses clients ».
--- Travaillée = gestionnaire joint, intéressée, RDV, cliente, ou un rappel / RDV encore prévu.
--- Pas travaillée = à prospecter sans rien de prévu, endormie, pas intéressée, hors cible.
-create or replace function public.agence_travaillee(p_etape text, p_agence_id uuid) returns boolean
-language sql
-stable
-security definer
-set search_path to 'public'
-as $$
-  select case
-    when p_etape in ('pas_interesse', 'hors_cible', 'endormie') then false
-    when p_etape in ('gestionnaire_joint', 'interesse', 'rdv_planifie', 'client') then true
-    else exists (select 1 from public.activites t where t.agence_id = p_agence_id and t.type in ('tache', 'rdv') and t.fait_le is null)
-  end
-$$;
-grant execute on function public.agence_travaillee(text, uuid) to authenticated;
-
--- Le propriétaire qu'une agence doit avoir après un changement : celui qui vient de la travailler
--- si elle ne l'était pas ; le démarcheur de son secteur si elle cesse de l'être ; sinon, inchangé.
-create or replace function public.agence_proprietaire_apres(p_agence_id uuid, p_etape_avant text, p_etait_travaillee boolean, p_etape_apres text, p_qui uuid)
-returns uuid
-language plpgsql
-stable
-security definer
-set search_path to 'public'
-as $$
-declare
-  a public.agences%rowtype;
-  v_apres boolean;
-begin
-  select * into a from public.agences where id = p_agence_id;
-  if not found or a.type = 'apporteur' then return a.commercial_id; end if;
-  v_apres := public.agence_travaillee(p_etape_apres, p_agence_id);
-  -- Elle vient d'être travaillée (joint, intéressée, RDV, rappel promis) : elle est à celui qui l'a fait.
-  -- Une cliente ne change pas de main en devenant cliente.
-  if v_apres and not p_etait_travaillee and p_qui is not null and p_etape_apres <> 'client' then return p_qui; end if;
-  -- Elle n'est plus travaillée : elle retourne au démarcheur de son secteur.
-  if not v_apres and p_etait_travaillee and a.secteur is not null then
-    return (select s.commercial_id from public.secteurs s where s.code = a.secteur);
-  end if;
-  return a.commercial_id;
-end $$;
-
--- Une étape changée à la main (fiche, liste) : même règle. L'appel noté s'en charge lui-même.
-create or replace function public.agence_suit_qui_la_travaille() returns trigger
-language plpgsql
-security definer
-set search_path to 'public'
-as $$
-begin
-  if coalesce(current_setting('app.proprietaire_gere', true), '') = '1' then return new; end if;
-  if new.type = 'apporteur' or new.etape is not distinct from old.etape then return new; end if;
-  if new.commercial_id is distinct from old.commercial_id then return new; end if; -- attribuée à la main en même temps
-  new.commercial_id := public.agence_proprietaire_apres(new.id, old.etape, public.agence_travaillee(old.etape, new.id), new.etape, auth.uid());
-  return new;
-end $$;
-drop trigger if exists agences_suit_qui_la_travaille on public.agences;
-create trigger agences_suit_qui_la_travaille before update of etape on public.agences for each row execute function public.agence_suit_qui_la_travaille();
+-- ── Qui a quelle agence ──
+-- Le SECTEUR décide : une agence est au démarcheur de son secteur (agence_suit_son_secteur, attribuer_secteur),
+-- sauf « Attribuée à » choisi à la main sur la fiche. Aligné sur la prod le 26/11/2026 : la garde « agence travaillée »
+-- (agence_travaillee, agence_proprietaire_apres, agence_suit_qui_la_travaille) écrite ici le 14/10 n'a jamais été
+-- appliquée en base ; ce fichier décrit ce qui tourne réellement.
 
 -- ── Le secteur fait foi pour la prospection ──
-create or replace function public.agence_suit_son_secteur() returns trigger
-language plpgsql
-security definer
-set search_path to 'public'
-as $$
+create or replace function public.agence_suit_son_secteur()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
 begin
   if new.secteur is not null and new.type <> 'apporteur'
      and (tg_op = 'INSERT' or new.secteur is distinct from old.secteur)
-     -- « Attribuée à » changé dans le même enregistrement que le secteur (fiche agence, lot 4 du 26/11/2026) : ce choix l'emporte.
      and (tg_op = 'INSERT' or new.commercial_id is not distinct from old.commercial_id) then
-    -- Une agence travaillée garde celui qui l'a travaillée, même si son secteur change.
-    if tg_op = 'UPDATE' and public.agence_travaillee(new.etape, new.id) and new.commercial_id is not null then return new; end if;
     new.commercial_id := (select s.commercial_id from public.secteurs s where s.code = new.secteur);
   end if;
   return new;
-end $$;
+end $function$;
 drop trigger if exists agences_suit_son_secteur on public.agences;
 create trigger agences_suit_son_secteur before insert or update of secteur on public.agences for each row execute function public.agence_suit_son_secteur();
 create or replace function public.attribuer_secteur(p_secteur text, p_compte_id uuid, p_ecraser boolean default true)
@@ -213,16 +156,13 @@ begin
   if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') <> 'admin' then
     raise exception 'Réservé aux admins.';
   end if;
-  -- Les agences travaillées (avec un propriétaire) ne changent pas de main avec le secteur.
   if coalesce(p_secteur, '') <> '' then
     update public.secteurs set commercial_id = p_compte_id where code = p_secteur;
     update public.agences set commercial_id = p_compte_id
-     where secteur = p_secteur and type <> 'apporteur' and commercial_id is distinct from p_compte_id
-       and not (commercial_id is not null and public.agence_travaillee(etape, id));
+     where secteur = p_secteur and type <> 'apporteur' and commercial_id is distinct from p_compte_id;
   else
     update public.agences set commercial_id = p_compte_id
-     where coalesce(secteur, '') = '' and type <> 'apporteur' and commercial_id is distinct from p_compte_id
-       and not (commercial_id is not null and public.agence_travaillee(etape, id));
+     where coalesce(secteur, '') = '' and type <> 'apporteur' and commercial_id is distinct from p_compte_id;
   end if;
   get diagnostics v_n = row_count;
   return v_n;
@@ -249,14 +189,11 @@ begin
   return v_appel;
 end $$;
 grant execute on function public.appel_lancer(uuid, uuid, text, text, text, text) to authenticated;
-create or replace function public.appel_enregistrer(
-  p_agence_id uuid, p_contact_id uuid, p_resultat text, p_issue text default '', p_motif text default '', p_note text default '',
-  p_numero text default '', p_duree_s integer default null, p_call_id text default '', p_rappel_le timestamptz default null,
-  p_rdv_le timestamptz default null, p_rdv_type text default 'telephone', p_compte_nom text default '', p_source text default 'session',
-  p_appel_id uuid default null
-) returns jsonb
-language plpgsql
-as $$
+create or replace function public.appel_enregistrer(p_agence_id uuid, p_contact_id uuid, p_resultat text, p_issue text default ''::text, p_motif text default ''::text, p_note text default ''::text, p_numero text default ''::text, p_duree_s integer default null::integer, p_call_id text default ''::text, p_rappel_le timestamp with time zone default null::timestamp with time zone, p_rdv_le timestamp with time zone default null::timestamp with time zone, p_rdv_type text default 'telephone'::text, p_compte_nom text default ''::text, p_source text default 'session'::text, p_appel_id uuid default null::uuid)
+ returns jsonb
+ language plpgsql
+ set search_path to 'public', 'extensions', 'pg_temp'
+as $function$
 declare
   a public.agences%rowtype;
   v_compte uuid := auth.uid();
@@ -265,8 +202,6 @@ declare
   v_tache uuid;
   v_contact text := '';
   v_interessee boolean;
-  v_etait_travaillee boolean;
-  v_proprietaire uuid;
   v_fin_jour timestamptz := (date_trunc('day', now() at time zone 'Europe/Paris') + interval '1 day') at time zone 'Europe/Paris';
   v_sommeil_apres integer := public.reglage_demarchage('sommeil_apres_tentatives');
   v_sommeil_jours integer := public.reglage_demarchage('sommeil_jours');
@@ -280,7 +215,6 @@ begin
     select trim(prenom || ' ' || nom) into v_contact from public.contacts where id = p_contact_id and agence_id = p_agence_id;
   end if;
   v_interessee := a.etape in ('interesse', 'rdv_planifie');
-  v_etait_travaillee := public.agence_travaillee(a.etape, p_agence_id);
   perform set_config('app.appel_en_cours', '1', true);
 
   -- Déjà noté (double clic, ou réponse perdue puis nouvel essai) : on ne réécrit rien, on renvoie l'état.
@@ -305,9 +239,10 @@ begin
     returning id into v_appel;
   end if;
 
-  -- 1. L'appel a eu lieu : le rappel du jour (et ceux en retard) est fait.
+  -- 1. L'appel a eu lieu : ce qui est échu (rappel passé, en retard) est fait. Jamais un RDV ou un rappel à venir,
+  --    même plus tard dans la journée (25/11/2026 : un RDV de 16 h était fermé par un appel de 14 h 58).
   update public.activites set fait_le = now()
-   where agence_id = p_agence_id and type in ('tache', 'rdv') and fait_le is null and echeance < v_fin_jour;
+   where agence_id = p_agence_id and type in ('tache', 'rdv') and fait_le is null and echeance <= now();
   -- 2. Une intéressée : ses relances à venir sont remplacées par la nouvelle (posée plus bas).
   if v_interessee then
     update public.activites set fait_le = now()
@@ -371,18 +306,14 @@ begin
   end if;
   perform set_config('app.appel_en_cours', '', true);
 
-  -- 4. Qui a l'agence (14/10) : celui qui vient de la travailler, ou le démarcheur de son secteur.
-  v_proprietaire := public.agence_proprietaire_apres(p_agence_id, a.etape, v_etait_travaillee, v_etape, v_compte);
-  perform set_config('app.proprietaire_gere', '1', true);
   update public.agences set
     tentatives = a.tentatives, joint_fois = a.joint_fois, reveil_le = a.reveil_le,
     motif = case when v_etape = 'pas_interesse' then a.motif else motif end,
-    etape = v_etape, derniere_activite_le = now(), commercial_id = v_proprietaire
+    etape = v_etape, derniere_activite_le = now()
   where id = p_agence_id;
-  perform set_config('app.proprietaire_gere', '', true);
 
   return jsonb_build_object('appel_id', v_appel, 'tache_id', v_tache, 'etape', v_etape, 'tentatives', a.tentatives, 'joint_fois', a.joint_fois);
-end $$;
+end $function$;
 grant execute on function public.appel_enregistrer(uuid, uuid, text, text, text, text, text, integer, text, timestamptz, timestamptz, text, text, text, uuid) to authenticated;
 
 -- ── Les relances : étape changée à la main, tâche faite ou supprimée ──
@@ -456,29 +387,59 @@ begin
 end $$;
 
 -- ── Les mails rangés sur leur agence ──
-create or replace function public.messages_rattacher_agence() returns trigger
-language plpgsql
-security definer
-set search_path to 'public'
-as $$
+-- La recherche de l'agence d'un mail (25/11/2026), utilisée par messages_rattacher_agence.
+create or replace function public.message_agence_probable(p_sens text, p_de text, p_a text, p_in_reply_to text, p_avant timestamptz default now())
+ returns uuid
+ language plpgsql
+ stable security definer
+ set search_path to 'public'
+as $function$
 declare
   v_adresse text;
   v_agences uuid[];
+  v uuid;
 begin
-  if new.agence_id is not null or coalesce(new.espace, 'demarchage') <> 'demarchage' then return new; end if;
+  if coalesce(trim(p_in_reply_to), '') <> '' then
+    select m.agence_id into v from public.messages m
+     where m.message_id = trim(p_in_reply_to) and m.agence_id is not null order by m.created_at desc limit 1;
+    if v is not null then return v; end if;
+  end if;
   -- L'adresse de l'autre côté : le destinataire pour un envoi, l'expéditeur pour une réponse.
-  v_adresse := lower(trim(split_part(split_part(case when new.sens = 'sortant' then new.a else new.de end, ' · ', 1), ',', 1)));
+  v_adresse := lower(trim(split_part(split_part(case when p_sens = 'sortant' then p_a else p_de end, ' · ', 1), ',', 1)));
   if v_adresse ~ '<.+>' then v_adresse := substring(v_adresse from '<([^>]+)>'); end if;
-  if v_adresse is null or position('@' in v_adresse) = 0 then return new; end if;
+  if v_adresse is null or position('@' in v_adresse) = 0 then return null; end if;
 
   select array_agg(distinct c.agence_id) into v_agences from public.contacts c where lower(trim(c.email)) = v_adresse;
   if coalesce(array_length(v_agences, 1), 0) = 0 then
     select array_agg(distinct g.id) into v_agences from public.agences g
      where g.type <> 'apporteur' and position(v_adresse in lower(coalesce(g.email, ''))) > 0;
   end if;
-  if array_length(v_agences, 1) = 1 then new.agence_id := v_agences[1]; end if;
+  if array_length(v_agences, 1) = 1 then return v_agences[1]; end if;
+
+  -- Le repli « dernier mail envoyé » ne vaut que pour un mail reçu (un envoi sans fiche, une demande d'avis
+  -- par exemple, reste sans fiche).
+  if p_sens <> 'entrant' then return null; end if;
+  select m.agence_id into v from public.messages m
+   where m.sens = 'sortant' and m.agence_id is not null and m.created_at <= coalesce(p_avant, now())
+     and position(v_adresse in lower(coalesce(m.a, ''))) > 0
+     and (coalesce(array_length(v_agences, 1), 0) = 0 or m.agence_id = any (v_agences))
+   order by m.created_at desc limit 1;
+  return v;
+end $function$;
+revoke all on function public.message_agence_probable(text, text, text, text, timestamptz) from public, anon;
+grant execute on function public.message_agence_probable(text, text, text, text, timestamptz) to authenticated;
+create or replace function public.messages_rattacher_agence()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+begin
+  if new.agence_id is not null or coalesce(new.espace, 'demarchage') <> 'demarchage' then return new; end if;
+  -- 25/11/2026 : réponse à un mail connu, adresse sur une seule fiche, ou fiche du dernier mail envoyé à cette adresse.
+  new.agence_id := public.message_agence_probable(new.sens, new.de, new.a, new.in_reply_to, coalesce(new.created_at, now()));
   return new;
-end $$;
+end $function$;
 drop trigger if exists messages_rattacher_agence on public.messages;
 create trigger messages_rattacher_agence before insert on public.messages for each row execute function public.messages_rattacher_agence();
 
@@ -493,12 +454,11 @@ create trigger messages_rattacher_agence before insert on public.messages for ea
 --             pour une agence qui a un rappel prévu aujourd'hui, ni pour une intéressée ou un RDV
 --             (elles ont leur relance).
 create or replace function public.demarchage_repos()
-returns table (agence_id uuid, raison text, du_jour boolean)
-language sql
-stable
-security definer
-set search_path to 'public'
-as $$
+ returns table(agence_id uuid, raison text, du_jour boolean)
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
   with j as (
     select date_trunc('day', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris' as debut_jour,
            (date_trunc('day', now() at time zone 'Europe/Paris') + interval '1 day') at time zone 'Europe/Paris' as fin_jour,
@@ -522,15 +482,21 @@ as $$
   g as (
     select a.id, regexp_replace(coalesce(a.telephone, ''), '\D', '', 'g') as tel,
            a.etape in ('interesse', 'rdv_planifie')
-             or exists (select 1 from public.activites t, j where t.agence_id = a.id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance < j.fin_jour) as exempte
+             or exists (select 1 from public.activites t, j where t.agence_id = a.id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance < j.fin_jour)
+             -- 25/11/2026 : un lead ouvert, ou une demande d'appel d'une campagne, n'attend pas la fin du repos.
+             or exists (select 1 from public.leads_demarchage l where l.agence_id = a.id and l.statut = 'a_traiter')
+             or exists (select 1 from public.cmp_taches k where k.contact_ref = a.id::text and k.type = 'appel' and k.faite_le is null) as exempte,
+           -- 25/11/2026 : un rappel ou un RDV dû maintenant : la fiche passe, même déjà appelée aujourd'hui.
+           exists (select 1 from public.activites t where t.agence_id = a.id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance <= now()) as du_maintenant
       from public.agences a
   ),
   raisons as (
-    -- 1. Aujourd'hui : la fiche elle-même, ou son standard composé sur une autre fiche.
+    -- 1. Aujourd'hui : la fiche elle-même, ou son standard composé sur une autre fiche (sauf rappel dû maintenant).
     select g.id, 1 as ordre, true as du_jour,
            'Ce numéro a déjà été appelé aujourd''hui (par toi ou un collègue) : on ne le recompose pas.' as raison
-      from g, j where exists (select 1 from ap where ap.agence_id = g.id and ap.date >= j.debut_jour)
-                   or (length(g.tel) >= 9 and exists (select 1 from ap where ap.tel = g.tel and ap.date >= j.debut_jour))
+      from g, j where not g.du_maintenant
+                  and (exists (select 1 from ap where ap.agence_id = g.id and ap.date >= j.debut_jour)
+                   or (length(g.tel) >= 9 and exists (select 1 from ap where ap.tel = g.tel and ap.date >= j.debut_jour)))
     union all
     -- 2. « Standard » : l'accueil a décroché, pas le gestionnaire. On laisse reposer l'accueil plus longtemps.
     select g.id, 3, false,
@@ -552,7 +518,7 @@ as $$
   )
   -- La raison la plus forte d'abord : aujourd'hui, puis la fiche elle-même, puis une fiche au même standard.
   select distinct on (id) id, raison, du_jour from raisons order by id, ordre
-$$;
+$function$;
 grant execute on function public.demarchage_repos() to authenticated;
 
 -- ── Les piles de la session (14/10) : CALCULÉES ICI, dans l'ordre où on les appelle ──
@@ -662,18 +628,18 @@ grant execute on function public.compter_piles(text) to authenticated;
 -- « Copier le numéro » n'est jamais bloqué : on peut toujours appeler à la main et noter
 -- l'appel ensuite.
 create or replace function public.appel_verifier(p_agence_id uuid, p_numero text, p_direct boolean default false)
-returns text
-language plpgsql
-stable
-security definer
-set search_path to 'public'
-as $$
+ returns text
+ language plpgsql
+ stable security definer
+ set search_path to 'public'
+as $function$
 declare
   a public.agences%rowtype;
   v_tel text := regexp_replace(coalesce(p_numero, ''), '\D', '', 'g');
   v_debut_jour timestamptz := date_trunc('day', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris';
   v_lance timestamptz;
   v_raison text;
+  v_du_maintenant boolean;
 begin
   select * into a from public.agences where id = p_agence_id;
   if not found then return 'Agence introuvable.'; end if;
@@ -683,7 +649,9 @@ begin
     return 'Note d''abord le résultat de l''appel du ' || to_char(v_lance at time zone 'Europe/Paris', 'DD/MM à HH24"h"MI') || '.';
   end if;
 
-  if length(v_tel) >= 9 and exists (
+  -- 25/11/2026 : le rappel ou le RDV convenu pour maintenant passe, même si le numéro a déjà été composé aujourd'hui.
+  v_du_maintenant := exists (select 1 from public.activites t where t.agence_id = p_agence_id and t.type in ('tache', 'rdv') and t.fait_le is null and t.echeance <= now());
+  if not v_du_maintenant and length(v_tel) >= 9 and exists (
        select 1 from public.activites x join public.agences g on g.id = x.agence_id
         where x.type = 'appel' and x.sens <> 'entrant' and x.date >= v_debut_jour
           and regexp_replace(coalesce(g.telephone, ''), '\D', '', 'g') = v_tel) then
@@ -698,7 +666,7 @@ begin
     return v_raison;
   end if;
   return null;
-end $$;
+end $function$;
 grant execute on function public.appel_verifier(uuid, text, boolean) to authenticated;
 
 -- ── La santé du démarchage (affichée sur « Aujourd'hui ») ──
@@ -737,13 +705,9 @@ as $$
                               and x.resultat in ('pas_de_reponse', 'standard')
                               and x.date > coalesce((select max(y.date) from public.activites y where y.agence_id = a.id and y.type = 'appel' and y.sens <> 'entrant' and y.resultat = 'joint'), '-infinity'::timestamptz))
     union all
-    select 'proprietaire_hors_secteur', 'Agence à prospecter attribuée à quelqu''un d''autre que le démarcheur de son secteur', a.nom
+    select 'proprietaire_hors_secteur', 'Agence attribuée à quelqu''un d''autre que le démarcheur de son secteur', a.nom
       from public.agences a join public.secteurs s on s.code = a.secteur
-     where a.type <> 'apporteur' and a.commercial_id is distinct from s.commercial_id and not public.agence_travaillee(a.etape, a.id)
-    union all
-    select 'travaillee_sans_proprietaire', 'Agence travaillée (joint, intéressée, RDV, rappel prévu) qui n''est à personne : personne ne la voit en session', a.nom
-      from public.agences a
-     where a.type <> 'apporteur' and a.commercial_id is null and a.etape <> 'client' and public.agence_travaillee(a.etape, a.id)
+     where a.type <> 'apporteur' and a.commercial_id is distinct from s.commercial_id
     union all
     select 'mail_sans_agence', 'E-mail de démarchage envoyé sans agence (invisible sur les fiches)', m.a
       from public.messages m where m.espace = 'demarchage' and m.sens = 'sortant' and m.agence_id is null and m.created_at >= '2026-10-09'
@@ -762,20 +726,17 @@ as $$
       ('activites_relance_continue', '277f6b48012f23a8b1b17e557dd191cf'),
       ('activites_touche_agence', '9d1cd0ea5bd09eac1ad897a706b74b1c'),
       ('agence_premier_os', 'ec639a4844d765424b15d87f25eb2bb8'),
-      ('agence_proprietaire_apres', '0d9c85db7743982e041d83cf23087e62'),
-      ('agence_suit_qui_la_travaille', 'b74c9ee0363298df0d79486225b23128'),
-      ('agence_suit_son_secteur', 'fa94069934d8b0627f2bf00c5e7d074b'),
-      ('agence_travaillee', '9558429fb3bbcb0320ed6bd43fb8caa2'),
+      ('agence_suit_son_secteur', 'abf3e0af93d90b8e30f0cf88eaae6dfc'),
       ('agences_etape_journal', 'fc6f7ba67ce22c7dc068d2559317e3db'),
       ('agences_etape_relances', '8d48310d52142575ba5bf13577d055e5'),
-      ('appel_enregistrer', '1491e247edeb2dcc62d1a7b3e666db02'),
+      ('appel_enregistrer', '1d0f84b249f8a6fa2d98d304eafa0f49'),
       ('appel_lancer', '1a7719fcc50f051173c9dc47b44fabe4'),
-      ('appel_verifier', '4a43fb962df39012cb0b46f3c659c2d2'),
-      ('attribuer_secteur', '2d906b0c4410314a11af47bd381f12b3'),
+      ('appel_verifier', '1dd14dbd2ba7d97333c52b540cf5eb9d'),
+      ('attribuer_secteur', '36fed4398857d71bcd61cf41c66c8b23'),
       ('compter_piles', '39d8a4494285f07bac32bcee6230b5c8'),
       ('demarchage_echeance', 'a2efbf4b3e0b715a9fb230baadb6729f'),
-      ('demarchage_repos', '3b158381ab900dc40ff7c5c4c1a42e8d'),
-      ('messages_rattacher_agence', '706c38b5a6e088b688311d7f13ebb60a'),
+      ('demarchage_repos', 'd9e7e08228add86de0e7c321afd296f7'),
+      ('messages_rattacher_agence', '048234c54d592573007f2c1b1e111c98'),
       ('pile_demarchage', '3cd1e7b0ac2229e590c044c06e88774b'),
       ('reglage_demarchage', '13b69e49ccdcad93f543dc2abfd032bb'),
       ('reglages_demarchage', '61528ab1c7f260c7eec551e6497bf952'),
@@ -786,7 +747,7 @@ as $$
                         where n.nspname = 'public' and p.proname = e.nom and md5(replace(p.prosrc, chr(13), '')) = e.empreinte)
     union all
     select 'declencheur_absent', 'Déclencheur des règles absent ou désactivé', d.nom
-      from (values ('agences_etape_journal'), ('agences_etape_relances'), ('agences_suit_son_secteur'), ('agences_suit_qui_la_travaille'), ('activites_touche_agence'),
+      from (values ('agences_etape_journal'), ('agences_etape_relances'), ('agences_suit_son_secteur'), ('activites_touche_agence'),
                    ('activites_relance_continue'), ('messages_rattacher_agence')) as d(nom)
      where not exists (select 1 from pg_trigger t where t.tgname = d.nom and t.tgenabled <> 'D')
   )
