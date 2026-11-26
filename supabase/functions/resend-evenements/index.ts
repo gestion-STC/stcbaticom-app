@@ -171,6 +171,15 @@ Deno.serve(async (req: Request) => {
     const destinataire = String((Array.isArray(d.to) ? d.to[0] : d.to) || "").toLowerCase().trim()
     const quand = String(d.created_at || payload.created_at || new Date().toISOString())
 
+    // ── Le mail de la BOÎTE (26/11/2026) : un rebond le marque « non remis », l'écran le montre au lieu
+    // d'« E-mail envoyé » (avant : seule une note sur la fiche agence le disait). Démarchage et recrutement.
+    if (resendId && type === "email.bounced") {
+      const motif = String(d.bounce?.message || d.bounce?.subType || d.bounce?.type || "adresse injoignable").slice(0, 300)
+      const { error: eRemise } = await sb.from("messages").update({ non_remis_le: quand, non_remis_motif: motif })
+        .eq("message_id", resendId).eq("sens", "sortant").is("non_remis_le", null)
+      if (eRemise) console.warn(`[RESEND-EVENEMENTS] non remis : ${eRemise.message}`)
+    }
+
     // ── Campagnes (07/11/2026) : l'envoi d'une campagne (cmp_envois.fournisseur_id) reçoit son événement ; la suite
     // (fiche artisan, note sur la fiche agence) continue comme avant.
     if (resendId) {

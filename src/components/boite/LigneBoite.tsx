@@ -62,6 +62,13 @@ export default function LigneBoite({ c, nom, onOuvrir, onBasculerLu }: { c: Conv
           <span className={nonLu ? "font-semibold" : ""}>{c.objet || "(sans objet)"}</span>
           {apercu && <span className="text-[#8E8E93]"> — {apercu}</span>}
         </span>
+        {/* Le dernier envoi a rebondi (26/11/2026) : visible dès la liste. */}
+        {c.dernier.sens === "sortant" && c.dernier.nonRemisLe && (
+          <span className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#C9302C]">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#C9302C]" />
+            Non remis
+          </span>
+        )}
         {tri && (
           <span className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#6B6B70]">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tri.couleur }} />
