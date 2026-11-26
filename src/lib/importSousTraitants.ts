@@ -72,13 +72,14 @@ function trouverTel(cells: string[]): string {
   return ""
 }
 
-export function construire(lignes: string[][]): { sousTraitants: Partial<SousTraitant>[]; ignorees: number } {
+// entete : true quand l'écran a posé la ligne des titres (colonnes choisies), false sans titres, absent = deviné.
+export function construire(lignes: string[][], entete?: boolean): { sousTraitants: Partial<SousTraitant>[]; ignorees: number } {
   // Saute les lignes vides de tête.
   let debut = 0
-  while (debut < lignes.length && lignes[debut].every((c) => !c.trim())) debut++
+  while (debut < lignes.length && lignes[debut].every((c) => !(c ?? "").trim())) debut++
 
   let cols: Record<string, number> = {}
-  if (debut < lignes.length && estEntete(lignes[debut])) {
+  if (debut < lignes.length && (entete ?? estEntete(lignes[debut]))) {
     cols = repererColonnes(lignes[debut])
     debut++
   }
@@ -91,8 +92,10 @@ export function construire(lignes: string[][]): { sousTraitants: Partial<SousTra
     if (!cells.some((c) => c && c.trim())) continue
 
     // Colonnes repérées par en-tête, avec repli sur la détection par contenu.
-    const email = (cols.email !== undefined ? cells[cols.email] : "").trim() || trouverEmail(cells)
-    const telephone = (cols.telephone !== undefined ? formatTel(cells[cols.telephone]) : "") || trouverTel(cells)
+    // Seule une adresse sert d'e-mail (lot f6, 27/11/2026) : « inconnu », « NC » ou « - » dans la colonne E-mail
+    // ne deviennent plus une clé de doublon qui écarte toutes les lignes portant le même texte.
+    const email = trouverEmail([cols.email !== undefined ? cells[cols.email] ?? "" : ""]) || trouverEmail(cells)
+    const telephone = (cols.telephone !== undefined ? formatTel(cells[cols.telephone] ?? "") : "") || trouverTel(cells)
     const entreprise = (cols.entreprise !== undefined ? cells[cols.entreprise] : cells[0] ?? "").trim()
     const contact = (cols.contact !== undefined ? cells[cols.contact] : "").trim()
     const metier = (cols.metier !== undefined ? cells[cols.metier] : "").trim()
@@ -188,6 +191,8 @@ export async function importerSousTraitants(file: File): Promise<ResultatImportS
 export function normaliserEmail(email: unknown): string {
   return String(email ?? "").toLowerCase().replace(/\s+/g, "")
 }
+// La clé de doublon par e-mail : une adresse seulement. « inconnu » (une fiche en base le porte) n'est pas une clé.
+const cleEmail = (email: unknown) => { const m = normaliserEmail(email); return reEmail.test(m) ? m : "" }
 
 /** Téléphone comparable : chiffres seulement, 0033 / +33 / 33 ramenés au 0 initial. */
 export function normaliserTelephone(telephone: unknown): string {
@@ -217,7 +222,7 @@ export function dedoublonner(
   const emailsConnus = new Set<string>()
   const telsConnus = new Set<string>()
   for (const e of existantes) {
-    const m = normaliserEmail(e.email)
+    const m = cleEmail(e.email)
     const t = normaliserTelephone(e.telephone)
     if (m) emailsConnus.add(m)
     if (t) telsConnus.add(t)
@@ -225,7 +230,7 @@ export function dedoublonner(
   const emailsExclus = new Set<string>()
   const telsExclus = new Set<string>()
   for (const x of exclusions) {
-    const m = normaliserEmail(x.email)
+    const m = cleEmail(x.email)
     const t = normaliserTelephone(x.telephone)
     if (m) emailsExclus.add(m)
     if (t) telsExclus.add(t)
@@ -235,7 +240,7 @@ export function dedoublonner(
   let doublons = 0
   let exclus = 0
   for (const n of nouvelles) {
-    const m = normaliserEmail(n.email)
+    const m = cleEmail(n.email)
     const t = normaliserTelephone(n.telephone)
     if ((m && emailsExclus.has(m)) || (t && telsExclus.has(t))) {
       exclus++
@@ -261,11 +266,11 @@ export function trouverDoublon<T extends { id?: string; email?: string; telephon
   fiche: { id?: string; email?: string; telephone?: string },
   existantes: T[],
 ): { fiche: T; par: "e-mail" | "téléphone" } | null {
-  const m = normaliserEmail(fiche.email)
+  const m = cleEmail(fiche.email)
   const t = normaliserTelephone(fiche.telephone)
   for (const e of existantes) {
     if (fiche.id && e.id === fiche.id) continue
-    if (m && normaliserEmail(e.email) === m) return { fiche: e, par: "e-mail" }
+    if (m && cleEmail(e.email) === m) return { fiche: e, par: "e-mail" }
   }
   for (const e of existantes) {
     if (fiche.id && e.id === fiche.id) continue

@@ -94,6 +94,14 @@ describe("filtrerAgences", () => {
   it("ne filtre rien par défaut", () => {
     expect(filtrerAgences(liste, FILTRES_VIDES)).toHaveLength(4)
   })
+  it("une agence trouvée par la base (contact secondaire, e-mail du gestionnaire) passe la recherche (lot f6)", () => {
+    expect(filtrerAgences(liste, { ...FILTRES_VIDES, recherche: "cadet@c21.fr" }).map((a) => a.id)).toEqual([])
+    expect(filtrerAgences(liste, { ...FILTRES_VIDES, recherche: "cadet@c21.fr" }, new Set(["2"])).map((a) => a.id)).toEqual(["2"])
+  })
+  it("trouve un nom à apostrophe courbe avec une apostrophe droite (lot f6)", () => {
+    const l = [agence({ id: "9", nom: "CENTURY 21 Porte d’Orléans" })]
+    expect(filtrerAgences(l, { ...FILTRES_VIDES, recherche: "porte d'orleans" }).map((a) => a.id)).toEqual(["9"])
+  })
   it("cherche dans le nom, le téléphone, le contact, sans accents", () => {
     expect(filtrerAgences(liste, { ...FILTRES_VIDES, recherche: "lutece" }).map((a) => a.id)).toEqual(["1"])
     expect(filtrerAgences(liste, { ...FILTRES_VIDES, recherche: "sophie" }).map((a) => a.id)).toEqual(["1"])

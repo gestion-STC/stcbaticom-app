@@ -82,7 +82,9 @@ describe("LinkedIn", () => {
   it("l'import d'un fichier Sales Navigator : prénom, nom et profil LinkedIn", () => {
     expect(devinerColonnes(["First Name", "Last Name", "Company", "LinkedIn URL", "Email"], "agences")).toEqual(["Prénom du contact", "Contact", "Agence", "LinkedIn", "E-mail"])
     const { lignes } = preparerLignes([["Agence", "Téléphone", "Prénom du contact", "Contact", "LinkedIn"], ["Agence Martin", "01 43 00 00 00", "Claire", "Martin", "https://www.linkedin.com/in/claire-martin-123/"]])
-    expect(lignes[0].contactNom).toBe("Claire Martin")
+    // Lot f6 (27/11/2026) : le prénom reste dans son champ, pour {{prenom}}.
+    expect(lignes[0].contactPrenom).toBe("Claire")
+    expect(lignes[0].contactNom).toBe("Martin")
     expect(lignes[0].contactLinkedin).toBe("https://www.linkedin.com/in/claire-martin-123/")
   })
   it("le SQL : la colonne, l'événement, la base des campagnes", () => {

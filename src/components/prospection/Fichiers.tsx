@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, Check, FileSpreadsheet, Phone, Upload } from "lucide-react"
 import type { Session } from "@supabase/supabase-js"
-import { Bandeau, Bouton, Champ, Chargement, Compteurs, Dialogue, EnTetePage, Etiquette, Ligne, Onglets, Panneau, Pastille, Selecteur, Tableau, Td, Th, Tr, Vide } from "../../ui"
+import { Bandeau, Bouton, Case, Champ, Chargement, Compteurs, Dialogue, EnTetePage, Etiquette, Ligne, Onglets, Panneau, Pastille, Selecteur, Tableau, Td, Th, Tr, Vide } from "../../ui"
 import { Bloc } from "../demarchage/aujourdhui/courtier"
 import { chargerFichiers, creerFichier, majFichier, type Fichier } from "../../lib/fichiersDb"
 import { listerComptes, nomAffiche, type Compte } from "../../lib/comptes"
@@ -22,7 +22,9 @@ const date = (iso: string) => new Date(iso).toLocaleDateString("fr-FR")
 const nomBase = (id: string) => BASES.find((b) => b.id === id)?.nom ?? id
 const etatDe = (f: Fichier): { texte: string; role: "actif" | "attente" | undefined } => (f.enCours > 0 ? { texte: "En campagne", role: "actif" } : f.touches > 0 ? { texte: "Déjà sollicité", role: undefined } : f.enSession ? { texte: "En session de call", role: "actif" } : { texte: "Prêt à cibler", role: "attente" })
 
-type Previsions = { lignes: number; nouveaux: number; deja: number; ignores: number; desinscrits: number; mails: number; sansMail: number }
+// contacts / liens (lot f6) : les gestionnaires ajoutés à des agences déjà là, et les profils LinkedIn posés sur des
+// contacts déjà là. Un fichier qui ne fait qu'enrichir la base s'importe aussi.
+type Previsions = { lignes: number; nouveaux: number; deja: number; ignores: number; desinscrits: number; mails: number; sansMail: number; contacts: number; liens: number }
 type Plan = { type: "agences"; analyse: Analyse; previsions: Previsions } | { type: "artisans"; aAjouter: Partial<SousTraitant>[]; previsions: Previsions }
 
 function Importer({ session, onFermer, onImporte }: { session: Session | null; onFermer: () => void; onImporte: () => void }) {
@@ -33,6 +35,11 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
   const [zone, setZone] = useState("")
   const [lu, setLu] = useState<FichierLu | null>(null)
   const [choix, setChoix] = useState<string[]>([])
+  // La 1re ligne porte-t-elle les titres ? Décoché, une ligne de titres est ajoutée au lieu de remplacer la 1re agence.
+  const [titres, setTitres] = useState(true)
+  // Un import de sous-traitants coupé en route (lot f6) : le fichier déjà créé et le nombre déjà entré ; « Reprendre »
+  // n'insère que le reste, dans le même fichier.
+  const [reprise, setReprise] = useState<{ fichierId: string; importes: number } | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
   const [occupe, setOccupe] = useState(false)
   const [progres, setProgres] = useState("")
@@ -54,18 +61,18 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
     if (!lu) return
     setOccupe(true); setErreur("")
     try {
-      const lignes = appliquerColonnes(lu.lignes, choix)
+      const lignes = appliquerColonnes(lu.lignes, choix, titres)
       if (base === "artisans") {
         const [fiches, exclusions] = await Promise.all([chargerSousTraitants(), chargerExclusions()])
-        const c = construire(lignes)
+        const c = construire(lignes, true)
         const d = dedoublonner(c.sousTraitants.map((s) => ({ ...s, source: s.source || source.trim() })), fiches, exclusions)
         const mails = d.aAjouter.filter((s) => s.email).length
-        setPlan({ type: "artisans", aAjouter: d.aAjouter, previsions: { lignes: c.sousTraitants.length + c.ignorees, nouveaux: d.aAjouter.length, deja: d.doublons, ignores: c.ignorees, desinscrits: d.exclus, mails, sansMail: d.aAjouter.length - mails } })
+        setPlan({ type: "artisans", aAjouter: d.aAjouter, previsions: { lignes: c.sousTraitants.length + c.ignorees, nouveaux: d.aAjouter.length, deja: d.doublons, ignores: c.ignorees, desinscrits: d.exclus, mails, sansMail: d.aAjouter.length - mails, contacts: 0, liens: 0 } })
       } else {
-        const a = await analyserLignesDuFichier({ lignes, feuille: lu.feuille })
+        const a = await analyserLignesDuFichier({ lignes, feuille: lu.feuille, entete: true })
         if (base === "apporteurs") for (const l of a.aCreer) l.type = "apporteur"
         const mails = a.aCreer.filter((l) => l.email || l.contactEmail).length
-        setPlan({ type: "agences", analyse: a, previsions: { lignes: a.total, nouveaux: a.aCreer.length, deja: a.dejaLa.length, ignores: a.ignorees.length, desinscrits: 0, mails, sansMail: a.aCreer.length - mails } })
+        setPlan({ type: "agences", analyse: a, previsions: { lignes: a.total, nouveaux: a.aCreer.length, deja: a.dejaLa.length, ignores: a.ignorees.length, desinscrits: 0, mails, sansMail: a.aCreer.length - mails, contacts: a.dejaLa.reduce((n, d) => n + d.contactsAAjouter.length, 0), liens: a.dejaLa.reduce((n, d) => n + (d.liens?.length ?? 0), 0) } })
       }
       setEtape(3)
     } catch (e) { setErreur(message(e)) } finally { setOccupe(false) }
@@ -76,10 +83,24 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
     setOccupe(true); setErreur("")
     try {
       const p = plan.previsions
-      const id = await creerFichier({ nom: nom.trim(), baseId: base, source: source.trim(), zone: zone.trim(), lignes: p.lignes, importes: 0, deja: p.deja + p.desinscrits, ignores: p.ignores, creePar: nomAffiche(session) })
+      const id = reprise?.fichierId ?? await creerFichier({ nom: nom.trim(), baseId: base, source: source.trim(), zone: zone.trim(), lignes: p.lignes, importes: 0, deja: p.deja + p.desinscrits, ignores: p.ignores, creePar: nomAffiche(session) })
       let importes = 0
-      if (plan.type === "artisans") importes = await insererSousTraitants(plan.aAjouter, id)
-      else {
+      if (plan.type === "artisans") {
+        const avant = reprise?.importes ?? 0
+        let entres = 0
+        try {
+          importes = avant + await insererSousTraitants(plan.aAjouter, id, (n) => { entres = n })
+        } catch (e) {
+          // Les lots déjà entrés restent en base : on le note sur le fichier et on ne garde que le reste à importer.
+          const total = avant + entres
+          if (entres) await majFichier(id, { importes: total }).catch(() => undefined)
+          setReprise({ fichierId: id, importes: total })
+          setPlan({ ...plan, aAjouter: plan.aAjouter.slice(entres), previsions: { ...p, nouveaux: plan.aAjouter.length - entres } })
+          setErreur(`${message(e)} · ${fr(total)} entré(s), ${fr(plan.aAjouter.length - entres)} restant(s) : « Reprendre » n'importe que le reste.`)
+          setOccupe(false)
+          return
+        }
+      } else {
         const b = await executerImport(plan.analyse, (x) => setProgres(`${x.fait} / ${x.total}`), { fichierId: id, source: source.trim() })
         importes = b.agencesCreees
         if (b.erreurs.length) {
@@ -95,7 +116,8 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
   }
 
   const p = plan?.previsions
-  const peutContinuer = etape === 1 ? Boolean(lu && nom.trim() && source.trim()) : etape === 2 ? choix.some((c) => c !== IGNORER) : Boolean(p?.nouveaux)
+  const peutContinuer = etape === 1 ? Boolean(lu && nom.trim() && source.trim()) : etape === 2 ? choix.some((c) => c !== IGNORER) : Boolean(p && (p.nouveaux || p.contacts || p.liens))
+  const libelleImport = reprise ? `Reprendre : ${fr(p?.nouveaux ?? 0)} restants` : p && !p.nouveaux ? "Importer" : `Importer ${fr(p?.nouveaux ?? 0)} contacts`
   if (incomplet) {
     return (
       <Dialogue titre="Import terminé, avec des lignes refusées" description={`${fr(incomplet.importes)} importée(s) · ${fr(incomplet.erreurs.length)} ligne(s) n'ont pas pu être importées`} largeur="max-w-2xl" onFermer={onImporte} pied={<Bouton variante="plein" onClick={onImporte}>Fermer</Bouton>}>
@@ -107,7 +129,7 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
     )
   }
   return (
-    <Dialogue titre="Importer un fichier" description={`Étape ${etape} sur 3`} largeur="max-w-2xl" onFermer={occupe ? () => undefined : onFermer} pied={<>{etape > 1 ? <Bouton disabled={occupe} onClick={() => setEtape(etape - 1)}>Retour</Bouton> : <Bouton onClick={onFermer}>Annuler</Bouton>}{etape === 1 ? <Bouton variante="plein" disabled={!peutContinuer} onClick={() => setEtape(2)}>Continuer</Bouton> : etape === 2 ? <Bouton variante="plein" chargement={occupe} disabled={!peutContinuer} onClick={() => void analyser()}>Continuer</Bouton> : <Bouton variante="plein" icone={<Check />} chargement={occupe} disabled={!peutContinuer} onClick={() => void importer()}>{`Importer ${fr(p?.nouveaux ?? 0)} contacts`}</Bouton>}</>}>
+    <Dialogue titre="Importer un fichier" description={`Étape ${etape} sur 3`} largeur="max-w-2xl" onFermer={occupe ? () => undefined : reprise ? onImporte : onFermer} pied={<>{etape > 1 && !reprise ? <Bouton disabled={occupe} onClick={() => setEtape(etape - 1)}>Retour</Bouton> : <Bouton disabled={occupe} onClick={reprise ? onImporte : onFermer}>{reprise ? "Fermer" : "Annuler"}</Bouton>}{etape === 1 ? <Bouton variante="plein" disabled={!peutContinuer} onClick={() => setEtape(2)}>Continuer</Bouton> : etape === 2 ? <Bouton variante="plein" chargement={occupe} disabled={!peutContinuer} onClick={() => void analyser()}>Continuer</Bouton> : <Bouton variante="plein" icone={<Check />} chargement={occupe} disabled={!peutContinuer} onClick={() => void importer()}>{libelleImport}</Bouton>}</>}>
       {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
       {etape === 1 ? (
         <div className="grid gap-4">
@@ -123,7 +145,8 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
       ) : etape === 2 ? (
         <div className="space-y-3">
           <p className="text-legende text-encre-2">Baticom a reconnu ces colonnes. Corrige-les si besoin.</p>
-          <div className="divide-y-[0.5px] divide-trait">{entete.map((c, i) => <div key={i} className="flex items-center justify-between gap-4 py-2 text-legende"><span className="min-w-0 truncate font-medium text-encre">{c || `Colonne ${i + 1}`}</span><span className="w-60 shrink-0"><Selecteur value={choix[i] ?? IGNORER} aria-label={c || `Colonne ${i + 1}`} onChange={(e) => setChoix((l) => l.map((x, n) => (n === i ? e.target.value : x)))}><option>{IGNORER}</option>{champsDe(base).map((x) => <option key={x}>{x}</option>)}</Selecteur></span></div>)}</div>
+          <Case texte="La 1re ligne du fichier contient les titres des colonnes" checked={titres} onChange={(e) => setTitres(e.target.checked)} />
+          <div className="divide-y-[0.5px] divide-trait">{entete.map((c, i) => <div key={i} className="flex items-center justify-between gap-4 py-2 text-legende"><span className="min-w-0 truncate font-medium text-encre">{titres ? c || `Colonne ${i + 1}` : `Colonne ${i + 1}${c ? ` (ex. : ${c})` : ""}`}</span><span className="w-60 shrink-0"><Selecteur value={choix[i] ?? IGNORER} aria-label={c || `Colonne ${i + 1}`} onChange={(e) => setChoix((l) => l.map((x, n) => (n === i ? e.target.value : x)))}><option>{IGNORER}</option>{champsDe(base).map((x) => <option key={x}>{x}</option>)}</Selecteur></span></div>)}</div>
         </div>
       ) : p ? (
         <div className="space-y-4">
@@ -132,6 +155,8 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
             <Ligne libelle="Lignes dans le fichier">{fr(p.lignes)}</Ligne>
             <Ligne libelle="Nouveaux contacts à importer"><b className="font-medium">{fr(p.nouveaux)}</b></Ligne>
             <Ligne libelle="Déjà dans Baticom">{fr(p.deja)}</Ligne>
+            {p.contacts ? <Ligne libelle="Contacts ajoutés à des agences déjà là">{fr(p.contacts)}</Ligne> : null}
+            {p.liens ? <Ligne libelle="Profils LinkedIn posés sur des contacts déjà là">{fr(p.liens)}</Ligne> : null}
             <Ligne libelle="Écartés (doublons du fichier, lignes inutilisables)">{fr(p.ignores)}</Ligne>
             {p.desinscrits ? <Ligne libelle="Désinscrits : jamais importés">{fr(p.desinscrits)}</Ligne> : null}
             <Ligne libelle="Avec un mail">{fr(p.mails)}</Ligne>

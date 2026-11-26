@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   analyserLignes,
+  contactDe,
+  decoderTexte,
   estEntete,
   lireLigne,
   preparerLignes,
@@ -11,6 +13,7 @@ import {
   trouverTelephones,
   type AgenceConnue,
 } from "./importAgences"
+import { appliquerColonnes } from "../prospection/colonnesImport"
 
 const sansColonnes = {}
 
@@ -123,5 +126,39 @@ describe("le rapprochement avec la base", () => {
     expect(a.aCreer).toHaveLength(2)
     expect(a.secteursInconnus).toEqual(["77100"])
     expect(a.feuille).toBe("Feuil1")
+  })
+})
+
+describe("lot f6 (27/11/2026) : l'import ne lit que ce qu'on lui a choisi", () => {
+  it("une colonne laissée sur « Ignorer » ne crée ni faux contact, ni standard, ni e-mail", () => {
+    // Pages Jaunes : Nom | Adresse | Code postal | Ville (ignorée) | Téléphone | Site (ignoré)
+    const p = preparerLignes([
+      ["Agence", "Adresse", "Code postal", "", "Téléphone", ""],
+      ["Orpi Boulogne", "12 rue X", "92100", "Boulogne-Billancourt", "01 46 00 00 00", "Www.orpi.com"],
+      ["Foncia Sèvres", "1 av. Y", "92310", "Sèvres", "", "contact@ignore.fr 06 11 22 33 44"],
+    ], true)
+    expect(p.lignes[0]).toMatchObject({ nom: "Orpi Boulogne", contactNom: "", contactPrenom: "", telephone: "01 46 00 00 00", email: "", contactLigne: "" })
+    expect(p.ignorees.map((i) => i.raison)).toEqual(["Ni téléphone ni e-mail : impossible de la joindre"])
+  })
+  it("garde le prénom dans son champ, et l'écrit à part", () => {
+    const p = preparerLignes([["Prénom du contact", "Contact", "Agence", "E-mail du contact"], ["Claire", "Martin", "Laforêt Puteaux", "claire@laforet.fr"]], true)
+    expect(p.lignes[0]).toMatchObject({ contactPrenom: "Claire", contactNom: "Martin" })
+    expect(contactDe(p.lignes[0])).toEqual({ prenom: "Claire", nom: "Martin", email: "claire@laforet.fr", ligne: "" })
+  })
+  it("reconnaît un contact déjà là par « prénom nom »", () => {
+    const { lignes } = preparerLignes([["Prénom du contact", "Contact", "Agence", "Téléphone", "LinkedIn"], ["Claire", "Martin", "Orpi", "01 46 00 00 00", "https://linkedin.com/in/cm"]], true)
+    const r = rapprocher(lignes, [{ id: "a2", nomCle: "orpi", secteur: null, telephone: "01 46 00 00 00" }], new Map([["a2", ["Claire Martin"]]]))
+    expect(r.dejaLa[0].contactsAAjouter).toEqual([])
+    expect(r.dejaLa[0].liens).toHaveLength(1)
+  })
+  it("des titres posés par l'écran font foi, même avec une seule colonne choisie", () => {
+    const p = preparerLignes(appliquerColonnes([["Century 21 Lutèce", "contact@c21.fr"], ["Orpi Monge", "orpi@monge.fr"]], ["Agence", "E-mail"], false), true)
+    expect(p.total).toBe(2)
+    expect(p.lignes.map((l) => l.nom)).toEqual(["Century 21 Lutèce", "Orpi Monge"])
+  })
+  it("lit un CSV Excel en Windows-1252 sans abîmer les accents, et l'UTF-8 tel quel", () => {
+    const cp1252 = new Uint8Array([0x53, 0x6f, 0x63, 0x69, 0xe9, 0x74, 0xe9]) // « Société » en Windows-1252
+    expect(decoderTexte(cp1252)).toBe("Société")
+    expect(decoderTexte(new TextEncoder().encode("Laforêt"))).toBe("Laforêt")
   })
 })

@@ -144,6 +144,7 @@ begin
 end $function$;
 drop trigger if exists agences_suit_son_secteur on public.agences;
 create trigger agences_suit_son_secteur before insert or update of secteur on public.agences for each row execute function public.agence_suit_son_secteur();
+-- Sans secteur : seules les agences NON ATTRIBUÉES changent de main, ce que l'écran annonce (lot f6, 27/11/2026).
 create or replace function public.attribuer_secteur(p_secteur text, p_compte_id uuid, p_ecraser boolean default true)
 returns integer
 language plpgsql
@@ -162,7 +163,7 @@ begin
      where secteur = p_secteur and type <> 'apporteur' and commercial_id is distinct from p_compte_id;
   else
     update public.agences set commercial_id = p_compte_id
-     where coalesce(secteur, '') = '' and type <> 'apporteur' and commercial_id is distinct from p_compte_id;
+     where coalesce(secteur, '') = '' and type <> 'apporteur' and commercial_id is null;
   end if;
   get diagnostics v_n = row_count;
   return v_n;
@@ -732,7 +733,7 @@ as $$
       ('appel_enregistrer', '1d0f84b249f8a6fa2d98d304eafa0f49'),
       ('appel_lancer', '1a7719fcc50f051173c9dc47b44fabe4'),
       ('appel_verifier', '1dd14dbd2ba7d97333c52b540cf5eb9d'),
-      ('attribuer_secteur', '36fed4398857d71bcd61cf41c66c8b23'),
+      ('attribuer_secteur', 'cd29f67af19b0117e051e335ed76a608'),
       ('compter_piles', '39d8a4494285f07bac32bcee6230b5c8'),
       ('demarchage_echeance', 'a2efbf4b3e0b715a9fb230baadb6729f'),
       ('demarchage_repos', 'd9e7e08228add86de0e7c321afd296f7'),
