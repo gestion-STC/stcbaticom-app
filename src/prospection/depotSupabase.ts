@@ -9,6 +9,7 @@ import type { Depot, EtatProspection, ResultatEnregistrement } from "./depot"
 import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscription, Lead, Tache } from "./modele"
 import { inscriptionAu, inscriptionsParContact } from "./rattachement"
 import { estLeadRobot } from "./abTest"
+import { recalerEtapeIndex } from "./configCampagne"
 
 export const BASES: Base[] = [
   {
@@ -144,7 +145,16 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     charger,
     lire: () => etat,
     ecouter: (f) => { ecouteurs.add(f); return () => ecouteurs.delete(f) },
-    enregistrerCampagne: (c, options) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); return ecrire({ ...c, creeParId: c.creeParId || compte.id }, Boolean(options?.forcer)) },
+    // Étapes ajoutées, supprimées ou déplacées sur une campagne qui a des inscrits (lot 3, 27/11/2026) : la base recale
+    // chaque inscription sur son étape (déclencheur cmp_recaler_inscriptions) ; l'écran fait de même en attendant le rechargement.
+    enregistrerCampagne: (c, options) => {
+      const avant = etat.campagnes.find((x) => x.id === c.id)
+      const inscriptions = avant && JSON.stringify(avant.etapes.map((e) => e.id)) !== JSON.stringify(c.etapes.map((e) => e.id))
+        ? etat.inscriptions.map((i) => (i.campagneId === c.id ? { ...i, etapeIndex: recalerEtapeIndex(avant.etapes, c.etapes, i.etapeIndex) } : i))
+        : etat.inscriptions
+      publier({ ...etat, inscriptions, campagnes: avant ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] })
+      return ecrire({ ...c, creeParId: c.creeParId || compte.id }, Boolean(options?.forcer))
+    },
     changerStatut: (id, statut) => { const c = etat.campagnes.find((x) => x.id === id); if (c) { const s = { ...c, statut, lanceeLe: c.lanceeLe ?? (statut === "active" ? new Date().toISOString() : null) }; publier({ ...etat, campagnes: etat.campagnes.map((x) => (x.id === id ? s : x)) }); void ecrireStatut(s) } },
     dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: false, majLe: undefined }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
     noterAppel: lot2, traiterLead: lot2, faireTache: lot2, marquerGagne: lot2, repondre: lot2, lireMessage: lot2, attribuer: lot2, majEquipe: lot2, majBase: lot2, importer: lot2,

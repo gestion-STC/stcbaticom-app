@@ -1,13 +1,14 @@
-// Campagnes › Avis : les avis récoltés, à valider, à réutiliser ou à rappeler.
+// Campagnes › Avis : les avis récoltés, à valider ou à réutiliser, et les passages vers Google.
 // Un avis n'est jamais modifié. Un refus de publication est motivé (article L. 111-7-2 du Code de la consommation).
+// Lot 3 (27/11/2026, décision 9) : depuis le 17/11, le lien d'avis mène directement à Google, plus aucun avis ni note
+// n'arrive ici. L'onglet « À rappeler » (notes basses) ne pouvait plus rien recevoir : il est retiré, et la page affiche
+// les passages vers Google par campagne.
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Check, Phone, X } from "lucide-react"
+import { Check, X } from "lucide-react"
 import { Bandeau, Bouton, Champ, Chargement, EnTetePage, Onglets, Pastille, Vide } from "../../ui"
-import { NOM_PUBLIC, chargerAvis, noterRappel, publierAvis, refuserAvis, type Avis } from "../../lib/avisDb"
-import { NOTE_RAPPEL_DEPART, aRappeler } from "../../prospection/avis"
-import { ecrireParametre, lireParametre } from "../../lib/parametresDb"
+import { NOM_PUBLIC, chargerAvis, chargerPassagesGoogle, publierAvis, refuserAvis, type Avis, type PassagesGoogle } from "../../lib/avisDb"
 
-type Vue = "a_valider" | "publie" | "refuse" | "rappeler"
+type Vue = "a_valider" | "publie" | "refuse"
 const date = (iso: string) => new Date(iso).toLocaleDateString("fr-FR")
 
 export default function BibliothequeAvis() {
@@ -18,22 +19,27 @@ export default function BibliothequeAvis() {
   const charger = useCallback(() => { chargerAvis().then((l) => { setAvis(l); setErreur("") }).catch((e) => setErreur(e instanceof Error ? e.message : String(e))) }, [])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])
   const agir = (f: Promise<void>) => { f.then(() => { setRefus(null); charger() }).catch((e) => setErreur(e instanceof Error ? e.message : String(e))) }
-  // La note qui déclenche un rappel : réglable (Mahdi, 11/11/2026).
-  const [seuil, setSeuil] = useState(NOTE_RAPPEL_DEPART)
-  useEffect(() => { lireParametre("avis_note_rappel").then((x) => { const n = Number(x); if (x && n >= 1 && n <= 5) setSeuil(n) }).catch(() => undefined) }, [])
-  const majSeuil = (n: number) => { setSeuil(n); void ecrireParametre("avis_note_rappel", String(n)) }
-  const compte = (v: Vue) => (avis ?? []).filter((a) => (v === "rappeler" ? aRappeler(a.note, seuil) && !a.rappeleLe : a.statut === v)).length
-  const visibles = useMemo(() => (avis ?? []).filter((a) => (vue === "rappeler" ? aRappeler(a.note, seuil) && !a.rappeleLe : a.statut === vue)), [avis, vue, seuil])
+  const [google, setGoogle] = useState<PassagesGoogle[] | null>(null)
+  useEffect(() => { chargerPassagesGoogle().then(setGoogle).catch((e) => setErreur(e instanceof Error ? e.message : String(e))) }, [])
+  const compte = (v: Vue) => (avis ?? []).filter((a) => a.statut === v).length
+  const visibles = useMemo(() => (avis ?? []).filter((a) => a.statut === vue), [avis, vue])
   const n = (a: Avis[] | null) => (a ? { moyenne: a.length ? Math.round((a.reduce((s, x) => s + x.note, 0) / a.length) * 10) / 10 : null, total: a.length } : null)
   const stats = n(avis)
   return (
     <div className="page">
-      <EnTetePage titre="Avis" sousTitre={stats?.moyenne != null ? `${stats.total} avis · note moyenne ${stats.moyenne.toLocaleString("fr-FR")} / 5` : "Les avis récoltés par les campagnes, à valider avant de les réutiliser."} />
+      <EnTetePage titre="Avis" sousTitre="Depuis le 17/11, le lien d'avis mène directement à Google : les avis y sont déposés. Ici, les passages vers Google et les avis notés avant cette date." />
       {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}
-      <Onglets<Vue> valeur={vue} onChange={setVue} className="mb-4" options={[{ id: "a_valider", label: "À valider", badge: compte("a_valider") || undefined }, { id: "publie", label: "Réutilisables" }, { id: "refuse", label: "Refusés" }, { id: "rappeler", label: "À rappeler", badge: compte("rappeler") || undefined }]} />
-      {vue === "rappeler" ? <div className="mb-4 flex flex-wrap items-center gap-2 text-legende">Rappeler les notes de <select className="h-8 rounded-4 border-[0.5px] border-trait bg-fond px-2" aria-label="Note maximale à rappeler" value={seuil} onChange={(e) => majSeuil(Number(e.target.value))}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select> sur 5 ou moins</div> : null}
+      <section className="mb-6">
+        <h2 className="mb-2 text-legende font-medium text-encre">Passages vers Google</h2>
+        {google === null ? <Chargement /> : !google.length ? <p className="text-colonne text-encre-2">Personne n'est encore passé par le lien d'avis.</p> : (
+          <ul className="divide-y-[0.5px] divide-trait">{google.map((g) => <li key={g.campagneId} className="flex items-center gap-2 py-2 text-legende"><span>{g.nom}</span><span className="text-colonne text-encre-2">dernier le {date(g.dernier)}</span><span className="chiffres ml-auto font-medium text-encre">{g.personnes.toLocaleString("fr-FR")} personne{g.personnes > 1 ? "s" : ""}</span></li>)}</ul>
+        )}
+        <p className="mt-2 text-colonne text-encre-2">Une personne compte une fois par campagne, qu'elle ait laissé un avis ou non : Google ne nous le dit pas.</p>
+      </section>
+      <h2 className="mb-2 text-legende font-medium text-encre">Avis notés ici (avant le 17/11){stats?.moyenne != null ? ` · ${stats.total} avis, note moyenne ${stats.moyenne.toLocaleString("fr-FR")} / 5` : ""}</h2>
+      <Onglets<Vue> valeur={vue} onChange={setVue} className="mb-4" options={[{ id: "a_valider", label: "À valider", badge: compte("a_valider") || undefined }, { id: "publie", label: "Réutilisables" }, { id: "refuse", label: "Refusés" }]} />
       {!avis && !erreur ? <Chargement /> : null}
-      {avis && !visibles.length ? <Vide titre="Rien ici" texte="Les avis arrivent ici quand une campagne d'avis est lancée." /> : null}
+      {avis && !visibles.length ? <Vide titre="Rien ici" texte="Les nouveaux avis sont déposés directement sur Google." /> : null}
       <ul className="divide-y-[0.5px] divide-trait">
         {visibles.map((a) => (
           <li key={a.id} className="py-3.5">
@@ -48,7 +54,6 @@ export default function BibliothequeAvis() {
               <div className="mt-2 flex flex-wrap items-center gap-2"><span className="w-80"><Champ value={refus.motif} autoFocus placeholder="Motif du refus" aria-label="Motif du refus" onChange={(e) => setRefus({ id: a.id, motif: e.target.value })} /></span><Bouton taille="sm" variante="plein" disabled={!refus.motif.trim()} onClick={() => agir(refuserAvis(a.id, refus.motif.trim()))}>Confirmer le refus</Bouton><Bouton taille="sm" variante="discret" onClick={() => setRefus(null)}>Annuler</Bouton></div>
             ) : (
               <div className="mt-2 flex flex-wrap gap-2">
-                {vue === "rappeler" ? <Bouton taille="sm" icone={<Phone />} onClick={() => agir(noterRappel(a.id))}>Marquer comme rappelé</Bouton> : null}
                 {a.statut !== "publie" ? <Bouton taille="sm" variante="plein" icone={<Check />} disabled={!a.autorise} title={a.autorise ? undefined : "La personne n'a pas autorisé la réutilisation"} onClick={() => agir(publierAvis(a.id))}>Valider</Bouton> : null}
                 {a.statut !== "refuse" ? <Bouton taille="sm" variante="discret" icone={<X />} onClick={() => setRefus({ id: a.id, motif: "" })}>Refuser</Bouton> : null}
               </div>

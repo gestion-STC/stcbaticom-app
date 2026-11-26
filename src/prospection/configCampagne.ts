@@ -136,6 +136,18 @@ export function versEtapes(cfg: ConfigCampagne): Etape[] {
   })
 }
 
+/** Le recalage d'une inscription quand on modifie les étapes d'une campagne qui a déjà des inscrits (lot 3, 27/11/2026).
+ *  L'inscription retient la POSITION de sa prochaine étape : on la recale sur l'étape elle-même (son identifiant). Étape
+ *  supprimée : la suivante encore présente ; plus rien après : la fin de la séquence. Même règle en base, au déclencheur
+ *  cmp_recaler_inscriptions (supabase/maj-2026-11-27-f3.sql), qui fait foi. */
+export function recalerEtapeIndex(anciennes: { id: string }[], nouvelles: { id: string }[], index: number): number {
+  for (let i = Math.max(0, index); i < anciennes.length; i++) {
+    const k = nouvelles.findIndex((e) => e.id === anciennes[i].id)
+    if (k >= 0) return k
+  }
+  return nouvelles.length
+}
+
 /** Les zones de la carte traduites en filtre : code postal pour les agences, zone pour les artisans. */
 export function filtreDesZones(baseId: string, zones: string[]): { cle: "cp" | "zone"; valeurs: string[] } | null {
   if (!zones.length || zones.includes(FRANCE)) return null

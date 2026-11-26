@@ -152,7 +152,7 @@ export async function chargerLeadsRecus(maintenant: Date): Promise<{ leads: Lead
     const faits: Faits = { ...b.faits, formulaireProspect: b.faits.formulaireProspect || remplis.some((k) => k.remplirPar === "prospect"), formulaireTel: b.faits.formulaireTel || remplis.some((k) => k.remplirPar === "commercial") }
     const pos = positionDans(camp.q, faits, valides, b.contacte)
     const etapeLead = b.espace === "recrutement" ? etapeDuSousTraitant(pos.etape, faits.compteOuvert, decisions.get(b.contactRef)) : pos.etape
-    positions.push({ campagneId: camp.c.id, atteintes: pos.atteintes, estLead: pos.estLead, etape: etapeLead })
+    positions.push({ campagneId: camp.c.id, atteintes: pos.atteintes, estLead: pos.estLead, etape: etapeLead, contactId: b.contactRef })
     if (!pos.estLead) return null
     return {
       id: b.id, espace: b.espace, niveau: remplis.some((k) => k.remplirPar === "prospect") ? "fiche" : b.niveau, nom: b.nom, signal: remplis.some((k) => k.remplirPar === "prospect") && b.niveau !== "fiche" ? "A rempli le formulaire" : b.signal, detail: b.detail, quand: b.quand, etape: etapeLead, etat: b.etat, proprietaireId: b.proprietaireId, contactRef: b.contactRef,

@@ -89,10 +89,10 @@ describe("touché = envoi confirmé parti, partout", () => {
     expect(ind.parVariante.find((v) => v.nom === "B")!.tauxOuverture).toBe(1)
   })
   it("Mesure de l'éditeur", () => {
-    const m = mesureCampagne(configDe(camp()), "c", 0, inscs, envois, evs, [], 0, true)
+    const m = mesureCampagne(configDe(camp()), "c", 0, inscs, envois, evs, [], 0, true, { leads: 0, gagnes: 0, contactsLeads: [] })
     expect(m.lignes.find((l) => l.libelle === "Touchés")!.n).toBe(2)
     // Hors Instantly (machine sous-traitants, avis) : tout envoi « envoyé » est parti.
-    expect(mesureCampagne(configDe(camp()), "c", 0, inscs, envois, evs, [], 0, false).lignes.find((l) => l.libelle === "Touchés")!.n).toBe(4)
+    expect(mesureCampagne(configDe(camp()), "c", 0, inscs, envois, evs, [], 0, false, { leads: 0, gagnes: 0, contactsLeads: [] }).lignes.find((l) => l.libelle === "Touchés")!.n).toBe(4)
   })
   it("le moteur mesure l'A/B pareil : envois partis, hors tests", () => {
     const m = mesuresAB([{ id: "v1", nom: "A" }, { id: "v2", nom: "B" }], [...envois, env("t", { contactId: "z", test: true })], evs, new Set(), true)
@@ -114,6 +114,18 @@ describe("sautés et erreurs comptés par contact, sur son dernier état", () =>
     expect(ind.parJour.reduce((s, j) => s + j.erreurs, 0)).toBe(1)
     const texte = constats(ind).map((c) => c.preuve).join(" ")
     expect(texte).toMatch(/3 contacts sans mail pour 1 touché/)
+  })
+  it("un message parti puis un nouvel essai en erreur : le contact compte parti, pas en erreur", () => {
+    const envois = [
+      env("p1", { contactId: "x", statut: "envoye", le: "2026-08-18T09:00:00Z" }),
+      env("p2", { contactId: "x", statut: "erreur", le: "2026-08-19T09:00:00Z" }),
+      env("p3", { contactId: "y", statut: "erreur", le: "2026-08-19T09:00:00Z" }),
+    ]
+    const d = derniersEssais(envois)
+    expect(d.map((e) => e.id).sort()).toEqual(["p1", "p3"])
+    const ind = indicateurs(camp({ origine: "st", baseId: "artisans" }), { ...base, id: "artisans" }, [], [], envois, [], [], [])
+    expect(ind.envois.erreurs).toBe(1)
+    expect(ind.parEtape[0]).toMatchObject({ erreurs: 1 })
   })
 })
 

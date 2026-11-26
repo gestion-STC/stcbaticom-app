@@ -136,7 +136,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
     const actifs = v.etat.inscriptions.filter((i) => i.statut === "en_cours").flatMap((i) => parId.get(i.contactId) ?? [])
     return ici.length - sansDejaSollicites(ici, dedans, actifs).length
   }, [parFiltres, v.contacts, v.etat.inscriptions, c.id])
-  const valeurs = (cle: string) => [...new Set(contactsBase.flatMap((x) => (x.champs[cle] ?? "").split(" / ")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")).slice(0, 40)
+  const valeurs = (cle: string) => [...new Set(contactsBase.flatMap((x) => (x.champs[cle] ?? "").split(" / ")).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")) // toutes les valeurs (lot 3, 27/11/2026 : la limite à 40 cachait 72 secteurs, dont tous les « Paris … »)
   const basculerFiltre = (cle: string, val: string) => setC((x) => { const l = x.audience.filtres[cle] ?? []; return { ...x, audience: { ...x.audience, filtres: { ...x.audience.filtres, [cle]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } } } })
   const compter = c.baseId !== "artisans" ? (zone: string) => contactsBase.filter((x) => (x.champs.cp ?? "").startsWith(zone)).length : null
   // Les conseils : le volume de toutes les campagnes qui partagent ces boîtes, et leur chauffe.
@@ -174,7 +174,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const majMontee = (p: Partial<Montee>) => maj((x) => ({ ...x, garde: { ...x.garde, montee: { ...(x.garde.montee ?? { ...MONTEE_DEFAUT, actif: false }), ...p } } }))
   const majAlerte = (p: Partial<AlerteOuverture>) => maj((x) => ({ ...x, garde: { ...x.garde, alerteOuverture: { ...(x.garde.alerteOuverture ?? ALERTE_DEFAUT), ...p } } }))
   const nomValeur = (cle: string, val: string) => { if (cle !== "commercial") return val; const q = comptes.find((x) => x.id === val); return q ? q.nom || q.email : "Commercial" }
-  const champFiltre = (ch: { cle: string; libelle: string }) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{nomValeur(ch.cle, val)}</button> })}</div></div>
+  const champFiltre = (ch: { cle: string; libelle: string }) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{nomValeur(ch.cle, val)}</button> })}</div></div>
   // Lot 5 (26/11/2026) : quitter avec des modifications non enregistrées demande confirmation (menu, Retour, onglet),
   // et un enregistrement refusé (modifiée ailleurs) laisse l'éditeur ouvert avec la saisie, au lieu de la jeter.
   const modifie = JSON.stringify(c) !== cDepart || JSON.stringify(cfg) !== cfgDepart
@@ -242,7 +242,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                   <Bloc titre="Rythme d'envoi"><div className="mt-3 space-y-3">
                     <div className="grid grid-cols-4 gap-4">
                       <Libelle titre="Envois par jour, relances comprises" className="!flex flex-col justify-between"><Champ type="number" min={1} value={c.rythme.parJour} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, parJour: Number(e.target.value) || 1 } })} /></Libelle>
-                      <Libelle titre="De" className="!flex flex-col justify-between"><Selecteur aria-label="Heure de début" value={String(c.rythme.heureMin)} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, heureMin: Number(e.target.value) } })}>{DEMI_HEURES.filter((h) => h < 24).map((h) => <option key={h} value={h}>{libelleHeure(h)}</option>)}</Selecteur></Libelle>
+                      <Libelle titre="De" className="!flex flex-col justify-between"><Selecteur aria-label="Heure de début" value={String(c.rythme.heureMin)} onChange={(e) => { const de = Number(e.target.value); setC({ ...c, rythme: { ...c.rythme, heureMin: de, heureMax: c.rythme.heureMax > de ? c.rythme.heureMax : de + 0.5 } }) }}>{DEMI_HEURES.filter((h) => h < 24).map((h) => <option key={h} value={h}>{libelleHeure(h)}</option>)}</Selecteur></Libelle>
                       <Libelle titre="À" className="!flex flex-col justify-between"><Selecteur aria-label="Heure de fin" value={String(c.rythme.heureMax)} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, heureMax: Number(e.target.value) } })}>{DEMI_HEURES.filter((h) => h > c.rythme.heureMin).map((h) => <option key={h} value={h}>{libelleHeure(h)}</option>)}</Selecteur></Libelle>
                       <Libelle titre="Écart entre deux envois (h)" className="!flex flex-col justify-between"><Champ type="number" min={0} value={c.rythme.ecartMinH} onChange={(e) => setC({ ...c, rythme: { ...c.rythme, ecartMinH: Number(e.target.value) } })} /></Libelle>
                     </div>
@@ -283,7 +283,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
                 </div>
               ) : (
                 <div className="max-w-[720px] space-y-8">
-                  {avis ? <MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.evenements} /> : <MesureCampagne campagne={c} cfg={cfg} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.etat.evenements} />}
+                  {avis ? <MesureAvis campagneId={c.id} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.evenements} /> : (v.base(c.baseId) ? <MesureCampagne campagne={existante ?? c} base={v.base(c.baseId)!} cfg={cfg} contacts={v.etat.contacts} inscriptions={v.etat.inscriptions} envois={v.etat.envois} evenements={v.evenements} leads={v.etat.leads} appels={v.etat.appels} /> : null)}
                 </div>
               )}
           </div>

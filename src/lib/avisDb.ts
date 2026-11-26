@@ -27,3 +27,20 @@ async function maj(id: string, champs: Record<string, unknown>) {
 export const publierAvis = (id: string) => maj(id, { statut: "publie", motif_refus: "" })
 export const refuserAvis = (id: string, motif: string) => maj(id, { statut: "refuse", motif_refus: motif })
 export const noterRappel = (id: string) => maj(id, { rappele_le: new Date().toISOString() })
+
+/** Les passages vers la page d'avis Google, par campagne (lot 3, 27/11/2026) : depuis le 17/11, le lien d'avis mène
+ *  directement à Google, rien n'est plus noté chez nous ; seul le passage est connu (clic « google », hors robots). */
+export type PassagesGoogle = { campagneId: string; nom: string; personnes: number; dernier: string }
+export async function chargerPassagesGoogle(): Promise<PassagesGoogle[]> {
+  type L = { campagne_id: string; contact_ref: string; le: string }
+  const lignes = await lireParLots<L>((d, f) => sb().from("cmp_evenements").select("campagne_id, contact_ref, le").eq("type", "clic").eq("lien", "google").eq("robot", false).order("id").range(d, f) as unknown as PromiseLike<{ data: L[] | null; error: { message: string } | null }>)
+  if (!lignes.length) return []
+  const ids = [...new Set(lignes.map((l) => l.campagne_id))]
+  const { data, error } = await sb().from("cmp_campagnes").select("id, nom").in("id", ids)
+  if (error) throw new Error(error.message)
+  const noms = new Map((data ?? []).map((c) => [String(c.id), String(c.nom)]))
+  return ids.map((id) => {
+    const l = lignes.filter((x) => x.campagne_id === id)
+    return { campagneId: id, nom: noms.get(id) ?? "Campagne supprimée", personnes: new Set(l.map((x) => x.contact_ref)).size, dernier: l.reduce((m, x) => (x.le > m ? x.le : m), "") }
+  }).sort((a, b) => b.personnes - a.personnes)
+}
