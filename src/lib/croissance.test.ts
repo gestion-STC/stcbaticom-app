@@ -1,6 +1,6 @@
 // Le dashboard Croissance (Mahdi, 11/11/2026) : la cadence, les entonnoirs, la réserve.
 import { describe, expect, it } from "vitest"
-import { COCKPIT_DEPART, echeanceDe, entonnoirDemarchage, entonnoirRecrutement, lireReelStc, parSemaine, planCroissance, previsionCroissance, semainesJusquA, trajectoire } from "./croissance"
+import { COCKPIT_DEPART, echeanceDe, entonnoirDemarchage, lireReelStc, parSemaine, planCroissance, previsionCroissance, semainesJusquA, trajectoire } from "./croissance"
 import { lundisRecents } from "./cockpitTelepro"
 
 const maintenant = new Date(2026, 10, 11, 12)
@@ -23,12 +23,6 @@ describe("la croissance", () => {
       { etape: "client", tentatives: 0, joint_fois: 0, premier_os_le: "2026-11-02" },
     ])
     expect(e.map((m) => m.valeur)).toEqual([3, 2, 2, 1, 1, 1])
-  })
-  it("l'entonnoir du recrutement", () => {
-    const base = { nb_envois_ok: 0, nb_appels: 0, nb_joints: 0, nb_clics: 0, suivi: null, depose_le: null, contrat_statut: null, contrat_signe_le: null, acces_ouvert_le: null }
-    const e = entonnoirRecrutement([{ ...base, statut: "a_contacter" }, { ...base, statut: "en_sequence", nb_envois_ok: 2, nb_clics: 1 }, { ...base, statut: "depose", acces_ouvert_le: "2026-11-05" }])
-    expect(e.map((m) => m.valeur)).toEqual([3, 2, 2, 1, 1, 1])
-    for (let i = 1; i < e.length; i++) expect(e[i].valeur).toBeLessThanOrEqual(e[i - 1].valeur)
   })
 })
 

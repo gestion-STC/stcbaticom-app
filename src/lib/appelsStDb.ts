@@ -3,7 +3,6 @@
 // s'enregistre par la fonction de la base `st_appel_enregistrer`, qui applique
 // les règles (rappels, injoignable, arrêt de la séquence).
 import { supabase } from "./supabase"
-import { lireParLots } from "./pagination"
 import type { SousTraitant } from "../recrutement"
 import { chargerSousTraitantsParLots } from "./sousTraitantsDb"
 import { ordonnerLeads, ordonnerRappelsST, type FileST, type IssueST, type ResultatST } from "./appelsStOutils"
@@ -89,26 +88,4 @@ export async function enregistrerAppelST(p: ParamsAppelST): Promise<BilanAppelST
   if (error) throw new Error(error.message)
   const r = data as { appel_id: string; suivi: string; rappel_le: string | null }
   return { appelId: r.appel_id, suivi: r.suivi ?? "", rappelLe: r.rappel_le }
-}
-
-// Les appels d'une période, par compte (pour le classement, plus tard).
-/** Le nombre d'artisans qui ont déposé leur dossier depuis la date donnée (Dashboard, chapitre Recrutement, 09/11/2026). */
-export async function compterDeposesDepuis(de: Date): Promise<number> {
-  const { count, error } = await sb().from("st_sous_traitants").select("id", { count: "exact", head: true }).gte("depose_le", de.toISOString())
-  if (error) throw new Error(error.message)
-  return count ?? 0
-}
-
-export async function compterAppelsST(de: Date, a: Date): Promise<{ compteNom: string; appels: number; joints: number }[]> {
-  const lignes = await lireParLots<{ id: string; compte_nom: string; resultat: string }>((d, f) =>
-    sb().from("st_appels").select("id, compte_nom, resultat").gte("date", de.toISOString()).lt("date", a.toISOString()).order("id").range(d, f))
-  const par = new Map<string, { compteNom: string; appels: number; joints: number }>()
-  for (const l of lignes) {
-    const k = l.compte_nom || "(sans compte)"
-    const s = par.get(k) ?? { compteNom: k, appels: 0, joints: 0 }
-    s.appels++
-    if (l.resultat === "joint") s.joints++
-    par.set(k, s)
-  }
-  return [...par.values()].sort((x, y) => y.appels - x.appels)
 }

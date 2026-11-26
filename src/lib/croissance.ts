@@ -33,24 +33,6 @@ export function entonnoirDemarchage(l: AgenceCroissance[]): Marche[] {
   ]
 }
 
-export type ArtisanCroissance = { statut: string; nb_envois_ok: number | null; nb_appels: number | null; nb_joints: number | null; nb_clics: number | null; suivi: string | null; depose_le: string | null; contrat_statut: string | null; contrat_signe_le: string | null; acces_ouvert_le: string | null }
-/** Le recrutement, de la base à l'accès ouvert. Chaque marche est comprise dans la précédente (les joints au
- *  téléphone sont dans le tableau de l'équipe : un intéressé ne passe pas toujours par un appel). */
-export function entonnoirRecrutement(l: ArtisanCroissance[]): Marche[] {
-  const acces = (a: ArtisanCroissance) => Boolean(a.acces_ouvert_le)
-  const contrat = (a: ArtisanCroissance) => acces(a) || Boolean(a.contrat_signe_le) || a.contrat_statut === "signe"
-  const depose = (a: ArtisanCroissance) => contrat(a) || Boolean(a.depose_le) || a.statut === "depose"
-  const interesse = (a: ArtisanCroissance) => depose(a) || (a.nb_clics ?? 0) > 0 || a.suivi === "va_deposer"
-  return [
-    { libelle: "Artisans dans la base", valeur: l.length },
-    { libelle: "Contactés", valeur: l.filter((a) => (a.nb_envois_ok ?? 0) > 0 || (a.nb_appels ?? 0) > 0 || interesse(a)).length },
-    { libelle: "Intéressés", valeur: l.filter(interesse).length },
-    { libelle: "Dossier déposé", valeur: l.filter(depose).length },
-    { libelle: "Contrat signé", valeur: l.filter(contrat).length },
-    { libelle: "Accès ouvert", valeur: l.filter(acces).length },
-  ]
-}
-
 // ── LE COCKPIT (Mahdi, 11/11/2026) : « je veux faire 200 000 ou 300 000 € par mois, qu'il me dise combien d'agences,
 // combien de sous-traitants, l'objectif par semaine, et si on est sur la bonne croissance ». ──
 // 26/11/2026 : le levier « sous-traitants actifs » est retiré (toujours à 0, il mettait le cockpit « En retard » à tort).
