@@ -58,7 +58,7 @@ describe("désinscriptions : jamais à l'ouverture d'un lien", () => {
 
 describe("une agence qui demande l'arrêt est désinscrite", () => {
   it("par réponse (hors réponse automatique) et par plainte", () => {
-    expect(recevoir).toContain("const arret = !reponseAutomatique(d.headers) && demandeArret(objet, corpsText);")
+    expect(recevoir).toContain("const arret = !antiSpam && !reponseAutomatique(d.headers) && demandeArret(objet, corpsText.trim() ? corpsText : texteDuHtml(corpsHtml));")
     expect(recevoir).toContain('if (!sousTraitantId && agenceId && arret)')
     expect(recevoir).toContain('update({ ne_plus_ecrire_le: new Date().toISOString() }).eq("id", agenceId).is("ne_plus_ecrire_le", null)')
     expect(resend).toContain('if (type === "email.complained" && !envoi && resendId)')

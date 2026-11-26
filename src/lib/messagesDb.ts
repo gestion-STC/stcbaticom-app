@@ -1,6 +1,6 @@
 import { supabase } from "./supabase"
 import { grouperEnConversations } from "./conversations"
-import { extraireAdresse } from "./messagesUtils"
+import { adresseCorrespondant } from "./messagesUtils"
 
 export type SensMessage = "entrant" | "sortant"
 // DEUX ESPACES (08/10/2026) : la boîte du démarchage et celle du recrutement
@@ -128,12 +128,14 @@ export function clesDe(messages: Pick<Message, "agenceId" | "sousTraitantId" | "
   for (const m of messages) {
     if (m.agenceId) agences.add(m.agenceId)
     if (m.sousTraitantId) artisans.add(m.sousTraitantId)
-    const adr = extraireAdresse(m.sens === "entrant" ? m.de : m.a)
+    const adr = adresseCorrespondant(m)
     if (adr.includes("@")) adresses.add(adr)
   }
   return { agences: [...agences], artisans: [...artisans], adresses: [...adresses] }
 }
 
+/** Une adresse qu'on peut poser telle quelle dans un filtre du serveur (ni guillemet, ni virgule, ni parenthèse). */
+const adresseSure = (x: string) => /^[^\s"',()\\*%]+@[^\s"',()\\*%]+$/.test(x)
 const paquets = <T,>(l: T[], n = 100) => Array.from({ length: Math.ceil(l.length / n) }, (_, i) => l.slice(i * n, i * n + n))
 
 /** Tous les messages de ces conversations (les deux sens), sans plafond. */
@@ -141,7 +143,11 @@ export async function chargerLies(espace: Espace | undefined, cles: ClesConversa
   const lots: Promise<Ligne[]>[] = []
   for (const p of paquets(cles.agences)) lots.push(lirePages((c) => parDate(base(espace, c).in("agence_id", p))))
   for (const p of paquets(cles.artisans)) lots.push(lirePages((c) => parDate(base(espace, c).in("sous_traitant_id", p))))
-  for (const p of paquets(cles.adresses)) lots.push(lirePages((c) => parDate(base(espace, c).eq("sens", "sortant").in("a", p))))
+  // Un envoi à plusieurs ou avec copie (« a@x, b@y · cc : … ») est retrouvé par sa première adresse (26/11/2026, D70).
+  for (const p of paquets(cles.adresses.filter(adresseSure), 30)) {
+    const filtre = [`a.in.(${p.map((x) => `"${x}"`).join(",")})`, ...p.flatMap((x) => [`a.like."${x}, *"`, `a.like."${x} · *"`])].join(",")
+    lots.push(lirePages((c) => parDate(base(espace, c).eq("sens", "sortant").or(filtre))))
+  }
   const vus = new Map<string, Ligne>()
   for (const l of (await Promise.all(lots)).flat()) vus.set(l.id, l)
   return [...vus.values()].map(vers)
@@ -204,17 +210,26 @@ function prevenirPastille() {
 
 // La pastille de la barre latérale : le nombre de CONVERSATIONS non lues (26/11/2026), la même unité que le titre de la
 // boîte (« 3 non lues ») ; avant, elle comptait les messages et les deux chiffres ne se ressemblaient pas.
-export async function compterNonLus(espace?: Espace): Promise<number> {
+// Une lecture ratée (réseau, session expirée) LÈVE une erreur (26/11/2026, D100) : la barre latérale garde son chiffre et
+// le signale, au lieu d'afficher 0 comme si tout était lu. `compterNonLus` garde l'ancien comportement (0) pour ses
+// autres appelants.
+export async function lireNonLus(espace?: Espace): Promise<number> {
   if (!supabase) return 0
   let q = supabase.from("messages").select("id, sens, de, a, objet, agence_id, sous_traitant_id, lu, created_at").eq("sens", "entrant").eq("lu", false).limit(5000)
   if (espace) q = q.eq("espace", espace)
   const { data, error } = await q
-  if (error) {
-    console.error("Compter non lus :", error.message)
-    return 0
-  }
+  if (error) throw new Error(`Compter non lus : ${error.message}`)
   type L = { id: string; sens: SensMessage; de: string; a: string; objet: string; agence_id: string | null; sous_traitant_id: string | null; lu: boolean; created_at: string }
   return compterConversationsNonLues(((data ?? []) as L[]).map((l) => ({ id: l.id, sens: l.sens, de: l.de, a: l.a, objet: l.objet, agenceId: l.agence_id, sousTraitantId: l.sous_traitant_id, lu: l.lu, date: l.created_at })))
+}
+
+export async function compterNonLus(espace?: Espace): Promise<number> {
+  try {
+    return await lireNonLus(espace)
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    return 0
+  }
 }
 
 /** Des messages reçus non lus → le nombre de conversations qu'ils touchent (le même regroupement que la boîte). */
@@ -279,6 +294,25 @@ export async function piecesPourTransfert(pieces: PieceRecue[]): Promise<Array<{
   }))
 }
 
+// « Bon contact cité » (26/11/2026, D74) : le contact est-il déjà sur la fiche de l'agence ? Même adresse, ou même nom
+// (civilité, accents et casse ignorés). Pur, testé.
+const sansAccent = (s: string) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim()
+const nomSeul = (s: string) => sansAccent(s).replace(/^(m\.?|mme|madame|monsieur|mr|mlle|mademoiselle)\s+/, "")
+export function contactDejaPresent(cite: { contact_nom?: string; contact_email?: string }, fiche: Array<{ prenom: string; nom: string; email: string }>): boolean {
+  const email = (cite.contact_email ?? "").trim().toLowerCase()
+  const nom = nomSeul(cite.contact_nom ?? "")
+  return fiche.some((c) =>
+    (email !== "" && (c.email ?? "").trim().toLowerCase() === email) ||
+    (nom !== "" && [`${c.prenom} ${c.nom}`, `${c.nom} ${c.prenom}`, c.nom].some((n) => nomSeul(n) === nom)))
+}
+/** Les contacts d'une agence (prénom, nom, adresse), pour savoir si un contact cité y est déjà. */
+export async function contactsDeLAgence(agenceId: string): Promise<Array<{ prenom: string; nom: string; email: string }>> {
+  if (!supabase) throw new Error("Supabase n'est pas configuré.")
+  const { data, error } = await supabase.from("contacts").select("prenom, nom, email").eq("agence_id", agenceId)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Array<{ prenom: string; nom: string; email: string }>
+}
+
 /** Répond à un prospect depuis la boîte Instantly qui a reçu son message (jamais par Resend). */
 export async function repondreParInstantly(r: { message: string; objet: string; corps: string; signatureHtml?: string }): Promise<void> {
   if (!supabase) throw new Error("Supabase n'est pas configuré.")
@@ -306,6 +340,8 @@ export async function repondreMessage(r: {
   corps: string
   inReplyTo?: string | null
   agenceId?: string | null
+  /** L'artisan de la conversation (recrutement) : la réponse est rangée sur sa fiche (26/11/2026, D70). */
+  sousTraitantId?: string | null
   signatureHtml?: string
   commercial?: string
   espace?: Espace
@@ -325,6 +361,7 @@ export async function repondreMessage(r: {
       corps: r.corps,
       ...(r.inReplyTo ? { in_reply_to: r.inReplyTo } : {}),
       ...(r.agenceId ? { agence_id: r.agenceId } : {}),
+      ...(r.sousTraitantId ? { sous_traitant_id: r.sousTraitantId } : {}),
       ...(r.signatureHtml ? { signature_html: r.signatureHtml } : {}),
       ...(r.commercial ? { commercial: r.commercial } : {}),
       ...(r.espace ? { espace: r.espace } : {}),

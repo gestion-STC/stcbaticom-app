@@ -51,19 +51,21 @@ export function htmlNettoye(html: string): string {
 
 export type Citation = { de?: unknown; a?: unknown; date?: unknown; objet?: unknown; html?: unknown; texte?: unknown }
 
-/** Le bloc « Message transféré » : en HTML (mise en page d'origine) et en texte. null sans contenu. */
-export function citationTransfert(c: unknown): { html: string; texte: string } | null {
+/** Le bloc « Message transféré » : en HTML (mise en page d'origine) et en texte. null sans contenu — sauf
+ *  `avecPieces` (26/11/2026, D73) : un mail reçu sans texte, avec seulement une pièce jointe, se transfère quand même
+ *  (l'en-tête De / Date / Objet suit, les pièces partent jointes). */
+export function citationTransfert(c: unknown, avecPieces = false): { html: string; texte: string } | null {
   if (!c || typeof c !== "object") return null
   const x = c as Citation
   const s = (v: unknown) => String(v ?? "").trim()
   const htmlOrigine = htmlNettoye(s(x.html))
   const texteOrigine = s(x.texte)
-  if (!htmlOrigine && !texteOrigine) return null
+  if (!htmlOrigine && !texteOrigine && !avecPieces) return null
   const date = s(x.date) ? new Date(s(x.date)) : null
   const quand = date && !isNaN(date.getTime()) ? date.toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) : ""
   const lignes: [string, string][] = [["De", s(x.de)], ["Date", quand], ["Objet", s(x.objet)], ["À", s(x.a)]].filter(([, v]) => v) as [string, string][]
   const entete = lignes.map(([k, v]) => `${k} : ${esc(v)}`).join("<br>")
-  const contenu = htmlOrigine || `<div style="white-space:pre-wrap">${esc(texteOrigine)}</div>`
+  const contenu = htmlOrigine || (texteOrigine ? `<div style="white-space:pre-wrap">${esc(texteOrigine)}</div>` : "")
   const html = `<br><div style="font-family:Arial,sans-serif;font-size:13px;color:#444">---------- Message transféré ----------<br>${entete}</div><br><div>${contenu}</div>`
   const texteDuHtml = htmlOrigine.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|tr|h\d|li)>/gi, "\n").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim()
   const texte = `\n\n---------- Message transféré ----------\n${lignes.map(([k, v]) => `${k} : ${v}`).join("\n")}\n\n${texteOrigine || texteDuHtml}`
@@ -85,4 +87,26 @@ export function nomDeStockage(n: string): string {
   const point = s.lastIndexOf(".")
   const ext = point > 0 ? s.slice(point).slice(0, 10) : ""
   return ((point > 0 ? s.slice(0, point) : s).slice(0, 100) || "fichier") + ext
+}
+
+/** Le texte lisible d'un mail en HTML seul (26/11/2026, D72) : sans en-tête, style ni script, balises retirées,
+ *  entités courantes décodées. Sert à lire une demande d'arrêt écrite dans un mail sans version texte. */
+export function texteDuHtml(html: string): string {
+  return String(html ?? "")
+    .replace(/<(head|style|script|title|noscript)\b[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|tr|h\d|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/&eacute;/gi, "é").replace(/&egrave;/gi, "è").replace(/&agrave;/gi, "à").replace(/&ccedil;/gi, "ç").replace(/&ecirc;/gi, "ê")
+    .replace(/[ \t\r]+/g, " ").replace(/\s*\n\s*/g, "\n").trim()
+}
+
+/** Une demande de validation d'un anti-spam (« prouvez que vous êtes humain ») : notre mail attend chez le
+ *  destinataire (26/11/2026, D75). Ni une réponse, ni un lead, ni une demande d'arrêt. */
+const DOMAINES_ANTI_SPAM = ["mailinblack.com"]
+export function estDefiAntiSpam(expediteur: string): boolean {
+  const a = String(expediteur ?? "").toLowerCase().trim()
+  const domaine = a.slice(a.lastIndexOf("@") + 1)
+  return a.includes("@") && DOMAINES_ANTI_SPAM.some((d) => domaine === d || domaine.endsWith(`.${d}`))
 }

@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { commercial } from "../data";
-import { compterNonLus, EVENEMENT_LUS, type Espace } from "../lib/messagesDb";
+import { lireNonLus, EVENEMENT_LUS, type Espace } from "../lib/messagesDb";
 import { seDeconnecter } from "../lib/auth";
 import { initialesDe, nomAffiche, roleDeSession, LIBELLE_ROLE } from "../lib/comptes";
 import { menuPour, type EntreeMenu, type GroupeMenu, type PageId } from "../lib/carteMenu";
@@ -77,17 +77,28 @@ export default function Sidebar({ active, espaces, admin, onNavigate, session }:
   const email = session?.user?.email ?? "";
 
   // Pastilles « non lus » des deux boîtes : toutes les 60 s, à la lecture d'un mail, et au retour sur l'onglet.
+  // Une lecture ratée (26/11/2026, D100) : le dernier chiffre connu reste, marqué « ? » s'il n'y en a pas encore.
   const [nonLus, setNonLus] = useState<Record<Espace, number>>({ demarchage: 0, recrutement: 0 });
+  const [nonLusRates, setNonLusRates] = useState<Record<Espace, boolean>>({ demarchage: false, recrutement: false });
   useEffect(() => {
     let annule = false;
-    const maj = () => Promise.all([compterNonLus("demarchage"), compterNonLus("recrutement")]).then(([d, r]) => { if (!annule) setNonLus({ demarchage: d, recrutement: r }); });
+    const lire = (e: Espace) => lireNonLus(e).then(
+      (n) => { if (annule) return; setNonLus((p) => ({ ...p, [e]: n })); setNonLusRates((p) => ({ ...p, [e]: false })); },
+      () => { if (!annule) setNonLusRates((p) => ({ ...p, [e]: true })); },
+    );
+    const maj = () => Promise.all([lire("demarchage"), lire("recrutement")]);
     void maj();
     const t = setInterval(maj, 60_000);
     window.addEventListener(EVENEMENT_LUS, maj);
     window.addEventListener("focus", maj);
     return () => { annule = true; clearInterval(t); window.removeEventListener(EVENEMENT_LUS, maj); window.removeEventListener("focus", maj); };
   }, [active]);
-  const badge = (id: PageId) => (id === "messages" ? nonLus.demarchage : id === "messages_st" ? nonLus.recrutement : 0);
+  const espaceDe = (id: PageId): Espace | null => (id === "messages" ? "demarchage" : id === "messages_st" ? "recrutement" : null);
+  const badge = (id: PageId): number | string => {
+    const e = espaceDe(id);
+    if (!e) return 0;
+    return nonLusRates[e] && !nonLus[e] ? "?" : nonLus[e];
+  };
 
   const rubriques = useMemo<Rubrique[]>(() => [
     ...menuPour(espaces, admin).map((g) => ({ cle: g.titre || "accueil", titre: g.titre || "Accueil", icone: ICONES[g.titre] ?? ICONES[""], groupes: [{ ...g, titre: "" }] })),
@@ -118,7 +129,9 @@ export default function Sidebar({ active, espaces, admin, onNavigate, session }:
   const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const lien = (e: EntreeMenu, role_?: string) => {
     const n = badge(e.id);
-    return <button key={e.id} type="button" role={role_} className="mb-lien" aria-current={e.id === active ? "page" : undefined} onClick={() => onNavigate(e.id)}><span className="mb-lien-txt">{e.titre}</span>{n ? <span className="mb-badge">{n}</span> : null}</button>;
+    const esp = espaceDe(e.id);
+    const rate = esp ? nonLusRates[esp] : false;
+    return <button key={e.id} type="button" role={role_} className="mb-lien" aria-current={e.id === active ? "page" : undefined} onClick={() => onNavigate(e.id)}><span className="mb-lien-txt">{e.titre}</span>{n ? <span className="mb-badge" title={rate ? "Lecture des non-lus impossible (réseau) : nouvel essai dans une minute." : undefined}>{n}</span> : null}</button>;
   };
   const liste = (r: Rubrique, role_?: string) => r.groupes.map((g, i) => <div key={g.titre || i}>{g.titre ? <div className="mb-groupe">{g.titre}</div> : null}{g.entrees.map((e) => lien(e, role_))}</div>);
   const pied = (

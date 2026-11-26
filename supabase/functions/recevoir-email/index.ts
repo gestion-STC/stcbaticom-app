@@ -22,7 +22,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { lireReponse } from "../_shared/campagnes/generationIA.ts";
-import { nomDeStockage } from "../_shared/fil.ts";
+import { estDefiAntiSpam, nomDeStockage, texteDuHtml } from "../_shared/fil.ts";
 import { adresseSeule, espaceDuMailRecu, estDuDomaine, estUneReponse, identifiantsCites, messageDeLAncre, porteSansAncre, repondAUnSujet } from "../_shared/boitesMail.ts";
 
 const MAX_PJ_OCTETS = 15 * 1024 * 1024;
@@ -195,7 +195,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const lu = espace === "demarchage" ? await lireReponse(objet, corpsText || corpsHtml.replace(/<[^>]+>/g, " ")) : { tri: null, detail: null };
+    // L'ANTI-SPAM D'UNE AGENCE (26/11/2026, D75) : « Mailinblack » nous demande de prouver qu'on est humain ; notre mail
+    // attend chez l'agence. Ce n'est pas une réponse : tri « anti_spam » (pas d'IA, pas de lead, pas de réponse de
+    // campagne) ; la base le range sur l'agence du mail retenu (déclencheur messages_anti_spam_agence) et il arrive
+    // non lu dans la boîte du chargé d'affaires, avec un bandeau.
+    const antiSpam = espace === "demarchage" && estDefiAntiSpam(de);
+    const lu = antiSpam ? { tri: "anti_spam", detail: null } : espace === "demarchage" ? await lireReponse(objet, corpsText || corpsHtml.replace(/<[^>]+>/g, " ")) : { tri: null, detail: null };
     const { data: insere, error } = await admin.from("messages").insert({
       sens: "entrant", de, a: pourLeCrm.join(", "), objet,
       corps_text: corpsText, corps_html: corpsHtml,
@@ -212,7 +217,9 @@ Deno.serve(async (req: Request) => {
 
     // ── LA DÉSINSCRIPTION PAR RÉPONSE ──
     let desinscrit = false;
-    const arret = !reponseAutomatique(d.headers) && demandeArret(objet, corpsText);
+    // Le corps lu : la version texte, sinon celle du HTML (26/11/2026, D72 : un « stop » écrit dans un mail en HTML seul
+    // était ignoré — 2 mails reçus sur 37 n'ont pas de version texte). Jamais sur une demande d'anti-spam.
+    const arret = !antiSpam && !reponseAutomatique(d.headers) && demandeArret(objet, corpsText.trim() ? corpsText : texteDuHtml(corpsHtml));
     if (sousTraitantId && statutSt !== "desinscrit" && arret) {
       const now = new Date().toISOString();
       await admin.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: now, desinscrit_canal: "reponse_email", statut_motif: `réponse : ${objet.slice(0, 80)}` }).eq("id", sousTraitantId);

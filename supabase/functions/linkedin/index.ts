@@ -7,6 +7,7 @@
 // Déployée sans vérification de JWT : chaque entrée est vérifiée ici.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { jetonDe, membre } from "../_shared/acces.ts"
+import { optionsDeLAppelant } from "../_shared/perimetre.ts"
 import { appelUnipile, assurerWebhooks, cleWebhookLinkedIn, comptesLinkedIn, unipileBranche } from "../_shared/campagnes/unipile.ts"
 import { identifiantLinkedIn } from "../_shared/campagnes/linkedin.ts"
 import { lireReponse } from "../_shared/campagnes/generationIA.ts"
@@ -94,7 +95,10 @@ Deno.serve(async (req: Request) => {
       const corps = String(b.corps ?? "").trim()
       if (!b.message || !corps) return json({ error: "Message vide." }, 400)
       if (!unipileBranche()) return json({ error: "LinkedIn n'est pas branché." }, 400)
-      const { data: m } = await sb.from("messages").select("de, espace, agence_id, sous_traitant_id, contact_id, brut").eq("id", b.message).maybeSingle()
+      // Relu AVEC LE JETON de l'appelant (26/11/2026, D6) : la RLS de la boîte s'applique (la clé d'essai, elle, vaut un
+      // administrateur et lit avec la clé de service).
+      const lecteur = qui.id === "essai" ? sb : createClient(base, Deno.env.get("SUPABASE_ANON_KEY")!, optionsDeLAppelant(jetonDe(req)))
+      const { data: m } = await lecteur.from("messages").select("de, espace, agence_id, sous_traitant_id, contact_id, brut").eq("id", b.message).maybeSingle()
       const brut = (m as { brut?: { chat_id?: string; account_id?: string; nom?: string } } | null)?.brut
       if (!m || !brut?.chat_id || !brut.account_id) return json({ error: "Ce message ne vient pas de LinkedIn." }, 400)
       const r = await appelUnipile(`/${encodeURIComponent(brut.account_id)}/chats/${encodeURIComponent(brut.chat_id)}/messages/send`, { json: { text: corps } })

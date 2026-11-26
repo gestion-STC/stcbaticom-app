@@ -21,6 +21,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { estServeur, jetonDe, membre } from "../_shared/acces.ts";
 import { ADRESSE_GENERALE, adresseAncree, compteQuiEnvoie, expediteurDemarchage, signatureAvecAdresse } from "../_shared/boitesMail.ts";
 import { cheminDuJournal, citationTransfert, enteteDeFil, listeAdresses } from "../_shared/fil.ts";
+import { espaceAutorise, espacesDeLAppelant } from "../_shared/perimetre.ts";
 //  11/11/2026 — UNE ADRESSE PAR COMMERCIAL (comme STC Bâtiment) : un mail du démarchage part de l'adresse
 //  dédiée de la personne qui envoie (table equipe, colonne email_reception) : « Prénom Nom — STC Bâtiment
 //  <prenom@crm.stcbatiment.fr> », réponses à la même adresse, et la signature la montre. La personne qui
@@ -98,6 +99,11 @@ Deno.serve(async (req: Request) => {
     const fromParDefaut = espace === "recrutement"
       ? (Deno.env.get("RESEND_FROM_RECRUTEMENT") || "STC Bâtiment <recrutement@crm.stcbatiment.fr>")
       : (Deno.env.get("RESEND_FROM") || "STC Bâtiment <contact@crm.stcbatiment.fr>");
+    // LE PÉRIMÈTRE (26/11/2026, D6) : un téléprospecteur n'écrit que depuis une boîte que l'écran lui offre
+    // (un « Commercial » n'a pas la boîte Sous-traitants, donc pas recrutement@). La base fait foi (mes_espaces()).
+    if (appelant && appelant.role !== "admin" && !espaceAutorise(appelant.role, await espacesDeLAppelant(jetonAppel), espace)) {
+      return json({ error: `La boîte ${espace === "recrutement" ? "Sous-traitants" : "Gestionnaires"} n'est pas dans votre périmètre.` }, 403);
+    }
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     let payload: Record<string, unknown>;
@@ -188,8 +194,13 @@ Deno.serve(async (req: Request) => {
       }
       objetFinal = String(modele?.objet ?? objet ?? "").trim();
       corpsTextFinal = String(modele?.corps ?? corpsDirect ?? "").trim();
-      // Un transfert peut partir sans mot d'accompagnement : le message transféré suffit.
-      if (!objetFinal || (!corpsTextFinal && !citationTransfert(citation))) return json({ error: "Objet et corps requis (directs ou via modèle)." }, 400);
+      // Un transfert peut partir sans mot d'accompagnement : le message transféré suffit, même quand il n'a que des
+      // pièces jointes (26/11/2026, D73 : refusé avant, avec un message incompréhensible).
+      const avecPieces = Array.isArray(corps?.pieces) && corps.pieces.length > 0;
+      if (!objetFinal) return json({ error: "Objet requis." }, 400);
+      if (!corpsTextFinal && !citationTransfert(citation, avecPieces)) {
+        return json({ error: citation ? "Le message transféré est vide et sans pièce jointe : écrivez un mot pour l'accompagner." : "Message vide : écrivez un texte." }, 400);
+      }
       const { data: params } = await admin.from("parametres").select("cle, valeur").in("cle", ["signature", "commercial"]);
       const param = (k: string) => (params as Array<{ cle: string; valeur: string }> | null)?.find((x) => x.cle === k)?.valeur ?? "";
       // Le compte connecté l'emporte (boîte de réception : signature_html + commercial).
@@ -210,7 +221,7 @@ Deno.serve(async (req: Request) => {
       corpsTextFinal = subst(corpsTextFinal);
       corpsHtmlFinal = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${escHtml(corpsTextFinal).replace(/\n/g, "<br>")}</div>` + (signature ? `<br><br>${subst(signature)}` : "");
       // Un TRANSFERT (26/11/2026) : le message choisi suit, avec sa mise en page (HTML nettoyé), sous la signature.
-      const cite = citationTransfert(citation);
+      const cite = citationTransfert(citation, avecPieces);
       if (cite) { corpsHtmlFinal += cite.html; corpsTextFinal += cite.texte; }
       // Les pièces du modèle, plus celles ajoutées à la main (réponse depuis la boîte de réception).
       if (tailleTotale(modele?.pieces_jointes, corps?.pieces) > PLAFOND_PIECES) return json({ error: "Pièces jointes trop lourdes (35 Mo au total au maximum)." }, 400);
@@ -219,6 +230,19 @@ Deno.serve(async (req: Request) => {
       // Le fil (26/11/2026) : seul un VRAI Message-ID (avec « @ », celui d'un mail reçu) va dans les en-têtes ; un
       // identifiant Resend (notre propre envoi) n'y va plus : la relance après notre réponse cassait le fil.
       const fil = enteteDeFil(in_reply_to, references);
+      // RECRUTEMENT (26/11/2026, D70) : une réponse depuis la boîte est rangée sur l'artisan, comme un envoi de la
+      // fiche (contrat A) : celui de la conversation (envoyé par l'écran, vérifié), sinon celui de l'adresse.
+      if (espace === "recrutement") {
+        const demande = typeof corps?.sous_traitant_id === "string" && /^[0-9a-f-]{36}$/i.test(corps.sous_traitant_id) ? corps.sous_traitant_id : null;
+        if (demande) {
+          const { data: s } = await admin.from("st_sous_traitants").select("id").eq("id", demande).maybeSingle();
+          sousTraitantIdPourMessage = (s as { id?: string } | null)?.id ?? null;
+        }
+        if (!sousTraitantIdPourMessage) {
+          const { data: s } = await admin.from("st_sous_traitants").select("id").ilike("email", destinataire).limit(1).maybeSingle();
+          sousTraitantIdPourMessage = (s as { id?: string } | null)?.id ?? null;
+        }
+      }
       payload = { from, to: tousB, subject: objetFinal, html: corpsHtmlFinal, text: corpsTextFinal, ...(ccB.length ? { cc: ccB } : {}), ...(bccB.length ? { bcc: bccB } : {}), ...(attachments.length ? { attachments } : {}), ...(exp.replyTo ? { reply_to: exp.replyTo } : {}), ...(fil ? { headers: fil } : {}) };
     }
 

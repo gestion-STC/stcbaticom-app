@@ -50,9 +50,15 @@ export type MessageDeBase = {
   date: string
 }
 
+// La PREMIÈRE adresse d'un champ « à » enregistré (26/11/2026, D70) : un envoi à plusieurs ou avec copie est journalisé
+// « a@x, b@y · cc : c@z » ; la conversation se range sur « a@x », pas sur le champ entier (la réponse sortait du fil).
+export function premiereAdresse(brut: string): string {
+  return extraireAdresse((brut || "").split(" · ")[0].split(",")[0])
+}
+
 // L'adresse du correspondant (l'autre partie que nous) selon le sens du message.
-export function adresseCorrespondant(m: MessageDeBase): string {
-  return extraireAdresse(m.sens === "entrant" ? m.de : m.a)
+export function adresseCorrespondant(m: Pick<MessageDeBase, "sens" | "de" | "a">): string {
+  return m.sens === "entrant" ? extraireAdresse(m.de) : premiereAdresse(m.a)
 }
 
 // Date lisible en français : aujourd'hui → « 14:32 », sinon « 9 juil. » (+ année si différente).
