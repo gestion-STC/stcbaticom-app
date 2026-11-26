@@ -71,6 +71,12 @@ describe("tunnel", () => {
     expect(tunnel(fiches, envois, 0, "", NOW).contactes).toBe(3)
     expect(tunnel(fiches, envois, 0, "Peinture", NOW)).toEqual({ contactes: 1, cliques: 1, deposes: 0 })
   })
+  it("sans fenêtre, une fiche contactée avant les 90 jours chargés compte aussi (lot 5 : 417 au lieu de 591)", () => {
+    const ancienne = fiche({ id: "z", nbEnvoisOk: 3, metier: "Peinture" }) // ses envois ne sont pas chargés
+    expect(tunnel([...fiches, ancienne], envois, 0, "", NOW).contactes).toBe(4)
+    expect(tunnel([...fiches, ancienne], envois, 0, "Peinture", NOW).contactes).toBe(2)
+    expect(tunnel([...fiches, ancienne], envois, 30, "", NOW).contactes).toBe(2) // une fenêtre reste lue sur les envois
+  })
   it("un clic de la période compte, même si la fiche a été contactée bien avant (12/10 : les écrans doivent dire la même chose)", () => {
     const vieille = fiche({ id: "v", dernierClicLe: iso(0), baremeVuLe: iso(0) })
     const envoisVieux = [envoi({ sousTraitantId: "v", envoyeLe: iso(60 * J) })]

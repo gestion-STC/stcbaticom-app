@@ -21,16 +21,18 @@ export async function chargerPassages(n = 24): Promise<PassageST[]> {
 
 // ── Journal des envois et des clics ──────────────────────────────────────────
 type LigneEnvoi = {
-  id: string; sous_traitant_id: string; etape_id: string; canal: "email" | "sms"; envoye_le: string
+  id: string; sous_traitant_id: string; etape_id: string | null; etape_libelle?: string | null; canal: "email" | "sms"; envoye_le: string
   statut: EnvoiST["statut"]; erreur: string; cause: string | null; tentative: number | null
   rejouer_apres: string | null; resend_id: string | null; delivre_le: string | null; ouvert_le: string | null
 }
 const versEnvoi = (e: LigneEnvoi): EnvoiST => ({
-  id: e.id, sousTraitantId: e.sous_traitant_id, etapeId: e.etape_id, canal: e.canal, envoyeLe: e.envoye_le,
+  id: e.id, sousTraitantId: e.sous_traitant_id, etapeId: e.etape_id, etapeLibelle: e.etape_libelle ?? "", canal: e.canal, envoyeLe: e.envoye_le,
   statut: e.statut, erreur: e.erreur ?? "", cause: e.cause ?? "", tentative: e.tentative ?? 1,
   rejouerApres: e.rejouer_apres, resendId: e.resend_id, delivreLe: e.delivre_le, ouvertLe: e.ouvert_le,
 })
-const COLONNES_ENVOI = "id, sous_traitant_id, etape_id, canal, envoye_le, statut, erreur, cause, tentative, rejouer_apres, resend_id, delivre_le, ouvert_le"
+// « * » plutôt que la liste : etape_libelle (lot 5, le nom d'une étape supprimée) se lit dès qu'il existe en base,
+// sans casser la lecture tant que la mise à jour SQL n'est pas passée.
+const COLONNES_ENVOI = "*"
 
 /** Les envois depuis une date (paginés : la machine en fait des milliers). */
 export async function chargerEnvoisDepuis(depuis: string): Promise<EnvoiST[]> {
@@ -100,10 +102,27 @@ export async function marquerDossier(id: string, champs: { vu?: boolean; traite?
   const { error } = await client().from("dossiers_st").update(maj).eq("id", id)
   if (error) throw new Error(error.message)
 }
-/** Rattache un dossier à une fiche (ou détache avec `null`) ; la fiche passe en « déposé ». */
+/**
+ * Le statut d'une fiche qui perd son dossier (rattaché par erreur, lot 5 du 26/11/2026) :
+ * celui qu'elle aurait sans ce dépôt. Désinscrite, injoignable ou terminée, elle le
+ * redevient ; démarrée dans une séquence, elle y reprend (la machine saute d'elle-même
+ * les étapes trop anciennes) ; jamais démarrée, elle redevient « à contacter ».
+ */
+export function statutSansDossier(f: { desinscritLe?: string | null; injoignableLe?: string | null; termineLe?: string | null; demarreLe?: string | null; sequenceId?: string | null }): SousTraitant["statut"] {
+  if (f.desinscritLe) return "desinscrit"
+  if (f.injoignableLe) return "injoignable"
+  if (f.termineLe) return "termine"
+  if (f.demarreLe) return f.sequenceId ? "en_sequence" : "termine"
+  return "a_contacter"
+}
+
+/** Rattache un dossier à une fiche (ou détache avec `null`) ; la fiche passe en « déposé ».
+ *  La fiche quittée (détachement ou changement de fiche) retrouve son statut : elle
+ *  restait « Déposé » pour toujours, séquence arrêtée, sans aucun dossier. */
 export async function rattacherDossier(dossier: DossierST, sousTraitantId: string | null): Promise<void> {
   const sb = client()
-  const { error } = await sb.from("dossiers_st").update({ sous_traitant_id: sousTraitantId }).eq("id", dossier.id)
+  // detache_le : la machine ne le rattache plus d'office à la fiche qu'on vient de quitter (lot 5).
+  const { error } = await sb.from("dossiers_st").update({ sous_traitant_id: sousTraitantId, detache_le: sousTraitantId ? null : new Date().toISOString() }).eq("id", dossier.id)
   if (error) throw new Error(error.message)
   if (sousTraitantId) {
     const { error: e2 } = await sb.from("st_sous_traitants")
@@ -111,6 +130,35 @@ export async function rattacherDossier(dossier: DossierST, sousTraitantId: strin
       .eq("id", sousTraitantId).neq("statut", "depose")
     if (e2) throw new Error(e2.message)
   }
+  const quittee = dossier.sousTraitantId
+  if (quittee && quittee !== sousTraitantId) await recalculerApresDetachement(quittee, dossier.id)
+}
+
+async function recalculerApresDetachement(ficheId: string, dossierId: string): Promise<void> {
+  const sb = client()
+  const { data: fiche, error } = await sb.from("st_sous_traitants")
+    .select("statut, dossier_id, desinscrit_le, injoignable_le, termine_le, demarre_le, sequence_id").eq("id", ficheId).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!fiche) return
+  // Un autre dossier lui reste : elle garde « déposé », pointée sur celui-là.
+  const { data: autres, error: e1 } = await sb.from("dossiers_st").select("id, created_at")
+    .eq("sous_traitant_id", ficheId).order("created_at", { ascending: false }).limit(1)
+  if (e1) throw new Error(e1.message)
+  const autre = (autres ?? [])[0] as { id: string; created_at: string } | undefined
+  if (autre) {
+    if (fiche.dossier_id === dossierId) {
+      const { error: e2 } = await sb.from("st_sous_traitants").update({ dossier_id: autre.id, depose_le: autre.created_at }).eq("id", ficheId)
+      if (e2) throw new Error(e2.message)
+    }
+    return
+  }
+  if (fiche.statut !== "depose" && !fiche.dossier_id) return
+  const maj: Record<string, unknown> = { depose_le: null, dossier_id: null, statut_motif: "dossier détaché depuis l'écran" }
+  if (fiche.statut === "depose") {
+    maj.statut = statutSansDossier({ desinscritLe: fiche.desinscrit_le, injoignableLe: fiche.injoignable_le, termineLe: fiche.termine_le, demarreLe: fiche.demarre_le, sequenceId: fiche.sequence_id })
+  }
+  const { error: e3 } = await sb.from("st_sous_traitants").update(maj).eq("id", ficheId)
+  if (e3) throw new Error(e3.message)
 }
 /** Lien de lecture temporaire (10 min) d'une pièce d'un dossier. */
 export async function lienPieceDossier(path: string): Promise<string> {

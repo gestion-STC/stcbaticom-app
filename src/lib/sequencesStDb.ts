@@ -114,3 +114,12 @@ export async function supprimerEtape(id: string): Promise<void> {
   const { error } = await supabase.from("st_etapes").delete().eq("id", id)
   if (error) throw new Error(error.message)
 }
+
+/** Les envois réussis faits par ces étapes (lot 5 : le dialogue de suppression dit ce qui reste dans l'historique). */
+export async function compterEnvoisReussis(etapeIds: string[]): Promise<number> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  if (!etapeIds.length) return 0
+  const { count, error } = await supabase.from("st_envois").select("id", { count: "exact", head: true }).in("etape_id", etapeIds).eq("statut", "envoye")
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}

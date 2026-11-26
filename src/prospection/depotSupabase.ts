@@ -5,7 +5,7 @@
 // Lot 2 (session unique, cloison par équipe) : les autres actions du dépôt.
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
-import type { Depot, EtatProspection } from "./depot"
+import type { Depot, EtatProspection, ResultatEnregistrement } from "./depot"
 import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscription, Lead, Tache } from "./modele"
 import { inscriptionAu, inscriptionsParContact } from "./rattachement"
 import { estLeadRobot } from "./abTest"
@@ -115,14 +115,23 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
   // Un enregistrement depuis l'écran ne doit jamais écraser une version plus récente (17/11/2026 : un lancement avait remis
   // le mode test et effacé des exclusions posées entre-temps). Campagne déjà en base : on n'écrit que si elle n'a pas
   // bougé depuis le chargement (même maj_le) ; sinon on recharge et on prévient.
-  const ecrire = async (c: Campagne) => {
+  // Lot 5 (26/11/2026) : le résultat remonte à l'éditeur. Avant, un refus rechargeait la page et la saisie était perdue ;
+  // désormais l'éditeur reste ouvert avec ce qu'on a tapé, et propose d'écraser la version d'ailleurs.
+  const ecrire = async (c: Campagne, forcer = false): Promise<ResultatEnregistrement> => {
     const ligne = versLigne(c)
-    const { data, error } = c.majLe
+    const { data, error } = c.majLe && !forcer
       ? await sb().from("cmp_campagnes").update(ligne).eq("id", c.id).eq("maj_le", c.majLe).select("id")
-      : await sb().from("cmp_campagnes").upsert(ligne).select("id")
-    if (error) { onErreur(`La campagne n'a pas été enregistrée : ${error.message}`); await charger(); return }
-    if (c.majLe && !(data ?? []).length) onErreur("La campagne a été modifiée ailleurs depuis l'ouverture de cette page : rien n'a été écrasé. Elle est rechargée, refais ta modification.")
+      : c.majLe
+        ? await sb().from("cmp_campagnes").update(ligne).eq("id", c.id).select("id")
+        : await sb().from("cmp_campagnes").upsert(ligne).select("id")
+    if (error) { onErreur(`La campagne n'a pas été enregistrée : ${error.message}`); await charger(); return "erreur" }
+    if (c.majLe && !(data ?? []).length) {
+      await charger()
+      if (forcer) { onErreur("La campagne n'a pas été enregistrée : la base a refusé l'écriture."); return "erreur" }
+      return "conflit"
+    }
     await charger()
+    return "ok"
   }
   // Lancer, mettre en pause, reprendre : seulement le statut (et la date de lancement), jamais le reste de la campagne.
   const ecrireStatut = async (c: Campagne) => {
@@ -135,7 +144,7 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     charger,
     lire: () => etat,
     ecouter: (f) => { ecouteurs.add(f); return () => ecouteurs.delete(f) },
-    enregistrerCampagne: (c) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); void ecrire({ ...c, creeParId: c.creeParId || compte.id }) },
+    enregistrerCampagne: (c, options) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); return ecrire({ ...c, creeParId: c.creeParId || compte.id }, Boolean(options?.forcer)) },
     changerStatut: (id, statut) => { const c = etat.campagnes.find((x) => x.id === id); if (c) { const s = { ...c, statut, lanceeLe: c.lanceeLe ?? (statut === "active" ? new Date().toISOString() : null) }; publier({ ...etat, campagnes: etat.campagnes.map((x) => (x.id === id ? s : x)) }); void ecrireStatut(s) } },
     dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: false, majLe: undefined }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
     noterAppel: lot2, traiterLead: lot2, faireTache: lot2, marquerGagne: lot2, repondre: lot2, lireMessage: lot2, attribuer: lot2, majEquipe: lot2, majBase: lot2, importer: lot2,

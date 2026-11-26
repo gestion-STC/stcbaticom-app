@@ -83,3 +83,12 @@ export const dureeLisibleST = (s: number | null | undefined): string => {
   const m = Math.floor(s / 60), r = s % 60
   return m ? `${m} min ${String(r).padStart(2, "0")}` : `${r} s`
 }
+
+/** Le lendemain, à Paris (AAAA-MM-JJ) : entre minuit et 1 h (heure de Paris), l'heure UTC est
+ *  encore la veille — sans le fuseau, le rappel « demain » tombait aujourd'hui (lot 5, 26/11/2026). */
+export function demainParis(now: Date): string {
+  const aujourdhui = new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(now)
+  const d = new Date(`${aujourdhui}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}

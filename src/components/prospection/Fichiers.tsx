@@ -37,6 +37,9 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
   const [occupe, setOccupe] = useState(false)
   const [progres, setProgres] = useState("")
   const [erreur, setErreur] = useState("")
+  // Lot 5 (26/11/2026) : un import incomplet reste affiché jusqu'à ce qu'on le ferme ; avant, le message des
+  // lignes refusées disparaissait aussitôt avec la fenêtre.
+  const [incomplet, setIncomplet] = useState<{ importes: number; erreurs: { numero: number; nom: string; message: string }[] } | null>(null)
   const entree = useRef<HTMLInputElement>(null)
   const entete = lu ? lu.lignes[indexEntete(lu.lignes)] ?? [] : []
 
@@ -79,7 +82,12 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
       else {
         const b = await executerImport(plan.analyse, (x) => setProgres(`${x.fait} / ${x.total}`), { fichierId: id, source: source.trim() })
         importes = b.agencesCreees
-        if (b.erreurs.length) setErreur(`${b.erreurs.length} ligne(s) n'ont pas pu être importées.`)
+        if (b.erreurs.length) {
+          await majFichier(id, { importes })
+          setIncomplet({ importes, erreurs: b.erreurs.map((x) => ({ numero: x.ligne.numero, nom: x.ligne.nom || x.ligne.apercu, message: x.message })) })
+          setOccupe(false)
+          return
+        }
       }
       await majFichier(id, { importes })
       onImporte()
@@ -88,6 +96,16 @@ function Importer({ session, onFermer, onImporte }: { session: Session | null; o
 
   const p = plan?.previsions
   const peutContinuer = etape === 1 ? Boolean(lu && nom.trim() && source.trim()) : etape === 2 ? choix.some((c) => c !== IGNORER) : Boolean(p?.nouveaux)
+  if (incomplet) {
+    return (
+      <Dialogue titre="Import terminé, avec des lignes refusées" description={`${fr(incomplet.importes)} importée(s) · ${fr(incomplet.erreurs.length)} ligne(s) n'ont pas pu être importées`} largeur="max-w-2xl" onFermer={onImporte} pied={<Bouton variante="plein" onClick={onImporte}>Fermer</Bouton>}>
+        <Bandeau role="alerte" className="mb-4">{`${incomplet.erreurs.length} ligne(s) n'ont pas pu être importées. Le reste du fichier est bien entré.`}</Bandeau>
+        <div className="max-h-[50vh] divide-y-[0.5px] divide-trait overflow-y-auto">
+          {incomplet.erreurs.map((x, i) => <div key={i} className="py-2 text-legende"><span className="font-medium text-encre">Ligne {x.numero}{x.nom ? ` · ${x.nom}` : ""}</span><span className="block text-colonne text-encre-2">{x.message}</span></div>)}
+        </div>
+      </Dialogue>
+    )
+  }
   return (
     <Dialogue titre="Importer un fichier" description={`Étape ${etape} sur 3`} largeur="max-w-2xl" onFermer={occupe ? () => undefined : onFermer} pied={<>{etape > 1 ? <Bouton disabled={occupe} onClick={() => setEtape(etape - 1)}>Retour</Bouton> : <Bouton onClick={onFermer}>Annuler</Bouton>}{etape === 1 ? <Bouton variante="plein" disabled={!peutContinuer} onClick={() => setEtape(2)}>Continuer</Bouton> : etape === 2 ? <Bouton variante="plein" chargement={occupe} disabled={!peutContinuer} onClick={() => void analyser()}>Continuer</Bouton> : <Bouton variante="plein" icone={<Check />} chargement={occupe} disabled={!peutContinuer} onClick={() => void importer()}>{`Importer ${fr(p?.nouveaux ?? 0)} contacts`}</Bouton>}</>}>
       {erreur ? <Bandeau role="alerte" className="mb-4">{erreur}</Bandeau> : null}

@@ -8,6 +8,7 @@ import { Bandeau, Bouton, Chargement } from "../../ui"
 import { ContexteDepot } from "../../prospection/depot"
 import { creerDepotSupabase } from "../../prospection/depotSupabase"
 import { useSession } from "../../lib/auth"
+import { peutQuitter } from "../../lib/gardeQuitter"
 import { nomAffiche, roleDeSession } from "../../lib/comptes"
 import Campagnes from "./Campagnes"
 import Editeur from "./Editeur"
@@ -52,7 +53,7 @@ export default function PageCampagnes({ base, onSession, onOuvrirAgence }: { bas
             {pret ? (
               vue.ecran === "liste" ? <Campagnes ouvrir={ouvrir} creer={() => setVue({ ecran: "editeur", id: null })} />
               : vue.ecran === "suivi" && vue.id ? <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => setVue({ ecran: "liste", id: null })}>← Toutes les campagnes</Bouton><Suivi id={vue.id} modifier={() => setVue({ ecran: "editeur", id: vue.id })} aller={() => onSession()} ouvrirFiche={onOuvrirAgence} /></div>
-              : <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => (vue.id && depot.lire().campagnes.find((c) => c.id === vue.id)?.origine !== ORIGINE_TRACABILITE ? setVue({ ecran: "suivi", id: vue.id }) : setVue({ ecran: "liste", id: null }))}>← Retour</Bouton><Editeur key={vue.id ?? "neuve"} id={vue.id} fini={ouvrir} annuler={() => setVue({ ecran: "liste", id: null })} /></div>
+              : <div className="space-y-4"><Bouton taille="sm" variante="discret" onClick={() => peutQuitter() && (vue.id && depot.lire().campagnes.find((c) => c.id === vue.id)?.origine !== ORIGINE_TRACABILITE ? setVue({ ecran: "suivi", id: vue.id }) : setVue({ ecran: "liste", id: null }))}>← Retour</Bouton><Editeur key={vue.id ?? "neuve"} id={vue.id} fini={ouvrir} annuler={() => peutQuitter() && setVue({ ecran: "liste", id: null })} /></div>
             ) : null}
           </div>
         </ContexteBaseUnique.Provider>

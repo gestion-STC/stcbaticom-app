@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react"
 import Sidebar, { type PageId } from "./components/Sidebar"
 import { pageAutorisee, premierePage } from "./lib/carteMenu"
 import { usePerimetre } from "./lib/usePerimetre"
+import { peutQuitter } from "./lib/gardeQuitter"
 // L'espace DÉMARCHAGE, refondu le 09/10/2026 : la fiche, c'est l'agence.
 import Aujourdhui from "./components/demarchage/Aujourdhui"
 import SessionCall from "./components/demarchage/SessionCall"
@@ -54,8 +55,10 @@ function App() {
   const [etapePourAgences, setEtapePourAgences] = useState<string | null>(null)
   // Une écriture sur une fiche (étape, contact, note, mail…) : la session recharge sa file et ses compteurs (13/10).
   const [versionAgences, setVersionAgences] = useState(0)
-  const naviguer = (p: PageId) => { setArtisanPourSession(null); setPage(p) }
+  // Un éditeur avec des modifications non enregistrées demande confirmation avant de partir (lot 5).
+  const naviguer = (p: PageId) => { if (!peutQuitter()) return; setArtisanPourSession(null); setPage(p) }
   const ouvrirSession = (agenceId: string) => {
+    if (!peutQuitter()) return
     // Deux fois la même agence de suite : on repasse par « rien » pour que la
     // session voie bien un changement et la rouvre.
     setAgencePourSession(null)
@@ -106,6 +109,7 @@ function App() {
         espaces={espaces}
         admin={admin}
         onNavigate={(p) => {
+          if (!peutQuitter()) return
           // Depuis le menu, « Sessions de call » repart sur la file, pas sur une agence précise.
           if (p === "sessions") setAgencePourSession(null)
           if (p === "agences") setEtapePourAgences(null)
