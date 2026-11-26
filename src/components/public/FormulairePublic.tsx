@@ -39,18 +39,16 @@ export default function FormulairePublic() {
   const [nom, setNom] = useState("")
   const [autorise, setAutorise] = useState(false)
   const [desinscrit, setDesinscrit] = useState(false)
+  // Le lien « ne plus recevoir » (26/11/2026) : la page demande de confirmer. Avant, elle désinscrivait dès son ouverture,
+  // et les robots de sécurité des messageries, qui ouvrent tous les liens d'un mail, désinscrivaient à la place des gens.
+  const demandeStop = params.has("stop")
   const lien = { c: params.get("fc"), f: params.get("f"), k: params.get("k"), s: params.get("s"), t: params.get("t") ?? "" }
   const cle = params.toString()
 
   useEffect(() => {
     let vivant = true
     const q = new URLSearchParams(cle)
-    if (q.has("stop")) {
-      appeler({ action: "desinscrire", c: q.get("fc"), f: q.get("f"), k: q.get("k"), s: q.get("s"), t: q.get("t") ?? "" })
-        .then(() => { if (vivant) setDesinscrit(true) })
-        .catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) })
-      return () => { vivant = false }
-    }
+    if (q.has("stop")) return () => { vivant = false }
     appeler<Contenu>({ action: "lire", c: q.get("fc"), f: q.get("f"), k: q.get("k"), s: q.get("s"), t: q.get("t") ?? "" })
       .then((d) => {
         if (!vivant) return
@@ -80,6 +78,13 @@ export default function FormulairePublic() {
       .catch((x) => setErreur(x instanceof Error ? x.message : String(x)))
       .finally(() => setOccupe(false))
   }
+  const confirmerStop = () => {
+    setOccupe(true); setErreur("")
+    appeler({ action: "desinscrire", ...lien })
+      .then(() => setDesinscrit(true))
+      .catch((x) => setErreur(x instanceof Error ? x.message : String(x)))
+      .finally(() => setOccupe(false))
+  }
   const suivant = () => { const q = new URLSearchParams(params); q.set("f", contenu!.versId); window.history.pushState({}, "", `?${q.toString()}`); setContenu(null); setParams(q) }
 
   return (
@@ -88,6 +93,13 @@ export default function FormulairePublic() {
         <img src="https://www.stcbatiment.fr/logo-stc.png" alt="STC Bâtiment" width={120} className="mb-6 h-auto" />
         {desinscrit ? (
           <div><h1 className="text-h1 font-semibold text-encre">C'est noté</h1><p className="mt-2 text-corps text-encre-2">Vous ne recevrez plus nos messages.</p></div>
+        ) : demandeStop ? (
+          <div className="space-y-4">
+            <h1 className="text-h1 font-semibold text-encre">Ne plus recevoir nos messages ?</h1>
+            <p className="text-corps text-encre-2">Confirmez pour ne plus recevoir les messages de STC Bâtiment.</p>
+            {erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : null}
+            <Bouton variante="plein" chargement={occupe} onClick={confirmerStop}>Confirmer ma désinscription</Bouton>
+          </div>
         ) : erreur && !contenu ? <Bandeau role="alerte">{erreur}</Bandeau> : !contenu ? <Chargement texte="Chargement…" /> : fini ? (
           <div><h1 className="text-h1 font-semibold text-encre">Merci !</h1><p className="mt-2 text-corps text-encre-2">{contenu.type === "avis" ? "Nous avons bien reçu votre avis." : "Nous avons bien reçu vos réponses. Notre équipe revient vers vous rapidement."}</p>{contenu.type === "avis" && contenu.lienGoogle ? <p className="mt-4"><a className="text-legende font-medium text-encre underline" href={contenu.lienGoogle} target="_blank" rel="noreferrer">Laisser aussi un avis sur Google</a></p> : null}</div>
         ) : contenu.type === "avis" ? (

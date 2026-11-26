@@ -34,6 +34,7 @@ import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/
 import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
 import { compteDeCampagne, estAttenteLinkedIn, estSautLinkedIn, faitsParCompte, identifiantLinkedIn, noteInvitation, restantLinkedIn, type CompteLinkedIn } from "../_shared/campagnes/linkedin.ts"
 import { appelUnipile, comptesLinkedIn, profilLinkedIn, reglageLinkedIn, unipileBranche } from "../_shared/campagnes/unipile.ts"
+import { relanceRetenue, type EnvoiPasse } from "../_shared/campagnes/confirmation.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -185,6 +186,17 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   return bloques
 }
 
+/** Le mail d'avant est-il parti (26/11/2026) ? Lu en base juste avant l'envoi ; une lecture en échec retient la relance. */
+async function attendConfirmation(sb: SupabaseClient, inscriptionId: string, etapeId: string): Promise<boolean> {
+  const { data: envois, error } = await sb.from("cmp_envois").select("id, etape_id, canal, statut, test, le").eq("inscription_id", inscriptionId)
+  if (error) return true
+  const liste = (envois ?? []) as EnvoiPasse[]
+  if (!liste.some((e) => e.statut === "envoye")) return false
+  const { data: evs, error: errEv } = await sb.from("cmp_evenements").select("envoi_id").eq("type", "delivre").in("envoi_id", liste.map((e) => e.id))
+  if (errEv) return true
+  return relanceRetenue(liste, new Set(((evs ?? []) as { envoi_id: string }[]).map((x) => x.envoi_id)), etapeId)
+}
+
 /** « 3 × boîte refusée, 1 × adresse vide » : les causes regroupées. */
 const compter = (l: string[]) => Object.fromEntries([...l.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())])
 
@@ -303,7 +315,11 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     // Les sous-traitants actuels relèvent du recrutement (25/11/2026) : avant, leur demande d'avis partait du démarchage
     // (contact@), était rangée sans agence (alerte « mail_sans_agence ») et leurs réponses arrivaient au démarchage.
     const espace = k.baseId === "sous_traitants_actifs" ? "recrutement" : "demarchage"
-    const r = await invoquer(base, service, "envoyer-email", { espace, to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
+    // Le bouton « Se désinscrire » de Gmail/Yahoo poste sur l'adresse de l'en-tête (RFC 8058, 26/11/2026) : avant, elle
+    // menait à la page publique (GitHub Pages), qui ne reçoit pas de POST, et rien n'était noté. formulaire-campagne,
+    // elle, vérifie la signature du lien et désinscrit.
+    const desabo = `${base}/functions/v1/formulaire-campagne?${new URL(stopAvis).searchParams.toString()}`
+    const r = await invoquer(base, service, "envoyer-email", { espace, to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${desabo}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
     return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
   }
   // Mode test : aucun lien ne doit agir sur la vraie fiche (désinscrire l'agence, poser un lead).
@@ -500,6 +516,11 @@ Deno.serve(async (req: Request) => {
         // Boîtes Instantly pas prêtes : le mail attend, il n'est ni perdu ni envoyé par un autre chemin.
         const causeReport = arret ? "limite de débit du prestataire" : envoisPassage >= ENVOIS_MAX_PAR_PASSAGE ? `plafond de ${ENVOIS_MAX_PAR_PASSAGE} envois par passage` : canal === "linkedin" && liBloque ? "LinkedIn : compte absent ou quota atteint" : canal !== "linkedin" && budget[canal] <= 0 ? `plafond du jour (${canal})` : canal === "sms" && !hSms ? "hors des heures SMS" : canal === "mail" && !avis && !ins.pretes.length ? "aucune boîte Instantly prête" : ""
         if (causeReport) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[causeReport] = (reports[causeReport] ?? 0) + 1; continue }
+        // Une relance ne part qu'après la confirmation du mail d'avant (26/11/2026) : « confié à Instantly » n'est pas « parti ».
+        if (!nouvelles.has(e.inscriptionId) && e.statut !== "saute" && !ligne.mode_test && !avis && await attendConfirmation(sb, e.inscriptionId, e.etapeId)) {
+          const cause = "mail précédent pas encore confirmé parti"
+          reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[cause] = (reports[cause] ?? 0) + 1; continue
+        }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
         const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null
