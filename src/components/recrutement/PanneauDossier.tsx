@@ -9,7 +9,7 @@ import { creerFicheHorsBase, lienPieceDossier, marquerDossier, rattacherDossier 
 import { statutDossier } from "../../lib/dossierStatut"
 import { chiffresTel } from "../../lib/telephone"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
-import { LIBELLE_CONTRAT, ROLE_CONTRAT, envoyerLienAcces } from "../../lib/contratsDb"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT, envoyerLienAcces, texteLienAcces } from "../../lib/contratsDb"
 import { Bandeau, Bouton, Carte, Champ, Dialogue, Etiquette, Ligne, Panneau, Pastille } from "../../ui"
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -92,9 +92,9 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
   const s = statutDossier(dossier, fiche)
   const qualif = useQualification(fiche?.id ?? "")
 
-  const agir = async (f: () => Promise<void>, message: string) => {
+  const agir = async (f: () => Promise<void | string>, message: string) => {
     setOccupe(true); setErreur(""); setInfo("")
-    try { await f(); setInfo(message) }
+    try { const m = await f(); setInfo(typeof m === "string" ? m : message) }
     catch (e) { setErreur(msg(e)) }
     finally { setOccupe(false) }
   }
@@ -161,7 +161,7 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
           {/* Le lien part tout seul à la signature des deux parties, mais l'artisan ne le voit pas toujours et nous appelle
               (Mahdi, 12/10) : le bouton reste là pour l'envoyer ou le renvoyer à la main ; sans contrats signés, on confirme. */}
           {!fiche.accesOuvertLe ? (
-            <Bouton taille="sm" variante="discret" icone={<KeyRound />} disabled={occupe} onClick={() => { if (fiche.contratStatut === "signe") void agir(async () => { const a = await envoyerLienAcces(fiche.id!, !!fiche.accesEnvoyeLe); await onRecharger(); setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, ""); else setConfirmerAcces(true) }}>{fiche.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}</Bouton>
+            <Bouton taille="sm" variante="discret" icone={<KeyRound />} disabled={occupe} onClick={() => { if (fiche.contratStatut === "signe") void agir(async () => { const a = await envoyerLienAcces(fiche.id!, !!fiche.accesEnvoyeLe); await onRecharger(); return texteLienAcces(a) }, ""); else setConfirmerAcces(true) }}>{fiche.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}</Bouton>
           ) : null}
         </div>
       ) : null}
@@ -171,7 +171,7 @@ export default function PanneauDossier({ dossier, fiche, fiches, onFermer, onMaj
           titre="Envoyer le lien d'accès sans contrats signés ?"
           description="Les contrats ne sont pas signés par les deux parties dans DocuSign. Le lien ouvre l'Espace Partenaire tout de suite : à n'envoyer que si les contrats ont été signés autrement (papier, ancien envoi)."
           onFermer={() => setConfirmerAcces(false)}
-          pied={<><Bouton onClick={() => setConfirmerAcces(false)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { const a = await envoyerLienAcces(fiche.id!, true); setConfirmerAcces(false); await onRecharger(); setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, "")}>Envoyer quand même</Bouton></>}
+          pied={<><Bouton onClick={() => setConfirmerAcces(false)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { const a = await envoyerLienAcces(fiche.id!, true); setConfirmerAcces(false); await onRecharger(); return texteLienAcces(a) }, "")}>Envoyer quand même</Bouton></>}
         />
       ) : null}
 

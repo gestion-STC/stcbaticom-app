@@ -38,6 +38,18 @@ export function tirerQuestions<T extends QuestionBanque>(banque: T[], vues: stri
 
 export const scoreSur = (bonnes: number, total: number) => (total ? Math.round((bonnes / total) * 100) : 0)
 
+/**
+ * Les questions d'un essai qui comptent encore (lot 8, D84) : celles toujours dans la banque, ou déjà répondues. Une question
+ * supprimée pendant l'essai et pas encore répondue sort du compte : avant, elle bloquait l'essai pour toujours.
+ */
+export function questionsComptees(ids: string[], repondues: Record<string, unknown>, presentes: Iterable<string>): string[] {
+  const p = new Set(presentes)
+  return ids.filter((id) => p.has(id) || Boolean(repondues[id]))
+}
+
+/** La bonne réponse d'une question, telle qu'au tirage (D84) : corrigée entre-temps, elle ne pénalise pas l'artisan. */
+export const bonneAuTirage = (bonnes: Record<string, string> | undefined, id: string, actuelle: string) => bonnes?.[id] ?? actuelle
+
 /** Peut-il recommencer ? Vide : oui. Sinon, la raison. */
 export function blocageEssai(r: ReglesFormation, f: { essais: number; termineLe: string | null; etat: EtatFormation }, maintenant: Date): string {
   if (f.etat === "reussi") return "Formation déjà réussie."

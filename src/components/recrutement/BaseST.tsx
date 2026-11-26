@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react"
 import type { SousTraitant, StatutST } from "../../recrutement"
 import { STATUTS_ARRETES, libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
-import { bilanSuppression, chargerSousTraitants, creerSousTraitant, majSousTraitant, remettreAContacter, supprimerSousTraitant } from "../../lib/sousTraitantsDb"
+import { bilanSuppression, chargerSousTraitants, creerSousTraitant, majSousTraitant, remettreAContacter, retirerRebond, supprimerSousTraitant } from "../../lib/sousTraitantsDb"
 import { ceQuiDisparait, raisonsDeGarder, type BilanSuppression } from "../../lib/suppressionArtisan"
 import { normaliserEmail, normaliserTelephone, trouverDoublon } from "../../lib/importSousTraitants"
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
@@ -278,7 +278,9 @@ function DialogueFiche({ fiche, fiches, onFermer, onEnregistre }: { fiche: SousT
   // Le statut ne se change ici qu'entre « à contacter » et « exclu » ; un désinscrit
   // ne revient jamais par ce chemin (sa liste d'exclusion l'en empêcherait de toute façon).
   const statutModifiable = modification && fiche!.statut !== "desinscrit"
-  const optionsStatut: StatutST[] = [...new Set<StatutST>([fiche?.statut ?? "a_contacter", "a_contacter", "exclu"])]
+  // Lot 8 (D87) : une fiche qui a déposé son dossier ne se remet jamais « à contacter » : elle revient « déposé ».
+  const deposee = Boolean(fiche?.deposeLe || fiche?.dossierId)
+  const optionsStatut: StatutST[] = [...new Set<StatutST>([fiche?.statut ?? "a_contacter", deposee ? "depose" : "a_contacter", "exclu"])]
 
   const enregistrer = async () => {
     if (!f.email.trim() && !f.telephone.trim()) { setErreur("Il faut au moins un e-mail ou un téléphone : sans ça, on ne peut pas écrire à l'artisan."); return }
@@ -304,12 +306,15 @@ function DialogueFiche({ fiche, fiches, onFermer, onEnregistre }: { fiche: SousT
         return
       }
       await majSousTraitant(fiche!.id!, champs)
+      // Décision 11 : l'e-mail d'une fiche rebondie est corrigé → la ligne de rebond de l'ancienne adresse quitte la liste d'exclusion.
+      const rebondRetire = fiche!.emailInvalide ? await retirerRebond(fiche!.email, champs.email ?? "") : false
+      let texte = rebondRetire ? "Fiche enregistrée ; l'ancienne adresse rebondie est retirée de la liste d'exclusion." : "Fiche enregistrée."
       if (statutModifiable && f.statut !== fiche!.statut) {
-        // Remettre « à contacter » remet aussi la séquence à zéro ; « exclu » arrête la machine.
-        if (f.statut === "a_contacter") await remettreAContacter(fiche!.id!)
+        // « À contacter » (ou « déposé » pour une fiche qui a son dossier) remet la fiche dans le circuit ; « exclu » l'en sort.
+        if (f.statut === "a_contacter" || f.statut === "depose") texte = await remettreAContacter(fiche!.id!)
         else if (f.statut === "exclu") await majSousTraitant(fiche!.id!, { statut: "exclu", statutMotif: "exclu depuis l'écran", pauseJusquAu: null })
       }
-      await onEnregistre("Fiche enregistrée.")
+      await onEnregistre(texte)
     } catch (e) {
       setErreur(message(e))
       setOccupe(false)

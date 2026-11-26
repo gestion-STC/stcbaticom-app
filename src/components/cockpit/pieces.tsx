@@ -213,6 +213,14 @@ export function TeteEcran({ titre, sous, droite }: { titre: string; sous: ReactN
   )
 }
 
+/** Depuis quand les chiffres de STC Bâtiment datent (lot 8, D103) : en alerte au-delà de 2 heures. */
+export const FraicheurStc = ({ texte, vieux }: { texte: string; vieux: boolean }) => (
+  <span role={vieux ? "alert" : undefined} title={vieux ? "La passerelle de STC Bâtiment n'a rien déposé depuis plus de 2 heures : les chiffres STC ne sont plus à jour." : "Dernier relevé de STC Bâtiment (mis à jour chaque heure)."}
+    className={`inline-flex items-center gap-1.5 rounded-3 px-2 py-0.5 text-colonne ${vieux ? "bg-alerte/10 font-medium text-alerte" : "bg-fond-3 text-encre-2"}`}>
+    <span className={`h-1.5 w-1.5 rounded-full ${vieux ? "bg-alerte" : "bg-encre-3"}`} />{vieux ? `${texte} · pas à jour` : texte}
+  </span>
+)
+
 /** Le point « séance en cours ». */
 export const Direct = ({ texte }: { texte: string }) => (
   <span className="inline-flex items-center gap-1.5 rounded-3 bg-fond-3 px-2 py-0.5 text-colonne text-encre"><span className="h-1.5 w-1.5 rounded-full bg-ok" />{texte}</span>

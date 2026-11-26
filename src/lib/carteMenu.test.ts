@@ -17,7 +17,7 @@ describe("carte du menu", () => {
     expect(ids(menuPour(["demarchage"], false))).toEqual(["aujourdhui", "leads", "sessions", "agenda", "messages", "agences", "apporteurs", "analyse"])
     expect(pageAutorisee("st_base", ["demarchage"], false)).toBe(false)
     expect(pageAutorisee("campagnes", ["demarchage"], false)).toBe(false)
-    expect(pageAutorisee("st_machine", ["demarchage"], false)).toBe(false)
+    expect(pageAutorisee("st_base", ["demarchage", "recrutement"], false)).toBe(true)
   })
   it("un recruteur ne voit que son service, et arrive sur ses leads", () => {
     expect(ids(menuPour(["recrutement"], false))).toEqual(["leads_st", "sessions_st", "agenda_st", "messages_st", "st_base", "qualification_st"])

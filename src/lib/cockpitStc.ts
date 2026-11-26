@@ -22,7 +22,9 @@
 //   · revenu  = actif, inactif à la fin du mois d'avant, mais déjà missionné avant ;
 //   · sorti   = actif à la fin du mois d'avant, plus rien depuis 30 jours (ou compte fermé depuis) ;
 //   · « compte fermé » = une mission récente mais un compte fermé : affiché, pas compté actif.
-//   STC ne garde pas la date de fermeture d'un compte : l'état du compte d'aujourd'hui vaut pour les fins de mois passées.
+//   STC ne garde pas la date de fermeture d'un compte : les fins de mois PASSÉES se jugent sur les seules missions, et
+//   l'état du compte ne vaut que pour « maintenant » (lot 8, 27/11/2026 : un compte fermé qui travaillait le mois d'avant
+//   apparaît « sorti », il ne disparaît plus de l'historique).
 // ════════════════════════════════════════════════════════════════════════════
 import { CHUTE_JUGEE_DES, statutAgence, type AgenceStc, type SeuilsActive } from "./croissance"
 
@@ -201,20 +203,26 @@ export function caMoisCompare(caJours: [string, number][], maintenant: Date): { 
 
 // ── Les sous-traitants ──
 const missionsDe = (st: SousTraitantStc): [string, number][] => (st.missions ?? []).map((m) => (Array.isArray(m) ? [String(m[0]), Number(m[1]) || 0] : [String(m), 0]) as [string, number]).sort((x, y) => x[0].localeCompare(y[0]))
-/** Les missions des 30 jours qui précèdent t (décalées de `decalage` jours) : la mission du jour J compte si J ∈ ]t − 30 j ; t]. */
-function missionsA(m: [string, number][], t: Date, decalage = 0): { n: number; montant: number } {
-  const fin = jourIso(new Date(t.getTime() - 1 - decalage * JOUR)), debut = jourIso(new Date(t.getTime() - (30 + decalage) * JOUR))
+/**
+ * Les missions des 30 jours qui précèdent t (décalées de `decalage` jours) : exactement 30 jours, le jour de t compris
+ * (t exclu s'il est minuit pile). Lot 8 (D102) : la fenêtre comptait 31 jours, le premier partagé avec « 30 j d'avant ».
+ */
+export function missionsA(m: [string, number][], t: Date, decalage = 0): { n: number; montant: number } {
+  const fin = jourIso(new Date(t.getTime() - 1 - decalage * JOUR)), debut = jourIso(new Date(t.getTime() - 1 - (29 + decalage) * JOUR))
   const l = m.filter(([j]) => j >= debut && j <= fin)
   return { n: l.length, montant: Math.round(l.reduce((s, [, x]) => s + x, 0) * 100) / 100 }
 }
-/** Actif à l'instant t : au moins une mission sur 30 jours ET compte ouvert. */
+/** Actif MAINTENANT : au moins une mission sur 30 jours ET compte ouvert. */
 export const stActifA = (st: SousTraitantStc, t: Date) => st.compte_actif && missionsA(missionsDe(st), t).n > 0
+/** Actif à une fin de mois PASSÉE : jugé sur les seules missions (la date de fermeture du compte n'est pas connue). */
+export const stActifFinDeMois = (st: SousTraitantStc, t: Date) => missionsA(missionsDe(st), t).n > 0
 
 export type MoisSt = { mois: string; actifs: number; nouveaux: string[]; revenus: string[]; sortis: string[] }
 /** Les mouvements des sous-traitants mois par mois (n derniers mois, le mois en cours jugé maintenant). */
 export function mouvementsSt(sts: SousTraitantStc[], maintenant: Date, n = 6): MoisSt[] {
   const fins = finsDeMois(moisIso(new Date(maintenant.getFullYear(), maintenant.getMonth() - n, 1)), maintenant)
-  const etats = fins.map((f) => new Set(sts.filter((s) => stActifA(s, f.fin)).map((s) => s.nom)))
+  // Le dernier point est « maintenant » (compte ouvert exigé) ; les fins de mois passées, sur les missions seules (D101).
+  const etats = fins.map((f, i) => new Set(sts.filter((s) => (i === fins.length - 1 ? stActifA(s, f.fin) : stActifFinDeMois(s, f.fin))).map((s) => s.nom)))
   const premiere = new Map(sts.map((s) => [s.nom, missionsDe(s)[0]?.[0] ?? null]))
   return fins.slice(1).map((f, k) => {
     const e = etats[k + 1], avant = etats[k]
@@ -243,8 +251,9 @@ export function lignesSt(sts: SousTraitantStc[], maintenant: Date): LigneSt[] {
     const m30 = missionsA(m, maintenant), m60 = missionsA(m, maintenant, 30)
     const actif = s.compte_actif && m30.n > 0
     const premiere = m[0]?.[0] ?? null
-    const statut: StatutSt = actif ? (premiere?.slice(0, 7) === mois ? "nouveau" : stActifA(s, finMoisAvant) ? "actif" : "revenu")
-      : stActifA(s, finMoisAvant) ? "sorti" : m30.n > 0 ? "ferme" : s.compte_actif && !m.length ? "jamais" : "inactif"
+    const actifFinMoisAvant = stActifFinDeMois(s, finMoisAvant)
+    const statut: StatutSt = actif ? (premiere?.slice(0, 7) === mois ? "nouveau" : actifFinMoisAvant ? "actif" : "revenu")
+      : actifFinMoisAvant ? "sorti" : m30.n > 0 ? "ferme" : s.compte_actif && !m.length ? "jamais" : "inactif"
     return {
       nom: s.nom, email: (s.email ?? "").toLowerCase(), statut, compteActif: s.compte_actif, metier: s.metier ?? "", secteurs: s.secteurs ?? [],
       missions30: m30.n, missions30Avant: m60.n, montant30: m30.montant, derniere: m[m.length - 1]?.[0] ?? null, premiere, total: m.length,
@@ -253,3 +262,15 @@ export function lignesSt(sts: SousTraitantStc[], maintenant: Date): LigneSt[] {
   }).sort((x, y) => ORDRE.indexOf(x.statut) - ORDRE.indexOf(y.statut) || y.missions30 - x.missions30 || (y.derniere ?? "").localeCompare(x.derniere ?? ""))
 }
 export const estActif = (l: Pick<LigneSt, "statut">) => l.statut === "actif" || l.statut === "nouveau" || l.statut === "revenu"
+
+/**
+ * Depuis quand les chiffres de STC Bâtiment n'ont pas été mis à jour (lot 8, D103) : « chiffres STC du 27/11 à 14:17 »,
+ * en alerte au-delà de 2 heures (la synchro passe toutes les heures). null : rien de lisible.
+ */
+export function fraicheurStc(calculeLe: string | null | undefined, maintenant: Date): { texte: string; vieux: boolean } | null {
+  if (!calculeLe) return null
+  const d = new Date(calculeLe)
+  if (Number.isNaN(d.getTime())) return null
+  const jour = d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), heure = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+  return { texte: `chiffres STC du ${jour} à ${heure}`, vieux: maintenant.getTime() - d.getTime() > 2 * 3_600_000 }
+}

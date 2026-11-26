@@ -10,7 +10,7 @@ import { Courbe } from "../demarchage/aujourdhui/courtier"
 import { Bandeau as BandeauAlerte, Bouton, Chargement } from "../../ui"
 import { nomCle } from "../../demarchage/modele"
 import { echeanceDe, type ReglageCockpit } from "../../lib/croissance"
-import { caMoisCompare, estActif, lignesAgences, lignesSt, lireChiffres, lireSousTraitantsStc, mouvementsAgences, mouvementsSt, moisIso, osRecus, type StatutCockpit } from "../../lib/cockpitStc"
+import { caMoisCompare, estActif, fraicheurStc, lignesAgences, lignesSt, lireChiffres, lireSousTraitantsStc, mouvementsAgences, mouvementsSt, moisIso, osRecus, type StatutCockpit } from "../../lib/cockpitStc"
 import { ListeSousTraitants, ResumeSt, SoldeSousTraitants } from "../cockpit/sousTraitants"
 import { bornes, joursDuMois, leadsPeriode, moyenneJour, semaineJours, stats, statsParCompte } from "../../lib/cockpitTelepro"
 import { agencesClientes, campagnesEnCours } from "../../lib/cockpitDb"
@@ -19,7 +19,7 @@ import { lecturesPartielles, useRafraichi } from "../cockpit/useRafraichi"
 import { lireParametre } from "../../lib/parametresDb"
 import { PrevisionComplete } from "../cockpit/PanneauPrevision"
 import ReglageObjectif from "../cockpit/ReglageObjectif"
-import { AttenteStc, BandeauCotes, Colonnes, Cote, Direct, Grille, Jauge, Legende, MiniCourbe, Mouvements, Panneau, TeteEcran, Tuile, Unites } from "../cockpit/pieces"
+import { AttenteStc, BandeauCotes, Colonnes, Cote, Direct, FraicheurStc, Grille, Jauge, Legende, MiniCourbe, Mouvements, Panneau, TeteEcran, Tuile, Unites } from "../cockpit/pieces"
 import { REGLE_ST, euros, fr, k, moisCourt, pct } from "../cockpit/format"
 
 const BASE: Record<string, string> = { agences: "Gestionnaires", apporteurs: "Apporteurs", artisans: "Artisans", locataires: "Locataires", clients_gestionnaires: "Clients", sous_traitants_actifs: "Sous-traitants actifs" }
@@ -93,6 +93,7 @@ export default function Croissance({ onOuvrirAgence }: { onOuvrirAgence?: (agenc
       m, P, reglage, reel, brut, caAnnee, caMois, etendu, mv, moisCourbe, agences, actives, os, st, mois, moisAvant, sem, semAvant, jour, commerciaux, leadsMois, leadsAvant, leadsJour,
       osMois, moisOs, osParMois: moisOs.map((x) => C.os.filter((o) => o.date.slice(0, 7) === x).length), osAnnee, idParNom,
       joursMois: joursDuMois(C.appels, m), semJours: semaineJours(C.appels, m), moyJour: moyenneJour(C.appels, m), objectifOs: C.objectifOs,
+      fraicheur: fraicheurStc(brut?.calcule_le, m),
     }
   }, [d, reglageLocal])
 
@@ -138,7 +139,7 @@ export default function Croissance({ onOuvrirAgence }: { onOuvrirAgence?: (agenc
   return (
     <div className="@container w-full">
       <TeteEcran titre="Dashboard" sous="Direction · CA, agences actives, premiers OS, campagnes · de gauche à droite : l'année → le jour"
-        droite={<Direct texte={seance(m)} />} />
+        droite={<><Direct texte={seance(m)} />{c.fraicheur ? <FraicheurStc texte={c.fraicheur.texte} vieux={c.fraicheur.vieux} /> : null}</>} />
 
       <div className="space-y-2 bg-fond-2 p-3">
         {erreur ? <BandeauAlerte role="attention">Dernière mise à jour impossible : {erreur}</BandeauAlerte> : null}
