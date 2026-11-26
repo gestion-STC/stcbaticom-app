@@ -27,11 +27,8 @@ export async function televerser(file: File): Promise<PieceJointe> {
   return { nom, url: data.publicUrl, taille: file.size, chemin }
 }
 
-// Supprime un fichier du stockage (best effort).
-export async function supprimerFichier(chemin: string): Promise<void> {
-  if (!supabase) return
-  await supabase.storage.from(BUCKET).remove([chemin])
-}
+// Aucun effacement de fichier depuis le logiciel (lot 1, 27/11/2026) : un fichier déposé sert aux mails déjà partis,
+// aux modèles, à la bibliothèque et aux liens suivis des campagnes. La règle de stockage `pj_suppr` est fermée.
 
 // Format lisible d'une taille de fichier.
 export function formatTaille(octets: number): string {

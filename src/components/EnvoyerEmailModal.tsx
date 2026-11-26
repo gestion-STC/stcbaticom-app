@@ -6,7 +6,7 @@ import { chargerEmails } from "../lib/emailsDb"
 import { useSession } from "../lib/auth"
 import { useSignataires } from "../lib/useSignataires"
 import { signatureStc, prenomDe } from "../lib/signatureStc"
-import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
+import { televerser, formatTaille } from "../lib/stockage"
 import { composer, envoyerEmail, emailConfigure, piecesTropLourdes } from "../lib/envoiEmail"
 import { apercuLiens } from "../lib/liensSuivisDb"
 import { adressesInvalides, decouperAdresses, joindreAdresses } from "../lib/adressesEmail"
@@ -140,10 +140,8 @@ export default function EnvoyerEmailModal({ destinataire, onClose, brouillon, on
   }
 
   function retirerFichier(pj: PieceJointe) {
+    // La pièce quitte ce message seulement : aucun fichier n'est effacé du stockage (lot 1, 27/11/2026).
     setPieces((l) => l.filter((x) => x.chemin !== pj.chemin))
-    // On ne supprime du stockage QUE les fichiers ajoutés pour cet envoi.
-    const vientDuModele = emails.some((e) => (e.pieces ?? []).some((x) => x.chemin === pj.chemin))
-    if (!vientDuModele) supprimerFichier(pj.chemin).catch(() => {})
   }
 
   const pret = a.length > 0 && invalides.length === 0 && objet.trim() !== "" && corps.trim() !== "" && !piecesTropLourdes(pieces)

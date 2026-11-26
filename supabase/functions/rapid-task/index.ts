@@ -12,6 +12,11 @@
 // Callback Ringover (POST /callback) : Ringover fait d'abord sonner l'appli/softphone
 // de l'utilisateur (from_number, si Monitoring ON), puis quand il décroche, compose
 // le prospect (to_number). device="ALL" = tous les appareils sonnent.
+//
+// QUI PEUT S'EN SERVIR (lot 1, 27/11/2026) : un membre de l'équipe seulement (compte admin ou télépro), comme
+// analyser-appel. Avant, n'importe quel jeton du projet (dont l'ancienne clé publique, visible dans l'historique
+// du dépôt) pouvait lancer un appel payé par STC vers n'importe quel numéro et lire les appels en cours.
+import { jetonDe, membre } from "../_shared/acces.ts"
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +45,7 @@ const numeroOk = (d: string) => d.length >= 10 && d.length <= 15
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
+  if (!(await membre(jetonDe(req)))) return reponse({ error: "non autorisé" }, 401)
 
   try {
     const corps = await req.json()

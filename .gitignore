@@ -5,3 +5,5 @@ STC-Batiment-reprise-projet.md
 EXPORT-INFO.md
 CLAUDE.md
 supabase/.temp/
+# Réglages locaux (lot 1, 27/11/2026 : il publiait les clés EmailJS dans le dépôt public). Les réglages publics sont dans .env.
+.env.local

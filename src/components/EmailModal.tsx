@@ -6,7 +6,7 @@
 import { useRef, useState } from "react"
 import { FileText, Paperclip, Save, Trash2 } from "lucide-react"
 import { variables, apercu, type Email } from "../emails"
-import { televerser, supprimerFichier, formatTaille } from "../lib/stockage"
+import { televerser, formatTaille } from "../lib/stockage"
 import { Bandeau, Bouton, Champ, Dialogue, Etiquette, Pastille, Zone } from "../ui"
 
 export default function EmailModal({
@@ -44,10 +44,10 @@ export default function EmailModal({
     }
   }
 
+  // Retirer une pièce la retire du MODÈLE seulement, jamais du stockage (lot 1, 27/11/2026) : le même fichier sert aux
+  // mails déjà partis, aux autres modèles, à la bibliothèque et aux liens des campagnes ; l'effacer cassait tous ces liens.
   function retirerPiece(i: number) {
-    const pj = f.pieces[i]
     setF((p) => ({ ...p, pieces: p.pieces.filter((_, k) => k !== i) }))
-    if (pj?.chemin) supprimerFichier(pj.chemin).catch(() => {})
   }
 
   // Insère une variable à la position du curseur dans le corps.
