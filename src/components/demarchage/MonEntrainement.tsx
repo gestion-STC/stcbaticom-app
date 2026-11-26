@@ -8,9 +8,9 @@
 // ses derniers appels), ses objections avec la réponse qui a marché chez nous, et l'appel à réécouter.
 // Les calculs sont dans demarchage/analyseOutils.ts (`entrainement`, testé).
 // ════════════════════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 import { Sparkles } from "lucide-react"
-import { accordIa, type AppelIa } from "../../demarchage/appelsIa"
+import type { AppelIa } from "../../demarchage/appelsIa"
 import { entrainement, pourcent } from "../../demarchage/analyseOutils"
 import { dateCourte } from "../../demarchage/agencesOutils"
 import { dateHeureCourte } from "../../demarchage/sessionOutils"
@@ -23,16 +23,10 @@ const valeur = (v: string | number) => <span className="whitespace-nowrap">{v}</
 /** Un texte long dans une case de tableau : il passe à la ligne au lieu d'être coupé. */
 const Long = ({ children, className = "" }: { children: ReactNode; className?: string }) => <span className={`block whitespace-normal py-2 leading-[1.45] ${className}`}>{children}</span>
 
-export default function MonEntrainement({ appels, nom, de, a, onLireTranscription }: { appels: AppelIa[]; nom: string; de: Date; a: Date; onLireTranscription: (t: string) => void }) {
+// « Accord avec l'IA » retiré (26/11/2026) : il lisait la table appels_propositions, jamais créée en base, et affichait
+// toujours « — ». Aucune autre table ne garde la proposition de l'IA au raccroché.
+export default function MonEntrainement({ appels, nom, onLireTranscription }: { appels: AppelIa[]; nom: string; de?: Date; a?: Date; onLireTranscription: (t: string) => void }) {
   const e = useMemo(() => entrainement(appels, nom), [appels, nom])
-  const [accord, setAccord] = useState<{ cle: string; v: { compares: number; accords: number } | null } | null>(null)
-  const cle = `${nom}|${de.toISOString()}|${a.toISOString()}`
-  useEffect(() => {
-    let vivant = true
-    accordIa(nom, de, a).then((v) => { if (vivant) setAccord({ cle, v }) }).catch(() => {})
-    return () => { vivant = false }
-  }, [nom, de, a, cle])
-  const acc = accord?.cle === cle ? accord.v : null
 
   if (!e.appels) return <p className="py-10 text-center text-legende text-encre-2">Aucun appel de {nom} analysé sur la période.</p>
 
@@ -44,7 +38,6 @@ export default function MonEntrainement({ appels, nom, de, a, onLireTranscriptio
         { libelle: "Gestionnaire eu", title: "Un décideur en ligne, selon l'IA", valeur: e.jointsConfirmes, variation: <span className="chiffres flex flex-col leading-4 text-colonne text-encre-2"><span>sur {e.jointsNotes}</span><span>notés « joint »</span></span> },
         { libelle: "Objections levées", valeur: valeur(pourcent(e.tauxLevee)), ton: e.tauxLevee != null && e.tauxLeveeEquipe != null && e.tauxLevee < e.tauxLeveeEquipe ? "text-alerte" : undefined, variation: compare(e.tauxLevee, e.tauxLeveeEquipe) },
         { libelle: "Agences chaudes", valeur: e.chaudes, ton: e.chaudes ? "text-ok" : undefined, title: "Intérêt fort selon l'IA", variation: e.chaudesStandard ? <span className="chiffres flex flex-col leading-4 text-colonne text-attention"><span>dont {e.chaudesStandard}</span><span>notée{e.chaudesStandard > 1 ? "s" : ""} « standard »</span></span> : undefined },
-        { libelle: "Accord avec l'IA", title: "Sa proposition au raccroché contre le résultat que tu as noté", valeur: acc ? valeur(pourcent(acc.accords / acc.compares)) : "—", variation: <span className="chiffres flex flex-col leading-4 text-colonne text-encre-2">{acc ? <><span>{acc.accords} sur</span><span>{acc.compares} appels</span></> : <><span>dès les premiers</span><span>appels proposés</span></>}</span> },
       ]} />
 
       <div className="grid gap-x-10 gap-y-10 @min-[1100px]:grid-cols-2">

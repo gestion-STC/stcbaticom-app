@@ -5,9 +5,10 @@
 // Lot 2 (session unique, cloison par équipe) : les autres actions du dépôt.
 import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
-import type { Depot, EtatProspection } from "./depot"
+import type { Depot, EtatProspection, ResultatEnregistrement } from "./depot"
 import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscription, Lead, Tache } from "./modele"
 import { inscriptionAu, inscriptionsParContact } from "./rattachement"
+import { estLeadRobot } from "./abTest"
 
 export const BASES: Base[] = [
   {
@@ -69,14 +70,26 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     const tousEvs: Evenement[] = evenements.map((l) => ({ id: String(l.id), campagneId: String(l.campagne_id), envoiId: (l.envoi_id as string) ?? null, contactId: String(l.contact_ref), type: l.type as Evenement["type"], le: String(l.le), lien: (l.lien as string) ?? undefined, robot: Boolean(l.robot) }))
     // Les clics de robots de sécurité (25/11/2026) ne comptent nulle part : ni taux, ni lead ; ils restent visibles à part.
     const evs = tousEvs.filter((e) => !e.robot), robots = tousEvs.filter((e) => e.robot)
-    const cts: Contact[] = contacts.map((l) => ({ id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""), champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null }))
+    // Le jour où chaque contact est devenu « gagné » (26/11/2026) : un gagné ne compte pour une campagne que s'il l'est
+    // devenu après y être entré. Agence : 1er ordre de service, sinon passage en « Client » ; artisan : dossier déposé.
+    const [agGagnees, stDeposes] = await Promise.all([
+      lireParLots<L>((d, f) => sb().from("agences").select("id, premier_os_le, etape, etape_depuis").or("etape.eq.client,premier_os_le.not.is.null").order("id").range(d, f) as unknown as PromiseLike<Lot<L>>),
+      lireParLots<L>((d, f) => sb().from("st_sous_traitants").select("id, depose_le, statut_le").eq("statut", "depose").order("id").range(d, f) as unknown as PromiseLike<Lot<L>>),
+    ])
+    const gagneLe = new Map<string, string | null>([
+      ...agGagnees.map((a): [string, string | null] => [String(a.id), (a.premier_os_le as string) ?? (a.etape === "client" ? (a.etape_depuis as string) ?? null : null)]),
+      ...stDeposes.map((a): [string, string | null] => [String(a.id), (a.depose_le as string) ?? (a.statut_le as string) ?? null]),
+    ])
+    const cts: Contact[] = contacts.map((l) => ({ id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""), champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], gagneLe: gagneLe.get(String(l.id)) ?? null, desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null }))
     // Chaque lead et chaque appel va à l'inscription en cours à sa date (rattachement.ts), pas à la dernière du contact.
     const parContact = inscriptionsParContact(insc)
     const inscrits = new Set(insc.map((i) => i.contactId))
 
     // Les leads : agences (leads_demarchage) et artisans (le clic, vu par la vue), rattachés à la campagne du contact.
     const depuis = camps.reduce((m, c) => (c.creeLe < m ? c.creeLe : m), new Date().toISOString())
-    const leadsAg = await lireParLots<L>((d, f) => sb().from("leads_demarchage").select("id, agence_id, signal, statut, cree_le").gte("cree_le", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)
+    // Les faux leads des robots de sécurité (fermés « robot ») ne comptent nulle part (26/11/2026 : « histoires » affichait
+    // 8 leads pour 1 vrai).
+    const leadsAg = (await lireParLots<L>((d, f) => sb().from("leads_demarchage").select("id, agence_id, signal, statut, resultat, cree_le").gte("cree_le", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)).filter((l) => !estLeadRobot({ resultat: l.resultat as string | null }))
     const leads: Lead[] = leadsAg.filter((l) => inscrits.has(String(l.agence_id))).map((l) => {
       const i = inscriptionAu(parContact, String(l.agence_id), String(l.cree_le))
       return { id: String(l.id), contactId: String(l.agence_id), baseId: "agences", campagneId: i?.campagneId ?? null, signal: String(l.signal ?? ""), creeLe: String(l.cree_le), statut: l.statut === "a_traiter" ? "a_traiter" : "traite", proprietaireId: null }
@@ -102,14 +115,23 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
   // Un enregistrement depuis l'écran ne doit jamais écraser une version plus récente (17/11/2026 : un lancement avait remis
   // le mode test et effacé des exclusions posées entre-temps). Campagne déjà en base : on n'écrit que si elle n'a pas
   // bougé depuis le chargement (même maj_le) ; sinon on recharge et on prévient.
-  const ecrire = async (c: Campagne) => {
+  // Lot 5 (26/11/2026) : le résultat remonte à l'éditeur. Avant, un refus rechargeait la page et la saisie était perdue ;
+  // désormais l'éditeur reste ouvert avec ce qu'on a tapé, et propose d'écraser la version d'ailleurs.
+  const ecrire = async (c: Campagne, forcer = false): Promise<ResultatEnregistrement> => {
     const ligne = versLigne(c)
-    const { data, error } = c.majLe
+    const { data, error } = c.majLe && !forcer
       ? await sb().from("cmp_campagnes").update(ligne).eq("id", c.id).eq("maj_le", c.majLe).select("id")
-      : await sb().from("cmp_campagnes").upsert(ligne).select("id")
-    if (error) { onErreur(`La campagne n'a pas été enregistrée : ${error.message}`); await charger(); return }
-    if (c.majLe && !(data ?? []).length) onErreur("La campagne a été modifiée ailleurs depuis l'ouverture de cette page : rien n'a été écrasé. Elle est rechargée, refais ta modification.")
+      : c.majLe
+        ? await sb().from("cmp_campagnes").update(ligne).eq("id", c.id).select("id")
+        : await sb().from("cmp_campagnes").upsert(ligne).select("id")
+    if (error) { onErreur(`La campagne n'a pas été enregistrée : ${error.message}`); await charger(); return "erreur" }
+    if (c.majLe && !(data ?? []).length) {
+      await charger()
+      if (forcer) { onErreur("La campagne n'a pas été enregistrée : la base a refusé l'écriture."); return "erreur" }
+      return "conflit"
+    }
     await charger()
+    return "ok"
   }
   // Lancer, mettre en pause, reprendre : seulement le statut (et la date de lancement), jamais le reste de la campagne.
   const ecrireStatut = async (c: Campagne) => {
@@ -122,7 +144,7 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     charger,
     lire: () => etat,
     ecouter: (f) => { ecouteurs.add(f); return () => ecouteurs.delete(f) },
-    enregistrerCampagne: (c) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); void ecrire({ ...c, creeParId: c.creeParId || compte.id }) },
+    enregistrerCampagne: (c, options) => { publier({ ...etat, campagnes: etat.campagnes.some((x) => x.id === c.id) ? etat.campagnes.map((x) => (x.id === c.id ? c : x)) : [...etat.campagnes, c] }); return ecrire({ ...c, creeParId: c.creeParId || compte.id }, Boolean(options?.forcer)) },
     changerStatut: (id, statut) => { const c = etat.campagnes.find((x) => x.id === id); if (c) { const s = { ...c, statut, lanceeLe: c.lanceeLe ?? (statut === "active" ? new Date().toISOString() : null) }; publier({ ...etat, campagnes: etat.campagnes.map((x) => (x.id === id ? s : x)) }); void ecrireStatut(s) } },
     dupliquerCampagne: (id) => { const c = etat.campagnes.find((x) => x.id === id)!; const nid = crypto.randomUUID(); const copie: Campagne = { ...c, id: nid, nom: c.nom + " (copie)", statut: "brouillon", lanceeLe: null, creeLe: new Date().toISOString(), origine: "", modeTest: false, majLe: undefined }; publier({ ...etat, campagnes: [...etat.campagnes, copie] }); void ecrire(copie); return nid },
     noterAppel: lot2, traiterLead: lot2, faireTache: lot2, marquerGagne: lot2, repondre: lot2, lireMessage: lot2, attribuer: lot2, majEquipe: lot2, majBase: lot2, importer: lot2,

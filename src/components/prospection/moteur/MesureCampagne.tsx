@@ -7,6 +7,7 @@ import type { ConfigCampagne } from "../../../prospection/configCampagne"
 import type { Campagne, Envoi, Evenement, Inscription } from "../../../prospection/modele"
 import { mesureCampagne, type PositionCampagne } from "../../../prospection/mesureCampagne"
 import { LIBELLE_TRI } from "../../../prospection/ia"
+import { parInstantly } from "../../../prospection/indicateurs"
 import { chargerCoutIA, chargerTrisCampagne } from "../../../lib/campagnesIa"
 
 const euros = (x: number | null) => (x === null ? "—" : `${x.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`)
@@ -25,7 +26,7 @@ export default function MesureCampagne({ campagne, cfg, inscriptions, envois, ev
     if (inscrits.size) chargerTrisCampagne(inscrits).then((x) => { if (vivant) setTris(x) }).catch(() => undefined)
     return () => { vivant = false }
   }, [campagne.id, inscriptions])
-  const m = useMemo(() => mesureCampagne(cfg, campagne.id, campagne.coutSms, inscriptions, envois, evenements, positions, coutIA), [cfg, campagne.id, campagne.coutSms, inscriptions, envois, evenements, positions, coutIA])
+  const m = useMemo(() => mesureCampagne(cfg, campagne.id, campagne.coutSms, inscriptions, envois, evenements, positions, coutIA, parInstantly(campagne)), [cfg, campagne, inscriptions, envois, evenements, positions, coutIA])
   return (
     <div className="space-y-6">
       {erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : null}

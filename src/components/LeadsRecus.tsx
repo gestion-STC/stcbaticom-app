@@ -65,7 +65,8 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
   onOuvrirAgence: (agenceId: string) => void
   onSessionArtisans: () => void
 }) {
-  const [maintenant] = useState(() => Date.now())
+  // L'heure de référence d'« En retard » avance (26/11/2026) : figée à l'ouverture, un lead passé en retard depuis restait « à l'heure ».
+  const [maintenant, setMaintenant] = useState(() => Date.now())
   const admin = estAdmin(session)
   const moiId = session?.user?.id ?? ""
   const [leads, setLeads] = useState<LeadRecu[] | null>(null)
@@ -77,13 +78,14 @@ export default function LeadsRecus({ session, espaces, onAppelerAgence, onOuvrir
 
   const charger = useCallback(() => {
     chargerLeadsRecus(new Date())
-      .then((d) => { setLeads(d.leads); setErreur("") })
+      .then((d) => { setLeads(d.leads); setErreur(""); setMaintenant(Date.now()) })
       .catch((e) => setErreur(e instanceof Error ? e.message : String(e)))
   }, [])
   useEffect(() => {
     const t = setTimeout(charger, 0)
     const iv = setInterval(charger, 120_000)
-    return () => { clearTimeout(t); clearInterval(iv) }
+    const horloge = setInterval(() => setMaintenant(Date.now()), 60_000)
+    return () => { clearTimeout(t); clearInterval(iv); clearInterval(horloge) }
   }, [charger])
 
   const miens = useMemo(() => leadsVisibles(leads ?? [], espaces, moiId, admin), [leads, espaces, moiId, admin])

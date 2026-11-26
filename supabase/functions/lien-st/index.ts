@@ -9,12 +9,13 @@
 //   2) met à jour la fiche (dernier_clic_le + drapeau daté de la destination ; nb_clics est recompté par la base),
 //   3) le redirige (302) vers la page de dépôt du site OU vers le PDF du barème.
 //
-// « stop » (08/10/2026) = LA DÉSINSCRIPTION EN UN CLIC. Jusque-là le lien
-// ouvrait un e-mail vers gestion@, à traiter à la main, et rien n'arrêtait la
-// séquence. Ici : statut « désinscrit » posé à l'instant, l'adresse et le
-// numéro vont dans la liste d'exclusion (plus jamais recontactés, même
-// réimportés), et l'artisan voit une page qui le lui confirme. Les messageries
-// l'appellent aussi en POST (en-tête List-Unsubscribe en un clic, RFC 8058).
+// « stop » (08/10/2026) = LA DÉSINSCRIPTION. Statut « désinscrit », l'adresse et le numéro vont dans la liste
+// d'exclusion (plus jamais recontactés, même réimportés).
+// EN DEUX TEMPS depuis le 26/11/2026, comme pour les agences (evenements-site) : les robots de sécurité des messageries
+// ouvrent tous les liens d'un mail (cas réels : SOC PEINTURE INTERIEURE le 19/10, DALEOS le 23/10, le lien « stop » et
+// trois liens « candidature » ouverts dans la même seconde). L'ouverture (GET) ne fait qu'afficher une page avec un
+// bouton ; seul un POST désinscrit : le bouton de la page, ou le bouton « Se désinscrire » de Gmail/Yahoo (en-tête
+// List-Unsubscribe en un clic, RFC 8058). Un robot ne poste pas de formulaire.
 //
 // ⚠️ Fonction PUBLIQUE : dans Supabase → Edge Functions, « Verify JWT » désactivé.
 //
@@ -28,11 +29,11 @@ const DEST_CANDIDATURE_DEFAUT = "https://www.stcbatiment.fr/sous-traitants"
 const DEST_BAREME_DEFAUT =
   "https://ifvrmsiwlwppinfdmeao.supabase.co/storage/v1/object/public/campagne/bareme_STC.pdf"
 
-function pageConfirmation(titre: string, texte: string): Response {
-  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${titre}</title>
+function pageConfirmation(titre: string, texte: string, bouton = ""): Response {
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${titre}</title>
 <style>body{margin:0;background:#f6f6f8;font-family:Montserrat,'Segoe UI',Arial,sans-serif;color:#171717;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
-.c{background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px}h1{font-size:20px;margin:0 0 10px}p{margin:0;color:#525252;line-height:1.55}small{display:block;margin-top:18px;color:#a3a3a3;font-size:12px}</style></head>
-<body><div class="c"><h1>${titre}</h1><p>${texte}</p><small>STC Bâtiment · 7 rue Oscar Niemeyer, 78280 Guyancourt</small></div></body></html>`
+.c{background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px}h1{font-size:20px;margin:0 0 10px}p{margin:0;color:#525252;line-height:1.55}small{display:block;margin-top:18px;color:#a3a3a3;font-size:12px}button{margin-top:20px;background:#17181a;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px;cursor:pointer}</style></head>
+<body><div class="c"><h1>${titre}</h1><p>${texte}</p>${bouton}<small>STC Bâtiment · 7 rue Oscar Niemeyer, 78280 Guyancourt</small></div></body></html>`
   return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
 }
 
@@ -63,6 +64,13 @@ Deno.serve(async (req: Request) => {
     const { data: st } = await supabase.from("st_sous_traitants").select("id, nb_clics, email, telephone, statut, suivi").eq("token", token).maybeSingle()
 
     if (destination === "stop") {
+      // L'ouverture du lien : la page et son bouton, rien d'autre (ni désinscription, ni clic noté : un clic « stop »
+      // compterait une désinscription dans la campagne).
+      if (req.method !== "POST") {
+        if (!st?.id) return pageConfirmation("Lien expiré", "Répondez simplement « stop » à notre message et nous ne vous écrirons plus.")
+        const action = `?t=${encodeURIComponent(token)}&d=stop`
+        return pageConfirmation("Ne plus recevoir nos messages ?", "Confirmez pour ne plus recevoir les messages de STC Bâtiment concernant le recrutement d'artisans partenaires.", `<form method="post" action="${action}"><button type="submit">Confirmer ma désinscription</button></form>`)
+      }
       if (st?.id) {
         const now = new Date().toISOString()
         await supabase.from("st_clics").insert({ sous_traitant_id: st.id, destination: "stop", user_agent: req.headers.get("user-agent") || "" })
@@ -74,7 +82,7 @@ Deno.serve(async (req: Request) => {
           )
         }
       }
-      if (req.method === "POST") return new Response("ok", { status: 200 })
+      // Le bouton de la page comme celui de la messagerie (RFC 8058) reçoivent la page de confirmation.
       return pageConfirmation("C'est noté", "Vous ne recevrez plus de message de STC Bâtiment concernant le recrutement d'artisans partenaires. Si c'est une erreur, écrivez-nous à recrutement@crm.stcbatiment.fr.")
     }
 

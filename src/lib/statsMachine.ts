@@ -85,6 +85,12 @@ export function tunnel(fiches: SousTraitant[], envois: EnvoiST[], jours: number,
   const duCorps = (f: SousTraitant) => !corps || exerceCorps(f, corps)
   const parId = new Map(fiches.filter((f) => f.id).map((f) => [f.id as string, f]))
   const contactes = new Set<string>()
+  // « Depuis le début » : l'écran ne charge que 90 jours d'envois, alors que clics et dépôts couvrent
+  // tout l'historique — 417 contactés au lieu de 591, taux gonflé (lot 5, 26/11/2026). Sans fenêtre,
+  // on lit le compteur de la fiche (envois réussis), tenu par la machine depuis le premier envoi.
+  if (depuis === 0) {
+    for (const f of fiches) if (f.id && (f.nbEnvoisOk ?? 0) > 0 && duCorps(f)) contactes.add(f.id)
+  }
   for (const e of envois) {
     if (e.statut !== "envoye" || !dans(e.envoyeLe, depuis)) continue
     const f = parId.get(e.sousTraitantId)

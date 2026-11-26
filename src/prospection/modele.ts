@@ -32,6 +32,8 @@ export type Contact = {
   email: string; mobile: string; telephone: string
   champs: Record<string, string>
   statut: "libre" | "lead" | "gagne" | "exclu"
+  /** Le jour où il est devenu « gagné » (1er ordre de service, dossier déposé), s'il est connu : lu par l'écran seulement. */
+  gagneLe?: string | null
   desinscrit: boolean
   /** Le compte à qui il est attribué (null : l'équipe de la base). */
   proprietaireId: Id | null
@@ -127,12 +129,23 @@ export function contactVisible(c: Contact, compte: Compte, bases: Set<Id>): bool
   return compte.role === "gerant" || c.proprietaireId === null || c.proprietaireId === compte.id
 }
 
+/** Une valeur de filtre retenue pour un champ (26/11/2026) : égalité exacte, sans tenir compte de la casse, des accents ni
+ *  des espaces. Avant, il suffisait que la valeur soit CONTENUE : « Paris 1 » prenait Paris 10 à 19 (844 agences au lieu
+ *  de 108). Un champ à plusieurs valeurs (« Peinture / Électricité ») se compare morceau par morceau ; une valeur qui
+ *  contient elle-même « / » (« Plomberie / sanitaire ») doit s'y retrouver d'un seul tenant. */
+const normaliser = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim()
+const morceaux = (s: string) => s.split("/").map(normaliser).join("/")
+export function valeurRetenue(champ: string, valeur: string): boolean {
+  const v = morceaux(valeur)
+  return v !== "" && `/${morceaux(champ)}/`.includes(`/${v}/`)
+}
+
 /** L'audience d'une campagne : les contacts de la base qui passent les filtres et peuvent recevoir. */
 export function estEligible(c: Contact, camp: Campagne, maintenant: Date = new Date()): boolean {
   if (c.baseId !== camp.baseId || c.desinscrit || c.statut === "exclu" || c.statut === "gagne") return false
   for (const [cle, valeurs] of Object.entries(camp.audience.filtres)) {
     // Un code postal se compare par le début : le 92 ne doit pas prendre le 78920.
-    if (valeurs.length && !valeurs.some((v) => (cle === "cp" ? (c.champs[cle] ?? "").startsWith(v) : (c.champs[cle] ?? "").includes(v)))) return false
+    if (valeurs.length && !valeurs.some((v) => (cle === "cp" ? (c.champs[cle] ?? "").startsWith(v) : valeurRetenue(c.champs[cle] ?? "", v)))) return false
   }
   const jours = camp.audience.pasContacteDepuis ?? 0
   if (jours > 0 && c.champs.dernier_contact && maintenant.getTime() - new Date(c.champs.dernier_contact).getTime() < jours * 86_400_000) return false

@@ -63,6 +63,8 @@ export function majReponses(id: string, reponses: ReponsesST) {
   }, DELAI_MS))
 }
 
+const MOTIF_REFUS = "refusé à la qualification"
+
 /** La décision part tout de suite. Un refus retire le sous-traitant des appels, avec son motif. */
 export async function deciderQualification(id: string, decision: DecisionST | null, reponses: ReponsesST, parNom: string) {
   const avant = dossiers.get(id)?.decision ?? null
@@ -72,11 +74,28 @@ export async function deciderQualification(id: string, decision: DecisionST | nu
   try {
     await sauver(id, decision ? parNom : "")
     if (decision === "Refusé") {
-      const { error } = await sb().from("st_sous_traitants").update({ suivi: "hors_cible", suivi_le: new Date().toISOString(), suivi_motif: String(reponses.motif ?? "") }).eq("id", id)
+      const motif = String(reponses.motif ?? "")
+      const { error } = await sb().from("st_sous_traitants").update({ suivi: "hors_cible", suivi_le: new Date().toISOString(), suivi_motif: motif }).eq("id", id)
       if (error) throw new Error(error.message)
+      // La machine ne regarde que le statut : sans lui, e-mails et SMS (payants) continuaient
+      // vers un artisan refusé (lot 5, 26/11/2026). Même geste que « hors cible » au téléphone
+      // (st_appel_enregistrer) : seule une fiche à contacter ou en séquence est arrêtée.
+      const { error: e2 } = await sb().from("st_sous_traitants")
+        .update({ statut: "termine", statut_motif: MOTIF_REFUS + (motif ? ` : ${motif}` : ""), termine_le: new Date().toISOString(), pause_jusqu_au: null })
+        .eq("id", id).in("statut", ["a_contacter", "en_sequence"])
+      if (e2) throw new Error(e2.message)
     } else if (avant === "Refusé") {
       const { error } = await sb().from("st_sous_traitants").update({ suivi: "", suivi_le: null, suivi_motif: "" }).eq("id", id).eq("suivi", "hors_cible")
       if (error) throw new Error(error.message)
+      // Le refus est levé : la fiche arrêtée PAR CE REFUS reprend où elle en était.
+      const { data: f, error: e3 } = await sb().from("st_sous_traitants").select("statut, statut_motif, demarre_le, sequence_id").eq("id", id).maybeSingle()
+      if (e3) throw new Error(e3.message)
+      if (f && f.statut === "termine" && String(f.statut_motif ?? "").startsWith(MOTIF_REFUS)) {
+        const { error: e4 } = await sb().from("st_sous_traitants")
+          .update({ statut: f.demarre_le && f.sequence_id ? "en_sequence" : "a_contacter", statut_motif: "refus de qualification levé", termine_le: null })
+          .eq("id", id).eq("statut", "termine")
+        if (e4) throw new Error(e4.message)
+      }
     }
     poser(id, { etat: "enregistre" })
   } catch (e) { poser(id, { etat: "erreur", erreur: message(e) }) }

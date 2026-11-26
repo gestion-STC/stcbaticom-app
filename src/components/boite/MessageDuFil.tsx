@@ -3,19 +3,25 @@
 // Replié = une ligne (le rond, l'expéditeur, l'extrait, la date) ; déplié = l'en-tête, le corps, les pièces jointes.
 import { ouvrirApresAttente } from "../../lib/ouvrirOnglet"
 import { useState } from "react"
-import { ChevronDown, ChevronRight, FileText, Image as ImageIcon, Loader2 } from "lucide-react"
+import { ChevronDown, ChevronRight, FileText, Forward, Image as ImageIcon, Loader2, Reply } from "lucide-react"
 import { lienPieceJointe, type Message } from "../../lib/messagesDb"
 import { apercuTexte, extraireAdresse, nomCorrespondant } from "../../lib/messagesUtils"
 import { objetNormalise } from "../../lib/conversations"
 import { formatTaille } from "../../lib/stockage"
 import { dateDuFil, initiales } from "./outils"
 
-function natureDu(m: Message): string {
+function natureDu(m: Pick<Message, "a" | "de" | "sens" | "nonRemisLe" | "nonRemisMotif">): string {
   if (m.a === "LinkedIn" || m.de === "LinkedIn") return m.sens === "entrant" ? "Message LinkedIn reçu" : "Message LinkedIn envoyé"
+  // Un rebond (26/11/2026) : l'écran ne dit plus « E-mail envoyé » pour un mail qui n'est jamais arrivé.
+  if (m.sens === "sortant" && m.nonRemisLe) return `E-mail non remis${m.nonRemisMotif ? ` : ${m.nonRemisMotif}` : ""}`
   return m.sens === "entrant" ? "E-mail reçu" : "E-mail envoyé"
 }
 
-export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle }: { m: Message; ouvert: boolean; objetDuFil: string; onToggle: () => void }) {
+export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle, onRepondre, onTransferer }: {
+  m: Message; ouvert: boolean; objetDuFil: string; onToggle: () => void
+  /** Répondre à CE message, le transférer (26/11/2026 : avant, toujours le dernier de la conversation). */
+  onRepondre?: () => void; onTransferer?: () => void
+}) {
   const [pjEnCours, setPjEnCours] = useState("")
   const sortant = m.sens === "sortant"
   const nom = nomCorrespondant(m.de) || m.de
@@ -43,6 +49,7 @@ export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle }: { m: M
       <button type="button" onClick={onToggle} className="flex w-full items-center gap-3 border-b-[0.5px] border-[#E6E6EA] py-[11px] text-left hover:bg-[#FAFAFB]">
         {rond}
         <span className="w-[210px] shrink-0 truncate font-semibold">{nom}</span>
+        {sortant && m.nonRemisLe && <span className="shrink-0 text-[11px] font-semibold text-[#C9302C]">non remis</span>}
         <span className="min-w-0 flex-1 truncate text-[#6B6B70]">{apercuTexte(m.corpsText || "", 140) || m.objet || "(sans objet)"}</span>
         <span className="shrink-0 text-[11px] text-[#8E8E93]">{date}</span>
         <ChevronRight className="h-[13px] w-[13px] shrink-0 text-[#8E8E93]" strokeWidth={1.7} />
@@ -58,7 +65,9 @@ export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle }: { m: M
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="shrink-0 font-semibold">{nom}</span>
             {adresse && adresse !== nom && <span className="hidden truncate text-[#6B6B70] sm:inline">&lt;{adresse}&gt;</span>}
-            {sortant && <span className="shrink-0 text-[11px] text-[#8E8E93]">envoyé</span>}
+            {sortant && (m.nonRemisLe
+              ? <span className="shrink-0 text-[11px] font-semibold text-[#C9302C]">non remis</span>
+              : <span className="shrink-0 text-[11px] text-[#8E8E93]">envoyé</span>)}
           </div>
           {m.a && <p className="mt-0.5 break-all text-[11px] text-[#8E8E93]">à {m.a}</p>}
         </div>
@@ -98,7 +107,15 @@ export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle }: { m: M
 
         {m.piecesJointes.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {m.piecesJointes.map((pj) => (
+            {m.piecesJointes.map((pj, i) => pj.nonGardee || !pj.chemin ? (
+              // Une pièce reçue mais pas gardée (trop lourde, refusée…) : on le dit, on ne la cache plus.
+              <span key={`perdue-${i}`} title={`Pièce non reçue : ${pj.nonGardee || "fichier absent"}. Demandez-la à nouveau à l'expéditeur.`}
+                className="inline-flex h-[26px] max-w-[320px] items-center gap-1.5 rounded-full border-[0.5px] border-dashed border-[#C9302C]/50 bg-[#C9302C]/[0.04] px-2.5 text-[11px] text-[#C9302C]">
+                <FileText className="h-[13px] w-[13px] shrink-0" strokeWidth={1.7} />
+                <span className="truncate">{pj.nom}</span>
+                <span className="shrink-0">non reçue{pj.nonGardee ? ` : ${pj.nonGardee}` : ""}</span>
+              </span>
+            ) : (
               <button key={pj.chemin} type="button" disabled={pjEnCours === pj.chemin} onClick={() => ouvrirPiece(pj.chemin)} title="Ouvrir la pièce jointe"
                 className="inline-flex h-[26px] max-w-[260px] items-center gap-1.5 rounded-full border-[0.5px] border-[#E4E4E7] bg-white px-2.5 text-[11px] text-[#111113] hover:bg-[#FAFAFB] disabled:opacity-50">
                 {pjEnCours === pj.chemin
@@ -113,7 +130,20 @@ export default function MessageDuFil({ m, ouvert, objetDuFil, onToggle }: { m: M
           </div>
         )}
 
-        <div className="mt-3 text-[11px] text-[#8E8E93]">{natureDu(m)}</div>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-[#8E8E93]">
+          <span className={sortant && m.nonRemisLe ? "font-semibold text-[#C9302C]" : ""}>{natureDu(m)}</span>
+          <span className="flex-1" />
+          {onRepondre && (
+            <button type="button" onClick={onRepondre} className="inline-flex items-center gap-1 text-[#3C3C40] hover:text-[#111113] hover:underline">
+              <Reply className="h-[12px] w-[12px]" strokeWidth={1.8} />Répondre
+            </button>
+          )}
+          {onTransferer && (
+            <button type="button" onClick={onTransferer} className="inline-flex items-center gap-1 text-[#3C3C40] hover:text-[#111113] hover:underline">
+              <Forward className="h-[12px] w-[12px]" strokeWidth={1.8} />Transférer
+            </button>
+          )}
+        </div>
       </div>
     </article>
   )

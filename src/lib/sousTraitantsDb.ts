@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import type { SousTraitant, StatutST } from "../recrutement"
+import type { BilanSuppression } from "./suppressionArtisan"
 
 type LigneST = {
   id: string
@@ -207,6 +208,21 @@ export async function majSousTraitant(id: string, st: Partial<SousTraitant>): Pr
   if (error) throw new Error(error.message)
 }
 
+/** Ce que la suppression d'une fiche emporterait (lot 5) : le dialogue le liste, et refuse s'il y a contrat, dossier ou formation. */
+export async function bilanSuppression(id: string): Promise<BilanSuppression> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const sb = supabase
+  const compter = async (table: string) => {
+    const { count, error } = await sb.from(table).select("*", { count: "exact", head: true }).eq("sous_traitant_id", id)
+    if (error) throw new Error(`${table} : ${error.message}`)
+    return count ?? 0
+  }
+  const [envois, clics, appels, qualifications, contrats, formations, dossiers] = await Promise.all(
+    ["st_envois", "st_clics", "st_appels", "st_qualifications", "st_contrats", "st_formations", "dossiers_st"].map(compter),
+  )
+  return { envois, clics, appels, qualifications, contrats, formations, dossiers }
+}
+
 export async function supprimerSousTraitant(id: string): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
   const { error } = await supabase.from("st_sous_traitants").delete().eq("id", id)
@@ -226,10 +242,12 @@ export async function nePlusContacter(st: SousTraitant, motif: string): Promise<
   const email = (st.email || "").toLowerCase().trim()
   const telephone = (st.telephone || "").trim()
   if (email || telephone) {
-    await supabase.from("st_exclusions").upsert(
+    // Lot 5 (26/11/2026) : l'échec de l'ajout à la liste d'exclusion était ignoré, et l'écran disait « exclue ».
+    const { error: e2 } = await supabase.from("st_exclusions").upsert(
       { email: email || null, telephone: telephone || null, motif: motif || "ne plus contacter (depuis l'écran)" },
       { onConflict: "email", ignoreDuplicates: true },
     )
+    if (e2) throw new Error(`La fiche est désinscrite (plus aucun envoi), mais son adresse n'a pas pu être ajoutée à la liste d'exclusion : ${e2.message}. Réessaie, sinon une réimportation pourrait la remettre dans le circuit.`)
   }
 }
 

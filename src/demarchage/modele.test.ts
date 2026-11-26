@@ -12,18 +12,49 @@ import {
   type Contact,
   contactDuGestionnaire,
   filtreRechercheAgences,
+  memeTelephone,
+  numeroCherche,
+  textePlat,
 } from "./modele"
 
 describe("recherche des agences (filtre PostgREST)", () => {
-  it("met la valeur entre guillemets sur chaque colonne", () => {
-    expect(filtreRechercheAgences("  Foncia  ")).toBe('nom.ilike."%Foncia%",telephone.ilike."%Foncia%",email.ilike."%Foncia%",adresse.ilike."%Foncia%",contact_principal.ilike."%Foncia%"')
+  it("cherche le texte à plat (sans accents, minuscules) dans recherche_plat", () => {
+    expect(filtreRechercheAgences("  Société  Générale ")).toBe('recherche_plat.ilike."%societe generale%"')
+    expect(filtreRechercheAgences("Lafôret Œuvre")).toBe('recherche_plat.ilike."%laforet oeuvre%"')
+  })
+  it("un numéro tapé sans espaces, avec espaces ou en +33 cherche aussi les chiffres des standards et lignes directes", () => {
+    const attendu = 'recherche_plat.ilike."%0140211515%",telephone_chiffres.like."%0140211515%",contact_ligne_chiffres.like."%0140211515%"'
+    expect(filtreRechercheAgences("0140211515")).toBe(attendu)
+    expect(filtreRechercheAgences("01 40 21 15 15").split(",").slice(1).join(",")).toBe(attendu.split(",").slice(1).join(","))
+    expect(filtreRechercheAgences("+33 1 40 21 15 15")).toContain('telephone_chiffres.like."%0140211515%"')
+    expect(filtreRechercheAgences("01.40.21")).toContain('telephone_chiffres.like."%014021%"')
   })
   it("une parenthèse, une virgule ou un guillemet ne cassent plus le filtre", () => {
-    expect(filtreRechercheAgences("Agence (Paris), \"Centre\"").split(",telephone.")[0]).toBe('nom.ilike."%Agence (Paris), \\"Centre\\"%"')
-    expect(filtreRechercheAgences("a\\b")).toContain('nom.ilike."%a\\\\b%"')
+    expect(filtreRechercheAgences("Agence (Paris), \"Centre\"")).toBe('recherche_plat.ilike."%agence (paris), \\"centre\\"%"')
+    expect(filtreRechercheAgences("a\\b")).toContain('recherche_plat.ilike."%a\\\\b%"')
   })
   it("retire le joker % et réduit les espaces", () => {
-    expect(filtreRechercheAgences("10 %  rue")).toContain('nom.ilike."%10 rue%"')
+    expect(filtreRechercheAgences("10 %  rue")).toBe('recherche_plat.ilike."%10 rue%"')
+  })
+})
+
+describe("numéros et textes à plat", () => {
+  it("numeroCherche : chiffres au format national, vide si ce n'est pas un numéro", () => {
+    expect(numeroCherche("01 40 21 15 15")).toBe("0140211515")
+    expect(numeroCherche("+33 (0)1 40 21 15 15")).toBe("0140211515")
+    expect(numeroCherche("0033140211515")).toBe("0140211515")
+    expect(numeroCherche("Orpi 75011")).toBe("")
+    expect(numeroCherche("7")).toBe("")
+  })
+  it("memeTelephone : les 9 derniers chiffres", () => {
+    expect(memeTelephone("01 40 21 15 15", "0140211515")).toBe(true)
+    expect(memeTelephone("+33 1 40 21 15 15", "01.40.21.15.15")).toBe(true)
+    expect(memeTelephone("01 40 21 15 16", "0140211515")).toBe(false)
+    expect(memeTelephone("1515", "1515")).toBe(false)
+  })
+  it("textePlat : accents, ligatures, casse, espaces", () => {
+    expect(textePlat("  Hélène   ÇA  ")).toBe("helene ca")
+    expect(textePlat(null)).toBe("")
   })
 })
 

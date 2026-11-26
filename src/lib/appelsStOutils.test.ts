@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { SousTraitant } from "../recrutement"
-import { effetAppel, estLead, ordonnerLeads, signaux } from "./appelsStOutils"
+import { demainParis, effetAppel, estLead, ordonnerLeads, signaux } from "./appelsStOutils"
 
 const st = (p: Partial<SousTraitant>): SousTraitant => ({
   id: p.id ?? "x", entreprise: "E", contact: "", email: "", telephone: "06 00 00 00 00", metier: "Plombier", zone: "", statut: "en_sequence", etapeCourante: 0, nbClics: 0, nbEnvoisOk: 0, nbEnvoisErreur: 0, ...p,
@@ -43,5 +43,18 @@ describe("effetAppel et signaux", () => {
   it("liste les signaux", () => {
     expect(signaux(st({ candidatureClicLe: "2026-10-08T10:00:00Z", baremeVuLe: "2026-10-07T10:00:00Z" }))).toHaveLength(2)
     expect(signaux(st({ nbClics: 3, dernierClicLe: "2026-10-08T10:00:00Z" }))[0]).toMatch(/3 clics/)
+  })
+})
+
+describe("demainParis (lot 5)", () => {
+  it("entre minuit et 1 h à Paris, demain est bien le lendemain", () => {
+    // 26/11 à 0 h 30 à Paris = 25/11 23 h 30 UTC
+    expect(demainParis(new Date("2026-11-25T23:30:00Z"))).toBe("2026-11-27")
+  })
+  it("l'été (UTC+2), à 1 h 30 à Paris", () => {
+    expect(demainParis(new Date("2026-07-14T23:30:00Z"))).toBe("2026-07-16")
+  })
+  it("en journée et en fin de mois", () => {
+    expect(demainParis(new Date("2026-11-30T10:00:00Z"))).toBe("2026-12-01")
   })
 })

@@ -50,7 +50,7 @@ import {
 import {
   DELAI_ANTI_DOUBLE_APPEL_MS,
   compteARebours, dateHeureCourte, demainALHeure, dureeAppel, jaugeDuJour, lignesNumeros, numeroEmissionPour, numeroLeMoinsAttribue,
-  CADENCE_MIN_S, resumeEcriture, toursSansDemarrage, trierRappels,
+  CADENCE_MIN_S, repartirAAppeler, resumeEcriture, toursSansDemarrage, trierRappels,
   type ChoixResultat,
 } from "../../demarchage/sessionOutils"
 import { useReglages } from "../../demarchage/reglages"
@@ -83,10 +83,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // Deux onglets (Mahdi, 11/11/2026) : « À appeler aujourd'hui » (les leads, puis les appels demandés par les
   // campagnes, puis les rappels du jour, dans une seule file) et « Prospection ».
   const [mode, setMode] = useState<"aujourdhui" | "prospection">("prospection")
-  const [nbCampagne, setNbCampagne] = useState(0)
+  const [nbAujourdhui, setNbAujourdhui] = useState<number | null>(null) // agences distinctes (repartirAAppeler)
   const [motifs, setMotifs] = useState<Map<string, MotifAppel>>(() => new Map())
   const [leadsParAgence, setLeadsParAgence] = useState<Map<string, Lead>>(() => new Map())
-  const [nbLeads, setNbLeads] = useState<number | null>(null)
   const modeRef = useRef(mode)
   useEffect(() => { modeRef.current = mode }, [mode])
   const motifsRef = useRef(motifs)
@@ -312,7 +311,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     if (!enVie.current || jeton !== jetonCompteurs.current) return
     setSecteurs(sect)
     setCompteurs(cpt)
-    setNbLeads(nl)
     // Le matin (Mahdi, 10/10) : d'abord les leads s'il y en a (06/11), puis « À rappeler aujourd'hui », puis « À prospecter ».
     if (premierReperes.current) {
       premierReperes.current = false
@@ -334,6 +332,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   useEffect(() => {
     proprietaireRef.current = proprietaire
   }, [proprietaire])
+  const recompterAujourdhuiRef = useRef<() => void>(() => {}) // rempli plus bas (recompterAujourdhui)
   // Recompter les piles (après un résultat, une tâche, un apporteur) ; en échec : « — ».
   const recompterFiles = useCallback(() => {
     const jeton = ++jetonCompteurs.current
@@ -344,8 +343,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       .catch(() => {
         if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(null)
       })
-    compterLeads(admin ? "tous" : proprietaireRef.current).then((n) => { if (enVie.current) setNbLeads(n) }).catch(() => { if (enVie.current) setNbLeads(null) })
-  }, [admin])
+    // Le badge « À appeler aujourd'hui » vu depuis « Prospection » (leads, campagnes, rappels : agences distinctes) ;
+    // dans « À appeler aujourd'hui », le badge est la longueur de la file elle-même.
+    if (modeRef.current === "prospection") recompterAujourdhuiRef.current()
+  }, [])
 
   // La file : rechargée quand on change de pile, de secteur, d'étape, de sourçage, ou la case des
   // déjà appelées. LA BASE la calcule (pile_demarchage : l'ordre, le repos, un numéro = un appel
@@ -353,27 +354,46 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // agences de cette étape, quelle que soit la pile (Mahdi, 09/10 : « je ne vois pas mes intéressés »).
   // « À appeler aujourd'hui » : les leads (le plus ancien d'abord), puis les appels demandés par les campagnes, puis
   // les rappels datés d'aujourd'hui ou en retard. Une agence n'y est qu'une fois, dans son groupe le plus urgent.
-  const fileAujourdhui = useCallback(async (): Promise<{ agence: Agence; lead: Lead | null }[]> => {
+  // Les trois sources, réparties par repartirAAppeler : une agence n'est comptée et enchaînée qu'une fois.
+  const lireAujourdhui = useCallback(async () => {
     const [leads, pile, taches] = await Promise.all([
       chargerLeads(proprietaireLeads),
       chargerPile("rappels", { proprietaire, etape: "", secteur: null, sourcage, inclureAppelees: inclureDejaAppelees }),
       chargerTachesCampagne().catch(() => [] as TacheCampagne[]),
     ])
     const demandesTaches = taches.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moiId, admin, ["demarchage"]))
-    const vus = new Set(leads.map((l) => l.agence.id))
-    const demandes = [...new Set(demandesTaches.map((t) => t.contactRef))].filter((id) => !vus.has(id))
+    const groupes = repartirAAppeler(leads.map((l) => l.agence.id), demandesTaches.map((t) => t.contactRef), pile.map((a) => a.id))
+    return { leads, pile, demandesTaches, groupes }
+  }, [proprietaire, proprietaireLeads, sourcage, inclureDejaAppelees, moiId, admin])
+  const fileAujourdhui = useCallback(async (): Promise<{ agence: Agence; lead: Lead | null }[]> => {
+    const { leads, pile, demandesTaches, groupes } = await lireAujourdhui()
+    const leadsGardes = groupes.leads.flatMap((id) => leads.filter((l) => l.agence.id === id).slice(0, 1))
     const parId = new Map(pile.map((a) => [a.id, a]))
-    const campagnes = (await Promise.all(demandes.map((id) => parId.get(id) ?? chargerAgence(id).then((c) => c.agence).catch(() => null)))).filter((a): a is Agence => Boolean(a))
-    for (const a of campagnes) vus.add(a.id)
+    const campagnes = (await Promise.all(groupes.campagnes.map((id) => parId.get(id) ?? chargerAgence(id).then((c) => c.agence).catch(() => null)))).filter((a): a is Agence => Boolean(a))
     // Les rappels chauds d'abord (lot 2, 17/11/2026) : signal récent, RDV, puis gestionnaire joint, puis le reste.
-    const rappels = trierRappels(pile.filter((a) => !vus.has(a.id)), new Date())
+    const rappels = trierRappels(groupes.rappels.flatMap((id) => parId.get(id) ?? []), new Date())
     const m = new Map<string, MotifAppel>()
-    for (const l of leads) m.set(l.agence.id, { groupe: "lead", texte: l.lead.signal })
+    for (const l of leadsGardes) m.set(l.agence.id, { groupe: "lead", texte: l.lead.signal })
     for (const a of campagnes) { const t = demandesTaches.find((x) => x.contactRef === a.id); m.set(a.id, { groupe: "campagne", texte: [`Campagne « ${t?.campagneNom ?? ""} »`, t?.consigne, t?.appelStandard ? "appeler le standard" : ""].filter(Boolean).join(" · ") }) }
     for (const a of rappels) m.set(a.id, { groupe: "rappel", texte: "" })
-    setMotifs(m); setNbCampagne(campagnes.length); setNbLeads(leads.length)
-    return [...leads.map((l) => ({ agence: l.agence, lead: l.lead as Lead | null })), ...campagnes.map((agence) => ({ agence, lead: null })), ...rappels.map((agence) => ({ agence, lead: null }))]
-  }, [proprietaire, proprietaireLeads, sourcage, inclureDejaAppelees, moiId, admin])
+    setMotifs(m); setNbAujourdhui(leadsGardes.length + campagnes.length + rappels.length)
+    return [...leadsGardes.map((l) => ({ agence: l.agence, lead: l.lead as Lead | null })), ...campagnes.map((agence) => ({ agence, lead: null })), ...rappels.map((agence) => ({ agence, lead: null }))]
+  }, [lireAujourdhui])
+  // Le badge « À appeler aujourd'hui » vu depuis « Prospection » : le même calcul que la file (agences distinctes).
+  const jetonAujourdhui = useRef(0)
+  const recompterAujourdhui = useCallback(() => {
+    if (!moiId) return
+    const jeton = ++jetonAujourdhui.current
+    lireAujourdhui()
+      .then(({ groupes }) => { if (enVie.current && jeton === jetonAujourdhui.current) setNbAujourdhui(groupes.total) })
+      .catch(() => { if (enVie.current && jeton === jetonAujourdhui.current) setNbAujourdhui(null) })
+  }, [lireAujourdhui, moiId])
+  useEffect(() => {
+    recompterAujourdhuiRef.current = recompterAujourdhui
+    if (mode !== "prospection") return // la file elle-même donne le chiffre
+    const t = setTimeout(recompterAujourdhui, 0)
+    return () => clearTimeout(t)
+  }, [recompterAujourdhui, mode])
 
   const chargerLaFile = useCallback(async () => {
     if (!moiId) return // la base n'est connue qu'avec le compte
@@ -1029,10 +1049,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         }
         setAppelees((s) => new Set(s).add(c.agence.id))
         // L'appel demandé par une campagne est fait : sa demande se ferme toute seule (11/11/2026).
-        // Le compteur « campagne » ne baisse que si une demande d'appel a réellement été fermée, et pour une fiche
-        // comptée comme campagne (25/11/2026 : il baissait à chaque résultat, même sans demande de campagne).
-        const compteeCampagne = motifsRef.current.get(c.agence.id)?.groupe === "campagne"
-        chargerTachesCampagne(c.agence.id).then((l) => Promise.all(l.filter((t) => t.type === "appel").map((t) => terminerTacheCampagne(t.id)))).then((fermees) => { if (fermees.length && compteeCampagne && enVie.current) setNbCampagne((n) => Math.max(0, n - 1)) }).catch((e) => { if (enVie.current) setErreur(`${c.agence.nom} : l'appel demandé par la campagne n'a pas pu être fermé (${messageDe(e)}). Il restera dans l'Agenda : ferme-le à la main.`) })
+        // Le badge « À appeler aujourd'hui » n'est recompté que si une demande d'appel a réellement été fermée.
+        chargerTachesCampagne(c.agence.id).then((l) => Promise.all(l.filter((t) => t.type === "appel").map((t) => terminerTacheCampagne(t.id)))).then((fermees) => { if (fermees.length && enVie.current) recompterAujourdhuiRef.current() }).catch((e) => { if (enVie.current) setErreur(`${c.agence.nom} : l'appel demandé par la campagne n'a pas pu être fermé (${messageDe(e)}). Il restera dans l'Agenda : ferme-le à la main.`) })
         const n = appelId ? "" : chiffresTel(a?.numeroEmission ?? "") // déjà compté au clic
         if (n) {
           setCompteursNumero((prev) => {
@@ -1191,7 +1209,7 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
           valeur={mode}
           onChange={changerMode}
           options={[
-            { id: "aujourdhui", label: "À appeler aujourd'hui", badge: mode === "aujourdhui" && !chargementFile ? fileAgences.length : (nbLeads ?? 0) + (compteurs?.rappels ?? 0) + nbCampagne || undefined },
+            { id: "aujourdhui", label: "À appeler aujourd'hui", badge: mode === "aujourdhui" && !chargementFile ? fileAgences.length : nbAujourdhui || undefined },
             { id: "prospection", label: "Prospection", badge: compteurs?.a_prospecter },
           ]}
         />

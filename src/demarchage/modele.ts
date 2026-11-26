@@ -200,14 +200,37 @@ export function nomCle(nom: string): string {
   return (nom || "").trim().replace(/\s+/g, " ").toLowerCase()
 }
 
+// Le texte « à plat » des recherches : minuscules, sans accents (œ → oe), espaces réduits.
+// Le même calcul que la fonction SQL texte_plat (unaccent + lower) : « societe » trouve « Société ».
+export function textePlat(s: unknown): string {
+  return String(s ?? "").toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim()
+}
+// Un numéro tapé dans une recherche (« 0140211515 », « 01 40 21 15 15 », « +33 1 40… ») → ses chiffres, au format
+// national (+33 / 0033 → 0) ; « » si le texte n'est pas un numéro. Le même calcul que la fonction SQL chiffres_telephone.
+export function numeroCherche(texte: string): string {
+  const brut = (texte || "").trim()
+  if (!brut || !/^[\d\s.+()-]+$/.test(brut)) return ""
+  const n = brut.replace(/^(\+33|0033)\s*(\(0\))?/, "0").replace(/\D/g, "")
+  return n.length >= 2 ? n : ""
+}
+
 // La recherche des listes d'agences, en filtre `or(...)` PostgREST (25/11/2026). La valeur est mise entre
 // guillemets doubles (\ et " échappés par \) : une virgule, une parenthèse ou un guillemet tapés ne cassent plus
 // le filtre. Le % (joker du LIKE) est retiré, comme avant ; les espaces multiples sont réduits.
-export const COLONNES_RECHERCHE_AGENCES = ["nom", "telephone", "email", "adresse", "contact_principal"] as const
+// 26/11/2026 (lot 4) : la base compare des textes « à plat » (agences_liste.recherche_plat : nom, enseigne, e-mail,
+// adresse, contact principal, secteur, sans accents) et des numéros en chiffres seuls (telephone_chiffres,
+// contact_ligne_chiffres) : « 0140211515 » trouve « 01 40 21 15 15 », « societe » trouve « Société ».
 export function filtreRechercheAgences(texte: string): string {
-  const r = (texte || "").replace(/%/g, " ").replace(/\s+/g, " ").trim()
-  const valeur = `"%${r.replace(/[\\"]/g, (c) => `\\${c}`)}%"`
-  return COLONNES_RECHERCHE_AGENCES.map((c) => `${c}.ilike.${valeur}`).join(",")
+  const entre = (v: string) => `"%${v.replace(/[\\"]/g, (c) => `\\${c}`)}%"`
+  const parties = [`recherche_plat.ilike.${entre(textePlat((texte || "").replace(/%/g, " ")))}`]
+  const numero = numeroCherche(texte)
+  if (numero) parties.push(`telephone_chiffres.like.${entre(numero)}`, `contact_ligne_chiffres.like.${entre(numero)}`)
+  return parties.join(",")
+}
+// Deux numéros sont le même s'ils finissent par les mêmes 9 chiffres (« 01 40 21 15 15 » = « +33 1 40 21 15 15 »).
+export function memeTelephone(a: string, b: string): boolean {
+  const x = (a || "").replace(/\D/g, ""), y = (b || "").replace(/\D/g, "")
+  return x.length >= 9 && y.length >= 9 && x.slice(-9) === y.slice(-9)
 }
 
 // Le gestionnaire relevé sur les OS de STC Bâtiment, en contact : premier mot = prénom, le reste = nom ;

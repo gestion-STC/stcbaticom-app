@@ -22,6 +22,8 @@ import TextesARelire from "./moteur/TextesARelire"
 import { estBaseAvis } from "../../prospection/avis"
 import { alerteLancement, alerteSansEnvoi } from "../../prospection/alerteLancement"
 import JournalMoteur from "./moteur/JournalMoteur"
+import { listerComptes } from "../../lib/comptes"
+import { COMMERCIAUX_PAR_DEFAUT } from "../../demarchage/agencesOutils"
 
 type Vue = "ensemble" | "etapes" | "ab" | "audience" | "temps" | "envois" | "leads" | "contacts" | "appels"
 type FiltreContacts = "" | "ouvert" | "clic" | "lead" | "desinscrit" | "robot"
@@ -35,6 +37,10 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
   const [champ, setChamp] = useState("")
   const [fichiers, setFichiers] = useState<Fichier[]>([])
   useEffect(() => { chargerFichiers().then(setFichiers).catch(() => undefined) }, [])
+  // Les noms de tous les comptes (26/11/2026) : avant, seul le compte connecté avait un nom, les autres restaient vides
+  // (onglet Appels) ou en identifiant technique (Audience, par commercial).
+  const [comptes, setComptes] = useState<{ id: string; nom: string }[]>(COMMERCIAUX_PAR_DEFAUT)
+  useEffect(() => { listerComptes().then((l) => setComptes([...l.map((x) => ({ id: x.id, nom: x.nom || x.email })), ...COMMERCIAUX_PAR_DEFAUT])).catch(() => undefined) }, [])
   const [filtreEnvoi, setFiltreEnvoi] = useState("")
   const [filtreContacts, setFiltreContacts] = useState<FiltreContacts>("")
   const c = v.etat.campagnes.find((x) => x.id === id)
@@ -47,6 +53,8 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
   const [aLancer, setALancer] = useState(false)
   if (!c || !base || !ind || !v.idsBases.has(c.baseId)) return <p className="text-legende text-encre-2">Campagne introuvable, ou hors de tes bases.</p>
   const analyse = constats(ind)
+  // Un appel d'artisan porte déjà le nom du commercial ; un appel d'agence, l'identifiant de son compte.
+  const nomCompte = (id: string) => (!id || id === "—" ? id : v.etat.comptes.find((k) => k.id === id)?.nom || comptes.find((k) => k.id === id)?.nom || (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id) ? "Compte supprimé" : id))
   const marches = [
     ["Éligibles", ind.audience.eligibles, null], ["Entrés", ind.audience.entres, ind.audience.eligibles], ["Touchés", ind.engagement.touches, ind.audience.entres],
     ["Ont ouvert", ind.engagement.ouvreurs, ind.engagement.touches], ["Ont cliqué", ind.engagement.cliqueurs, ind.engagement.touches], ["Leads", ind.conversion.leads, ind.engagement.touches], ["Gagnés", ind.conversion.gagnes, ind.conversion.leads],
@@ -167,7 +175,7 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
           <div className="w-64"><Selecteur value={seg?.champ ?? ""} onChange={(e) => setChamp(e.target.value)} aria-label="Ventiler par">{ind.parSegment.map((s) => <option key={s.champ} value={s.champ}>Par {s.libelle.toLowerCase()}</option>)}</Selecteur></div>
           <Table colonnes={[{ titre: seg?.libelle ?? "" }, { titre: "Entrés", largeur: "80px", droite: true }, { titre: "Touchés", largeur: "80px", droite: true }, { titre: "Cliqueurs", largeur: "84px", droite: true }, { titre: "Taux clic", largeur: "84px", droite: true }, { titre: "Réponses", largeur: "76px", droite: true }, { titre: "Leads", largeur: "70px", droite: true }, { titre: "Lead / touché", largeur: "100px", droite: true }, { titre: "Gagnés", largeur: "70px", droite: true }]}
             vide="Personne n'est encore entré."
-            lignes={(seg?.lignes ?? []).map((l) => ({ cle: l.valeur, cellules: [<b className="font-medium">{seg?.champ === "fichier" ? fichiers.find((x) => x.id === l.valeur)?.nom ?? l.valeur : l.valeur}</b>, fr(l.entres), fr(l.touches), fr(l.cliqueurs), pct(l.touches ? l.cliqueurs / l.touches : null), fr(l.repondants), <span className={l.leads ? "text-ok" : ""}>{fr(l.leads)}</span>, pct(l.touches ? l.leads / l.touches : null), fr(l.gagnes)] }))} />
+            lignes={(seg?.lignes ?? []).map((l) => ({ cle: l.valeur, cellules: [<b className="font-medium">{seg?.champ === "fichier" ? fichiers.find((x) => x.id === l.valeur)?.nom ?? l.valeur : seg?.champ === "commercial" ? nomCompte(l.valeur) : l.valeur}</b>, fr(l.entres), fr(l.touches), fr(l.cliqueurs), pct(l.touches ? l.cliqueurs / l.touches : null), fr(l.repondants), <span className={l.leads ? "text-ok" : ""}>{fr(l.leads)}</span>, pct(l.touches ? l.leads / l.touches : null), fr(l.gagnes)] }))} />
         </div>
       ) : vue === "temps" ? (
         <div className="space-y-6">
@@ -218,7 +226,7 @@ export default function Suivi({ id, modifier, aller, ouvrirFiche }: { id: string
       ) : (
         ind.parCommercial.length ? (
           <Table colonnes={[{ titre: "Commercial" }, { titre: "Appels", largeur: "90px", droite: true }, { titre: "Joints", largeur: "90px", droite: true }, { titre: "Taux joint", largeur: "100px", droite: true }, { titre: "Issues", largeur: "40%" }]}
-            lignes={ind.parCommercial.map((x) => ({ cle: x.compteId, cellules: [<b className="font-medium">{v.etat.comptes.find((k) => k.id === x.compteId)?.nom}</b>, fr(x.appels), fr(x.joints), pct(x.appels ? x.joints / x.appels : null), <span className="text-colonne text-encre-2">{Object.entries(x.issues).map(([k, n]) => `${base.issues.find((y) => y.code === k)?.libelle ?? k} ${n}`).join(" · ") || "—"}</span>] }))} />
+            lignes={ind.parCommercial.map((x) => ({ cle: x.compteId, cellules: [<b className="font-medium">{nomCompte(x.compteId) || "—"}</b>, fr(x.appels), fr(x.joints), pct(x.appels ? x.joints / x.appels : null), <span className="text-colonne text-encre-2">{Object.entries(x.issues).map(([k, n]) => `${base.issues.find((y) => y.code === k)?.libelle ?? k} ${n}`).join(" · ") || "—"}</span>] }))} />
         ) : <p className="text-legende text-encre-2">Aucun appel encore. Les leads et les étapes « Appel » arrivent dans la <button type="button" className="underline" onClick={() => aller("session")}>session de call</button>.</p>
       )}
     </div>

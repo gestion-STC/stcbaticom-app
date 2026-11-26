@@ -146,15 +146,17 @@ Deno.serve(async (req: Request) => {
     if (!pil) return finir(500, "pas de ligne de réglages (st_pilotage id=1)")
 
     // ── 1) DÉPÔTS : toujours, même à l'arrêt ─────────────────────────────
-    const { data: dossiers } = await sb.from("dossiers_st").select("id, email, raison_sociale, token_ref, sous_traitant_id, notifie_le, created_at")
-      .or("sous_traitant_id.is.null,notifie_le.is.null").order("created_at", { ascending: true }).limit(50)
+    // Lot 5 (26/11/2026) : un dossier détaché à la main (detache_le) n'est plus rattaché d'office à la même fiche
+    // au passage suivant — avant, le détachement était défait dans les 10 minutes.
+    const { data: dossiers } = await sb.from("dossiers_st").select("id, email, raison_sociale, token_ref, sous_traitant_id, notifie_le, created_at, detache_le")
+      .or("and(sous_traitant_id.is.null,detache_le.is.null),notifie_le.is.null").order("created_at", { ascending: true }).limit(50)
     for (const d of dossiers ?? []) {
       let stId: string | null = d.sous_traitant_id
-      if (!stId && d.token_ref) {
+      if (!stId && !d.detache_le && d.token_ref) {
         const { data: s } = await sb.from("st_sous_traitants").select("id").eq("token", d.token_ref).maybeSingle()
         stId = s?.id ?? null
       }
-      if (!stId && d.email) {
+      if (!stId && !d.detache_le && d.email) {
         const { data: s } = await sb.from("st_sous_traitants").select("id").ilike("email", String(d.email).trim()).limit(1).maybeSingle()
         stId = s?.id ?? null
       }

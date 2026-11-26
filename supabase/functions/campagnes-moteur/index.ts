@@ -21,7 +21,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { passage, heureParis, dansLaPlage, debutJourParis } from "../_shared/campagnes/moteur.ts"
 import { estEligible } from "../_shared/campagnes/modele.ts"
 import { verifierLesAdresses } from "../_shared/campagnes/verification.ts"
-import { AB_DEPART, leadsPourAB, verdictAB, type MesureVariante, type ReglageAB } from "../_shared/campagnes/abTest.ts"
+import { AB_DEPART, leadsAgencesRattaches, leadsArtisansRattaches, leadsPourAB, mesuresAB, verdictAB, type ReglageAB } from "../_shared/campagnes/abTest.ts"
 import { REBOND_AGENCE, avecDejaClients, exclusionLibre, pasInteresseExclu } from "../_shared/campagnes/exclusions.ts"
 import type { Campagne, Contact, Envoi, Evenement, Inscription } from "../_shared/campagnes/modele.ts"
 import { lienPublic } from "../_shared/campagnes/lien.ts"
@@ -34,6 +34,7 @@ import { sansDejaSollicites, type Coordonnees, domaineBloque } from "../_shared/
 import { AVIS_DEPART, estBaseAvis, pretPourAvis, type ReglageAvis } from "../_shared/campagnes/avis.ts"
 import { compteDeCampagne, estAttenteLinkedIn, estSautLinkedIn, faitsParCompte, identifiantLinkedIn, noteInvitation, restantLinkedIn, type CompteLinkedIn } from "../_shared/campagnes/linkedin.ts"
 import { appelUnipile, comptesLinkedIn, profilLinkedIn, reglageLinkedIn, unipileBranche } from "../_shared/campagnes/unipile.ts"
+import { relanceRetenue, type EnvoiPasse } from "../_shared/campagnes/confirmation.ts"
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } })
 const JOUR_MS = 86_400_000
@@ -59,7 +60,7 @@ async function tout<T>(q: (d: number, f: number) => PromiseLike<{ data: T[] | nu
 const versCampagne = (l: Ligne): Campagne => ({
   id: String(l.id), nom: String(l.nom), baseId: String(l.base_id), objectif: String(l.objectif ?? ""), statut: l.statut as Campagne["statut"],
   audience: l.audience as Campagne["audience"], rythme: l.rythme as Campagne["rythme"], etapes: l.etapes as Campagne["etapes"], signaux: (l.signaux ?? []) as Campagne["signaux"],
-  creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0),
+  creeParId: String(l.cree_par ?? ""), creeLe: String(l.cree_le), lanceeLe: (l.lancee_le as string) ?? null, coutSms: Number(l.cout_sms ?? 0), origine: String(l.origine ?? ""),
 })
 const versContact = (l: Ligne): Contact => ({
   id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""),
@@ -135,22 +136,39 @@ async function avecAdressesVerifiees(sb: SupabaseClient, c: Campagne, contacts: 
 }
 
 /** Le test A/B (Mahdi, 11/11/2026) : une étape dont le créatif demande la bascule n'envoie plus que son gagnant, dès qu'il y en a un. */
+/** Les leads de CETTE campagne, comme la liste et le Suivi les comptent (abTest.ts) : lus seulement quand un test A/B
+ *  doit décider d'une bascule. Agences : leads_demarchage hors robots, rattachés à la campagne où l'agence était entrée à
+ *  leur date ; artisans : « lead » ou « gagné », rattachés à la campagne de leur premier vrai clic. */
+async function leadsDeLaCampagne(sb: SupabaseClient, c: Campagne, inscriptions: Inscription[], fiches: Contact[]): Promise<Set<string>> {
+  const inscrits = new Set(inscriptions.filter((i) => i.campagneId === c.id).map((i) => i.contactId))
+  const parLots = async <T,>(ids: string[], lire: (lot: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> => {
+    const out: T[] = []
+    for (let i = 0; i < ids.length; i += 200) { const { data, error } = await lire(ids.slice(i, i + 200)); if (error) throw new Error(error.message); out.push(...(data ?? [])) }
+    return out
+  }
+  if (c.baseId === "artisans") {
+    const candidats = fiches.filter((k) => inscrits.has(k.id) && (k.statut === "lead" || k.statut === "gagne")).map((k) => k.id)
+    const clics = await parLots<{ contact_ref: string; campagne_id: string; le: string }>(candidats, (lot) => sb.from("cmp_evenements").select("contact_ref, campagne_id, le").eq("type", "clic").eq("robot", false).in("contact_ref", lot))
+    return leadsPourAB(c.id, leadsArtisansRattaches(fiches, clics.map((e) => ({ contactId: e.contact_ref, campagneId: e.campagne_id, le: e.le })), inscrits))
+  }
+  const lignes = (await tout<{ agence_id: string; cree_le: string; resultat: string | null }>((d, f) => sb.from("leads_demarchage").select("agence_id, cree_le, resultat").gte("cree_le", c.creeLe).order("id").range(d, f))).filter((l) => inscrits.has(String(l.agence_id)))
+  const entrees = await parLots<{ campagne_id: string; contact_ref: string; entree_le: string }>([...new Set(lignes.map((l) => String(l.agence_id)))], (lot) => sb.from("cmp_inscriptions").select("campagne_id, contact_ref, entree_le").in("contact_ref", lot))
+  return leadsPourAB(c.id, leadsAgencesRattaches(lignes.map((l) => ({ agenceId: String(l.agence_id), creeLe: l.cree_le, resultat: l.resultat })), entrees.map((i) => ({ campagneId: i.campagne_id, contactId: i.contact_ref, entreeLe: i.entree_le }))))
+}
+
 async function avecGagnants(sb: SupabaseClient, c: Campagne, config: Ligne["config"], evenements: Evenement[], inscriptions: Inscription[], fiches: Contact[]): Promise<Campagne> {
   const cfg = (config ?? {}) as { actions?: { id: string; creatifId?: string }[]; creatifs?: { id: string; ab?: ReglageAB }[] }
   let etapes = c.etapes
+  let leads: Set<string> | null = null
   for (const et of c.etapes) {
     if (!("variantes" in et) || et.variantes.length < 2) continue
     const r = cfg.creatifs?.find((k) => k.id === cfg.actions?.find((a) => a.id === et.id)?.creatifId)?.ab ?? AB_DEPART
     if (!r.basculer) continue
-    const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
-    // La définition partagée avec l'écran (abTest.ts) : les fiches telles qu'en base, avant l'option « Déjà client ».
-    const leads = leadsPourAB(c.id, inscriptions, fiches)
-    const mesures: MesureVariante[] = et.variantes.map((v) => {
-      const ee = envoyes.filter((e) => e.variante_id === v.id), ids = new Set(ee.map((e) => e.id))
-      const ev = evenements.filter((e) => e.envoiId && ids.has(e.envoiId))
-      const qui = (t: string) => new Set(ev.filter((e) => e.type === t).map((e) => e.contactId)).size
-      return { varianteId: v.id, nom: v.nom, envoyes: ee.length, leads: new Set(ee.map((e) => e.contact_ref).filter((x) => leads.has(x))).size, repondants: qui("reponse"), cliqueurs: qui("clic"), ouvreurs: qui("ouvert") }
-    })
+    const envoyes = await tout<{ id: string; contact_ref: string; variante_id: string | null; statut: string; canal: string; test: boolean }>((d, f) => sb.from("cmp_envois").select("id, contact_ref, variante_id, statut, canal, test").eq("campagne_id", c.id).eq("etape_id", et.id).eq("statut", "envoye").eq("test", false).order("id").range(d, f))
+    // Les mêmes chiffres qu'à l'écran (abTest.ts, 26/11/2026) : envois PARTIS (confirmés chez Instantly), leads de la campagne.
+    leads ??= await leadsDeLaCampagne(sb, c, inscriptions, fiches)
+    const instantly = !estBaseAvis(c.baseId) && c.origine !== "st"
+    const mesures = mesuresAB(et.variantes, envoyes.map((e) => ({ id: e.id, contactId: e.contact_ref, varianteId: e.variante_id, statut: e.statut, canal: e.canal, test: e.test })), evenements, leads, instantly)
     const g = verdictAB(mesures, r).gagnant
     if (g) etapes = etapes.map((e) => (e.id === et.id && "variantes" in e ? { ...e, variantes: e.variantes.filter((v) => v.id === g) } : e))
   }
@@ -183,6 +201,17 @@ async function contactsBloques(sb: SupabaseClient, campagneId: string, baseId: s
   // Une exclusion ajoutée à la main (« Endormie », « Orpi »…) : la valeur d'un champ du contact.
   for (const k of contacts) if (exclusionLibre(k.champs, exclusions)) bloques.add(k.id)
   return bloques
+}
+
+/** Le mail d'avant est-il parti (26/11/2026) ? Lu en base juste avant l'envoi ; une lecture en échec retient la relance. */
+async function attendConfirmation(sb: SupabaseClient, inscriptionId: string, etapeId: string): Promise<boolean> {
+  const { data: envois, error } = await sb.from("cmp_envois").select("id, etape_id, canal, statut, test, le").eq("inscription_id", inscriptionId)
+  if (error) return true
+  const liste = (envois ?? []) as EnvoiPasse[]
+  if (!liste.some((e) => e.statut === "envoye")) return false
+  const { data: evs, error: errEv } = await sb.from("cmp_evenements").select("envoi_id").eq("type", "delivre").in("envoi_id", liste.map((e) => e.id))
+  if (errEv) return true
+  return relanceRetenue(liste, new Set(((evs ?? []) as { envoi_id: string }[]).map((x) => x.envoi_id)), etapeId)
 }
 
 /** « 3 × boîte refusée, 1 × adresse vide » : les causes regroupées. */
@@ -303,7 +332,11 @@ async function envoyer(sb: SupabaseClient, base: string, service: string, c: Lig
     // Les sous-traitants actuels relèvent du recrutement (25/11/2026) : avant, leur demande d'avis partait du démarchage
     // (contact@), était rangée sans agence (alerte « mail_sans_agence ») et leurs réponses arrivaient au démarchage.
     const espace = k.baseId === "sous_traitants_actifs" ? "recrutement" : "demarchage"
-    const r = await invoquer(base, service, "envoyer-email", { espace, to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${stopAvis}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
+    // Le bouton « Se désinscrire » de Gmail/Yahoo poste sur l'adresse de l'en-tête (RFC 8058, 26/11/2026) : avant, elle
+    // menait à la page publique (GitHub Pages), qui ne reçoit pas de POST, et rien n'était noté. formulaire-campagne,
+    // elle, vérifie la signature du lien et désinscrit.
+    const desabo = `${base}/functions/v1/formulaire-campagne?${new URL(stopAvis).searchParams.toString()}`
+    const r = await invoquer(base, service, "envoyer-email", { espace, to, subject: `${test ? "[TEST] " : ""}${sujet}`, html, headers: { "List-Unsubscribe": `<${desabo}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } })
     return r.ok ? { ok: true, fournisseurId: String(r.data?.id ?? r.data?.resend_id ?? "") } : { ok: false, erreur: String(r.data?.error ?? "envoi e-mail échoué") }
   }
   // Mode test : aucun lien ne doit agir sur la vraie fiche (désinscrire l'agence, poser un lead).
@@ -500,6 +533,11 @@ Deno.serve(async (req: Request) => {
         // Boîtes Instantly pas prêtes : le mail attend, il n'est ni perdu ni envoyé par un autre chemin.
         const causeReport = arret ? "limite de débit du prestataire" : envoisPassage >= ENVOIS_MAX_PAR_PASSAGE ? `plafond de ${ENVOIS_MAX_PAR_PASSAGE} envois par passage` : canal === "linkedin" && liBloque ? "LinkedIn : compte absent ou quota atteint" : canal !== "linkedin" && budget[canal] <= 0 ? `plafond du jour (${canal})` : canal === "sms" && !hSms ? "hors des heures SMS" : canal === "mail" && !avis && !ins.pretes.length ? "aucune boîte Instantly prête" : ""
         if (causeReport) { reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[causeReport] = (reports[causeReport] ?? 0) + 1; continue }
+        // Une relance ne part qu'après la confirmation du mail d'avant (26/11/2026) : « confié à Instantly » n'est pas « parti ».
+        if (!nouvelles.has(e.inscriptionId) && e.statut !== "saute" && !ligne.mode_test && !avis && await attendConfirmation(sb, e.inscriptionId, e.etapeId)) {
+          const cause = "mail précédent pas encore confirmé parti"
+          reportees.add(e.inscriptionId); bilan.reportes = Number(bilan.reportes) + 1; reports[cause] = (reports[cause] ?? 0) + 1; continue
+        }
         const etapeIndex = c.etapes.findIndex((x) => x.id === e.etapeId)
         const etape = c.etapes[etapeIndex]
         const v = etape && "variantes" in etape ? etape.variantes.find((x) => x.id === e.varianteId) ?? etape.variantes[0] : null

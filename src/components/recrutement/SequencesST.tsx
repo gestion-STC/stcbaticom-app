@@ -13,7 +13,7 @@ import { ArrowDown, ArrowUp, Copy, Pencil, Plus, Power, Send, Trash2 } from "luc
 import type { CanalEtape, EtapeST, SequenceST } from "../../recrutement"
 import { etapeVide, variablesST } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
-import { chargerSequences, creerSequence, majSequence, supprimerSequence, chargerEtapes, creerEtape, majEtape, supprimerEtape } from "../../lib/sequencesStDb"
+import { chargerSequences, creerSequence, majSequence, supprimerSequence, chargerEtapes, creerEtape, majEtape, supprimerEtape, compterEnvoisReussis } from "../../lib/sequencesStDb"
 import { chargerPilotage, majPilotage } from "../../lib/pilotageStDb"
 import { envoyerEmailTest, envoyerSmsTest } from "../../lib/machineDb"
 import { numeroValide } from "../../lib/telephone"
@@ -26,11 +26,18 @@ import { Bandeau, Bouton, Carte, Case, Champ, Chargement, Dialogue, EnTetePage, 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const libelleCanal = (c: CanalEtape) => (c === "sms" ? "SMS" : "E-mail")
 
+// Lot 5 (26/11/2026) : supprimer une étape effaçait tout son historique d'envoi (584 envois pour l'étape 1 de
+// « Campagne partenaires STC »). La base garde désormais les envois, avec le nom de l'étape (maj-2026-11-26-lot5.sql).
+const historique = (n: number | undefined) => n === undefined
+  ? "Les envois déjà faits restent dans l'historique des fiches et dans les chiffres de la Machine."
+  : n === 0 ? "Aucun envoi réussi n'a encore été fait avec elle."
+  : `Les ${n.toLocaleString("fr-FR")} envoi${n > 1 ? "s" : ""} réussi${n > 1 ? "s" : ""} déjà fait${n > 1 ? "s" : ""} rest${n > 1 ? "ent" : "e"} dans l'historique des fiches et dans les chiffres de la Machine.`
+
 type Dial =
   | { type: "nouvelle" }
   | { type: "renommer"; seq: SequenceST }
-  | { type: "supprimerSeq"; seq: SequenceST }
-  | { type: "supprimerEtape"; etape: EtapeST }
+  | { type: "supprimerSeq"; seq: SequenceST; envois?: number }
+  | { type: "supprimerEtape"; etape: EtapeST; envois?: number }
 
 export default function SequencesST() {
   const [sequences, setSequences] = useState<SequenceST[]>([])
@@ -85,7 +92,12 @@ export default function SequencesST() {
     catch (e) { setErreur(msg(e)) }
     finally { setOccupe(false) }
   }
-  const ouvrirDialogue = (d: Dial) => { setNom(d.type === "renommer" ? d.seq.nom : d.type === "nouvelle" ? "Nouvelle séquence" : ""); setDialogue(d) }
+  const ouvrirDialogue = (d: Dial) => {
+    setNom(d.type === "renommer" ? d.seq.nom : d.type === "nouvelle" ? "Nouvelle séquence" : ""); setDialogue(d)
+    // Lot 5 : la confirmation dit combien d'envois réussis restent dans l'historique.
+    const ids = d.type === "supprimerEtape" ? Promise.resolve([d.etape.id!]) : d.type === "supprimerSeq" ? chargerEtapes(d.seq.id!).then((l) => l.map((e) => e.id!)) : null
+    ids?.then(compterEnvoisReussis).then((n) => setDialogue((x) => (x === d ? { ...d, envois: n } : x))).catch(() => undefined)
+  }
 
   // ── Les séquences ──────────────────────────────────────────────────────────
   const creerNouvelle = () => agir(async () => {
@@ -305,7 +317,7 @@ export default function SequencesST() {
         ) : (
           <Dialogue
             titre={`Supprimer « ${dialogue.seq.nom} » ?`}
-            description="La séquence et toutes ses étapes disparaissent. Les artisans déjà démarrés avec elle ne recevront plus la suite."
+            description={`La séquence et toutes ses étapes disparaissent. Les artisans déjà démarrés avec elle ne recevront plus la suite. ${historique(dialogue.envois)}`}
             onFermer={() => setDialogue(null)}
             pied={<><Bouton onClick={() => setDialogue(null)}>Annuler</Bouton><Bouton variante="danger" chargement={occupe} onClick={() => supprimerSeq(dialogue.seq)}>Supprimer</Bouton></>}
           />
@@ -314,7 +326,7 @@ export default function SequencesST() {
       {dialogue?.type === "supprimerEtape" ? (
         <Dialogue
           titre="Supprimer cette étape ?"
-          description={`${libelleCanal(dialogue.etape.canal)} à J+${dialogue.etape.delaiJours}${dialogue.etape.objet ? ` · ${dialogue.etape.objet}` : ""}. Pour la suspendre sans la perdre, préférez « Désactiver ».`}
+          description={`${libelleCanal(dialogue.etape.canal)} à J+${dialogue.etape.delaiJours}${dialogue.etape.objet ? ` · ${dialogue.etape.objet}` : ""}. Elle disparaît de la séquence : les artisans qui ne l'ont pas encore reçue ne la recevront pas. ${historique(dialogue.envois)} Pour la suspendre sans la perdre, préférez « Désactiver ».`}
           onFermer={() => setDialogue(null)}
           pied={<><Bouton onClick={() => setDialogue(null)}>Annuler</Bouton><Bouton variante="danger" chargement={occupe} onClick={() => supprimerEt(dialogue.etape)}>Supprimer</Bouton></>}
         />

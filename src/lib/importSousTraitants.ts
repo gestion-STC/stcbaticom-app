@@ -252,3 +252,24 @@ export function dedoublonner(
   }
   return { aAjouter, doublons, exclus }
 }
+
+/**
+ * La fiche déjà dans la base qui a le même e-mail ou le même téléphone (même normalisation
+ * que l'import) — pour prévenir à la création manuelle, sans l'empêcher (lot 5, 26/11/2026).
+ */
+export function trouverDoublon<T extends { id?: string; email?: string; telephone?: string }>(
+  fiche: { id?: string; email?: string; telephone?: string },
+  existantes: T[],
+): { fiche: T; par: "e-mail" | "téléphone" } | null {
+  const m = normaliserEmail(fiche.email)
+  const t = normaliserTelephone(fiche.telephone)
+  for (const e of existantes) {
+    if (fiche.id && e.id === fiche.id) continue
+    if (m && normaliserEmail(e.email) === m) return { fiche: e, par: "e-mail" }
+  }
+  for (const e of existantes) {
+    if (fiche.id && e.id === fiche.id) continue
+    if (t && normaliserTelephone(e.telephone) === t) return { fiche: e, par: "téléphone" }
+  }
+  return null
+}

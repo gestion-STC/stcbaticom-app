@@ -96,9 +96,9 @@ describe("confié à Instantly ou parti", () => {
 })
 
 describe("test A/B : une seule définition des leads", () => {
-  it("sorti lead de la campagne, ou fiche lead / gagnée", () => {
-    const l = leadsPourAB("c", [insc({ contactId: "a", statut: "lead" }), insc({ contactId: "z", statut: "lead", campagneId: "autre" })], [{ id: "b", statut: "gagne" }, { id: "d", statut: "libre" }])
-    expect([...l].sort()).toEqual(["a", "b"])
+  it("les leads rattachés à la campagne, comme la liste et le Suivi (26/11/2026)", () => {
+    const l = leadsPourAB("c", [{ contactId: "a", campagneId: "c" }, { contactId: "z", campagneId: "autre" }, { contactId: "y", campagneId: null }])
+    expect([...l]).toEqual(["a"])
   })
 })
 

@@ -186,3 +186,36 @@ export function signatureAvecAdresse(html: string, adresse: string): string {
   if (!a || a === ADRESSE_GENERALE) return html
   return String(html ?? "").split(`mailto:${ADRESSE_GENERALE}`).join(`mailto:${a}`).split(`>${ADRESSE_GENERALE}</a>`).join(`>${a}</a>`)
 }
+
+// ── L'ADRESSE DE RÉPONSE PORTE LE MESSAGE (26/11/2026, comme STC Bâtiment reply-to-os) ─────────────
+// Resend REMPLACE notre Message-ID par celui d'Amazon (…@amazonses.com) : une réponse cite un identifiant que nous
+// n'avons jamais vu, et le rattachement par le fil (In-Reply-To) ne trouvait jamais rien. Une DESTINATION, elle, ne se
+// réécrit pas : l'adresse de réponse porte l'identifiant du message envoyé, « prenom-r-<id>@crm.stcbatiment.fr ».
+// Un collègue, un anti-spam, un transfert qui répond à cette adresse est rangé sur la bonne agence, le bon artisan.
+// Le domaine reçoit toutes les adresses (attrape-tout) ; la porte d'origine reste devant (la boîte de qui).
+// Pas de « + » : certaines passerelles le normalisent ou le refusent, un tiret traverse tout.
+const ANCRE = /-r-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@/i
+
+/** « prenom@crm… » + l'identifiant du message → « prenom-r-<id>@crm… » ; null hors de notre domaine (on garde l'adresse). */
+export function adresseAncree(porte: string | null | undefined, idMessage: string): string | null {
+  const a = adresseSeule(porte)
+  if (!estDuDomaine(a) || !/^[0-9a-f-]{36}$/i.test(idMessage)) return null
+  const [local, domaine] = [a.slice(0, a.lastIndexOf("@")), a.slice(a.lastIndexOf("@") + 1)]
+  const nette = local.replace(/-r-[0-9a-f-]{36}$/i, "")
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(nette)) return null
+  return `${nette}-r-${idMessage.toLowerCase()}@${domaine}`
+}
+
+/** L'identifiant du message envoyé lu dans l'adresse d'arrivée (notre domaine seulement), sinon null. */
+export function messageDeLAncre(adresse: string | null | undefined): string | null {
+  const a = adresseSeule(adresse)
+  if (!estDuDomaine(a)) return null
+  return a.match(ANCRE)?.[1]?.toLowerCase() ?? null
+}
+
+/** « prenom-r-<id>@crm… » redevient « prenom@crm… » : la boîte de qui, l'espace, ne voient que la porte. */
+export function porteSansAncre(adresse: string): string {
+  const a = adresseSeule(adresse)
+  if (!estDuDomaine(a)) return a
+  return a.replace(/-r-[0-9a-f-]{36}@/i, "@")
+}

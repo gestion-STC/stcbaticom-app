@@ -17,10 +17,13 @@
 // Et une réponse d'artisan qui dit « stop », « désinscription », « ne plus me
 // contacter »… DÉSINSCRIT la fiche à l'instant (séquence arrêtée, adresse
 // exclue), sauf si c'est une réponse automatique d'absence.
+// Une AGENCE (ou un client gestionnaire) qui répond la même chose est désinscrite de la même façon (26/11/2026,
+// obligation légale) : « ne plus écrire » posé sur sa fiche, comme par instantly-evenements.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { lireReponse } from "../_shared/campagnes/generationIA.ts";
-import { adresseSeule, espaceDuMailRecu, estDuDomaine, estUneReponse, identifiantsCites, repondAUnSujet } from "../_shared/boitesMail.ts";
+import { nomDeStockage } from "../_shared/fil.ts";
+import { adresseSeule, espaceDuMailRecu, estDuDomaine, estUneReponse, identifiantsCites, messageDeLAncre, porteSansAncre, repondAUnSujet } from "../_shared/boitesMail.ts";
 
 const MAX_PJ_OCTETS = 15 * 1024 * 1024;
 const json = (b: unknown, s = 200) =>
@@ -40,7 +43,14 @@ function entete(headers: unknown, nom: string): string {
   }
   return "";
 }
-const nomSur = (n: string) => (n || "fichier").replace(/[^\w.\-éèêàçùïöüâîôû ]+/gi, "_").slice(0, 120);
+/** Le nom affiché : celui d'origine, sans caractère de contrôle. */
+const nomAffiche = (n: string) => String(n || "fichier").replace(/[\u0000-\u001f/\\]+/g, " ").trim().slice(0, 200) || "fichier";
+
+/** Une réponse envoyée par un automate (absence, accusé de réception) : jamais une demande d'arrêt (RFC 3834). */
+export function reponseAutomatique(headers: unknown): boolean {
+  const auto = entete(headers, "auto-submitted").trim().toLowerCase();
+  return (auto !== "" && auto !== "no") || entete(headers, "x-autoreply") !== "" || entete(headers, "x-autorespond") !== "";
+}
 
 /** Une demande d'arrêt, dans l'objet ou le début du corps. */
 export function demandeArret(objet: string, corps: string): boolean {
@@ -79,8 +89,12 @@ Deno.serve(async (req: Request) => {
       ...(Array.isArray(d.received_for) ? d.received_for : []),
     ].map((t: unknown) => adresse((t as { address?: string })?.address ?? t)).filter(Boolean))];
 
-    const pourLeCrm = tous.filter(estDuDomaine);
-    if (pourLeCrm.length === 0) return json({ ok: true, ignore: "hors domaine crm" });
+    const pourLeCrmBrut = tous.filter(estDuDomaine);
+    if (pourLeCrmBrut.length === 0) return json({ ok: true, ignore: "hors domaine crm" });
+    // L'ADRESSE DE RÉPONSE PORTE LE MESSAGE (26/11/2026) : « prenom-r-<id>@ » désigne le mail que nous avions envoyé.
+    // On garde la porte (« prenom@ ») comme destinataire : la boîte de qui et l'espace se lisent comme avant.
+    const idAncre = pourLeCrmBrut.map(messageDeLAncre).find(Boolean) ?? null;
+    const pourLeCrm = [...new Set(pourLeCrmBrut.map(porteSansAncre))];
 
     const objet = String(d.subject ?? "");
     const messageId = d.message_id ?? d.messageId ?? null;
@@ -103,6 +117,14 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    // Le mail envoyé auquel on répond, lu dans l'adresse de réponse : son agence, son artisan, sa boîte.
+    type Origine = { id: string; espace: string | null; agence_id: string | null; sous_traitant_id: string | null; compte_id: string | null; message_id: string | null };
+    let origine: Origine | null = null;
+    if (idAncre) {
+      const { data: o } = await admin.from("messages").select("id, espace, agence_id, sous_traitant_id, compte_id, message_id").eq("id", idAncre).eq("sens", "sortant").maybeSingle();
+      origine = (o as Origine | null) ?? null;
+    }
+
     // ── L'ESPACE (11/11/2026) : la règle pure de _shared/boitesMail.ts ──
     let sousTraitantId: string | null = null;
     let statutSt: string | null = null;
@@ -111,12 +133,15 @@ Deno.serve(async (req: Request) => {
       sousTraitantId = st?.id ?? null;
       statutSt = st?.statut ?? null;
     }
+    // Un collègue de l'artisan répond à notre mail : la fiche est celle du mail d'origine (jamais une désinscription
+    // de l'artisan sur le mot d'un autre : statutSt reste vide, voir plus bas).
+    const artisanDeLOrigine = !sousTraitantId && origine?.espace === "recrutement" ? origine.sous_traitant_id : null;
     // Répond-il à un de nos mails du recrutement ? Par les en-têtes (In-Reply-To, References), sinon par
     // le sujet (« Re: » + un sujet que le recrutement a envoyé à cette adresse).
     const inReplyTo: string | null = String(d.in_reply_to ?? d.inReplyTo ?? entete(d.headers, "in-reply-to")).trim() || null;
-    let repondAuRecrutement = false;
+    let repondAuRecrutement = origine?.espace === "recrutement";
     const cites = identifiantsCites(inReplyTo, entete(d.headers, "references"));
-    if (cites.length) {
+    if (!repondAuRecrutement && cites.length) {
       const { count } = await admin.from("messages").select("id", { count: "exact", head: true }).eq("espace", "recrutement").in("message_id", cites.slice(0, 50));
       repondAuRecrutement = (count ?? 0) > 0;
     }
@@ -133,26 +158,40 @@ Deno.serve(async (req: Request) => {
     // L'agence : la base range le mail sur sa fiche (déclencheur messages_rattacher_agence, par
     // l'adresse du contact puis celle de l'agence). L'ancienne table « prospects » n'est plus lue (14/10).
 
-    const pieces: { nom: string; chemin: string; taille: number; type: string }[] = [];
+    // Les pièces jointes. Une pièce qui ne peut pas être gardée n'est plus perdue en silence (26/11/2026) : elle reste
+    // dans la liste du message, sans fichier, avec la raison (« nonGardee ») ; l'écran la montre « non reçue ».
+    type Piece = { nom: string; chemin: string; taille: number; type: string; nonGardee?: string };
+    const pieces: Piece[] = [];
     const attachs = Array.isArray(d.attachments) ? d.attachments : [];
-    if (attachs.length && emailId && cleResend) {
+    if (attachs.length) {
       const dossier = crypto.randomUUID();
+      const noms = new Set<string>();
       for (const a of attachs) {
+        const nom = nomAffiche(String(a?.filename || "fichier"));
+        const type = String(a?.content_type || "");
+        const perdue = (raison: string, taille = 0) => {
+          console.warn(`[RECEVOIR-EMAIL] PJ non gardée « ${nom} » : ${raison}`);
+          pieces.push({ nom, chemin: "", taille, type, nonGardee: raison });
+        };
         try {
+          if (!emailId || !cleResend) { perdue("pièce illisible chez le fournisseur"); continue; }
           const meta = await fetch(`https://api.resend.com/emails/receiving/${emailId}/attachments/${a.id}`,
             { headers: { Authorization: "Bearer " + cleResend } }).then((r) => (r.ok ? r.json() : null));
-          if (!meta?.download_url) continue;
-          if (Number(meta.size) > MAX_PJ_OCTETS) continue;
+          if (!meta?.download_url) { perdue("pièce illisible chez le fournisseur"); continue; }
+          if (Number(meta.size) > MAX_PJ_OCTETS) { perdue(`trop lourde (${Math.round(Number(meta.size) / 1024 / 1024)} Mo, 15 Mo au maximum)`, Number(meta.size)); continue; }
           const contenu = await fetch(meta.download_url).then((r) => (r.ok ? r.arrayBuffer() : null));
-          if (!contenu) continue;
-          const nom = nomSur(String(a.filename || meta.filename || "fichier"));
-          const chemin = `${dossier}/${nom}`;
+          if (!contenu) { perdue("téléchargement impossible"); continue; }
+          // Deux pièces au même nom ne s'écrasent pas.
+          let fichier = nomDeStockage(String(a.filename || meta.filename || "fichier"));
+          for (let i = 2; noms.has(fichier); i++) fichier = `${i}-${nomDeStockage(String(a.filename || meta.filename || "fichier"))}`;
+          noms.add(fichier);
+          const chemin = `${dossier}/${fichier}`;
           const { error: errUp } = await admin.storage.from("mails-recus").upload(chemin, contenu, {
             contentType: String(a.content_type || meta.content_type || "application/octet-stream"), upsert: true,
           });
-          if (errUp) continue;
-          pieces.push({ nom, chemin, taille: contenu.byteLength, type: String(a.content_type || "") });
-        } catch (e) { console.warn(`[RECEVOIR-EMAIL] PJ: ${String(e)}`); }
+          if (errUp) { perdue(`stockage refusé : ${errUp.message}`, contenu.byteLength); continue; }
+          pieces.push({ nom, chemin, taille: contenu.byteLength, type: type || String(meta.content_type || "") });
+        } catch (e) { perdue(`erreur : ${String(e).slice(0, 120)}`); }
       }
     }
 
@@ -161,7 +200,10 @@ Deno.serve(async (req: Request) => {
       sens: "entrant", de, a: pourLeCrm.join(", "), objet,
       corps_text: corpsText, corps_html: corpsHtml,
       message_id: messageId, in_reply_to: inReplyTo,
-      sous_traitant_id: sousTraitantId, espace, lu: false, brut: payload, pieces_jointes: pieces,
+      sous_traitant_id: sousTraitantId ?? artisanDeLOrigine, espace, lu: false, brut: payload, pieces_jointes: pieces,
+      // Réponse à un mail connu (adresse de réponse) : sa fiche et sa boîte, sans rien deviner par l'adresse de l'expéditeur.
+      ...(origine && espace === "demarchage" && origine.agence_id ? { agence_id: origine.agence_id } : {}),
+      ...(origine && espace === "demarchage" && origine.compte_id ? { compte_id: origine.compte_id } : {}),
       // Le tri de l'IA, comme pour les réponses venues d'Instantly : il décide lead ou dead (11/11/2026).
       tri: lu.tri, tri_detail: lu.detail,
     }).select("agence_id").single();
@@ -170,15 +212,21 @@ Deno.serve(async (req: Request) => {
 
     // ── LA DÉSINSCRIPTION PAR RÉPONSE ──
     let desinscrit = false;
-    if (sousTraitantId && statutSt !== "desinscrit" && demandeArret(objet, corpsText)) {
+    const arret = !reponseAutomatique(d.headers) && demandeArret(objet, corpsText);
+    if (sousTraitantId && statutSt !== "desinscrit" && arret) {
       const now = new Date().toISOString();
       await admin.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: now, desinscrit_canal: "reponse_email", statut_motif: `réponse : ${objet.slice(0, 80)}` }).eq("id", sousTraitantId);
       await admin.from("st_exclusions").upsert({ email: de || null, telephone: null, motif: "désinscription par réponse e-mail" }, { onConflict: "email", ignoreDuplicates: true });
       desinscrit = true;
     }
+    // Une agence ou un client gestionnaire (la base a rangé le mail sur sa fiche) : « ne plus écrire », une seule fois.
+    if (!sousTraitantId && agenceId && arret) {
+      const { data: faite } = await admin.from("agences").update({ ne_plus_ecrire_le: new Date().toISOString() }).eq("id", agenceId).is("ne_plus_ecrire_le", null).select("id");
+      desinscrit = (faite ?? []).length > 0;
+    }
 
-    console.log(`[RECEVOIR-EMAIL] de=${de} espace=${espace} (${raison}) corps=${corpsText.length}t/${corpsHtml.length}h pj=${pieces.length}/${attachs.length}${desinscrit ? " DÉSINSCRIT" : ""}`);
-    return json({ ok: true, espace, raison, agence_id: agenceId, sous_traitant_id: sousTraitantId, desinscrit, corps: corpsText.length + corpsHtml.length, pieces_jointes: pieces.length });
+    console.log(`[RECEVOIR-EMAIL] de=${de} espace=${espace} (${raison}) corps=${corpsText.length}t/${corpsHtml.length}h pj=${pieces.filter((p) => !p.nonGardee).length}/${attachs.length}${idAncre ? ` ancre=${idAncre}${origine ? "" : "(inconnue)"}` : ""}${desinscrit ? " DÉSINSCRIT" : ""}`);
+    return json({ ok: true, espace, raison, agence_id: agenceId, sous_traitant_id: sousTraitantId, desinscrit, corps: corpsText.length + corpsHtml.length, pieces_jointes: pieces.filter((p) => !p.nonGardee).length, pieces_non_gardees: pieces.filter((p) => p.nonGardee).length });
   } catch (e) {
     console.error("[RECEVOIR-EMAIL] erreur:", e);
     return json({ error: "Erreur de traitement" }, 500);

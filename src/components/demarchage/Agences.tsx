@@ -7,7 +7,7 @@
 // s'ouvre dans la fiche (volet à droite) ; « Appeler » envoie dans une session
 // de call. Les apporteurs d'affaires n'apparaissent jamais ici (archive).
 // ════════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus } from "lucide-react"
 import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape } from "../../demarchage/modele"
 import { chargerAgences, chargerPile, chargerSecteurs, compterApporteurs, compterParEtape, compterPiles, type FiltresAgences } from "../../demarchage/db"
@@ -73,23 +73,31 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   // (trois écrans, un seul chiffre), dans la base choisie dans « Attribuée à ».
   const proprietaire = useMemo<Proprietaire>(() => (!filtres.attribuee ? "tous" : filtres.attribuee === "aucun" ? "non_attribuees" : { compteId: filtres.attribuee }), [filtres.attribuee])
   const sommeilApres = useReglages().reglages?.sommeil_apres_tentatives ?? null
+  const jetonCompteurs = useRef(0)
   const chargerCompteurs = useCallback(async () => {
+    const jeton = ++jetonCompteurs.current
     const [e, f, ap] = await Promise.all([compterParEtape(), compterPiles(proprietaire).catch(() => null), compterApporteurs().catch(() => 0)])
+    if (jeton !== jetonCompteurs.current) return // un autre « Attribuée à » a été choisi entre-temps
     setApporteurs(ap)
     setParEtape(e); setParFile(f)
   }, [proprietaire])
 
+  // Une réponse arrivée en retard (la liste « Toutes » après un clic sur « À rappeler ») n'écrase jamais
+  // l'affichage plus récent : seule la dernière lecture lancée s'affiche (jeton, lot 4 du 26/11/2026).
+  const jetonListe = useRef(0)
   const charger = useCallback(async () => {
     if (!supabaseConfigure) return
+    const jeton = ++jetonListe.current
     try {
       const quand = new Date()
       const liste = file === "toutes" ? await chargerAgences(filtresServeur)
         : await chargerPile(file, { proprietaire })
+      if (jeton !== jetonListe.current) return
       setAgences(liste); setMaintenant(quand); setErreur("")
     } catch (e) {
-      setErreur(messageErreur(e))
+      if (jeton === jetonListe.current) setErreur(messageErreur(e))
     } finally {
-      setChargement(false)
+      if (jeton === jetonListe.current) setChargement(false)
     }
   }, [file, filtresServeur, proprietaire])
   useEffect(() => { const t = setTimeout(charger, 0); return () => clearTimeout(t) }, [charger])

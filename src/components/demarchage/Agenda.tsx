@@ -76,7 +76,10 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
   const toutVoir = admin && equipe
   const bornes = useMemo(() => bornesVue(vue, ancre), [vue, ancre])
 
+  // Une réponse arrivée en retard (semaine précédente, autre vue) n'écrase jamais la plus récente (jeton, lot 4).
+  const jetonAgenda = useRef(0)
   const charger = useCallback(async () => {
+    const jeton = ++jetonAgenda.current
     try {
       // Cloisonnement (09/11/2026) : un téléprospecteur ne voit que ses tâches et RDV ; un administrateur tout, s'il le veut.
       const [lignes, anciens, demandes] = await Promise.all([
@@ -84,10 +87,10 @@ export default function Agenda({ onOuvrirAgence, onOuvrirSession }: {
         chargerAgenda(new Date(2020, 0, 1), debutDuJour(new Date()), { seulementOuvertes: true }).then((l) => l.filter((t) => aMoi(t, moiId, toutVoir) && t.echeance !== null && new Date(t.echeance) < bornes.de)),
         chargerTachesCampagne().then((l) => l.filter((t) => t.baseId !== "artisans" && tacheCampagnePourMoi(t, moiId, toutVoir, ["demarchage"]))),
       ])
-      if (!enVie.current) return
+      if (!enVie.current || jeton !== jetonAgenda.current) return
       setTaches(lignes); setRetards(anciens); setCampagne(demandes); setMaintenant(new Date()); setErreur("")
     } catch (e) {
-      if (enVie.current) setErreur(message(e))
+      if (enVie.current && jeton === jetonAgenda.current) setErreur(message(e))
     }
   }, [bornes, moiId, toutVoir])
 

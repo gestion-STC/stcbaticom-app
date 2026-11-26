@@ -14,10 +14,14 @@ export type EtatProspection = {
   robots?: Evenement[]
 }
 
+export type ResultatEnregistrement = "ok" | "conflit" | "erreur"
+
 export type Depot = {
   lire: () => EtatProspection
   ecouter: (f: () => void) => () => void
-  enregistrerCampagne: (c: Campagne) => void
+  /** « conflit » : modifiée ailleurs depuis l'ouverture, rien n'a été écrit (l'écran garde la saisie) ;
+   *  `forcer` écrit quand même par-dessus la version plus récente. */
+  enregistrerCampagne: (c: Campagne, options?: { forcer?: boolean }) => Promise<ResultatEnregistrement>
   changerStatut: (id: Id, statut: Campagne["statut"]) => void
   dupliquerCampagne: (id: Id) => Id
   noterAppel: (a: Omit<Appel, "id" | "le">) => void
