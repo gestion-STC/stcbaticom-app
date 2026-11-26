@@ -102,7 +102,7 @@ export default function Apporteurs() {
 
       {!chargement && filtrees.length > 0 ? <div className="mt-3 chiffres text-legende text-encre-2">{filtrees.length} sur {agences.length}</div> : null}
 
-      {ficheOuverte ? <FicheAgence id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={charger} /> : null}
+      {ficheOuverte ? <FicheAgence key={ficheOuverte} id={ficheOuverte} onFermer={() => setFicheOuverte(null)} onChange={charger} /> : null}
     </div>
   )
 }

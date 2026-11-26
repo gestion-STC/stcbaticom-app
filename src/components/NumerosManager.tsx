@@ -41,6 +41,9 @@ export default function NumerosManager() {
   useEffect(() => {
     listerComptes().then((l) => setComptes(l.map((c) => ({ id: c.id, nom: c.nom || c.email })))).catch(() => setComptes([]))
   }, [])
+  // Un numéro au moins a son propriétaire : la réserve est répartie par compte (numerosDuCompte).
+  const parCompte = numeros.some((x) => x.compteId)
+
   function changerProprietaire(numero: string, compteId: string) {
     void sauver(numeros.map((x) => (x.numero === numero ? (compteId ? { ...x, compteId } : { numero: x.numero, pause: x.pause }) : x)))
   }
@@ -211,6 +214,9 @@ export default function NumerosManager() {
             </thead>
             <tbody>
               {numeros.map((n) => {
+                // Dès qu'un numéro a un propriétaire, un numéro sans propriétaire n'est plus utilisé par personne
+                // (numerosDuCompte) : l'écran le dit (27/11/2026 ; avant, « tout le monde » et « En rotation »).
+                const inutilise = parCompte && !n.compteId
                 const compte = usage.get(finDeNumero(n.numero)) ?? 0
                 const pct = quota ? Math.min(100, Math.round((compte / quota) * 100)) : 0
                 const plein = quota !== null && compte >= quota
@@ -224,13 +230,15 @@ export default function NumerosManager() {
                     </Td>
                     <Td>
                       <Selecteur value={n.compteId ?? ""} onChange={(e) => changerProprietaire(n.numero, e.target.value)} aria-label={`Utilisé par (${n.numero})`} className="w-full">
-                        <option value="">— tout le monde —</option>
+                        <option value="">{parCompte ? "— personne —" : "— tout le monde —"}</option>
                         {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
                       </Selecteur>
                     </Td>
                     <Td>
                       {n.pause ? (
                         <Pastille role="inerte">En pause</Pastille>
+                      ) : inutilise ? (
+                        <span title="Aucun propriétaire : la session ne l'utilise pour personne"><Pastille role="inerte">Non utilisé</Pastille></span>
                       ) : plein ? (
                         <Pastille role="probleme" point>Seuil atteint</Pastille>
                       ) : (

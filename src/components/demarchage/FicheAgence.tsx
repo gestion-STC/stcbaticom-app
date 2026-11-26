@@ -50,7 +50,9 @@ const ICONES: Record<TypeActivite, ReactNode> = {
   appel: <Phone size={14} />, email: <Mail size={14} />, rdv: <CalendarDays size={14} />, tache: <SquareCheck size={14} />, note: <StickyNote size={14} />, etape: <ArrowRightLeft size={14} />,
 }
 type Compte = { id: string; nom: string }
-type FormIdentite = { nom: string; enseigne: string; type: TypeAgence; secteur: string; adresse: string; telephone: string; email: string; site: string; nbLots: string; commercialId: string }
+// commercialTouche : l'admin a choisi lui-même « Attribuée à » (27/11/2026). Sinon, un secteur changé applique le
+// responsable de ce secteur, et le formulaire l'affiche avant d'enregistrer.
+type FormIdentite = { nom: string; enseigne: string; type: TypeAgence; secteur: string; adresse: string; telephone: string; email: string; site: string; nbLots: string; commercialId: string; commercialTouche: boolean }
 
 // `ouvrirEtape` : la fiche s'ouvre directement sur « Changer l'étape » (Mahdi, 09/10 :
 // « je vois pas comment changer les états »).
@@ -131,15 +133,30 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
 
   const commencerEdition = () => {
     if (!agence) return
-    setEdition({ nom: agence.nom, enseigne: agence.enseigne, type: agence.type, secteur: agence.secteur ?? "", adresse: agence.adresse, telephone: agence.telephone, email: agence.email, site: agence.site, nbLots: agence.nbLots ? String(agence.nbLots) : "", commercialId: agence.commercialId ?? "" })
+    setEdition({ nom: agence.nom, enseigne: agence.enseigne, type: agence.type, secteur: agence.secteur ?? "", adresse: agence.adresse, telephone: agence.telephone, email: agence.email, site: agence.site, nbLots: agence.nbLots ? String(agence.nbLots) : "", commercialId: agence.commercialId ?? "", commercialTouche: false })
   }
-  const setEd = (k: keyof FormIdentite) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setEdition((p) => (p ? { ...p, [k]: e.target.value } : p))
+  const setEd = (k: Exclude<keyof FormIdentite, "commercialTouche">) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setEdition((p) => (p ? { ...p, [k]: e.target.value } : p))
+  // Le secteur change : tant que l'admin n'a pas choisi lui-même, « Attribuée à » montre ce que la base appliquera
+  // (le responsable du nouveau secteur ; un apporteur ne suit pas son secteur ; revenir au secteur d'origine = rien ne change).
+  const changerSecteur = (e: ChangeEvent<HTMLSelectElement>) => {
+    const code = e.target.value
+    setEdition((p) => {
+      if (!p || !agence) return p
+      if (p.commercialTouche || p.type === "apporteur" || !code) return { ...p, secteur: code }
+      const commercialId = code === (agence.secteur ?? "") ? (agence.commercialId ?? "") : (secteurs.find((x) => x.code === code)?.commercialId ?? "")
+      return { ...p, secteur: code, commercialId }
+    })
+  }
   const enregistrerIdentite = () => {
     if (!edition) return
     if (!edition.nom.trim()) { setErreur("Le nom de l'agence est obligatoire."); return }
     const e = edition
     agir(async () => {
-      await majAgence(id, { nom: e.nom, enseigne: e.enseigne.trim(), type: e.type, secteur: e.secteur, adresse: e.adresse.trim(), telephone: e.telephone.trim(), email: e.email.trim().toLowerCase(), site: e.site.trim(), nbLots: Number(e.nbLots) || 0, ...(admin ? { commercialId: e.commercialId || null } : {}) })
+      // « Attribuée à » n'est envoyé que si l'admin l'a choisi (D50, 27/11/2026) : sinon la base applique le responsable du
+      // secteur quand le secteur change (déclencheur agences_suit_son_secteur), ce que le formulaire affichait déjà.
+      // Choisi : écrit APRÈS le secteur, pour que le secteur ne le remplace pas (même si c'est la personne d'avant).
+      await majAgence(id, { nom: e.nom, enseigne: e.enseigne.trim(), type: e.type, secteur: e.secteur, adresse: e.adresse.trim(), telephone: e.telephone.trim(), email: e.email.trim().toLowerCase(), site: e.site.trim(), nbLots: Number(e.nbLots) || 0 })
+      if (admin && e.commercialTouche) await majAgence(id, { commercialId: e.commercialId || null })
       setEdition(null)
     }, "Fiche enregistrée.")
   }
@@ -230,7 +247,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                     </Selecteur>
                   </Etiquette>
                   <Etiquette texte="Secteur">
-                    <Selecteur value={edition.secteur} onChange={setEd("secteur")}>
+                    <Selecteur value={edition.secteur} onChange={changerSecteur}>
                       <option value="">— sans secteur —</option>
                       {secteursParZone(secteurs).map((z) => (
                         <optgroup key={z.zone} label={z.zone}>{z.secteurs.map((s) => <option key={s.code} value={s.code}>{s.libelle}</option>)}</optgroup>
@@ -238,10 +255,13 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
                     </Selecteur>
                   </Etiquette>
                   <Etiquette texte="Attribuée à">
-                    <Selecteur value={edition.commercialId} onChange={setEd("commercialId")} disabled={!admin} title={admin ? undefined : "Seul un administrateur attribue une agence"}>
+                    <Selecteur value={edition.commercialId} onChange={(e) => { const v = e.target.value; setEdition((p) => (p ? { ...p, commercialId: v, commercialTouche: true } : p)) }} disabled={!admin} title={admin ? undefined : "Seul un administrateur attribue une agence"}>
                       <option value="">— personne —</option>
                       {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
                     </Selecteur>
+                    {!edition.commercialTouche && edition.secteur !== (agence.secteur ?? "") && edition.type !== "apporteur" && edition.secteur ? (
+                      <span className="mt-1 block text-colonne text-encre-2">Avec ce secteur : {nomCommercial(edition.commercialId || null, comptes) || "personne"}</span>
+                    ) : null}
                   </Etiquette>
                   <Etiquette texte="Adresse" className="sm:col-span-2"><Champ value={edition.adresse} onChange={setEd("adresse")} /></Etiquette>
                   <Etiquette texte="Standard"><Champ type="tel" value={edition.telephone} onChange={setEd("telephone")} /></Etiquette>
@@ -491,7 +511,7 @@ export default function FicheAgence({ id, onFermer, onChange, onOuvrirSession, o
       {fusionSource && agence ? (
         <Dialogue
           titre="Fusionner les deux fiches ?"
-          description={`Tout ce qui est rattaché à « ${fusionSource.nom} » (contacts, appels et leurs analyses, e-mails, tâches, leads, campagnes, liens des mails déjà envoyés) passe dans « ${agence.nom} », puis « ${fusionSource.nom} » disparaît. On ne revient pas en arrière.`}
+          description={`Tout ce qui est rattaché à « ${fusionSource.nom} » (contacts, appels et leurs analyses, e-mails, tâches, leads, campagnes, liens des mails déjà envoyés) passe dans « ${agence.nom} », puis « ${fusionSource.nom} » disparaît. Ce qu'elle savait est gardé : si l'une des deux est cliente, la fiche restante l'est (premier OS le plus ancien), une désinscription est conservée, le chargé d'affaires de cette fiche est gardé (sinon celui de l'autre) et les champs vides sont complétés. On ne revient pas en arrière.`}
           onFermer={() => setFusionSource(null)}
           largeur="max-w-md"
           pied={

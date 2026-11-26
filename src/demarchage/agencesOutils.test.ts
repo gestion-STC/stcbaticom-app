@@ -173,7 +173,10 @@ describe("le fil", () => {
     const t = texteActivite(activite({ type: "appel", resultat: "joint", issue: "interesse", dureeS: 252, numeroUtilise: "01 86 00 00 00" }))
     expect(t.titre).toBe("Appel · Gestionnaire joint → Intéressé")
     expect(t.detail).toBe("4 min 12 · depuis le 01 86 00 00 00")
-    expect(texteActivite(activite({ type: "appel", resultat: "joint", sens: "entrant" })).titre).toBe("Appel entrant · Gestionnaire joint")
+    // Un appel reçu (27/11/2026) : « décroché » ou « manqué », jamais « Gestionnaire joint » ; sans résultat tant qu'il sonne.
+    expect(texteActivite(activite({ type: "appel", resultat: "joint", sens: "entrant" })).titre).toBe("Appel entrant · décroché")
+    expect(texteActivite(activite({ type: "appel", resultat: "manque", sens: "entrant" })).titre).toBe("Appel entrant · manqué")
+    expect(texteActivite(activite({ type: "appel", resultat: "", sens: "entrant" })).titre).toBe("Appel entrant")
     expect(texteActivite(activite({ type: "appel", resultat: "joint", issue: "pas_interesse", motif: "deja_prestataire" })).titre).toContain("(Déjà un prestataire)")
   })
   it("écrit une étape « A → B », une tâche faite ou non, un e-mail par son objet", () => {

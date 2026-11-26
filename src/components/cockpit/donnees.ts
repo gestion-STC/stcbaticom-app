@@ -29,11 +29,16 @@ export function debutLecture(m: Date): Date {
   return new Date(Math.min(new Date(m.getFullYear(), 0, 1).getTime(), lundisRecents(m, 12)[0].getTime(), new Date(m.getFullYear(), m.getMonth() - 1, 1).getTime()))
 }
 
+/** Le début du démarchage : les écrans comptent les premiers OS « depuis juillet 2026 » (barres, cumul, objectif). */
+export const DEBUT_PREMIERS_OS = new Date(2026, 6, 1)
+/** Depuis quand lire les premiers OS : jamais après le 01/07/2026 (27/11/2026 : en janvier, juillet à octobre disparaissaient). */
+export const debutPremiersOs = (m: Date): Date => new Date(Math.min(debutLecture(m).getTime(), DEBUT_PREMIERS_OS.getTime()))
+
 export async function chargerCommun(maintenant: Date): Promise<Commun> {
   const de = debutLecture(maintenant)
   const [appels, os, base, leads, rs, comptes, fonctions] = await Promise.all([
     appelsSortants(de, new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + 1)),
-    premiersOsDepuis(de),
+    premiersOsDepuis(debutPremiersOs(maintenant)),
     baseDesAgences(),
     leadsBilanLignes(),
     lireReglageEtStc(),
@@ -46,7 +51,8 @@ export async function chargerCommun(maintenant: Date): Promise<Commun> {
   const ids = new Set([...comptes.map((c) => c.id), ...appels.flatMap((a) => (a.compteId ? [a.compteId] : []))])
   const commerciaux = [...ids].filter((id) => !hors.has(id)).map((id) => ({ id, nom: noms.get(id) ?? "" }))
   const vingtHuit = maintenant.getTime() - 28 * 86_400_000
-  const a28 = appels.filter((a) => new Date(a.date).getTime() >= vingtHuit)
+  // Le levier « Agences appelées » et le ratio appels / premier OS : hors apporteurs, comme la cible et les premiers OS (27/11/2026).
+  const a28 = appels.filter((a) => new Date(a.date).getTime() >= vingtHuit && !a.apporteur)
   const debut28 = new Date(vingtHuit)
   const prevision = calculerPrevision({
     reglage: rs.reglage, reel: lireReelStc(rs.brut, { factureMin: rs.reglage.factureMin, osMin: rs.reglage.osMin, chutePct: rs.reglage.chutePct }),

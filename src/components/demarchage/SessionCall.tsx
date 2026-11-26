@@ -130,8 +130,6 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
         onOuvrirAgence(id, options)
       }
     : undefined
-  // Un autre onglet a déjà la session ouverte (BroadcastChannel) : celui-ci ne compose pas.
-  const autreOnglet = useOngletUnique()
   // La cadence du mode automatique : celle des Réglages, modifiable pour la session.
   const [cadenceChoisie, setCadence] = useState<number | null>(null)
   const cadence = cadenceChoisie ?? reglages?.cadence_auto_secondes ?? null
@@ -174,6 +172,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   // L'IA après le raccroché (maquette 07/11) : elle écoute, puis propose ; le commercial valide ou corrige.
   const [iaEtat, setIaEtat] = useState<{ appelId: string; etat: "prete" | "rien"; proposition: PropositionIa | null } | null>(null)
   const [maintenant, setMaintenant] = useState(() => Date.now())
+  // Un autre onglet a une session EN COURS (ou un appel) : celui-ci ne compose pas (BroadcastChannel). Cet onglet ne
+  // s'annonce, lui, que pendant sa propre session ou son appel : une boîte mail ouverte à côté ne bloque plus rien (27/11/2026).
+  const autreOnglet = useOngletUnique(enCours || appel !== null || barreVisible)
 
   // ── Les à-côtés ──
   const [erreur, setErreur] = useState("")
@@ -204,7 +205,12 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const dicteeRef = useRef<Dictee | null>(null)
   const dernierLancementRef = useRef(0)
   const lancementRef = useRef<{ debut: number; promesse: Promise<string | null> } | null>(null) // l'écriture du clic, en route
-  const jetonCompteurs = useRef(0) // la lecture des compteurs la plus récente (14/10)
+  const jetonCompteurs = useRef(0) // la lecture des repères la plus récente (14/10)
+  const jetonRecompte = useRef(0) // le recomptage des files, à part : il ne jette plus la lecture des repères (27/11/2026)
+  // La réserve de numéros a-t-elle été lue au moins une fois ? Tant que non, on ne compose pas (27/11/2026) :
+  // sans elle, l'appel partait sans contrôle du numéro d'émission et pouvait faire sonner un collègue.
+  const reserveLueRef = useRef(false)
+  const chargerReperesRef = useRef<() => void>(() => {})
   const jetonFile = useRef(0) // la lecture de la file la plus récente
   const dernierCallIdRef = useRef("")
   const dejaAffiche = useRef(false)
@@ -305,7 +311,8 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     const m = new Date()
     const [sect, cpt, app, parNumero, res, nl] = await Promise.all([
       // Un comptage en échec reste null : la pastille affiche « — », jamais un faux chiffre.
-      chargerSecteurs().catch(() => [] as Secteur[]), compterPiles(proprietaire).catch(() => null), agencesAppeleesAujourdHui(m), compterAppelsDuJourParNumero(m), chargerNumerosDuCompte(moiId).catch(() => null),
+      chargerSecteurs().catch(() => [] as Secteur[]), compterPiles(proprietaire).catch(() => null),
+      agencesAppeleesAujourdHui(m).catch(() => null), compterAppelsDuJourParNumero(m).catch(() => null), chargerNumerosDuCompte(moiId).catch(() => null),
       compterLeads(proprietaireLeads).catch(() => null),
     ])
     if (!enVie.current || jeton !== jetonCompteurs.current) return
@@ -316,9 +323,10 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       premierReperes.current = false
       if ((nl && nl > 0) || (cpt && cpt.rappels > 0)) setMode("aujourdhui")
     }
-    setAppelees(app)
-    setCompteursNumero(parNumero)
+    if (app) setAppelees(app)
+    if (parNumero) setCompteursNumero(parNumero)
     if (res) {
+      reserveLueRef.current = true
       // Mes numéros seulement (Ringover fait sonner le PROPRIÉTAIRE du numéro) ; ceux des collègues à part.
       setReserve(res.miens)
       autresNumerosRef.current = res.autres
@@ -327,6 +335,9 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
     }
     setMaintenant(Date.now())
   }, [proprietaire, proprietaireLeads, moiId])
+  useEffect(() => {
+    chargerReperesRef.current = () => { void chargerReperes() }
+  }, [chargerReperes])
   const premierReperes = useRef(true)
   const proprietaireRef = useRef(proprietaire)
   useEffect(() => {
@@ -335,13 +346,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const recompterAujourdhuiRef = useRef<() => void>(() => {}) // rempli plus bas (recompterAujourdhui)
   // Recompter les piles (après un résultat, une tâche, un apporteur) ; en échec : « — ».
   const recompterFiles = useCallback(() => {
-    const jeton = ++jetonCompteurs.current
+    const jeton = ++jetonRecompte.current
     compterPiles(proprietaireRef.current)
       .then((x) => {
-        if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(x)
+        if (enVie.current && jeton === jetonRecompte.current) setCompteurs(x)
       })
       .catch(() => {
-        if (enVie.current && jeton === jetonCompteurs.current) setCompteurs(null)
+        if (enVie.current && jeton === jetonRecompte.current) setCompteurs(null)
       })
     // Le badge « À appeler aujourd'hui » vu depuis « Prospection » (leads, campagnes, rappels : agences distinctes) ;
     // dans « À appeler aujourd'hui », le badge est la longueur de la file elle-même.
@@ -358,13 +369,14 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
   const lireAujourdhui = useCallback(async () => {
     const [leads, pile, taches] = await Promise.all([
       chargerLeads(proprietaireLeads),
-      chargerPile("rappels", { proprietaire, etape: "", secteur: null, sourcage, inclureAppelees: inclureDejaAppelees }),
+      // Le sourçage de Prospection ne s'applique pas aux rappels du jour (27/11/2026 : 23 rappels affichés sur 53).
+      chargerPile("rappels", { proprietaire, etape: "", secteur: null, sourcage: "", inclureAppelees: inclureDejaAppelees }),
       chargerTachesCampagne().catch(() => [] as TacheCampagne[]),
     ])
     const demandesTaches = taches.filter((t) => t.type === "appel" && t.baseId === "agences" && tacheCampagnePourMoi(t, moiId, admin, ["demarchage"]))
     const groupes = repartirAAppeler(leads.map((l) => l.agence.id), demandesTaches.map((t) => t.contactRef), pile.map((a) => a.id))
     return { leads, pile, demandesTaches, groupes }
-  }, [proprietaire, proprietaireLeads, sourcage, inclureDejaAppelees, moiId, admin])
+  }, [proprietaire, proprietaireLeads, inclureDejaAppelees, moiId, admin])
   const fileAujourdhui = useCallback(async (): Promise<{ agence: Agence; lead: Lead | null }[]> => {
     const { leads, pile, demandesTaches, groupes } = await lireAujourdhui()
     const leadsGardes = groupes.leads.flatMap((id) => leads.filter((l) => l.agence.id === id).slice(0, 1))
@@ -702,6 +714,13 @@ export default function SessionCall({ actif = true, agenceInitiale = null, onOuv
       }
       if (!numeroValide(numeroAppele)) {
         setErreur("Numéro incorrect ou incomplet : corrige-le sur la fiche avant d'appeler.")
+        return
+      }
+      // Les numéros Ringover pas encore lus (lecture en échec ou en cours) : on ne compose pas à l'aveugle.
+      if (!reserveLueRef.current) {
+        setErreur("Les numéros Ringover ne sont pas encore lus : nouvel essai de lecture en cours, rappuie sur Appeler dans un instant. (Tu peux toujours copier le numéro.)")
+        if (depuisAuto) setAuto(false)
+        chargerReperesRef.current()
         return
       }
       // Aucun numéro Ringover à moi : on n'appelle pas avec celui d'un collègue (ça le ferait sonner, lui).

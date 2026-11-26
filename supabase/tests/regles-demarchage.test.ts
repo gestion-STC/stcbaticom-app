@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { PGlite } from "@electric-sql/pglite"
 import { beforeAll, describe, expect, it } from "vitest"
+import { estFerie, jourDe } from "../../src/prospection/moteur"
 
 const racine = process.cwd() // vitest tourne à la racine du dépôt
 const sql = (f: string) => readFileSync(join(racine, f), "utf8")
@@ -64,6 +65,18 @@ const rendreDue = (id: string) => q(`update public.activites set echeance = now(
 const verifier = async (id: string, numero: string, direct = false) => (await un<{ v: string | null }>(`select public.appel_verifier($1, $2, $3) as v`, [id, numero, direct])).v
 const telDe = async (id: string) => (await un<{ t: string }>(`select telephone as t from public.agences where id = $1`, [id])).t
 
+// 27/11/2026 (décision 6) : une date calculée par la base passe au jour ouvré suivant (week-end, fériés).
+// L'écart, en jours depuis aujourd'hui (heure de Paris), du premier jour ouvré à partir d'aujourd'hui + n.
+function jo(n: number): number {
+  const midi = new Date(`${jourDe(new Date().toISOString())}T12:00:00Z`)
+  for (let k = n; ; k++) {
+    const d = new Date(midi.getTime() + k * 86_400_000)
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6 && !estFerie(d.toISOString().slice(0, 10))) return k
+  }
+}
+const R10 = `Relancer@J+${jo(10)}` // la relance d'une intéressée : 10 jours, au jour ouvré
+const RAP1 = `Rappeler@J+${jo(1)}` // un rappel sans réponse, reposé au jour ouvré suivant
+
 const DANS_2J = () => new Date(Date.now() + 2 * 86_400_000).toISOString()
 const DANS_3J = () => new Date(Date.now() + 3 * 86_400_000).toISOString()
 
@@ -74,32 +87,32 @@ const SORTIES = ["pas_de_reponse", "standard", "faux_numero", "joint/interesse",
 const MATRICE: Record<string, Record<(typeof SORTIES)[number], Attendu>> = {
   a_prospecter: {
     pas_de_reponse: ["a_prospecter", [], 1, 0], standard: ["a_prospecter", [], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
-    "joint/interesse": ["interesse", ["Relancer@J+10"], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
+    "joint/interesse": ["interesse", [R10], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
     "joint/a_rappeler": ["gestionnaire_joint", ["Rappeler@J+2"], 0, 1], "joint/pas_interesse": ["pas_interesse", [], 0, 1],
   },
-  gestionnaire_joint: { // avec un « Rappeler » qui tombe aujourd'hui
-    pas_de_reponse: ["gestionnaire_joint", [], 1, 0], standard: ["gestionnaire_joint", [], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
-    "joint/interesse": ["interesse", ["Relancer@J+10"], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
+  gestionnaire_joint: { // avec un « Rappeler » qui tombe aujourd'hui : sans gestionnaire, il est reposé (27/11/2026)
+    pas_de_reponse: ["gestionnaire_joint", [RAP1], 1, 0], standard: ["gestionnaire_joint", [RAP1], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
+    "joint/interesse": ["interesse", [R10], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
     "joint/a_rappeler": ["gestionnaire_joint", ["Rappeler@J+2"], 0, 1], "joint/pas_interesse": ["pas_interesse", [], 0, 1],
   },
   interesse: { // relance due aujourd'hui : quel que soit le résultat, la suivante à J+10
-    pas_de_reponse: ["interesse", ["Relancer@J+10"], 1, 0], standard: ["interesse", ["Relancer@J+10"], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
-    "joint/interesse": ["interesse", ["Relancer@J+10"], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
+    pas_de_reponse: ["interesse", [R10], 1, 0], standard: ["interesse", [R10], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
+    "joint/interesse": ["interesse", [R10], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
     "joint/a_rappeler": ["interesse", ["Rappeler@J+2"], 0, 1], "joint/pas_interesse": ["pas_interesse", [], 0, 1],
   },
   rdv_planifie: {
-    pas_de_reponse: ["rdv_planifie", ["Relancer@J+10"], 1, 0], standard: ["rdv_planifie", ["Relancer@J+10"], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
-    "joint/interesse": ["rdv_planifie", ["Relancer@J+10"], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
+    pas_de_reponse: ["rdv_planifie", [R10], 1, 0], standard: ["rdv_planifie", [R10], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
+    "joint/interesse": ["rdv_planifie", [R10], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
     "joint/a_rappeler": ["rdv_planifie", ["Rappeler@J+2"], 0, 1], "joint/pas_interesse": ["pas_interesse", [], 0, 1],
   },
   endormie: { // réveillée aujourd'hui
     pas_de_reponse: ["endormie", [], 1, 0], standard: ["endormie", [], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
-    "joint/interesse": ["interesse", ["Relancer@J+10"], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
+    "joint/interesse": ["interesse", [R10], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
     "joint/a_rappeler": ["gestionnaire_joint", ["Rappeler@J+2"], 0, 1], "joint/pas_interesse": ["pas_interesse", [], 0, 1],
   },
   pas_interesse: {
     pas_de_reponse: ["pas_interesse", [], 1, 0], standard: ["pas_interesse", [], 1, 0], faux_numero: ["hors_cible", [], 0, 0],
-    "joint/interesse": ["interesse", ["Relancer@J+10"], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
+    "joint/interesse": ["interesse", [R10], 0, 1], "joint/rdv": ["rdv_planifie", ["RDV@J+3"], 0, 1],
     "joint/a_rappeler": ["gestionnaire_joint", ["Rappeler@J+2"], 0, 1], "joint/pas_interesse": ["pas_interesse", [], 0, 1],
   },
 }
@@ -152,32 +165,32 @@ describe("le cycle des intéressées ne casse jamais (relance tous les 10 jours)
   it("une intéressée a toujours UNE relance ouverte, à J+10", async () => {
     const id = await agence()
     await appel(id, "joint", "interesse")
-    expect(await ouvertes(id)).toEqual(["Relancer@J+10"])
+    expect(await ouvertes(id)).toEqual([R10])
   })
   it("relance cochée « Fait » à la main : la suivante est posée à J+10", async () => {
     const id = await agence()
     await appel(id, "joint", "interesse")
     const t = await un<{ id: string }>(`select id from public.activites where agence_id = $1 and type = 'tache' and fait_le is null`, [id])
     await q(`select public.tache_terminer($1, true)`, [t.id])
-    expect(await ouvertes(id)).toEqual(["Relancer@J+10"])
+    expect(await ouvertes(id)).toEqual([R10])
   })
   it("relance supprimée : la suivante est posée", async () => {
     const id = await agence()
     await appel(id, "joint", "interesse")
     await q(`delete from public.activites where agence_id = $1 and type = 'tache' and fait_le is null`, [id])
-    expect(await ouvertes(id)).toEqual(["Relancer@J+10"])
+    expect(await ouvertes(id)).toEqual([R10])
   })
   it("RDV marqué fait : une relance est posée", async () => {
     const id = await agence()
     await appel(id, "joint", "rdv", { rdv: DANS_3J() })
     const r = await un<{ id: string }>(`select id from public.activites where agence_id = $1 and type = 'rdv'`, [id])
     await q(`select public.tache_terminer($1, true)`, [r.id])
-    expect(await ouvertes(id)).toEqual(["Relancer@J+10"])
+    expect(await ouvertes(id)).toEqual([R10])
   })
   it("passée à la main en « Intéressé » : relance posée à J+10", async () => {
     const id = await agence()
     await q(`update public.agences set etape = 'interesse' where id = $1`, [id])
-    expect(await ouvertes(id)).toEqual(["Relancer@J+10"])
+    expect(await ouvertes(id)).toEqual([R10])
   })
   it("trois tours de relance : toujours une seule relance, jamais dans la prospection", async () => {
     const id = await agence()
@@ -187,7 +200,7 @@ describe("le cycle des intéressées ne casse jamais (relance tous les 10 jours)
       expect(await dansRappelsDuJour(id)).toBe(true) // le jour J, elle est dans « À rappeler aujourd'hui »
       const [res, iss = ""] = r.split("/")
       await appel(id, res, iss)
-      expect(await ouvertes(id)).toEqual(["Relancer@J+10"])
+      expect(await ouvertes(id)).toEqual([R10])
       expect(await dansRappelsDuJour(id)).toBe(false)
       expect((await fiche(id)).etape).toBe("interesse")
     }
@@ -428,7 +441,7 @@ describe("les réglages : une seule source, lue par toutes les règles", () => {
       const r = await un<{ h: number; j: number }>(
         `select extract(hour from echeance at time zone 'Europe/Paris')::int as h, ((echeance at time zone 'Europe/Paris')::date - (now() at time zone 'Europe/Paris')::date) as j
            from public.activites where agence_id = $1 and type = 'tache' and fait_le is null`, [id])
-      expect([r.h, r.j]).toEqual([14, 10])
+      expect([r.h, r.j]).toEqual([14, jo(10)])
     } finally {
       await regler("heure_relance", null)
     }
@@ -438,7 +451,7 @@ describe("les réglages : une seule source, lue par toutes les règles", () => {
     try {
       const id = await agence()
       await appel(id, "joint", "interesse")
-      expect(await ouvertes(id)).toEqual(["Relancer@J+12"])
+      expect(await ouvertes(id)).toEqual([`Relancer@J+${jo(12)}`])
     } finally {
       await regler("relance_interesse_jours", "10")
     }
@@ -589,5 +602,86 @@ describe("qui a quelle agence : le démarcheur de son secteur", () => {
     expect(e.find((x) => x.code === "proprietaire_hors_secteur")?.exemples ?? "").toContain("T-attribuée à Horlann")
     expect(e.map((x) => x.code)).not.toContain("regle_modifiee")
     await q(`update public.agences set commercial_id = $2 where id = $1`, [id, MAHDI])
+  })
+})
+
+// ── 27/11/2026 : lot F5 (décisions 3, 4 et 6 du gérant) ──────────────────────
+describe("le rappel tombé sur personne ou sur le standard est reposé (décision 3)", () => {
+  const poserRappelDu = (id: string, titre = "Rappeler Stéphanie") =>
+    q(`insert into public.activites (agence_id, type, echeance, titre) values ($1, 'tache', now() - interval '1 hour', $2)`, [id, titre])
+  for (const resultat of ["pas_de_reponse", "standard"]) {
+    it(`rappel du jour + ${resultat} : un rappel au jour ouvré suivant, même titre, à l'heure des relances`, async () => {
+      const id = await agence("gestionnaire_joint")
+      await poserRappelDu(id)
+      await appel(id, resultat)
+      expect(await ouvertes(id)).toEqual([RAP1])
+      const t = await un<{ titre: string; h: number }>(`select titre, extract(hour from echeance at time zone 'Europe/Paris')::int as h from public.activites where agence_id = $1 and type = 'tache' and fait_le is null`, [id])
+      expect(t).toEqual({ titre: "Rappeler Stéphanie", h: 10 })
+      expect((await fiche(id)).etape).toBe("gestionnaire_joint")
+    })
+  }
+  it("une date choisie dans la barre (« rappeler le… ») l'emporte", async () => {
+    const id = await agence("gestionnaire_joint")
+    await poserRappelDu(id)
+    await appel(id, "pas_de_reponse", "", { rappel: DANS_3J() })
+    expect(await ouvertes(id)).toEqual(["Rappeler@J+3"])
+  })
+  it("sans rappel échu, un « pas de réponse » ne pose rien (la prospection ordinaire ne change pas)", async () => {
+    const id = await agence()
+    await appel(id, "pas_de_reponse")
+    expect(await ouvertes(id)).toEqual([])
+  })
+  it("la 6e tentative sans gestionnaire : l'agence s'endort, le rappel n'est plus reposé", async () => {
+    const id = await agence("gestionnaire_joint")
+    await q(`update public.agences set tentatives = 5 where id = $1`, [id])
+    await poserRappelDu(id)
+    await appel(id, "standard")
+    expect((await fiche(id)).etape).toBe("endormie")
+    expect(await ouvertes(id)).toEqual([])
+  })
+  it("un RDV plus tard dans la journée n'est pas fermé par un appel noté avant", async () => {
+    const id = await agence()
+    await q(`insert into public.activites (agence_id, type, echeance, titre) values ($1, 'rdv', now() + interval '2 hours', 'RDV')`, [id])
+    await appel(id, "standard")
+    expect(await ouvertes(id)).toEqual(["RDV@J+" + (await un<{ j: number }>(`select ((now() + interval '2 hours') at time zone 'Europe/Paris')::date - (now() at time zone 'Europe/Paris')::date as j`)).j])
+  })
+})
+
+describe("un lead né après l'appel du jour se rappelle le jour même (décision 4)", () => {
+  it("appelée ce matin, lead plaquette ensuite : appel permis, et la fiche n'est pas « déjà appelée » dans les piles", async () => {
+    const id = await agence()
+    await appel(id, "standard")
+    const tel = await telDe(id)
+    expect(await verifier(id, tel)).toMatch(/déjà été appelé aujourd'hui/)
+    await q(`insert into public.leads_demarchage (agence_id, source, signal) values ($1, 'plaquette', 'Plaquette ouverte')`, [id])
+    expect(await verifier(id, tel)).toBeNull()
+    const r = await q<{ du_jour: boolean }>(`select du_jour from public.demarchage_repos() where agence_id = $1`, [id])
+    expect(r.filter((x) => x.du_jour)).toEqual([])
+  })
+  it("le lead a déjà été rappelé (appel après le lead) : on ne recompose pas une 2e fois", async () => {
+    const id = await agence()
+    await q(`insert into public.leads_demarchage (agence_id, source, signal, cree_le) values ($1, 'plaquette', 'Plaquette ouverte', now() - interval '1 hour')`, [id])
+    await appel(id, "pas_de_reponse")
+    expect(await verifier(id, await telDe(id))).toMatch(/déjà été appelé aujourd'hui/)
+  })
+})
+
+describe("jours ouvrés (décision 6)", () => {
+  it("les jours fériés : mêmes dates que l'écran (estFerie)", async () => {
+    for (const j of ["2026-12-25", "2027-01-01", "2027-03-29", "2027-05-06", "2027-05-17", "2027-07-14", "2027-11-11", "2027-03-30", "2027-05-07", "2026-11-27"]) {
+      const r = await un<{ f: boolean }>(`select public.jour_ferie($1::date) as f`, [j])
+      expect(r.f, j).toBe(estFerie(j))
+    }
+  })
+  it("une échéance calculée ne tombe jamais un samedi, un dimanche ou un jour férié", async () => {
+    for (let n = 0; n <= 14; n++) {
+      const r = await un<{ j: number; dow: number; f: boolean }>(
+        `select ((public.demarchage_echeance($1) at time zone 'Europe/Paris')::date - (now() at time zone 'Europe/Paris')::date) as j,
+                extract(isodow from public.demarchage_echeance($1) at time zone 'Europe/Paris')::int as dow,
+                public.jour_ferie((public.demarchage_echeance($1) at time zone 'Europe/Paris')::date) as f`, [n])
+      expect(r.j, `J+${n}`).toBe(jo(n))
+      expect(r.dow).toBeLessThan(6)
+      expect(r.f).toBe(false)
+    }
   })
 })

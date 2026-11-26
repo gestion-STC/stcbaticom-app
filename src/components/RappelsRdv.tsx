@@ -15,7 +15,7 @@ import { useReglages } from "../demarchage/reglages"
 import { dansLaFenetreDeRappel, debutDuJour, finDuJour, heureCourte, libelleRelatif } from "../demarchage/aujourdhuiOutils"
 import { Bandeau, Bouton, Carte, Pastille } from "../ui"
 import { useSession } from "../lib/auth"
-import { aMoi } from "../lib/perimetre"
+import { rdvPourMoi } from "../lib/perimetre"
 
 const RELIRE_MS = 60_000
 // Tenir dans l'écran (Mahdi, 14/10 : « ils débordent ») : trois rappels visibles, le reste replié.
@@ -78,7 +78,7 @@ export default function RappelsRdv() {
     try {
       // Une alerte est personnelle (09/11/2026) : chacun n'est prévenu que de SES rendez-vous, administrateur
       // compris ; l'administrateur voit, lui, tous les RDV de l'équipe dans l'Agenda.
-      const lignes = (await chargerAgenda(debutDuJour(now), finDuJour(now), { seulementOuvertes: true })).filter((t) => t.type === "rdv" && aMoi(t, moiRef.current.id, false))
+      const lignes = (await chargerAgenda(debutDuJour(now), finDuJour(now), { seulementOuvertes: true })).filter((t) => t.type === "rdv" && rdvPourMoi(t, moiRef.current.id))
       if (!enVie.current) return
       rdvsRef.current = lignes
       setRdvs(lignes)

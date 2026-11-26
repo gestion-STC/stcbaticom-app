@@ -30,8 +30,18 @@ export function tacheCampagnePourMoi(t: { baseId: string; proprietaireId: string
   return espaces.includes("demarchage") && Boolean(moiId) && t.proprietaireId === moiId
 }
 
+/**
+ * « Mes tâches » (27/11/2026, décision 7) : celles des agences dont je suis responsable, partout (Agenda, Dashboard,
+ * session de call). L'auteur d'une tâche posée sur l'agence d'un collègue ne la voit qu'en « Toute l'équipe ».
+ * (Avant : auteur OU responsable dans l'Agenda, responsable seul dans le Dashboard : deux listes « à faire ».)
+ */
 export function aMoi(t: { compteId: string | null; agenceCommercialId: string | null }, moiId: string, admin: boolean): boolean {
-  return admin || (Boolean(moiId) && (t.compteId === moiId || t.agenceCommercialId === moiId))
+  return admin || (Boolean(moiId) && t.agenceCommercialId === moiId)
+}
+
+/** L'alerte d'un RDV : prévenir celui qui l'a pris ET le responsable de l'agence (personne ne rate son RDV). */
+export function rdvPourMoi(t: { compteId: string | null; agenceCommercialId: string | null }, moiId: string): boolean {
+  return Boolean(moiId) && (t.compteId === moiId || t.agenceCommercialId === moiId)
 }
 
 /** Le nom de la base d'un espace, tel qu'il s'affiche dans les choix des pages. */

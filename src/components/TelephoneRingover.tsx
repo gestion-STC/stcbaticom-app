@@ -14,7 +14,8 @@ import { useSession } from "../lib/auth"
 import { estAdmin, nomAffiche } from "../lib/comptes"
 import type { Espace } from "../lib/messagesDb"
 import { chargerNumerosDuCompte, estDansLaReserve } from "../lib/numerosEmission"
-import { agenceParTelephone, journaliserAppelEntrant } from "../demarchage/db"
+import { agenceParTelephone, completerAppelEntrant, journaliserAppelEntrant } from "../demarchage/db"
+import { delaiApresEchecs, prendreLaMain } from "../lib/sondageRingover"
 import { nomContact, type Agence, type Contact } from "../demarchage/modele"
 import { Bouton } from "../ui"
 
@@ -85,6 +86,8 @@ export default function TelephoneRingover({ onOuvrirAgence, espaces }: { onOuvri
   const traitesRef = useRef<Map<string, { reconnu: Reconnu | null; from: string }>>(new Map())
   const resolutionsRef = useRef<Set<string>>(new Set()) // résolutions de numéro masqué en cours
   const journalisesRef = useRef<Set<string>>(new Set()) // appels entrants déjà écrits au journal
+  // Ce qu'est devenu chaque appel reçu (SDK) : décroché ou manqué (27/11/2026). Absent = il sonne encore.
+  const etatsEntrantsRef = useRef<Map<string, "joint" | "manque">>(new Map())
   const sdkRef = useRef<RingoverSDK | null>(null)
 
   // Si le numéro est arrivé masqué, tente de le récupérer via le relevé d'appel
@@ -144,7 +147,7 @@ export default function TelephoneRingover({ onOuvrirAgence, espaces }: { onOuvri
         journalisesRef.current = new Set(Array.from(journalisesRef.current).slice(-100))
       }
       // Un appel entrant non journalisé = absent de la fiche (Mahdi, 13/10 : tout est sur la fiche) : on le dit.
-      journaliserAppelEntrant(reconnu.agence.id, reconnu.contact?.id ?? null, callId, compteNomRef.current).catch((e) => {
+      journaliserAppelEntrant(reconnu.agence.id, reconnu.contact?.id ?? null, callId, compteNomRef.current, etatsEntrantsRef.current.get(callId) ?? "").catch((e) => {
         console.error("[TelephoneRingover] journal de l'appel entrant", e)
         journalisesRef.current.delete(callId) // une prochaine reconnaissance réessaiera
         setErreurJournal(`Appel entrant de ${reconnu.agence.nom} non écrit sur sa fiche : ${e instanceof Error ? e.message : String(e)}`)
@@ -292,6 +295,17 @@ export default function TelephoneRingover({ onOuvrirAgence, espaces }: { onOuvri
           marquerEntrantActif()
           signalerRef.current(String(d.from_number ?? ""), String(d.call_id ?? ""))
         }
+        // L'appel reçu décroché, ou raccroché sans l'avoir été : sa ligne au fil est complétée (27/11/2026).
+        const id = String(d.call_id ?? "")
+        if (direction === "in" && id && type !== "sonne") {
+          const etats = etatsEntrantsRef.current
+          const etat = type === "decroche" ? "joint" : etats.get(id) === "joint" ? null : "manque"
+          if (etat) {
+            etats.set(id, etat)
+            if (etats.size > 200) etatsEntrantsRef.current = new Map(Array.from(etats).slice(-100))
+            if (journalisesRef.current.has(id)) completerAppelEntrant(id, etat).catch((e) => console.error("[TelephoneRingover] appel entrant à compléter", e))
+          }
+        }
         diffuserEvenementAppel({ type, callId: String(d.call_id ?? ""), direction })
       }
       sdk.on("ringingCall", relais("sonne"))
@@ -346,11 +360,17 @@ export default function TelephoneRingover({ onOuvrirAgence, espaces }: { onOuvri
   }, [])
 
   // FILET DE SECOURS : sondage des appels entrants en cours toutes les 5 s.
+  // 27/11/2026 : seulement quand l'onglet est visible, un seul onglet par poste, et de plus en plus espacé quand
+  // Ringover répond en erreur (jusqu'à 2 min) : 926 appels au relais le 25/11 sans un seul appel passé.
   useEffect(() => {
     if (!supabaseConfigure) return
     let enVol = false
+    let echecs = 0
+    let reprendreA = 0
+    const moi = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
     const iv = setInterval(async () => {
-      if (enVol) return
+      if (enVol || document.visibilityState !== "visible" || Date.now() < reprendreA) return
+      if (!prendreLaMain(window.localStorage, moi, Date.now())) return
       enVol = true
       let res
       try {
@@ -358,7 +378,12 @@ export default function TelephoneRingover({ onOuvrirAgence, espaces }: { onOuvri
       } finally {
         enVol = false
       }
-      if (!res.ok) return
+      if (!res.ok) {
+        echecs++
+        reprendreA = Date.now() + delaiApresEchecs(echecs)
+        return
+      }
+      echecs = 0
       // Un appel entrant est en cours → le mode auto ne doit pas composer par-dessus.
       const miens = res.entrants.filter((e) => pourMoi(e.to)) // les appels sur la ligne d'un collègue ne me concernent pas
       if (miens.length > 0) marquerEntrantActif()

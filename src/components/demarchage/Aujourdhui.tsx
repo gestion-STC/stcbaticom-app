@@ -86,7 +86,9 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   const [occupe, setOccupe] = useState(false)
   const [erreurAction, setErreurAction] = useState("")
   const [report, setReport] = useState<{ tache: TacheAgenda; jour: string; heure: string } | null>(null)
-  const [masques, setMasques] = useState<Set<string>>(new Set())
+  // Les tâches reportées, cachées le temps de la relecture (27/11/2026) : seulement après un report réussi, et pour
+  // CETTE lecture-là ; les données relues font foi (une tâche reportée à 16 h aujourd'hui revient dans « À faire »).
+  const [masques, setMasques] = useState<{ pour: unknown; ids: Set<string> }>({ pour: null, ids: new Set() })
 
   // L'analyse (heures, signaux, mails) et le contrôle de la base : lus une fois, puis toutes les 10 min.
   useEffect(() => {
@@ -185,7 +187,7 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
   // À faire aujourd'hui : les leads puis les rappels (masqués dès qu'on les a reportés).
   const lignes = [
     ...[...d.leads].sort((x, y) => x.lead.creeLe.localeCompare(y.lead.creeLe)).map(({ agence, lead }) => ({ type: "Lead" as const, cle: `l-${lead.id}`, agenceId: agence.id, agence: agence.nom, motif: lead.signal || lead.detail, quand: lead.creeLe, tache: null as TacheAgenda | null })),
-    ...c.rappels.filter((t) => !masques.has(t.id)).map((t) => ({ type: "Rappel" as const, cle: `r-${t.id}`, agenceId: t.agenceId, agence: t.agenceNom, motif: t.titre || (t.type === "rdv" ? "RDV" : "Rappeler"), quand: t.echeance ?? t.date, tache: t as TacheAgenda | null })),
+    ...c.rappels.filter((t) => masques.pour !== d || !masques.ids.has(t.id)).map((t) => ({ type: "Rappel" as const, cle: `r-${t.id}`, agenceId: t.agenceId, agence: t.agenceNom, motif: t.titre || (t.type === "rdv" ? "RDV" : "Rappeler"), quand: t.echeance ?? t.date, tache: t as TacheAgenda | null })),
   ]
   const rappelsEnRetard = c.rappels.filter((t) => t.echeance && joursEntre(new Date(t.echeance), m) > 0).length
   const visibles = lignes.filter((l) => filtre === "tout" || (filtre === "leads" ? l.type === "Lead" : l.type === "Rappel"))
@@ -199,7 +201,11 @@ export default function Aujourdhui({ onOuvrirSession, onOuvrirAgence, onNaviguer
     setOccupe(true); setErreurAction("")
     try { await f(); recharger() } catch (e) { setErreurAction(message(e)); recharger() } finally { setOccupe(false) }
   }
-  const reporterA = (t: TacheAgenda, date: Date) => agir(async () => { setMasques((x) => new Set(x).add(t.id)); setReport(null); await deplacerTache(t.id, date.toISOString()) })
+  const reporterA = (t: TacheAgenda, date: Date) => agir(async () => {
+    setReport(null)
+    await deplacerTache(t.id, date.toISOString())
+    setMasques((x) => ({ pour: d, ids: new Set(x.pour === d ? x.ids : []).add(t.id) }))
+  })
   const validerReportLibre = (e: FormEvent) => {
     e.preventDefault()
     if (!report) return
