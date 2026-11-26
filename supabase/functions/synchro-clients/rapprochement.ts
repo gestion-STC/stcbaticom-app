@@ -95,3 +95,17 @@ export function candidats(g: GestionnaireRef, agences: AgenceRef[], max = 3): Ca
 
 // Un candidat qu'on peut proposer en premier sans rougir : e-mail ou téléphone + nom, ou domaine + nom.
 export const candidatSolide = (c: Candidat | undefined): boolean => !!c && c.score >= 65
+
+/** Le jour (Paris, AAAA-MM-JJ) d'un instant. */
+export const jourParis = (iso: string): string => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" })
+
+/**
+ * Le premier OS d'une cliente à recaler (27/11/2026) : STC Bâtiment connaît un OS plus ancien que la date de la fiche
+ * (Médicis Villepinte : 12/05 sur la fiche, 14/04 chez STC Bâtiment). Renvoie le jour à poser, sinon null. Une agence
+ * qui n'est plus cliente n'est pas touchée (la synchro ne fait jamais un client toute seule).
+ */
+export function premierOsARecaler(a: Pick<AgenceRef, "etape" | "premierOsLe"> | undefined, premierOsStc: string | null): string | null {
+  if (!a || a.etape !== "client" || !premierOsStc || !a.premierOsLe) return null
+  const jour = jourParis(premierOsStc)
+  return jour < a.premierOsLe.slice(0, 10) ? jour : null
+}

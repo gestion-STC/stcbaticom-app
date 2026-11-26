@@ -26,10 +26,11 @@ export function versAvisContact(l: LigneAvisStc, maintenant: Date) {
 
 /**
  * Les contacts venus de STC Bâtiment qu'il ne renvoie plus (liste corrigée, chantier sorti) : à retirer (16/11/2026).
- * Jamais quand STC Bâtiment ne renvoie rien (panne), jamais un contact déjà entré dans une campagne.
+ * Jamais quand STC Bâtiment ne renvoie rien (panne), jamais un contact déjà entré dans une campagne, jamais un désinscrit
+ * (27/11/2026 : sa ligne garde la désinscription, s'il revient il n'est pas recontacté).
  */
-export function aRetirer(existants: { id: string; ref_stc: string | null }[], refsRecues: string[], dansUneCampagne: Set<string>): string[] {
+export function aRetirer(existants: { id: string; ref_stc: string | null; desinscrit?: boolean | null }[], refsRecues: string[], dansUneCampagne: Set<string>): string[] {
   if (!refsRecues.length) return []
   const recues = new Set(refsRecues)
-  return existants.filter((e) => e.ref_stc && !recues.has(e.ref_stc) && !dansUneCampagne.has(e.id)).map((e) => e.id)
+  return existants.filter((e) => e.ref_stc && !e.desinscrit && !recues.has(e.ref_stc) && !dansUneCampagne.has(e.id)).map((e) => e.id)
 }

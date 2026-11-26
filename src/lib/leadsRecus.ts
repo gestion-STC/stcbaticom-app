@@ -35,6 +35,8 @@ export type LeadRecu = {
   signal: string
   detail: string
   quand: string
+  /** Depuis quand il attend : la naissance du lead (27/11/2026), pas son dernier signal. */
+  depuis?: string
   etape: EtapeLead
   /** L'état d'un dossier déposé (nouveau, vu, contrats envoyés…). */
   etat?: EtatDossier
@@ -52,9 +54,18 @@ export type LeadRecu = {
   cible: Cible
 }
 
-/** Un nouveau lead qui attend depuis plus longtemps que sa campagne ne le permet. */
-export function enRetard(l: Pick<LeadRecu, "etape" | "quand" | "aTraiterSous">, maintenant: number): boolean {
-  return l.etape === "nouveaux" && Boolean(l.aTraiterSous) && Boolean(l.quand) && maintenant - new Date(l.quand).getTime() > (l.aTraiterSous ?? 0) * 3_600_000
+/** Un nouveau lead qui attend depuis plus longtemps que sa campagne ne le permet. Compté depuis sa NAISSANCE
+ *  (27/11/2026, comme la session) : un nouveau clic ne remet plus l'horloge à zéro. */
+export function enRetard(l: Pick<LeadRecu, "etape" | "quand" | "depuis" | "aTraiterSous">, maintenant: number): boolean {
+  const depuis = l.depuis || l.quand
+  return l.etape === "nouveaux" && Boolean(l.aTraiterSous) && Boolean(depuis) && maintenant - new Date(depuis).getTime() > (l.aTraiterSous ?? 0) * 3_600_000
+}
+
+/** Entre deux leads d'une même agence : l'ouvert (« à traiter ») d'abord, sinon le plus récent. */
+export function leadPrioritaire(a: { statut: string; cree_le: string }, b: { statut: string; cree_le: string }): boolean {
+  const ouvertA = a.statut === "a_traiter", ouvertB = b.statut === "a_traiter"
+  if (ouvertA !== ouvertB) return ouvertA
+  return a.cree_le > b.cree_le
 }
 
 /** La chaleur d'un lead d'agence, d'après sa source (leads_demarchage.source). */

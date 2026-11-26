@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { statutDossier } from "./dossierStatut"
-import { campagneParContact, leadsVisibles, niveauAgence, sourceDe, sourcesDe, trierLeads, type LeadRecu } from "./leadsRecus"
+import { campagneParContact, enRetard, leadPrioritaire, leadsVisibles, niveauAgence, sourceDe, sourcesDe, trierLeads, type LeadRecu } from "./leadsRecus"
 
 const lead = (o: Partial<LeadRecu>): LeadRecu => ({
   id: "x", espace: "demarchage", niveau: "interet", nom: "", signal: "", detail: "", quand: "2026-11-09T10:00:00Z", etape: "nouveaux",
@@ -54,5 +54,21 @@ describe("l'état d'un dossier déposé", () => {
     expect(statutDossier(d, { contratStatut: "envoye", accesOuvertLe: null }).texte).toBe("contrats envoyés")
     expect(statutDossier({ ...d, completLe: "x" }).texte).toBe("contrats signés")
     expect(statutDossier({ ...d, completLe: "x" }, { contratStatut: "signe", accesOuvertLe: "x" }).texte).toBe("partenaire")
+  })
+})
+
+describe("lot 4 de l'audit (27/11/2026)", () => {
+  const h = (n: number) => Date.parse("2026-11-06T10:00:00Z") + n * 3_600_000
+  it("« En retard » se compte depuis la naissance du lead, pas depuis son dernier signal", () => {
+    // La Villa 92 : né le 05/11 à 11:29, dernier signal le 06/11 à 16:45, délai 24 h.
+    const l = { etape: "nouveaux" as const, quand: "2026-11-06T16:45:00Z", depuis: "2026-11-05T11:29:00Z", aTraiterSous: 24 }
+    expect(enRetard(l, h(2))).toBe(true)
+    expect(enRetard({ ...l, depuis: undefined }, h(2))).toBe(false) // sans date de naissance : comme avant
+  })
+  it("deux leads pour une agence : l'ouvert d'abord, sinon le plus récent", () => {
+    const vieux = { statut: "traite", cree_le: "2026-11-02T10:00:00Z" }, neuf = { statut: "a_traiter", cree_le: "2026-11-01T10:00:00Z" }
+    expect(leadPrioritaire(neuf, vieux)).toBe(true)
+    expect(leadPrioritaire(vieux, neuf)).toBe(false)
+    expect(leadPrioritaire({ statut: "traite", cree_le: "2026-11-03T10:00:00Z" }, vieux)).toBe(true)
   })
 })

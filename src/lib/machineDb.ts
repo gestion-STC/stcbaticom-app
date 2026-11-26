@@ -175,8 +175,10 @@ export async function chargerExclusions(): Promise<ExclusionST[]> {
   if (error) throw new Error(error.message)
   return (data as LigneExclusion[]).map((x) => ({ id: x.id, email: x.email ?? "", telephone: x.telephone ?? "", motif: x.motif ?? "", creeLe: x.cree_le }))
 }
+/** Ajoute une adresse et/ou un numéro (27/11/2026) : une adresse déjà exclue est complétée par le numéro, au lieu de
+ *  refuser l'ajout (« doublon ») ; un numéro déjà exclu n'est pas ajouté deux fois. */
 export async function ajouterExclusion(x: { email?: string; telephone?: string; motif: string }): Promise<void> {
-  const { error } = await client().from("st_exclusions").insert({ email: (x.email || "").toLowerCase().trim() || null, telephone: (x.telephone || "").trim() || null, motif: x.motif })
+  const { error } = await client().rpc("st_exclure", { p_email: x.email ?? "", p_telephone: x.telephone ?? "", p_motif: x.motif })
   if (error) throw new Error(error.message)
 }
 export async function supprimerExclusion(id: string): Promise<void> {

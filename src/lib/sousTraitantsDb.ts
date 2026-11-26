@@ -243,10 +243,8 @@ export async function nePlusContacter(st: SousTraitant, motif: string): Promise<
   const telephone = (st.telephone || "").trim()
   if (email || telephone) {
     // Lot 5 (26/11/2026) : l'échec de l'ajout à la liste d'exclusion était ignoré, et l'écran disait « exclue ».
-    const { error: e2 } = await supabase.from("st_exclusions").upsert(
-      { email: email || null, telephone: telephone || null, motif: motif || "ne plus contacter (depuis l'écran)" },
-      { onConflict: "email", ignoreDuplicates: true },
-    )
+    // 27/11/2026 : l'adresse déjà exclue (un rebond, par exemple) reçoit le numéro au lieu de l'ignorer (st_exclure).
+    const { error: e2 } = await supabase.rpc("st_exclure", { p_email: email, p_telephone: telephone, p_motif: motif || "ne plus contacter (depuis l'écran)" })
     if (e2) throw new Error(`La fiche est désinscrite (plus aucun envoi), mais son adresse n'a pas pu être ajoutée à la liste d'exclusion : ${e2.message}. Réessaie, sinon une réimportation pourrait la remettre dans le circuit.`)
   }
 }

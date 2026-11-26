@@ -42,12 +42,12 @@ function apres(tache: () => Promise<void>): void {
   if (rt?.waitUntil) rt.waitUntil(p)
 }
 
-function pageConfirmation(titre: string, texte: string, bouton = ""): Response {
+function pageConfirmation(titre: string, texte: string, bouton = "", statut = 200): Response {
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${titre}</title>
 <style>body{margin:0;background:#f6f6f8;font-family:Montserrat,'Segoe UI',Arial,sans-serif;color:#171717;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
 .c{background:#fff;border:1px solid #e8e8e8;border-radius:14px;padding:32px 28px;max-width:440px}h1{font-size:20px;margin:0 0 10px}p{margin:0;color:#525252;line-height:1.55}small{display:block;margin-top:18px;color:#a3a3a3;font-size:12px}button{margin-top:20px;background:#17181a;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:15px;cursor:pointer}</style></head>
 <body><div class="c"><h1>${titre}</h1><p>${texte}</p>${bouton}<small>STC Bâtiment · 7 rue Oscar Niemeyer, 78280 Guyancourt</small></div></body></html>`
-  return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
+  return new Response(html, { status: statut, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } })
 }
 
 Deno.serve(async (req: Request) => {
@@ -93,11 +93,15 @@ Deno.serve(async (req: Request) => {
         const now = new Date().toISOString()
         await supabase.from("st_clics").insert({ sous_traitant_id: st.id, destination: "stop", user_agent: req.headers.get("user-agent") || "" })
         if (st.statut !== "desinscrit") {
-          await supabase.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: now, desinscrit_canal: "lien", statut_motif: "désinscription par le lien" }).eq("id", st.id)
-          await supabase.from("st_exclusions").upsert(
-            { email: String(st.email || "").toLowerCase().trim() || null, telephone: String(st.telephone || "").trim() || null, motif: "désinscription par le lien" },
-            { onConflict: "email", ignoreDuplicates: true },
-          )
+          // Un échec d'enregistrement (27/11/2026) : jamais « C'est noté ». La page « répondez stop », en erreur 500 : le
+          // bouton « Se désinscrire » de la messagerie retente. L'adresse et le numéro vont dans la liste d'exclusion ; une
+          // ligne déjà là (un rebond, par exemple) est complétée par le numéro (st_exclure).
+          const { error: eDes } = await supabase.from("st_sous_traitants").update({ statut: "desinscrit", desinscrit_le: now, desinscrit_canal: "lien", statut_motif: "désinscription par le lien" }).eq("id", st.id)
+          const { error: eExcl } = eDes ? { error: null } : await supabase.rpc("st_exclure", { p_email: st.email ?? "", p_telephone: st.telephone ?? "", p_motif: "désinscription par le lien" })
+          if (eDes || eExcl) {
+            console.error("[lien-st] désinscription NON enregistrée", st.id, (eDes ?? eExcl)?.message)
+            return pageConfirmation("Désinscription non enregistrée", "Un incident nous a empêchés de l'enregistrer. Répondez simplement « stop » à notre message et nous ne vous écrirons plus.", "", 500)
+          }
         }
       }
       // Le bouton de la page comme celui de la messagerie (RFC 8058) reçoivent la page de confirmation.

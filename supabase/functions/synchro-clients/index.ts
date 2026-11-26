@@ -8,7 +8,7 @@
 //
 // Secrets côté Baticom : STC_BATIMENT_URL, STC_BATIMENT_ANON, PASSERELLE_CLE.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { candidats, type AgenceRef, type Candidat, type GestionnaireRef } from "./rapprochement.ts"
+import { candidats, premierOsARecaler, type AgenceRef, type Candidat, type GestionnaireRef } from "./rapprochement.ts"
 import { synchroAvis } from "./avis.ts"
 import { synchroChiffres } from "./chiffres.ts"
 import { estServeur, jetonDe } from "../_shared/acces.ts"
@@ -77,7 +77,19 @@ Deno.serve(async (req: Request) => {
     const dejaPar = new Map(lignesDeja.map((d) => [d.gestionnaire_id, d]))
 
     // 3) Une proposition par gestionnaire nouveau ; les décisions prises ne bougent plus.
-    let nouvelles = 0, misesAJour = 0, dejaClients = 0
+    let nouvelles = 0, misesAJour = 0, dejaClients = 0, premiersOsRecales = 0
+    const agenceParId = new Map(agences.map((a) => [a.id, a]))
+    // Une cliente dont STC Bâtiment connaît un premier OS plus ancien : la date de la fiche est recalée (27/11/2026),
+    // par la même règle que la confirmation (agence_premier_os, source stc_batiment : la plus ancienne l'emporte).
+    const recaler = async (agenceId: string | null, premierOsStc: string | null) => {
+      const a = agenceId ? agenceParId.get(agenceId) : undefined
+      const jour = premierOsARecaler(a, premierOsStc)
+      if (!a || !jour) return
+      const { error } = await sb.rpc("agence_premier_os", { p_agence_id: a.id, p_date: jour, p_source: "stc_batiment" })
+      if (error) { console.error("[SYNCHRO-CLIENTS] premier OS non recalé", a.id, error.message); return }
+      a.premierOsLe = jour
+      premiersOsRecales++
+    }
     for (const g of gestionnaires) {
       const existant = dejaPar.get(g.gestionnaire_id)
       const telephones = [g.telephone, g.telephone_fixe, g.telephone_portable].filter(Boolean)
@@ -87,6 +99,7 @@ Deno.serve(async (req: Request) => {
       }
       if (existant && existant.statut !== "a_confirmer") {
         await sb.from("clients_signales").update(commun).eq("gestionnaire_id", g.gestionnaire_id)
+        if (existant.statut === "confirme" || existant.statut === "deja_client") await recaler(existant.agence_id, g.premier_os_le)
         misesAJour++
         continue
       }
@@ -98,14 +111,14 @@ Deno.serve(async (req: Request) => {
       const ligne = { gestionnaire_id: g.gestionnaire_id, ...commun, candidats: liste, statut: dejaClient ? "deja_client" : "a_confirmer", agence_id: dejaClient ? premier!.id : null }
       const { error } = await sb.from("clients_signales").upsert(ligne, { onConflict: "gestionnaire_id" })
       if (error) throw error
-      if (dejaClient) dejaClients++
+      if (dejaClient) { dejaClients++; await recaler(premier!.id, g.premier_os_le) }
       else nouvelles++
     }
     // 3) La passerelle des avis : locataires et sous-traitants actifs (11/11/2026).
     const avis = await synchroAvis(sb, urlBatiment, anonBatiment, cle)
     // 4) Les vrais chiffres du cockpit : agences actives et chiffre d affaires facturé (11/11/2026).
     const chiffres = await synchroChiffres(sb, urlBatiment, anonBatiment, cle)
-    return json({ ok: true, ...avis, ...chiffres, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients })
+    return json({ ok: true, ...avis, ...chiffres, agences_lues: agences.length, gestionnaires: gestionnaires.length, nouvelles_ou_revues: nouvelles, mises_a_jour: misesAJour, deja_clients: dejaClients, premiers_os_recales: premiersOsRecales })
   } catch (e) {
     console.error("[SYNCHRO-CLIENTS]", e)
     return json({ error: String(e) }, 500)
