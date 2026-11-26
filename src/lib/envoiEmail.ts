@@ -118,9 +118,14 @@ export async function envoyerEmail(
     rattaches = lignes?.length ?? 0
   }
   if (rattaches === 0) {
+    // Le compte qui envoie porte la ligne (26/11/2026) : un téléprospecteur n'a le droit d'écrire dans le journal du
+    // démarchage que des messages à son nom (messages_ajout). Sans compte_id explicite, la ligne dépendait du déclencheur
+    // pour passer ; elle est maintenant écrite à son nom d'emblée.
+    const { data: sess } = await supabase.auth.getSession()
+    const compteId = sess.session?.user?.id ?? null
     const { error: e } = await supabase.from("messages").insert({
       sens: "sortant", espace: "demarchage", de: "contact@crm.stcbatiment.fr", a: libelleDestinataires(to, copie), objet, corps_html: corpsHtml,
-      message_id: resendId || null, lu: true, agence_id: d.agenceId,
+      message_id: resendId || null, lu: true, agence_id: d.agenceId, ...(compteId ? { compte_id: compteId } : {}),
       ...(pieces.length ? { pieces_jointes: pieces.map((p) => ({ nom: p.nom, chemin: p.url, taille: p.taille, type: "" })) } : {}),
     })
     if (e) throw new Error(`E-mail parti, mais pas rangé sur la fiche : ${e.message}`)

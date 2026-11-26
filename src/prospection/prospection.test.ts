@@ -51,7 +51,7 @@ describe("le cloisonnement", () => {
 
 describe("le moteur", () => {
   it("l'audience : filtres, désinscrits, clients et sans-mail exclus", () => {
-    const c = campagne({ audience: { filtres: { secteur: ["750"] }, doitAvoir: ["email"] } })
+    const c = campagne({ audience: { filtres: { secteur: ["75011"] }, doitAvoir: ["email"] } })
     expect(estEligible(contact(), c)).toBe(true)
     expect(estEligible(contact({ champs: { secteur: "92100" } }), c)).toBe(false)
     expect(estEligible(contact({ desinscrit: true }), c)).toBe(false)
@@ -122,7 +122,8 @@ describe("les indicateurs", () => {
     expect(ind.parEtape.find((e) => e.etapeId === "s1")!.premiersClics).toBe(1)
     expect(ind.parEtape.find((e) => e.etapeId === "s4")!.premiersClics).toBe(1)
     expect(ind.couts).toMatchObject({ sms: 1, coutSms: 0.06, coutParLead: 0.06 })
-    expect(ind.parVariante.map((v) => [v.nom, v.envoyes, v.cliqueurs])).toEqual([["A", 1, 1], ["B", 1, 0]])
+    // B est confié à Instantly sans confirmation : pas encore parti, il ne compte pas dans le test (26/11/2026).
+    expect(ind.parVariante.map((v) => [v.nom, v.envoyes, v.cliqueurs])).toEqual([["A", 1, 1], ["B", 0, 0]])
     expect(ind.parSegment[0].lignes.map((l) => l.valeur).sort()).toEqual(["75011", "92100"])
     expect(ind.conversion.delaiMedianLeadJ).toBeCloseTo(1.08 / 24, 2)
     expect(constats(ind).some((k) => k.titre.includes("attend"))).toBe(true)

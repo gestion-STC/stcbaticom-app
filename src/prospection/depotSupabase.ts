@@ -8,6 +8,7 @@ import { lireParLots } from "../lib/pagination"
 import type { Depot, EtatProspection } from "./depot"
 import type { Appel, Base, Campagne, Compte, Contact, Envoi, Evenement, Inscription, Lead, Tache } from "./modele"
 import { inscriptionAu, inscriptionsParContact } from "./rattachement"
+import { estLeadRobot } from "./abTest"
 
 export const BASES: Base[] = [
   {
@@ -69,14 +70,26 @@ export function creerDepotSupabase(compte: Compte, onErreur: (m: string) => void
     const tousEvs: Evenement[] = evenements.map((l) => ({ id: String(l.id), campagneId: String(l.campagne_id), envoiId: (l.envoi_id as string) ?? null, contactId: String(l.contact_ref), type: l.type as Evenement["type"], le: String(l.le), lien: (l.lien as string) ?? undefined, robot: Boolean(l.robot) }))
     // Les clics de robots de sécurité (25/11/2026) ne comptent nulle part : ni taux, ni lead ; ils restent visibles à part.
     const evs = tousEvs.filter((e) => !e.robot), robots = tousEvs.filter((e) => e.robot)
-    const cts: Contact[] = contacts.map((l) => ({ id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""), champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null }))
+    // Le jour où chaque contact est devenu « gagné » (26/11/2026) : un gagné ne compte pour une campagne que s'il l'est
+    // devenu après y être entré. Agence : 1er ordre de service, sinon passage en « Client » ; artisan : dossier déposé.
+    const [agGagnees, stDeposes] = await Promise.all([
+      lireParLots<L>((d, f) => sb().from("agences").select("id, premier_os_le, etape, etape_depuis").or("etape.eq.client,premier_os_le.not.is.null").order("id").range(d, f) as unknown as PromiseLike<Lot<L>>),
+      lireParLots<L>((d, f) => sb().from("st_sous_traitants").select("id, depose_le, statut_le").eq("statut", "depose").order("id").range(d, f) as unknown as PromiseLike<Lot<L>>),
+    ])
+    const gagneLe = new Map<string, string | null>([
+      ...agGagnees.map((a): [string, string | null] => [String(a.id), (a.premier_os_le as string) ?? (a.etape === "client" ? (a.etape_depuis as string) ?? null : null)]),
+      ...stDeposes.map((a): [string, string | null] => [String(a.id), (a.depose_le as string) ?? (a.statut_le as string) ?? null]),
+    ])
+    const cts: Contact[] = contacts.map((l) => ({ id: String(l.id), baseId: String(l.base_id), nom: String(l.nom ?? ""), personne: String(l.personne ?? ""), email: String(l.email ?? ""), mobile: String(l.mobile ?? ""), telephone: String(l.telephone ?? ""), champs: (l.champs ?? {}) as Record<string, string>, statut: l.statut as Contact["statut"], gagneLe: gagneLe.get(String(l.id)) ?? null, desinscrit: Boolean(l.desinscrit), proprietaireId: (l.proprietaire_id as string) ?? null }))
     // Chaque lead et chaque appel va à l'inscription en cours à sa date (rattachement.ts), pas à la dernière du contact.
     const parContact = inscriptionsParContact(insc)
     const inscrits = new Set(insc.map((i) => i.contactId))
 
     // Les leads : agences (leads_demarchage) et artisans (le clic, vu par la vue), rattachés à la campagne du contact.
     const depuis = camps.reduce((m, c) => (c.creeLe < m ? c.creeLe : m), new Date().toISOString())
-    const leadsAg = await lireParLots<L>((d, f) => sb().from("leads_demarchage").select("id, agence_id, signal, statut, cree_le").gte("cree_le", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)
+    // Les faux leads des robots de sécurité (fermés « robot ») ne comptent nulle part (26/11/2026 : « histoires » affichait
+    // 8 leads pour 1 vrai).
+    const leadsAg = (await lireParLots<L>((d, f) => sb().from("leads_demarchage").select("id, agence_id, signal, statut, resultat, cree_le").gte("cree_le", depuis).order("id").range(d, f) as unknown as PromiseLike<Lot<L>>)).filter((l) => !estLeadRobot({ resultat: l.resultat as string | null }))
     const leads: Lead[] = leadsAg.filter((l) => inscrits.has(String(l.agence_id))).map((l) => {
       const i = inscriptionAu(parContact, String(l.agence_id), String(l.cree_le))
       return { id: String(l.id), contactId: String(l.agence_id), baseId: "agences", campagneId: i?.campagneId ?? null, signal: String(l.signal ?? ""), creeLe: String(l.cree_le), statut: l.statut === "a_traiter" ? "a_traiter" : "traite", proprietaireId: null }

@@ -1,5 +1,6 @@
 // Les avis récoltés par les campagnes (10/11/2026).
 import { supabase } from "./supabase"
+import { lireParLots } from "./pagination"
 
 export type StatutAvis = "a_valider" | "publie" | "refuse"
 export type Avis = { id: string; campagneId: string | null; contactRef: string; public: string; note: number; commentaire: string; nomAffiche: string; autorise: boolean; statut: StatutAvis; motifRefus: string; rappeleLe: string | null; creeLe: string }
@@ -13,9 +14,9 @@ function sb() {
 }
 
 export async function chargerAvis(): Promise<Avis[]> {
-  const { data, error } = await sb().from("avis").select("*").order("cree_le", { ascending: false }).limit(1000)
-  if (error) throw new Error(error.message)
-  return ((data ?? []) as Ligne[]).map((l) => ({ id: l.id, campagneId: l.campagne_id, contactRef: l.contact_ref, public: l.public, note: l.note, commentaire: l.commentaire, nomAffiche: l.nom_affiche, autorise: l.autorise, statut: l.statut, motifRefus: l.motif_refus, rappeleLe: l.rappele_le, creeLe: l.cree_le }))
+  // Tous les avis, par lots (26/11/2026) : au-delà de 1 000, les plus anciens disparaissaient sans rien dire.
+  const lignes = await lireParLots<Ligne>((d, f) => sb().from("avis").select("*").order("cree_le", { ascending: false }).order("id").range(d, f) as unknown as PromiseLike<{ data: Ligne[] | null; error: { message: string } | null }>)
+  return lignes.map((l) => ({ id: l.id, campagneId: l.campagne_id, contactRef: l.contact_ref, public: l.public, note: l.note, commentaire: l.commentaire, nomAffiche: l.nom_affiche, autorise: l.autorise, statut: l.statut, motifRefus: l.motif_refus, rappeleLe: l.rappele_le, creeLe: l.cree_le }))
 }
 
 async function maj(id: string, champs: Record<string, unknown>) {
