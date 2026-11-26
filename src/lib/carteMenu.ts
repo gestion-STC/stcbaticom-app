@@ -28,10 +28,7 @@ export type PageId =
   | "analyse"
   | "messages"
   | "apporteurs"
-  | "st_machine"
   | "st_base"
-  | "st_sequences"
-  | "st_reglages"
   | "parametrage"
 
 export type EntreeMenu = { id: PageId; titre: string; espace: Espace | null; /** Réservé aux administrateurs. */ admin?: boolean }
@@ -77,12 +74,11 @@ export const MENU: GroupeMenu[] = [
   },
 ]
 
-// Les pages hors menu, ouvertes depuis une autre page (l'ancienne machine des artisans et ses réglages).
+// Les pages hors menu, ouvertes depuis une autre page. L'ancienne machine des artisans (Machine, Séquences, Réglages de la
+// machine) est ABANDONNÉE au profit des campagnes (décision du gérant, 26/11/2026) : ses écrans sont retirés ; Contrats DocuSign
+// et Liste d'exclusion vivent dans Réglages › Recrutement (administrateurs).
 const HORS_MENU: { id: PageId; espace: Espace | null }[] = [
   { id: "parametrage", espace: null },
-  { id: "st_machine", espace: "recrutement" },
-  { id: "st_sequences", espace: "recrutement" },
-  { id: "st_reglages", espace: "recrutement" },
 ]
 
 const visible = (e: { espace: Espace | null; admin?: boolean }, espaces: Espace[], admin: boolean) => (e.espace === null || espaces.includes(e.espace)) && (!e.admin || admin)

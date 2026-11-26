@@ -28,6 +28,9 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
   const [signataireEmail, setSignataireEmail] = useState("")
   const [erreur, setErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
+  // Lot 8 (D77) : compte DocuSign de démonstration → dit en rouge, et l'envoi n'est qu'un essai coché à la main.
+  const [demo, setDemo] = useState(false)
+  const [essaiAssume, setEssaiAssume] = useState(false)
 
   useEffect(() => {
     let vivant = true
@@ -39,6 +42,7 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
         const liste = champsArtisan(choisis)
         if (!vivant) return
         setPack(choisis)
+        setDemo(m.demo)
         setCoches(choisis.map((x) => x.templateId))
         setValeurs(Object.fromEntries(liste.map((c) => [c.label, valeurProposee(c.label, connu)])))
         setSignataireNom(valeurProposee("Dirigeant", connu) || fiche.contact || "")
@@ -53,15 +57,15 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
   const retenus = (pack ?? []).filter((m) => coches.includes(m.templateId))
   const champs = champsArtisan(retenus)
   const manquants = champs.filter((c) => c.requis && !(valeurs[c.label] ?? "").trim()).map((c) => libelleChamp(c.label))
-  const pret = retenus.length > 0 && !!signataireNom.trim() && /\S+@\S+\.\S+/.test(signataireEmail) && manquants.length === 0
+  const pret = retenus.length > 0 && !!signataireNom.trim() && /\S+@\S+\.\S+/.test(signataireEmail) && manquants.length === 0 && (!demo || essaiAssume)
 
   const envoyer = async (e: FormEvent) => {
     e.preventDefault()
     if (!pret) return
     setOccupe(true); setErreur("")
     try {
-      const r = await envoyerContrats({ sousTraitantId: fiche.id!, compteNom, valeurs, signataireNom: signataireNom.trim(), signataireEmail: signataireEmail.trim(), templateIds: retenus.map((m) => m.templateId) })
-      onEnvoye(`Contrats envoyés à ${r.destinataire} (${r.documents} document${r.documents > 1 ? "s" : ""}). ${signataireNom.trim()} signe, puis STC signe.`)
+      const r = await envoyerContrats({ sousTraitantId: fiche.id!, compteNom, valeurs, signataireNom: signataireNom.trim(), signataireEmail: signataireEmail.trim(), templateIds: retenus.map((m) => m.templateId), accepterDemo: demo && essaiAssume })
+      onEnvoye(`${demo ? "ESSAI (compte DocuSign de démonstration, sans valeur) : " : ""}Contrats envoyés à ${r.destinataire} (${r.documents} document${r.documents > 1 ? "s" : ""}). ${signataireNom.trim()} signe, puis STC signe.`)
     } catch (err) {
       setErreur(message(err))
     } finally {
@@ -77,9 +81,16 @@ export default function EnvoyerContratsDialogue({ fiche, dossier, onFermer, onEn
       largeur="max-w-2xl"
       pied={<><Bouton onClick={onFermer}>Annuler</Bouton><Bouton variante="plein" form="form-envoyer-contrats" type="submit" chargement={occupe} disabled={!pret}>Envoyer pour signature</Bouton></>}
     >
+      {demo ? (
+        <Bandeau role="alerte" className="mb-3">
+          Compte DocuSign de <b>DÉMONSTRATION</b> : ces contrats n'auront <b>aucune valeur juridique</b> et ne vaudront pas signature.
+          Le compte réel se branche côté serveur (Réglages › Contrats DocuSign l'explique).
+          <span className="mt-2 block"><Case texte="J'ai compris : c'est un envoi d'essai, sans valeur" checked={essaiAssume} onChange={(e) => setEssaiAssume(e.target.checked)} /></span>
+        </Bandeau>
+      ) : null}
       {erreur ? <Bandeau role="alerte" className="mb-3" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
       {pack === null ? <Chargement texte="Lecture du pack de contrats…" /> : pack.length === 0 ? (
-        <p className="text-legende text-encre-2">Aucun contrat dans le pack. Va dans Recrutement › Réglages de la machine › Contrats à faire signer pour choisir les modèles DocuSign.</p>
+        <p className="text-legende text-encre-2">Aucun contrat dans le pack. Va dans Réglages › Recrutement › Contrats DocuSign pour choisir les modèles DocuSign.</p>
       ) : (
         <form id="form-envoyer-contrats" onSubmit={envoyer} className="grid gap-4">
           <div>

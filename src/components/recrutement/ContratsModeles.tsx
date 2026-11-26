@@ -17,6 +17,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 export default function ContratsModeles() {
   const [modeles, setModeles] = useState<ModeleDocusign[] | null>(null)
   const [compte, setCompte] = useState("")
+  const [demo, setDemo] = useState(false)
   const [pack, setPack] = useState<string[]>([]) // les templateId choisis, dans l'ordre
   const [origine, setOrigine] = useState<string[]>([])
   const [erreur, setErreur] = useState("")
@@ -27,7 +28,7 @@ export default function ContratsModeles() {
     setErreur("")
     try {
       const [m, p] = await Promise.all([chargerModelesDocusign(), chargerPack()])
-      setModeles(m.modeles); setCompte(m.compte)
+      setModeles(m.modeles); setCompte(m.compte); setDemo(m.demo)
       const ids = p.filter((x) => x.actif).map((x) => x.templateId)
       setPack(ids); setOrigine(ids)
     } catch (e) { setErreur(message(e)); setModeles([]) }
@@ -59,17 +60,26 @@ export default function ContratsModeles() {
   return (
     <Carte>
       <TitreCarte droite={<>
-        {compte ? <Pastille role={compte === "réel" ? "fait" : "attente"}>{compte === "réel" ? "compte réel" : "bac à sable DocuSign"}</Pastille> : null}
+        {compte ? <Pastille role={demo ? "probleme" : "fait"}>{demo ? "compte de DÉMONSTRATION" : "compte réel"}</Pastille> : null}
         <Bouton taille="sm" variante="discret" icone={<RefreshCw />} disabled={occupe} onClick={() => { setModeles(null); charger() }}>Relire DocuSign</Bouton>
         <Bouton taille="sm" icone={<Plug />} disabled={occupe} onClick={() => agir(async () => { await installerConnect() }, "Retours DocuSign branchés : les signatures remonteront toutes seules.")}>Brancher les retours DocuSign</Bouton>
         <Bouton taille="sm" variante="plein" icone={<Save />} disabled={!change} chargement={occupe} onClick={enregistrer}>Enregistrer le pack</Bouton>
       </>}>Contrats à faire signer</TitreCarte>
       <div className="px-5 pb-5">
+        {/* Lot 8 (D77) : le compte de démonstration se voit, il ne se devine plus à une petite pastille. */}
+        {demo ? (
+          <Bandeau role="alerte" className="mb-3">
+            Le compte DocuSign branché est celui de <b>DÉMONSTRATION</b> : les contrats qui en partent portent la mention « démo » et n'ont
+            <b> aucune valeur juridique</b>. L'envoi est refusé, sauf « envoi d'essai » coché à la main. Pour envoyer de vrais contrats,
+            il faut poser sur le serveur les secrets du compte DocuSign réel (DOCUSIGN_BASE_URI, DOCUSIGN_OAUTH_HOST = account.docusign.com,
+            clé et identifiants), puis cliquer « Brancher les retours DocuSign ».
+          </Bandeau>
+        ) : null}
         <p className="text-legende text-encre-2">Les modèles de ton compte DocuSign. Coche ceux qui forment le pack envoyé depuis un dossier déposé, et range-les dans l'ordre. L'artisan signe d'abord, STC ensuite.</p>
         {erreur ? <Bandeau role="alerte" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setErreur("")}>Fermer</Bouton>}>{erreur}</Bandeau> : null}
         {info ? <Bandeau role="ok" className="mt-3" action={<Bouton taille="sm" variante="discret" onClick={() => setInfo("")}>Fermer</Bouton>}>{info}</Bandeau> : null}
         {modeles === null ? <Chargement texte="Lecture des modèles DocuSign…" /> : modeles.length === 0 ? (
-          <Vide titre="Aucun modèle dans ce compte DocuSign" texte={compte === "réel" ? "Crée tes modèles dans DocuSign (Modèles › Nouveau), puis reviens ici." : "Les modèles de ton compte réel ne sont pas dans le bac à sable. Dans le compte réel : Modèles › ⋯ › Télécharger ; dans le compte Développeur : Modèles › Importer. Puis « Relire DocuSign »."} />
+          <Vide titre="Aucun modèle dans ce compte DocuSign" texte={!demo ? "Crée tes modèles dans DocuSign (Modèles › Nouveau), puis reviens ici." : "Les modèles de ton compte réel ne sont pas dans le bac à sable. Dans le compte réel : Modèles › ⋯ › Télécharger ; dans le compte Développeur : Modèles › Importer. Puis « Relire DocuSign »."} />
         ) : (
           <ul className="mt-3 divide-y divide-fond-4 border-t border-trait">
             {tries.map((m) => {

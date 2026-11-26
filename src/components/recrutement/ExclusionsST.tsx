@@ -1,9 +1,9 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LA LISTE D'EXCLUSION — une carte de l'onglet Réglages → Recrutement
+// LA LISTE D'EXCLUSION — Réglages › Recrutement › Liste d'exclusion (administrateurs)
 //
-// Ces adresses et numéros ne sont jamais recontactés, même réimportés. La
-// machine la consulte à chaque démarrage de fiche et à chaque envoi ; ici on
-// la lit, on y ajoute, on en retire. Rien d'autre.
+// Ces adresses et numéros ne sont jamais recontactés, même réimportés : les campagnes comptent comme désinscrit
+// tout artisan dont l'adresse est dans la liste (vue des contacts de la base artisans). Ici on la lit, on y ajoute,
+// on en retire. Rien d'autre. (La machine des artisans est abandonnée depuis le 26/11/2026.)
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from "react"
 import { Plus } from "lucide-react"
@@ -124,7 +124,7 @@ export default function ExclusionsST() {
         {chargement ? (
           <Chargement />
         ) : liste.length === 0 ? (
-          <Vide titre="Aucune exclusion" texte="La machine peut écrire à toute la base. Les désinscriptions s'ajouteront ici d'elles-mêmes." />
+          <Vide titre="Aucune exclusion" texte="Les campagnes peuvent écrire à toute la base. Les désinscriptions s'ajouteront ici d'elles-mêmes." />
         ) : visibles.length === 0 ? (
           <Vide titre="Rien ne correspond" texte="Aucune ligne ne contient ce texte." />
         ) : (
@@ -189,7 +189,7 @@ export default function ExclusionsST() {
       {aRetirer ? (
         <Dialogue
           titre="Retirer de la liste d'exclusion ?"
-          description={cible + " pourra de nouveau être contacté par la machine, dès qu'une fiche le concernant repartira en séquence."}
+          description={cible + " pourra de nouveau être contacté par les campagnes."}
           onFermer={() => setARetirer(null)}
           pied={
             <>

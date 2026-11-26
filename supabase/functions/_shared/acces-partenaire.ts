@@ -3,8 +3,9 @@
 // d'envoyer le lien à l'artisan (e-mail STC Bâtiment, logo, copie à STC).
 // Secrets : STC_BATIMENT_URL, STC_BATIMENT_ANON, PASSERELLE_CLE (déjà posés pour les clients signés).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { lireReponseAcces, type ReponseLien } from "./contratsPurs.ts"
 
-export type FicheST = { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string }
+export type FicheST = { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string; contrat_statut?: string | null }
 type Ligne = { label: string; valeur: string }
 
 /** Ce que le dossier déposé sait de l'entreprise (raison sociale, SIRET, adresse, dirigeant…). */
@@ -27,7 +28,7 @@ export function depuisDossier(sections: { lignes?: Ligne[] }[] | null | undefine
 }
 
 /** Demande le lien à STC Bâtiment (qui l'envoie lui-même par e-mail) et le note sur la fiche. */
-export async function envoyerLienAcces(sb: SupabaseClient, fiche: FicheST, env: (k: string) => string | undefined): Promise<{ ok: true; destinataire: string; url: string } | { ok: false; erreur: string }> {
+export async function envoyerLienAcces(sb: SupabaseClient, fiche: FicheST, env: (k: string) => string | undefined): Promise<ReponseLien> {
   const base = (env("STC_BATIMENT_URL") || "").replace(/\/$/, "")
   const anon = env("STC_BATIMENT_ANON") || ""
   const cle = env("PASSERELLE_CLE") || ""
@@ -41,13 +42,19 @@ export async function envoyerLienAcces(sb: SupabaseClient, fiche: FicheST, env: 
     siret: d.siret || "", adresse: d.adresse || "", code_postal: d.code_postal || (fiche.zone && /^\d{5}$/.test(fiche.zone) ? fiche.zone : ""),
     responsable: d.responsable || fiche.contact, email: (fiche.email || d.email || (dossier as { email?: string } | null)?.email || "").toLowerCase(),
     telephone: fiche.telephone || d.telephone || "", corps_metier: d.corps_metier || fiche.metier || "", envoyer: true,
+    // D82 : STC Bâtiment n'écrit « contrats signés par les deux parties » que si c'est vrai.
+    contrats_signes: fiche.contrat_statut === "signe",
   }
   if (!corps.email) return { ok: false, erreur: "La fiche n'a pas d'adresse e-mail : impossible d'envoyer le lien." }
   const r = await fetch(`${base}/functions/v1/acces-partenaire`, {
     method: "POST", headers: { "Content-Type": "application/json", apikey: anon, Authorization: `Bearer ${anon}`, "x-passerelle-cle": cle }, body: JSON.stringify(corps),
   })
-  const j = await r.json().catch(() => ({})) as { ok?: boolean; url?: string; destinataire?: string; envoye?: boolean; error?: string }
-  if (!r.ok || !j.ok) return { ok: false, erreur: `STC Bâtiment répond ${r.status} : ${j.error || "?"}` }
-  await sb.from("st_sous_traitants").update({ acces_envoye_le: new Date().toISOString(), acces_email: j.destinataire || corps.email }).eq("id", fiche.id)
-  return { ok: true, destinataire: j.destinataire || corps.email, url: j.url || "" }
+  const j = await r.json().catch(() => ({})) as Parameters<typeof lireReponseAcces>[2]
+  const rep = lireReponseAcces(r.ok, r.status, j, corps.email, new Date().toISOString())
+  if (!rep.ok) return rep
+  const { error } = rep.dejaOuvert
+    ? await sb.from("st_sous_traitants").update({ acces_ouvert_le: rep.ouvertLe, acces_email: rep.destinataire }).eq("id", fiche.id)
+    : await sb.from("st_sous_traitants").update({ acces_envoye_le: new Date().toISOString(), acces_email: rep.destinataire }).eq("id", fiche.id)
+  if (error) console.error("[ACCES-PARTENAIRE] fiche non mise à jour :", error.message)
+  return rep
 }

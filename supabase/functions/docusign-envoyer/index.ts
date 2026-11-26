@@ -12,8 +12,9 @@
 //   · statut           → { envelope_id } relit une enveloppe
 //   · installer_connect→ pose l'abonnement Connect vers docusign-evenements
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { apiJson, configDepuisEnv, jetonDocusign } from "../_shared/docusign.ts"
+import { apiJson, configDepuisEnv, estDemo, jetonDocusign } from "../_shared/docusign.ts"
 import { envoyerLienAcces } from "../_shared/acces-partenaire.ts"
+import { traiterEnveloppe } from "../_shared/contratSigne.ts"
 
 // Appelée depuis le navigateur : les en-têtes CORS sur chaque réponse, et la pré-requête OPTIONS.
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
@@ -22,17 +23,16 @@ type Fiche = { id: string; entreprise: string; contact: string; email: string; s
 type Pack = { id: string; nom: string; template_id: string; ordre: number }
 type Signer = { roleName?: string; routingOrder?: string; recipientId?: string; name?: string; email?: string; status?: string; signedDateTime?: string; tabs?: { textTabs?: { tabLabel: string; required?: string; value?: string }[] } }
 type ModeleDetail = { templateId: string; name: string; recipients?: { signers?: Signer[] } }
-type Enveloppe = { envelopeId: string; status: string; recipients?: { signers?: Signer[] } }
 export type RoleModele = { roleName: string; routingOrder: number; champs: string[]; requis: string[] }
 export type ModeleResume = { templateId: string; nom: string; roles: RoleModele[] }
 
-async function utilisateurConnecte(req: Request, base: string, anon: string): Promise<{ id: string; email: string } | null> {
+async function utilisateurConnecte(req: Request, base: string, anon: string): Promise<{ id: string; email: string; admin: boolean } | null> {
   const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
   if (!jeton) return null
   const r = await fetch(`${base}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${jeton}` } })
   if (!r.ok) return null
   const u = await r.json()
-  return u?.id ? { id: u.id, email: u.email ?? "" } : null
+  return u?.id ? { id: u.id, email: u.email ?? "", admin: u.app_metadata?.role === "admin" } : null
 }
 
 /** Les rôles d'un modèle : qui signe, dans quel ordre, avec quels champs texte. */
@@ -54,18 +54,6 @@ export function rolesSignataires(roles: RoleModele[]): { artisan: RoleModele | n
   if (!stc) stc = roles.find((r) => r !== artisan) ?? null
   return { artisan, stc }
 }
-function statutDepuisEnveloppe(e: Enveloppe): { statut: string; signeArtisanLe: string | null; signeLe: string | null } {
-  const artisan = e.recipients?.signers?.find((s) => s.recipientId === "1")
-  const signeArtisanLe = artisan?.status === "completed" ? artisan.signedDateTime ?? new Date().toISOString() : null
-  const s = (e.status || "").toLowerCase()
-  if (s === "completed") return { statut: "signe", signeArtisanLe, signeLe: new Date().toISOString() }
-  if (s === "declined") return { statut: "refuse", signeArtisanLe, signeLe: null }
-  if (s === "voided") return { statut: "annule", signeArtisanLe, signeLe: null }
-  if (signeArtisanLe) return { statut: "signe_artisan", signeArtisanLe, signeLe: null }
-  if (s === "delivered") return { statut: "livre", signeArtisanLe: null, signeLe: null }
-  return { statut: "envoye", signeArtisanLe: null, signeLe: null }
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405)
@@ -81,13 +69,13 @@ Deno.serve(async (req: Request) => {
       const cle = config.privateKeyPem.includes("PRIVATE KEY")
       let jeton = false, erreur = ""
       try { await jetonDocusign(config); jeton = true } catch (e) { erreur = e instanceof Error ? e.message : String(e) }
-      return json({ ok: true, cle_ok: cle, jeton_ok: jeton, compte: config.baseUri, erreur })
+      return json({ ok: true, cle_ok: cle, jeton_ok: jeton, compte: config.baseUri, demo: estDemo(config), erreur })
     } catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500) }
   }
   const qui = await utilisateurConnecte(req, base, anon)
   if (!qui) return json({ error: "Connexion requise" }, 401)
 
-  let corps: { action?: string; sous_traitant_id?: string; compte_nom?: string; envelope_id?: string; forcer?: boolean; valeurs?: Record<string, string>; signataire_nom?: string; signataire_email?: string; template_ids?: string[] } = {}
+  let corps: { action?: string; sous_traitant_id?: string; compte_nom?: string; envelope_id?: string; forcer?: boolean; accepter_demo?: boolean; valeurs?: Record<string, string>; signataire_nom?: string; signataire_email?: string; template_ids?: string[] } = {}
   try { corps = await req.json() } catch { /* corps vide */ }
   const sb = createClient(base, service)
 
@@ -97,9 +85,10 @@ Deno.serve(async (req: Request) => {
     const { data: fiche } = await sb.from("st_sous_traitants").select("id, entreprise, contact, email, telephone, metier, zone, contrat_statut").eq("id", corps.sous_traitant_id).maybeSingle()
     if (!fiche) return json({ error: "Fiche introuvable" }, 404)
     if ((fiche as { contrat_statut: string }).contrat_statut !== "signe" && !corps.forcer) return json({ error: "Les contrats ne sont pas encore signés par les deux parties." }, 409)
-    const r = await envoyerLienAcces(sb, fiche as { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string }, (k) => Deno.env.get(k))
+    const r = await envoyerLienAcces(sb, fiche as { id: string; entreprise: string; contact: string; email: string; telephone: string; metier: string; zone: string; contrat_statut: string }, (k) => Deno.env.get(k))
     if (!r.ok) return json({ error: r.erreur }, 502)
-    return json({ ok: true, destinataire: r.destinataire })
+    // D78 : l'adresse a déjà son compte STC Bâtiment → aucun lien, la fiche passe « accès ouvert ».
+    return json({ ok: true, destinataire: r.destinataire, deja_ouvert: !!r.dejaOuvert })
   }
 
   try {
@@ -112,11 +101,13 @@ Deno.serve(async (req: Request) => {
       const liste = await apiJson<{ envelopeTemplates?: { templateId: string; name: string }[] }>(config, jeton, "GET", "/templates?count=100&order_by=name&order=asc")
       const modeles: ModeleResume[] = []
       for (const m of (liste.envelopeTemplates ?? []).slice(0, 40)) modeles.push(resumerModele(await detailModele(m.templateId)))
-      return json({ ok: true, modeles, compte: config.baseUri.includes("demo") ? "bac à sable" : "réel" })
+      return json({ ok: true, modeles, compte: estDemo(config) ? "bac à sable" : "réel", demo: estDemo(config) })
     }
 
     // ── Poser l'abonnement Connect (une fois) ──
     if (corps.action === "installer_connect") {
+      // L'écran « Contrats DocuSign » n'est offert qu'aux administrateurs (lot 8) : le serveur refuse les autres.
+      if (!qui.admin) return json({ error: "Réservé aux administrateurs." }, 403)
       const secret = Deno.env.get("DOCUSIGN_CONNECT_SECRET") || ""
       if (!secret) return json({ error: "Secret DOCUSIGN_CONNECT_SECRET manquant" }, 500)
       const url = `${base}/functions/v1/docusign-evenements?cle=${encodeURIComponent(secret)}`
@@ -136,18 +127,19 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, connectId: r.connectId ?? deja?.connectId })
     }
 
-    // ── Relire une enveloppe ──
+    // ── Relire une enveloppe : le MÊME traitement que les retours DocuSign (PDF, dossier, lien d'accès), lot 8 (D81) ──
     if (corps.action === "statut") {
       if (!corps.envelope_id) return json({ error: "envelope_id manquant" }, 400)
-      const e = await apiJson<Enveloppe>(config, jeton, "GET", `/envelopes/${corps.envelope_id}?include=recipients`)
-      const etat = statutDepuisEnveloppe(e)
-      const { error } = await sb.from("st_contrats").update({ statut: etat.statut, signe_artisan_le: etat.signeArtisanLe, signe_le: etat.signeLe, maj_le: new Date().toISOString() }).eq("envelope_id", corps.envelope_id)
-      if (error) throw error
-      return json({ ok: true, ...etat })
+      const r = await traiterEnveloppe(sb, config, jeton, corps.envelope_id, (k) => Deno.env.get(k))
+      return json(r)
     }
 
     // ── Envoyer les contrats ──
     if (!corps.sous_traitant_id) return json({ error: "sous_traitant_id manquant" }, 400)
+    // D77 : jamais d'envoi silencieux depuis le compte de DÉMONSTRATION (contrats sans valeur juridique). L'écran le dit et
+    // demande de cocher « envoi d'essai » ; sans cette case, on refuse.
+    const demo = estDemo(config)
+    if (demo && !corps.accepter_demo) return json({ error: "Le compte DocuSign branché est celui de DÉMONSTRATION : les contrats envoyés n'auraient aucune valeur juridique. Branchez le compte DocuSign réel (secrets du serveur), ou cochez « envoi d'essai » pour un test.", demo: true }, 409)
     const { data: fiche, error: eF } = await sb.from("st_sous_traitants").select("id, entreprise, contact, email, statut, depose_le").eq("id", corps.sous_traitant_id).single()
     if (eF || !fiche) return json({ error: "Fiche introuvable" }, 404)
     const f = fiche as Fiche
@@ -192,7 +184,7 @@ Deno.serve(async (req: Request) => {
     }
     const r = await apiJson<{ envelopeId: string; status: string }>(config, jeton, "POST", "/envelopes", enveloppe)
     const { error: eI } = await sb.from("st_contrats").insert({
-      sous_traitant_id: f.id, envelope_id: r.envelopeId, statut: "envoye", compte_nom: corps.compte_nom ?? qui.email,
+      sous_traitant_id: f.id, envelope_id: r.envelopeId, statut: "envoye", compte_nom: `${corps.compte_nom ?? qui.email}${demo ? " · DocuSign DÉMO (sans valeur)" : ""}`,
       documents: (pack as Pack[]).map((m) => ({ nom: m.nom, template_id: m.template_id })), valeurs, signataire_nom: nomArtisan, signataire_email: emailArtisan,
     })
     if (eI) throw eI

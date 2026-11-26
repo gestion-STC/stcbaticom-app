@@ -59,23 +59,31 @@ export async function chargerContratsDe(sousTraitantId: string): Promise<Contrat
 }
 
 /** Les modèles du compte DocuSign, avec leurs rôles et champs (lus à la source). */
-export async function chargerModelesDocusign(): Promise<{ modeles: ModeleDocusign[]; compte: string }> {
-  const r = await appeler<{ modeles: ModeleDocusign[]; compte: string }>({ action: "modeles" })
-  return { modeles: r.modeles ?? [], compte: r.compte ?? "" }
+/** `demo` : le compte branché est celui de DÉMONSTRATION de DocuSign, dont les contrats n'ont aucune valeur juridique (lot 8, D77). */
+export async function chargerModelesDocusign(): Promise<{ modeles: ModeleDocusign[]; compte: string; demo: boolean }> {
+  const r = await appeler<{ modeles: ModeleDocusign[]; compte: string; demo?: boolean }>({ action: "modeles" })
+  return { modeles: r.modeles ?? [], compte: r.compte ?? "", demo: r.demo ?? r.compte !== "réel" }
 }
 
-export type EnvoiContrats = { sousTraitantId: string; compteNom: string; valeurs: Record<string, string>; signataireNom: string; signataireEmail: string; templateIds?: string[]; forcer?: boolean }
+export type EnvoiContrats = { sousTraitantId: string; compteNom: string; valeurs: Record<string, string>; signataireNom: string; signataireEmail: string; templateIds?: string[]; forcer?: boolean; /** Envoi d'essai assumé depuis le compte de démonstration. */ accepterDemo?: boolean }
 export async function envoyerContrats(e: EnvoiContrats): Promise<{ envelopeId: string; documents: number; destinataire: string }> {
   const r = await appeler<{ envelopeId: string; documents: number; destinataire: string }>({
-    sous_traitant_id: e.sousTraitantId, compte_nom: e.compteNom, valeurs: e.valeurs, signataire_nom: e.signataireNom, signataire_email: e.signataireEmail, template_ids: e.templateIds ?? [], forcer: !!e.forcer,
+    sous_traitant_id: e.sousTraitantId, compte_nom: e.compteNom, valeurs: e.valeurs, signataire_nom: e.signataireNom, signataire_email: e.signataireEmail, template_ids: e.templateIds ?? [], forcer: !!e.forcer, accepter_demo: !!e.accepterDemo,
   })
   return { envelopeId: r.envelopeId, documents: r.documents ?? 0, destinataire: r.destinataire ?? "" }
 }
-/** Envoie (ou renvoie) le lien « ouvrir mon accès » à l'artisan ; STC Bâtiment l'envoie et le journalise. */
-export async function envoyerLienAcces(sousTraitantId: string, forcer = false): Promise<string> {
-  const r = await appeler<{ destinataire?: string }>({ action: "acces_envoyer", sous_traitant_id: sousTraitantId, forcer })
-  return r.destinataire ?? ""
+/**
+ * Envoie (ou renvoie) le lien « ouvrir mon accès » à l'artisan ; STC Bâtiment l'envoie et le journalise. `dejaOuvert` : l'adresse
+ * a déjà son compte STC Bâtiment, aucun lien n'est parti et la fiche passe « accès ouvert » (lot 8, D78).
+ */
+export async function envoyerLienAcces(sousTraitantId: string, forcer = false): Promise<{ destinataire: string; dejaOuvert: boolean }> {
+  const r = await appeler<{ destinataire?: string; deja_ouvert?: boolean }>({ action: "acces_envoyer", sous_traitant_id: sousTraitantId, forcer })
+  return { destinataire: r.destinataire ?? "", dejaOuvert: !!r.deja_ouvert }
 }
+/** Ce que l'écran dit après l'envoi du lien d'accès. */
+export const texteLienAcces = (a: { destinataire: string; dejaOuvert: boolean }) => a.dejaOuvert
+  ? `L'artisan a déjà son compte STC Bâtiment${a.destinataire ? ` (${a.destinataire})` : ""} : aucun lien envoyé, la fiche passe « accès ouvert ».`
+  : `Lien « ouvrir mon accès » envoyé${a.destinataire ? ` à ${a.destinataire}` : ""}, copie à STC.`
 export async function relireContrat(envelopeId: string): Promise<string> {
   const r = await appeler<{ statut?: string }>({ action: "statut", envelope_id: envelopeId })
   return r.statut ?? ""

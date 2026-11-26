@@ -255,7 +255,8 @@ export async function creerFicheHorsBase(dossier: DossierST): Promise<SousTraita
   const { error: e1 } = await sb.from("st_sous_traitants")
     .update({ depose_le: dossier.creeLe, dossier_id: dossier.id }).eq("id", fiche.id!)
   if (e1) throw new Error(e1.message)
-  const { error: e2 } = await sb.from("dossiers_st").update({ sous_traitant_id: fiche.id }).eq("id", dossier.id)
+  // Lot 8 (D90) : un dossier détaché puis traité « hors base » redevient visible (le Dashboard ne lit que les non détachés).
+  const { error: e2 } = await sb.from("dossiers_st").update({ sous_traitant_id: fiche.id, detache_le: null }).eq("id", dossier.id)
   if (e2) throw new Error(e2.message)
   return { ...fiche, deposeLe: dossier.creeLe, dossierId: dossier.id }
 }

@@ -19,6 +19,12 @@ export function configDepuisEnv(env: (k: string) => string | undefined): ConfigD
   }
 }
 
+/**
+ * Le compte branché est-il celui de DÉMONSTRATION (lot 8, D77) ? Une enveloppe partie de là porte la mention « démo » et n'a
+ * aucune valeur juridique. Sans secrets, la config retombe aussi sur la démo : c'est le même cas, et il est dit à l'écran.
+ */
+export const estDemo = (c: Pick<ConfigDocusign, "baseUri" | "oauthHost">) => /(^|\/\/|\.)demo\.docusign\.net/i.test(c.baseUri) || /^account-d\./i.test(c.oauthHost)
+
 // ── Outils purs ──
 export function base64VersOctets(b64: string): Uint8Array<ArrayBuffer> {
   // Tolérant : on ne garde que l'alphabet base64 (un secret collé peut traîner guillemets, espaces, retours) et on complète le remplissage.

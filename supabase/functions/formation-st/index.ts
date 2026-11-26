@@ -2,13 +2,14 @@
 // Les bonnes réponses restent ici : la page ne les reçoit qu'après avoir répondu.
 import Anthropic from "npm:@anthropic-ai/sdk@0.137.0"
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { blocageEssai, melanger, regles, scoreSur, tirerQuestions, type EtatFormation, type ReglesFormation } from "../_shared/formationST.ts"
+import { blocageEssai, bonneAuTirage, melanger, questionsComptees, regles, scoreSur, tirerQuestions, type EtatFormation, type ReglesFormation } from "../_shared/formationST.ts"
 import { alerterBureau } from "../_shared/alerteBureau.ts"
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
 type Question = { id: string; theme: string; texte: string; bonne: string; fausses: string[]; explication: string; actif: boolean; posee: number; ratee: number }
-type Essai = { ids: string[]; ordres: Record<string, string[]>; reponses: Record<string, { reponse: string; juste: boolean }> }
+// `bonnes` (lot 8, D84) : la bonne réponse telle qu'au tirage ; absente des essais commencés avant.
+type Essai = { ids: string[]; ordres: Record<string, string[]>; reponses: Record<string, { reponse: string; juste: boolean }>; bonnes?: Record<string, string> }
 type Fiche = { sous_traitant_id: string; etat: EtatFormation; score: number | null; essais: number; vues: string[]; essai: Essai | null; journal: unknown[]; termine_le: string | null; scenario_le?: string | null; scenario_score?: number | null }
 const APPLICATION = "https://stcbatiment.com/"
 
@@ -68,7 +69,7 @@ Deno.serve(async (req: Request) => {
       if (error) throw new Error(error.message)
       return (data ?? []) as Question[]
     }
-    const vue = (e: Essai, l: Question[]) => e.ids.flatMap((id) => { const q = l.find((x) => x.id === id); return q ? [{ id, theme: q.theme, texte: q.texte, reponses: e.ordres[id], deja: e.reponses[id] ? { ...e.reponses[id], bonne: q.bonne, explication: q.explication } : null }] : [] })
+    const vue = (e: Essai, l: Question[]) => e.ids.flatMap((id) => { const q = l.find((x) => x.id === id); return q ? [{ id, theme: q.theme, texte: q.texte, reponses: e.ordres[id], deja: e.reponses[id] ? { ...e.reponses[id], bonne: bonneAuTirage(e.bonnes, id, q.bonne), explication: q.explication } : null }] : [] })
 
     if (b.action === "commencer") {
       if (f.essai) return json({ questions: vue(f.essai, await banque(f.essai.ids)) })
@@ -78,7 +79,7 @@ Deno.serve(async (req: Request) => {
       const toutes = await banque()
       const tirees = tirerQuestions(toutes, f.vues ?? [], r)
       if (!tirees.length) return json({ error: "La formation n'est pas encore prête." }, 400)
-      const essai: Essai = { ids: tirees.map((q) => q.id), ordres: Object.fromEntries(tirees.map((q) => [q.id, r.desordre ? melanger([q.bonne, ...q.fausses]) : [q.bonne, ...q.fausses]])), reponses: {} }
+      const essai: Essai = { ids: tirees.map((q) => q.id), ordres: Object.fromEntries(tirees.map((q) => [q.id, r.desordre ? melanger([q.bonne, ...q.fausses]) : [q.bonne, ...q.fausses]])), reponses: {}, bonnes: Object.fromEntries(tirees.map((q) => [q.id, q.bonne])) }
       await maj({ essai, etat: "en_cours", vues: [...new Set([...(f.vues ?? []), ...essai.ids])] })
       return json({ questions: vue(essai, tirees) })
     }
@@ -89,18 +90,21 @@ Deno.serve(async (req: Request) => {
       if (!f.essai.ids.includes(id)) return json({ error: "Question inconnue." }, 400)
       const [q] = await banque([id])
       if (!q) return json({ error: "Question inconnue." }, 400)
-      if (f.essai.reponses[id]) return json({ juste: f.essai.reponses[id].juste, bonne: q.bonne, explication: q.explication })
-      const juste = String(b.reponse ?? "") === q.bonne
+      const bonne = bonneAuTirage(f.essai.bonnes, id, q.bonne)
+      if (f.essai.reponses[id]) return json({ juste: f.essai.reponses[id].juste, bonne, explication: q.explication })
+      const juste = String(b.reponse ?? "") === bonne
       await maj({ essai: { ...f.essai, reponses: { ...f.essai.reponses, [id]: { reponse: String(b.reponse ?? ""), juste } } } })
       await sb.from("st_formation_questions").update({ posee: q.posee + 1, ratee: q.ratee + (juste ? 0 : 1) }).eq("id", id)
-      return json({ juste, bonne: q.bonne, explication: q.explication })
+      return json({ juste, bonne, explication: q.explication })
     }
     if (b.action === "terminer") {
-      if (f.essai.ids.some((id) => !f.essai!.reponses[id])) return json({ error: "Il reste des questions." }, 400)
-      const bonnes = f.essai.ids.filter((id) => f.essai!.reponses[id].juste).length
-      const score = scoreSur(bonnes, f.essai.ids.length), reussi = score >= r.seuil
+      // Seules comptent les questions encore dans la banque (ou déjà répondues) : une question supprimée en cours d'essai ne bloque plus (D84).
       const liste = await banque(f.essai.ids)
-      const ratees = f.essai.ids.filter((id) => !f.essai!.reponses[id].juste).flatMap((id) => liste.find((q) => q.id === id)?.texte ?? [])
+      const comptees = questionsComptees(f.essai.ids, f.essai.reponses, liste.map((q) => q.id))
+      if (comptees.some((id) => !f.essai!.reponses[id])) return json({ error: "Il reste des questions." }, 400)
+      const bonnes = comptees.filter((id) => f.essai!.reponses[id].juste).length
+      const score = scoreSur(bonnes, comptees.length), reussi = score >= r.seuil
+      const ratees = comptees.filter((id) => !f.essai!.reponses[id].juste).flatMap((id) => liste.find((q) => q.id === id)?.texte ?? [])
       const etat: EtatFormation = reussi ? "reussi" : "a_refaire", essais = f.essais + 1
       await maj({ etat, score, essais, essai: null, termine_le: iso, journal: [...(f.journal ?? []), { le: iso, score, ratees }] })
       // Le bureau l'apprend (13/11/2026) : l'artisan lit « STC Bâtiment revient vers toi », il faut que quelqu'un le sache.

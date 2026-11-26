@@ -7,6 +7,8 @@ import EmailsManager from "./EmailsManager"
 import NumerosManager from "./NumerosManager"
 import Comptes from "./Comptes"
 import ReglagesQualification from "./recrutement/ReglagesQualification"
+import ContratsModeles from "./recrutement/ContratsModeles"
+import ExclusionsST from "./recrutement/ExclusionsST"
 import { estAdmin } from "../lib/comptes"
 import { usePerimetre } from "../lib/usePerimetre"
 
@@ -18,7 +20,9 @@ import { usePerimetre } from "../lib/usePerimetre"
 //   · Démarchage — ce qui règle les appels : objectif et règles, script, secteurs, modèles d'e-mail ;
 //   · Équipe — les comptes (administrateurs seulement) et les numéros Ringover.
 // Aucun réglage n'a changé : seulement leur place.
-type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "comptes" | "numeros" | "qualification"
+// Recrutement (lot 8, 27/11/2026) : la machine des artisans est abandonnée au profit des campagnes ; de ses réglages, on ne
+// garde que les contrats DocuSign et la liste d'exclusion, pour les administrateurs.
+type Section = "signatures" | "regles" | "script" | "secteurs" | "modeles" | "comptes" | "numeros" | "qualification" | "contrats" | "exclusions"
 
 type Rubrique = { titre: string; sections: { id: Section; label: string; admin?: boolean; agences?: boolean }[] }
 const RUBRIQUES: Rubrique[] = [
@@ -30,6 +34,13 @@ const RUBRIQUES: Rubrique[] = [
       { id: "script", label: "Script d'appel", agences: true },
       { id: "secteurs", label: "Secteurs", agences: true },
       { id: "modeles", label: "Modèles d'e-mail", agences: true },
+    ],
+  },
+  {
+    titre: "Recrutement",
+    sections: [
+      { id: "contrats", label: "Contrats DocuSign", admin: true },
+      { id: "exclusions", label: "Liste d'exclusion", admin: true },
     ],
   },
   {
@@ -91,6 +102,8 @@ export default function Parametrage({ session, sectionInitiale }: { session: Ses
         {section === "modeles" && <EmailsManager partie="modeles" />}
         {section === "qualification" && admin && <ReglagesQualification />}
         {section === "comptes" && admin && <Comptes session={session} />}
+        {section === "contrats" && admin && <ContratsModeles />}
+        {section === "exclusions" && admin && <ExclusionsST />}
         {section === "numeros" && <><NumerosManager /><RelaisRingover /></>}
       </div>
     </div>

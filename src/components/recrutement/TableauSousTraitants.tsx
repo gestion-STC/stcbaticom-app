@@ -4,7 +4,7 @@
 // des agences actives ; puis le recrutement de Baticom : l'état de la machine, l'entonnoir de la base à l'artisan
 // actif, la cadence des dossiers, où on a des artisans et où il en manque, et les listes de suivi. Tout est lu EN
 // DIRECT (rafraîchi toutes les 60 s quand l'onglet est visible) : Baticom (fiches, envois, clics, dossiers, contrats,
-// réglages de la machine) et STC Bâtiment (la passerelle parametres.chiffres_stc). L'écran Machine garde ses commandes.
+// réglages de la machine) et STC Bâtiment (la passerelle parametres.chiffres_stc). La machine est abandonnée (26/11/2026).
 // Calculs : lib/tableauSt.ts et lib/cockpitStc.ts ; lectures : lib/tableauStDb.ts.
 // ════════════════════════════════════════════════════════════════════════════
 import { useMemo, useState, type ReactNode } from "react"
@@ -12,11 +12,11 @@ import { Play } from "lucide-react"
 import { Bandeau as BandeauAlerte, Bouton, Chargement } from "../../ui"
 import { chargerTableauSt } from "../../lib/tableauStDb"
 import { erreursParCause } from "../../lib/statsMachine"
-import { estActif, lignesSt, lireChiffres, lireSousTraitantsStc, moisIso, mouvementsSt } from "../../lib/cockpitStc"
+import { estActif, fraicheurStc, lignesSt, lireChiffres, lireSousTraitantsStc, moisIso, mouvementsSt } from "../../lib/cockpitStc"
 import { clicsHorsRobots, joursDepuis, moisAuJour, origineParEmail, parCorps, parMois, parSecteur, parSemaines, parZone, premiersContacts, zoneRangee } from "../../lib/tableauSt"
 import { lundisRecents } from "../../lib/cockpitTelepro"
 import { useRafraichi } from "../cockpit/useRafraichi"
-import { AttenteStc, BandeauCotes, Barre, Colonnes, Cote, Direct, Grille, Jauge, MiniCourbe, Panneau, TeteEcran, Tuile, Unites } from "../cockpit/pieces"
+import { AttenteStc, BandeauCotes, Barre, Colonnes, Cote, Direct, FraicheurStc, Grille, Jauge, MiniCourbe, Panneau, TeteEcran, Tuile, Unites } from "../cockpit/pieces"
 import { REGLE_ST, euros, fr, moisCourt, pct } from "../cockpit/format"
 import { ListeSousTraitants, ResumeSt, SoldeSousTraitants } from "../cockpit/sousTraitants"
 
@@ -57,7 +57,7 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
     const reussis = d.envois.filter((e) => e.statut === "envoye")
     const fichesParId = new Map(d.fiches.filter((f) => f.id).map((f) => [f.id as string, f]))
     return {
-      m, st, actifs, origine,
+      m, st, actifs, origine, fraicheur: fraicheurStc(brut?.calcule_le, m),
       base: d.fiches.length,
       aContacter: d.fiches.filter((f) => f.statut === "a_contacter").length,
       aContacterAvecMail: d.fiches.filter((f) => f.statut === "a_contacter" && f.email).length,
@@ -111,26 +111,29 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
 
   const { m, st, actifs } = c
   const pil = d.pilotage
+  // Lot 8 (D100) : « arrêtée » seulement si l'état a été LU ; une lecture en échec n'annonce plus une machine arrêtée.
+  const pilLu = pil !== null
   const enMarche = Boolean(pil?.actif)
   const arret = pil?.arreteLe ? new Date(pil.arreteLe) : null
   const joursArret = arret ? joursDepuis(pil!.arreteLe!, m) : null
   const sequence = d.sequences.find((s) => s.id === (pil?.sequenceId || d.sequences.find((x) => x.actif)?.id))?.nom ?? "aucune"
   const corpsEpuises = c.corps.filter((x) => x.objectif > 0 && x.reste <= 3)
   const nov = st?.mouvements[st.mouvements.length - 1] ?? null, oct = st?.mouvements[st.mouvements.length - 2] ?? null
-  const missions30 = actifs.reduce((t, x) => t + x.missions30, 0), missions30Avant = st ? st.lignes.reduce((t, x) => t + x.missions30Avant, 0) : 0
+  // Les 30 j d'avant sur les MÊMES artisans que les 30 j (avant : tous les comptes, fermés compris, contre les actifs seuls).
+  const missions30 = actifs.reduce((t, x) => t + x.missions30, 0), missions30Avant = actifs.reduce((t, x) => t + x.missions30Avant, 0)
   const montant30 = actifs.reduce((t, x) => t + x.montant30, 0)
   const liste = st ? st.lignes.filter((x) => vue === "tous" || (vue === "actifs" ? estActif(x) : x.statut !== "inactif")) : []
   const moisAv = moisCourt(moisIso(new Date(m.getFullYear(), m.getMonth() - 1, 1)))
   const moisC = moisCourt(moisIso(m))
-  const MARCHES: { libelle: string; n: number; sur?: number; avant?: number; mois?: number; note: string; ton?: string; vide?: boolean }[] = [
+  const MARCHES: { libelle: string; n: number | null; sur?: number; avant?: number; mois?: number; note: string; ton?: string; vide?: boolean }[] = [
     { libelle: "Artisans dans la base", n: c.base, note: `${fr(c.aContacter)} jamais contactés` },
     { libelle: "Contactés", n: c.contactes, sur: c.base, avant: c.auJour.contactes.avant, mois: c.auJour.contactes.mois, note: "au moins un e-mail ou SMS bien parti" },
     { libelle: "Ont cliqué", n: c.cliqueurs, sur: c.contactes, avant: c.auJour.cliqueurs.avant, mois: c.auJour.cliqueurs.mois, note: `hors robots (${c.robotsSeuls} artisans n'avaient que des clics de robot)` },
     { libelle: "Dossier déposé", n: c.dossiers, sur: c.cliqueurs, avant: c.auJour.dossiers.avant, mois: c.auJour.dossiers.mois, note: `${c.dossiersFiches} rattachés à une fiche, ${c.dossiers - c.dossiersFiches} sans fiche · ${c.dossiersTraites} marqués traités` },
-    { libelle: "Qualifié", n: d.qualifies, sur: c.dossiers, vide: d.qualifies === 0, note: d.qualifies ? "fiches de qualification remplies" : "le questionnaire de qualification n'a jamais été rempli" },
+    { libelle: "Qualifié", n: d.qualifies, sur: c.dossiers, vide: d.qualifies === 0, note: d.qualifies === null ? "lecture impossible" : d.qualifies ? "fiches de qualification remplies" : "le questionnaire de qualification n'a jamais été rempli" },
     { libelle: "Contrat envoyé", n: c.contratsEnvoyes, sur: c.dossiers, avant: c.auJour.contrats.avant, mois: c.auJour.contrats.mois, note: "taux sur les dossiers déposés" },
     { libelle: "Contrat signé des deux côtés", n: c.contratsComplets, sur: c.contratsEnvoyes, ton: c.contratsComplets ? undefined : "text-alerte", note: `${c.contratsSignesArtisan} signés par l'artisan, la signature STC manque` },
-    { libelle: "Formation faite", n: d.formations, vide: d.formations === 0, note: d.formations ? "formations terminées" : "aucune formation terminée" },
+    { libelle: "Formation faite", n: d.formations, vide: d.formations === 0, note: d.formations === null ? "lecture impossible" : d.formations ? "formations terminées" : "aucune formation terminée" },
     { libelle: "Compte ouvert chez STC", n: c.comptesMachine, note: st ? "relié par l'e-mail d'une fiche ou d'un dossier" : "en attente des chiffres de STC Bâtiment" },
     { libelle: "Actif chez STC", n: c.actifsMachine.length, sur: c.comptesMachine, ton: "text-ok", note: c.actifsMachine.length ? c.actifsMachine.map((x) => `${x.nom} (${x.missions30} missions sur 30 j)`).join(", ") : "aucun" },
   ]
@@ -138,12 +141,13 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
   return (
     <div className="@container w-full">
       <TeteEcran titre="Dashboard" sous="Sous-traitants · qui travaille chez STC Bâtiment, puis le recrutement : de la base à l'artisan actif"
-        droite={<><Direct texte={seance(m)} />{onDemarrer ? <Bouton variante="plein" icone={<Play />} onClick={onDemarrer}>Démarrer la session</Bouton> : null}</>} />
+        droite={<><Direct texte={seance(m)} />{c.fraicheur ? <FraicheurStc texte={c.fraicheur.texte} vieux={c.fraicheur.vieux} /> : null}{onDemarrer ? <Bouton variante="plein" icone={<Play />} onClick={onDemarrer}>Démarrer la session</Bouton> : null}</>} />
 
       <div className="space-y-2 bg-fond-2 p-3">
         {erreur ? <BandeauAlerte role="attention">Dernière mise à jour impossible : {erreur}</BandeauAlerte> : null}
+        {d.manques.length ? <BandeauAlerte role="attention" action={<Bouton taille="sm" variante="discret" onClick={recharger}>Réessayer</Bouton>}>Lecture incomplète, ces chiffres manquent : {d.manques.join(" · ")}</BandeauAlerte> : null}
         {/* ═══ L'ALERTE : la machine est arrêtée ═══ */}
-        {!enMarche ? (
+        {pilLu && !enMarche ? (
           <div role="alert" className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-6 border-[0.5px] border-alerte/40 bg-alerte/10 px-4 py-2.5">
             <span className="flex items-center gap-2 text-[14px] font-semibold text-alerte"><span className="h-2 w-2 rounded-full bg-alerte" />Machine arrêtée{arret ? ` depuis le ${arret.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} à ${arret.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
             {joursArret !== null ? <span className="chiffres text-colonne text-encre"><b className="font-semibold">{joursArret} jours</b> sans un envoi{pil?.actifDepuis && arret ? ` · elle avait tourné ${Math.round((arret.getTime() - new Date(pil.actifDepuis).getTime()) / 86_400_000)} jours (depuis le ${jj(pil.actifDepuis)})` : ""}</span> : null}
@@ -174,14 +178,14 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
           <Tuile periode="année" libelle="Dossiers déposés" valeur={c.dossiers} cote={<Cote n={c.auJour.dossiers.mois} avant={c.auJour.dossiers.avant} />}
             repere={<>{moisC} {c.auJour.dossiers.mois} · <span className={c.aTraiter.length ? "text-alerte" : ""}>{c.aTraiter.length} à traiter</span></>}
             courbe={<MiniCourbe barres valeurs={c.mois.dossiers.n} enCours />} title="Dossiers déposés sur le site. Barres : par mois." />
-          <Tuile periode="année" libelle="Qualifiés" valeur={d.qualifies} ton={d.qualifies ? "text-encre" : "text-encre-2"} repere={<>{d.qualifies ? "fiches de qualification" : "questionnaire jamais rempli"} · {c.dossiersTraites} dossiers marqués traités</>} />
+          <Tuile periode="année" libelle="Qualifiés" valeur={d.qualifies ?? "—"} ton={d.qualifies ? "text-encre" : "text-encre-2"} repere={<>{d.qualifies === null ? "lecture impossible" : d.qualifies ? "fiches de qualification" : "questionnaire jamais rempli"} · {c.dossiersTraites} dossiers marqués traités</>} />
           <Tuile periode="année" libelle="Contrats partis" valeur={c.contratsEnvoyes} repere={<>{moisC} {c.auJour.contrats.mois} · {moisAv} {c.auJour.contrats.avant}</>}
             courbe={<MiniCourbe barres valeurs={c.mois.contrats.n} enCours />} />
           <Tuile periode="année" libelle="Contrats signés" valeur={c.contratsComplets} ton={c.contratsComplets ? "text-encre" : "text-alerte"} accent={c.contratsSignesArtisan ? "alerte" : undefined}
             repere={<>{c.contratsSignesArtisan} signés par l'artisan, attendent STC</>}
             courbe={<Jauge realise={c.contratsComplets} objectif={Math.max(1, c.contratsEnvoyes)} attendu={c.contratsSignesArtisan} ton="bg-alerte" h={6} />} />
-          <Tuile periode="année" libelle="Formation faite" valeur={d.formations} ton={d.formations ? "text-encre" : "text-encre-2"} repere={d.formations ? "formations terminées" : "aucune formation terminée"} />
-          <Tuile periode="jour" libelle="Machine" valeur={enMarche ? "En marche" : "Arrêtée"} ton={enMarche ? "text-ok" : "text-alerte"} accent={enMarche ? "ok" : "alerte"} repere={<>{c.envoisJour} envoi{c.envoisJour > 1 ? "s" : ""} aujourd'hui{c.dernierEnvoi ? ` · dernier le ${jj(c.dernierEnvoi)}` : ""}</>}
+          <Tuile periode="année" libelle="Formation faite" valeur={d.formations ?? "—"} ton={d.formations ? "text-encre" : "text-encre-2"} repere={d.formations === null ? "lecture impossible" : d.formations ? "formations terminées" : "aucune formation terminée"} />
+          <Tuile periode="jour" libelle="Machine" valeur={!pilLu ? "—" : enMarche ? "En marche" : "Arrêtée"} ton={!pilLu ? "text-encre-2" : enMarche ? "text-ok" : "text-alerte"} accent={!pilLu ? undefined : enMarche ? "ok" : "alerte"} repere={<>{c.envoisJour} envoi{c.envoisJour > 1 ? "s" : ""} aujourd'hui{c.dernierEnvoi ? ` · dernier le ${jj(c.dernierEnvoi)}` : ""}</>}
             courbe={<MiniCourbe barres ton={enMarche ? "info" : "alerte"} valeurs={c.semEnvois} />} title="Barres : envois réussis par semaine, 12 semaines" />
         </BandeauCotes>
 
@@ -224,19 +228,19 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
               colonnes={[{ titre: "Étape" }, { titre: "", largeur: "14%" }, { titre: "Total", largeur: "56px", droite: true }, { titre: "Taux", largeur: "64px", droite: true, title: "Part de l'étape d'avant" }, { titre: `${moisAv} 1→${m.getDate()}`, largeur: "76px", droite: true }, { titre: `${moisC} 1→${m.getDate()}`, largeur: "76px", droite: true }, { titre: "Ce qu'il faut savoir", largeur: "34%" }]}
               lignes={MARCHES.map((x) => ({ cle: x.libelle, title: x.note, cellules: [
                 <span className="font-medium">{x.libelle}</span>,
-                <Barre v={x.n} max={Math.max(1, c.base)} ton={x.ton === "text-ok" ? "bg-ok" : x.n === 0 ? "bg-alerte" : "bg-info"} />,
-                <b className={`font-semibold ${x.n === 0 ? "text-alerte" : x.ton ?? ""}`}>{fr(x.n)}</b>,
-                x.sur !== undefined ? <span className="text-encre-2">{pct(x.n, x.sur)}</span> : <span className="text-encre-3">—</span>,
+                <Barre v={x.n ?? 0} max={Math.max(1, c.base)} ton={x.ton === "text-ok" ? "bg-ok" : x.n === 0 ? "bg-alerte" : "bg-info"} />,
+                x.n === null ? <span className="text-encre-3">—</span> : <b className={`font-semibold ${x.n === 0 ? "text-alerte" : x.ton ?? ""}`}>{fr(x.n)}</b>,
+                x.sur !== undefined && x.n !== null ? <span className="text-encre-2">{pct(x.n, x.sur)}</span> : <span className="text-encre-3">—</span>,
                 x.avant !== undefined ? <span className="text-encre-2">{fr(x.avant)}</span> : <span className="text-encre-3">—</span>,
                 x.mois !== undefined ? <span className={x.mois === 0 ? "font-medium text-alerte" : "text-encre"}>{fr(x.mois)}</span> : <span className="text-encre-3">—</span>,
                 <span className={`text-colonne ${x.vide ? "text-alerte" : "text-encre-2"}`}>{x.note}</span>,
               ] }))} />
           </Panneau>
 
-          {/* ═══ LA MACHINE (lecture seule : les commandes sont sur l'écran Machine) ═══ */}
-          <Panneau titre="La machine" droite={<span className={`inline-flex items-center gap-1.5 rounded-3 px-2 py-0.5 font-medium ${enMarche ? "bg-ok/10 text-ok" : "bg-alerte/10 text-alerte"}`}><span className={`h-1.5 w-1.5 rounded-full ${enMarche ? "bg-ok" : "bg-alerte"}`} />{enMarche ? "en marche" : "arrêtée"}</span>}>
+          {/* ═══ LA MACHINE (lecture seule ; machine abandonnée au profit des campagnes le 26/11/2026) ═══ */}
+          <Panneau titre="La machine" droite={pilLu ? <span className={`inline-flex items-center gap-1.5 rounded-3 px-2 py-0.5 font-medium ${enMarche ? "bg-ok/10 text-ok" : "bg-alerte/10 text-alerte"}`}><span className={`h-1.5 w-1.5 rounded-full ${enMarche ? "bg-ok" : "bg-alerte"}`} />{enMarche ? "en marche" : "arrêtée"}</span> : <span className="text-encre-2">état illisible</span>}>
             <div className="py-2">
-              <div className={`text-[15px] font-semibold ${enMarche ? "text-ok" : "text-alerte"}`}>{enMarche ? `En marche${pil?.actifDepuis ? ` depuis le ${new Date(pil.actifDepuis).toLocaleDateString("fr-FR")}` : ""}` : `Arrêtée${arret ? ` depuis le ${arret.toLocaleDateString("fr-FR")} · ${joursArret} j` : ""}`}</div>
+              <div className={`text-[15px] font-semibold ${!pilLu ? "text-encre-2" : enMarche ? "text-ok" : "text-alerte"}`}>{!pilLu ? "État de la machine illisible pour le moment" : enMarche ? `En marche${pil?.actifDepuis ? ` depuis le ${new Date(pil.actifDepuis).toLocaleDateString("fr-FR")}` : ""}` : `Arrêtée${arret ? ` depuis le ${arret.toLocaleDateString("fr-FR")} · ${joursArret} j` : ""}`}</div>
               <div className="text-colonne text-encre-2">{pil?.adresseEnvoi || "adresse d'envoi non réglée"}</div>
             </div>
             <Ligne libelle="Séquence">{sequence}</Ligne>
@@ -244,7 +248,7 @@ export default function TableauSousTraitants({ onDemarrer }: { onDemarrer?: () =
             <Ligne libelle="Jamais contactés">{c.aContacter} <span className="text-encre-2">({c.aContacterAvecMail} avec e-mail)</span></Ligne>
             <Ligne libelle="Envois aujourd'hui">{c.envoisJour} <span className="text-encre-2">/ {pil?.plafondJour ?? "—"} e-mails + {pil?.plafondSmsJour ?? "—"} SMS</span></Ligne>
             <Ligne libelle="Envois cette semaine">{c.envoisSemaine}{c.dernierEnvoi ? <span className="text-encre-2"> · dernier le {jj(c.dernierEnvoi)}</span> : null}</Ligne>
-            <Ligne libelle="Passages aujourd'hui">{d.passagesAujourdhui}</Ligne>
+            <Ligne libelle="Passages aujourd'hui">{d.passagesAujourdhui ?? "—"}</Ligne>
             <Ligne libelle="Désinscriptions"><b className="font-semibold">{c.desinscrits.length}</b> <span className="text-encre-2">· {c.desinscrits.filter((f) => f.desinscritCanal === "lien").length} lien, {c.desinscrits.filter((f) => f.desinscritCanal === "plainte").length} plaintes</span></Ligne>
             {c.erreurs.length ? (
               <div className="border-t-[0.5px] border-trait pt-1.5">

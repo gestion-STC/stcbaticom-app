@@ -25,11 +25,8 @@ import AgendaST from "./components/recrutement/AgendaST"
 import QualificationsST from "./components/recrutement/QualificationsST"
 import { suivreVersion, veillerVersion, versionPerimee } from "./lib/versionEnLigne"
 // L'espace Recrutement ST : chaque page porte son propre en-tête (trousse STC).
-import MachineST from "./components/recrutement/MachineST"
 import SessionCallST from "./components/recrutement/SessionCallST"
 import BaseST from "./components/recrutement/BaseST"
-import SequencesST from "./components/recrutement/SequencesST"
-import ReglagesMachineST from "./components/recrutement/ReglagesMachineST"
 // Les campagnes (07/11/2026) : le même outil pour les deux bases.
 import PageCampagnes from "./components/prospection/PageCampagnes"
 import LeadsRecus from "./components/LeadsRecus"
@@ -139,15 +136,12 @@ function App() {
           {vue === "apporteurs" && <Apporteurs />}
           {vue === "messages" && <Messages key="demarchage" espace="demarchage" />}
           {vue === "messages_st" && <Messages key="recrutement" espace="recrutement" />}
-          {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026 ; les réglages
-              du recrutement sont dans l'espace Recrutement depuis le 26/10. */}
+          {/* Les comptes sont rangés dans Réglages › Équipe depuis le 24/10/2026. La machine des artisans est abandonnée
+              (26/11/2026) : Contrats DocuSign et Liste d'exclusion sont dans Réglages › Recrutement (administrateurs). */}
           {vue === "parametrage" && <Parametrage session={session} />}
 
           {vue === "campagnes" && <PageCampagnes base={null} onSession={() => naviguer("sessions")} onOuvrirAgence={(id) => ouvrirAgence(id)} />}
-          {vue === "st_machine" && <MachineST onNaviguer={(p) => naviguer(p === "reglages" ? "st_reglages" : p === "st_boite" ? "messages_st" : p === "st_dossiers" ? "leads_st" : p)} />}
-          {vue === "st_reglages" && <ReglagesMachineST />}
           {vue === "st_base" && <BaseST />}
-          {vue === "st_sequences" && <SequencesST />}
           {(vue === "leads" || vue === "leads_st" || vue === "leads_tous") && (
             <LeadsRecus
               key={vue}

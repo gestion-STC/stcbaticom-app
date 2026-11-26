@@ -251,21 +251,59 @@ export async function nePlusContacter(st: SousTraitant, motif: string): Promise<
   }
 }
 
-// Remettre une fiche arrêtée dans le circuit (terminé, injoignable, exclu) :
-// elle redevient « à contacter », et sera redémarrée par la machine si elle
-// est complète. Un désinscrit ne revient jamais par ce chemin.
 // Un lead archivé (appelé sous l'ancienne version) revient dans « Leads à appeler ».
 export async function remettreDansLesLeads(id: string): Promise<void> {
   if (!supabase) throw new Error("Supabase non configuré")
   const { error } = await supabase.from("st_sous_traitants").update({ suivi: "", suivi_le: null, suivi_motif: "" }).eq("id", id).eq("suivi", "archive")
   if (error) throw new Error(error.message)
 }
-export async function remettreAContacter(id: string): Promise<void> {
+/** Une ligne de la liste d'exclusion posée par un rebond (resend-evenements : « adresse e-mail injoignable (rebond) »). */
+export const estLigneRebond = (motif: string | null | undefined) => /rebond/i.test(motif ?? "")
+
+/**
+ * Décision 11 (26/11/2026) : l'e-mail d'une fiche rebondie a été corrigé → la ligne de rebond de l'ANCIENNE adresse quitte
+ * la liste d'exclusion (seulement elle : jamais une désinscription). Rend vrai si une ligne a été retirée.
+ */
+export async function retirerRebond(ancienEmail: string, nouvelEmail: string): Promise<boolean> {
   if (!supabase) throw new Error("Supabase non configuré")
+  const ancien = (ancienEmail || "").toLowerCase().trim(), nouvel = (nouvelEmail || "").toLowerCase().trim()
+  if (!ancien || ancien === nouvel) return false
+  const { data, error } = await supabase.from("st_exclusions").select("id, motif").eq("email", ancien)
+  if (error) throw new Error(error.message)
+  const ids = ((data ?? []) as { id: string; motif: string | null }[]).filter((x) => estLigneRebond(x.motif)).map((x) => x.id)
+  if (!ids.length) return false
+  const { error: e2 } = await supabase.from("st_exclusions").delete().in("id", ids)
+  if (e2) throw new Error(e2.message)
+  return true
+}
+
+/**
+ * Remettre une fiche arrêtée (terminé, injoignable, exclu) dans le circuit. Lot 8 (27/11/2026) :
+ *  · une fiche qui a déposé son dossier revient « déposé », jamais « à contacter » : elle ne repart pas en prospection (D87) ;
+ *  · si son adresse a rebondi et n'a pas été corrigée, on le dit au lieu de faire semblant (D86, décision 11) ;
+ *  · un désinscrit ne revient jamais par ce chemin, et l'écran le dit (avant : rien ne se passait, « remise à contacter » s'affichait).
+ * Rend le message à afficher.
+ */
+export async function remettreAContacter(id: string): Promise<string> {
+  if (!supabase) throw new Error("Supabase non configuré")
+  const { data: f, error: e0 } = await supabase.from("st_sous_traitants").select("email, statut, depose_le, dossier_id").eq("id", id).single()
+  if (e0) throw new Error(e0.message)
+  const fiche = f as { email: string | null; statut: string; depose_le: string | null; dossier_id: string | null }
+  if (fiche.statut === "desinscrit") throw new Error("Cet artisan s'est désinscrit : il ne revient pas dans le circuit.")
+  const email = (fiche.email || "").toLowerCase().trim()
+  if (email) {
+    const { data: ex, error: eX } = await supabase.from("st_exclusions").select("motif").eq("email", email)
+    if (eX) throw new Error(eX.message)
+    if (((ex ?? []) as { motif: string | null }[]).some((x) => estLigneRebond(x.motif))) {
+      throw new Error(`L'adresse ${email} a rebondi : corrigez d'abord l'e-mail de la fiche (Modifier), puis remettez-la.`)
+    }
+  }
+  const depose = Boolean(fiche.depose_le || fiche.dossier_id)
   const { error } = await supabase.from("st_sous_traitants")
-    .update({ statut: "a_contacter", statut_motif: "remis à contacter depuis l'écran", demarre_le: null, sequence_id: null, etape_courante: 0, pause_jusqu_au: null, email_invalide: false })
+    .update({ statut: depose ? "depose" : "a_contacter", statut_motif: depose ? "remis « déposé » depuis l'écran" : "remis à contacter depuis l'écran", demarre_le: null, sequence_id: null, etape_courante: 0, pause_jusqu_au: null, email_invalide: false })
     .eq("id", id).neq("statut", "desinscrit")
   if (error) throw new Error(error.message)
+  return depose ? "Fiche remise « déposé » : son dossier est déjà là, elle ne repart pas en prospection." : "Fiche remise « à contacter »."
 }
 
 // Liste des métiers présents dans la base (pour proposer des objectifs cohérents).

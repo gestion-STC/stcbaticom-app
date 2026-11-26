@@ -3,8 +3,9 @@
 //
 // Tout ce qui est arrivé à cet artisan, dans l'ordre : démarrage, chaque envoi
 // (réussi, rejoué, en erreur), chaque clic, chaque message échangé, le dépôt,
-// la désinscription. Et les quatre gestes : appeler, relancer maintenant,
-// mettre en pause, ne plus contacter.
+// la désinscription. Et les gestes : appeler, ne plus contacter, remettre à contacter, contrats, formation, accès.
+// La machine des artisans est abandonnée (26/11/2026) : « Relancer maintenant » et « Mettre en pause » sont retirés,
+// ils promettaient un envoi « au prochain passage » qui ne viendrait plus.
 // ════════════════════════════════════════════════════════════════════════════
 import { ouvrirApresAttente } from "../../lib/ouvrirOnglet"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -12,22 +13,22 @@ import QualificationST from "./QualificationST"
 import { useSession } from "../../lib/auth"
 import { nomAffiche } from "../../lib/comptes"
 import { useQualification } from "../../lib/qualificationStDb"
-import { Phone, Play, PauseCircle, Ban, RotateCcw, FileSignature, Download, RefreshCw, KeyRound, Undo2, GraduationCap, Copy } from "lucide-react"
+import { Phone, Ban, RotateCcw, FileSignature, Download, RefreshCw, KeyRound, Undo2, GraduationCap, Copy } from "lucide-react"
 import type { ClicST, EnvoiST, EtapeST, SousTraitant } from "../../recrutement"
 import { chronologie, dateHeure, type Evenement } from "../../lib/chronologieArtisan"
 import { libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { chargerSousTraitant, nePlusContacter, remettreAContacter, remettreDansLesLeads } from "../../lib/sousTraitantsDb"
-import { chargerClicsDe, chargerEnvoisDe, chargerMessagesDe, mettreEnPause, relancerMaintenant, type MessageDeFiche } from "../../lib/machineDb"
+import { chargerClicsDe, chargerEnvoisDe, chargerMessagesDe, type MessageDeFiche } from "../../lib/machineDb"
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { chargerPilotage } from "../../lib/pilotageStDb"
 import { lancerAppelRingover } from "../../lib/ringover"
 import { chargerAppelsDe, type AppelST } from "../../lib/appelsStDb"
-import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, envoyerLienAcces, lienContratSigne, relireContrat, type ContratST } from "../../lib/contratsDb"
+import { LIBELLE_CONTRAT, ROLE_CONTRAT, chargerContratsDe, envoyerLienAcces, lienContratSigne, relireContrat, texteLienAcces, type ContratST } from "../../lib/contratsDb"
 import EnvoyerContratsDialogue from "./EnvoyerContratsDialogue"
 import { envoyerLienFormation, lienFormation, preparerLien, useFormation } from "../../lib/formationDb"
 import { LIBELLE_ETAT } from "../../recrutement/formationST"
 import { LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, dureeLisibleST } from "../../lib/appelsStOutils"
-import { Bouton, Champ, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
+import { Bouton, Chargement, Dialogue, Etiquette, Ligne, Panneau, Pastille, Zone } from "../../ui"
 
 const POINT: Record<Evenement["role"], string> = {
   ok: "bg-signature", sms: "bg-info", erreur: "bg-alerte", clic: "bg-ok", message: "bg-encre", etat: "bg-encre-3",
@@ -50,18 +51,21 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
   const [erreur, setErreur] = useState("")
   const [info, setInfo] = useState("")
   const [occupe, setOccupe] = useState(false)
-  const [question, setQuestion] = useState<"stop" | "pause" | "acces" | null>(null)
+  const [question, setQuestion] = useState<"stop" | "acces" | null>(null)
   const [enPause, setEnPause] = useState(false)
   const [motif, setMotif] = useState("")
-  const [pauseJours, setPauseJours] = useState(7)
+  // Lot 8 (D100) : une lecture en échec (messages, appels, contrats) est dite, au lieu d'une liste vide muette.
+  const [illisibles, setIllisibles] = useState<string[]>([])
 
   const charger = useCallback(async () => {
     try {
       const fiche = await chargerSousTraitant(id)
       setSt(fiche)
       setEnPause(!!fiche.pauseJusquAu && new Date(fiche.pauseJusquAu).getTime() > Date.now())
-      const [ev, cl, ms, ap, co] = await Promise.all([chargerEnvoisDe(id), chargerClicsDe(id), chargerMessagesDe(id).catch(() => []), chargerAppelsDe(id).catch(() => []), chargerContratsDe(id).catch(() => [])])
-      setEnvois(ev); setClics(cl); setMessages(ms); setAppels(ap); setContrats(co)
+      const manques: string[] = []
+      const repli = <T,>(quoi: string, valeur: T) => () => { manques.push(quoi); return valeur }
+      const [ev, cl, ms, ap, co] = await Promise.all([chargerEnvoisDe(id), chargerClicsDe(id), chargerMessagesDe(id).catch(repli("les messages", [] as MessageDeFiche[])), chargerAppelsDe(id).catch(repli("les appels", [] as AppelST[])), chargerContratsDe(id).catch(repli("les contrats", [] as ContratST[]))])
+      setEnvois(ev); setClics(cl); setMessages(ms); setAppels(ap); setContrats(co); setIllisibles(manques)
       // Les étapes de SA séquence, sinon celle des réglages, sinon la séquence active.
       let seqId = fiche.sequenceId
       if (!seqId) {
@@ -77,9 +81,9 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
 
   const evenements = useMemo(() => (st ? chronologie(st, envois, clics, messages, etapes) : []), [st, envois, clics, messages, etapes])
 
-  const agir = async (f: () => Promise<void>, message: string) => {
+  const agir = async (f: () => Promise<void | string>, message: string) => {
     setOccupe(true); setErreur(""); setInfo("")
-    try { await f(); setInfo(message); await charger(); onChange?.() }
+    try { const m = await f(); setInfo(typeof m === "string" ? m : message); await charger(); onChange?.() }
     catch (e) { setErreur(e instanceof Error ? e.message : String(e)) }
     finally { setOccupe(false) }
   }
@@ -92,8 +96,6 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
     else setInfo("Appel lancé : décroche ton téléphone Ringover, il sonne en premier.")
   }
 
-  const arretee = st ? ["depose", "desinscrit"].includes(st.statut) : true
-
   return (
     <Panneau
       titre={st?.entreprise || "Fiche artisan"}
@@ -102,19 +104,15 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
       pied={st ? (
         <>
           <Bouton variante="danger" icone={<Ban />} disabled={occupe || st.statut === "desinscrit"} onClick={() => { setMotif(""); setQuestion("stop") }}>Ne plus contacter</Bouton>
-          {enPause
-            ? <Bouton icone={<PauseCircle />} disabled={occupe} onClick={() => agir(() => mettreEnPause(st.id!, null), "Pause levée.")}>Lever la pause</Bouton>
-            : <Bouton icone={<PauseCircle />} disabled={occupe || arretee} onClick={() => setQuestion("pause")}>Mettre en pause</Bouton>}
           {["termine", "injoignable", "exclu"].includes(st.statut)
-            ? <Bouton icone={<RotateCcw />} disabled={occupe} onClick={() => agir(() => remettreAContacter(st.id!), "Fiche remise « à contacter ».")}>Remettre à contacter</Bouton>
+            ? <Bouton icone={<RotateCcw />} disabled={occupe} onClick={() => agir(() => remettreAContacter(st.id!), "")}>{st.deposeLe ? "Remettre « déposé »" : "Remettre à contacter"}</Bouton>
             : null}
-          <Bouton icone={<Play />} disabled={occupe || arretee || etapes.length === 0} onClick={() => agir(() => relancerMaintenant(st, etapes), "Prochaine étape due maintenant : elle partira au prochain passage.")}>Relancer maintenant</Bouton>
           <Bouton icone={<GraduationCap />} disabled={occupe || !st.email} title={!st.email ? "Cette fiche n'a pas d'adresse e-mail : copie le lien depuis la ligne Formation" : "Envoie par mail le lien personnel de formation"} onClick={() => agir(async () => { await envoyerLienFormation(st.id!); await rechargerFormation() }, "Lien de formation envoyé par mail.")}>{formation?.lienEnvoyeLe ? "Renvoyer la formation" : "Envoyer la formation"}</Bouton>
           <Bouton icone={<FileSignature />} disabled={occupe || !st.deposeLe || qualif.decision !== "Accepté" || ["envoye", "livre", "signe_artisan", "signe"].includes(st.contratStatut ?? "")} title={qualif.decision !== "Accepté" ? "Accepte d'abord le sous-traitant dans sa qualification" : !st.deposeLe ? "Pas de dossier déposé : pas de contrat (on envoie depuis Dossiers déposés)" : st.contratStatut === "signe" ? "Déjà signés" : st.contratStatut ? "Déjà en cours de signature" : "Envoyer les contrats à signer par DocuSign"} onClick={() => setEnvoiContrats(true)}>Envoyer les contrats</Bouton>
           {/* Le lien « Ouvrir mon accès » part tout seul à la signature des deux parties ; mais l'artisan ne le voit pas toujours
               et nous appelle (Mahdi, 12/10) : on peut l'envoyer ou le renvoyer à la main, même sans contrats signés (confirmation). */}
           {st.deposeLe && !st.accesOuvertLe ? (
-            <Bouton icone={<KeyRound />} disabled={occupe} onClick={() => { if (st.contratStatut === "signe") void agir(async () => { const a = await envoyerLienAcces(st.id!, !!st.accesEnvoyeLe) ; setInfo(`Lien « ouvrir mon accès » envoyé à ${a}, copie à STC.`) }, "Lien « ouvrir mon accès » envoyé, copie à STC."); else setQuestion("acces") }}>
+            <Bouton icone={<KeyRound />} disabled={occupe} onClick={() => { if (st.contratStatut === "signe") void agir(async () => texteLienAcces(await envoyerLienAcces(st.id!, !!st.accesEnvoyeLe)), ""); else setQuestion("acces") }}>
               {st.accesEnvoyeLe ? "Renvoyer le lien d'accès" : "Envoyer le lien d'accès"}
             </Bouton>
           ) : null}
@@ -126,6 +124,7 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
       {!st && !erreur ? <Chargement /> : null}
       {erreur ? <p className="mb-3 rounded-4 border border-alerte/20 bg-alerte-fond px-3 py-2 text-legende text-alerte">{erreur}</p> : null}
       {info ? <p className="mb-3 rounded-4 border border-ok/20 bg-ok-fond px-3 py-2 text-legende text-ok">{info}</p> : null}
+      {illisibles.length ? <p className="mb-3 flex flex-wrap items-center gap-2 rounded-4 border border-alerte/20 bg-alerte-fond px-3 py-2 text-legende text-alerte">Lecture impossible pour le moment : {illisibles.join(", ")}. Ce qui suit est donc incomplet.<Bouton taille="sm" variante="discret" onClick={() => { void charger() }}>Réessayer</Bouton></p> : null}
       {st ? (
         <>
           <div className="divide-y divide-fond-4">
@@ -220,18 +219,8 @@ export default function FicheArtisan({ id, onFermer, onChange }: { id: string; o
           titre="Envoyer le lien d'accès sans contrats signés ?"
           description="Les contrats ne sont pas signés par les deux parties. Le lien ouvre l'Espace Partenaire tout de suite : à n'envoyer que si les contrats ont été signés autrement (papier, ancien envoi)."
           onFermer={() => setQuestion(null)}
-          pied={<><Bouton onClick={() => setQuestion(null)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { await envoyerLienAcces(st.id!, true); setQuestion(null) }, "Lien « ouvrir mon accès » envoyé, copie à STC.")}>Envoyer quand même</Bouton></>}
+          pied={<><Bouton onClick={() => setQuestion(null)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { const a = await envoyerLienAcces(st.id!, true); setQuestion(null); return texteLienAcces(a) }, "")}>Envoyer quand même</Bouton></>}
         />
-      ) : null}
-      {question === "pause" && st ? (
-        <Dialogue
-          titre="Mettre en pause"
-          description="La machine n'écrira plus à cet artisan pendant la pause, puis reprendra sa séquence là où elle en était."
-          onFermer={() => setQuestion(null)}
-          pied={<><Bouton onClick={() => setQuestion(null)}>Annuler</Bouton><Bouton variante="plein" chargement={occupe} onClick={() => agir(async () => { await mettreEnPause(st.id!, new Date(Date.now() + pauseJours * 86_400_000).toISOString()); setQuestion(null) }, `En pause pour ${pauseJours} jours.`)}>Mettre en pause</Bouton></>}
-        >
-          <Etiquette texte="Pendant combien de jours ?"><Champ type="number" min={1} max={365} value={pauseJours} onChange={(e) => setPauseJours(Math.max(1, Number(e.target.value) || 1))} className="w-32" /></Etiquette>
-        </Dialogue>
       ) : null}
     </Panneau>
   )
