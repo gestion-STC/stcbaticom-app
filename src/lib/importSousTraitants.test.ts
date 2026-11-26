@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { construire, dedoublonner, normaliserEmail, normaliserTelephone } from "./importSousTraitants"
+import { construire, dedoublonner, normaliserEmail, normaliserTelephone, trouverDoublon } from "./importSousTraitants"
 import type { SousTraitant } from "../recrutement"
 
 describe("import sous-traitants — construire", () => {
@@ -137,5 +137,24 @@ describe("import sous-traitants — dedoublonner", () => {
     expect(r.aAjouter).toHaveLength(2)
     expect(r.doublons).toBe(0)
     expect(r.exclus).toBe(0)
+  })
+})
+
+describe("trouverDoublon (lot 5 : avertir à la création manuelle)", () => {
+  const base = [
+    { id: "a", entreprise: "Durand", email: "Contact@Durand.fr", telephone: "06 12 34 56 78" },
+    { id: "b", entreprise: "Martin", email: "", telephone: "+33 1 40 00 00 00" },
+  ]
+  it("retrouve la fiche par l'e-mail, sans tenir compte de la casse ni des espaces", () => {
+    expect(trouverDoublon({ email: " contact@durand.FR " }, base)?.fiche.id).toBe("a")
+  })
+  it("retrouve la fiche par le téléphone, normalisé comme à l'import", () => {
+    const r = trouverDoublon({ telephone: "0140000000" }, base)
+    expect(r?.fiche.id).toBe("b")
+    expect(r?.par).toBe("téléphone")
+  })
+  it("ne se signale pas elle-même, et rien si rien ne correspond", () => {
+    expect(trouverDoublon({ id: "a", email: "contact@durand.fr" }, base)).toBeNull()
+    expect(trouverDoublon({ email: "autre@x.fr", telephone: "0699999999" }, base)).toBeNull()
   })
 })

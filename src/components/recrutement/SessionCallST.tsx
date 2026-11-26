@@ -23,7 +23,7 @@ import { contactsEnCampagne } from "../../lib/fichiersDb"
 import { nePlusContacter } from "../../lib/sousTraitantsDb"
 import { chargerAppelsDe, chargerArtisansDuFichier, chargerFileST, compterFilesST, enregistrerAppelST, type AppelST } from "../../lib/appelsStDb"
 import {
-  FILES_ST, ISSUES_ST, LIBELLE_ISSUE, LIBELLE_RESULTAT, LIBELLE_SUIVI, MOTIFS_ST, RESULTATS_ST, dureeLisibleST, effetAppel, signaux,
+  FILES_ST, ISSUES_ST, LIBELLE_ISSUE, demainParis, LIBELLE_RESULTAT, LIBELLE_SUIVI, MOTIFS_ST, RESULTATS_ST, dureeLisibleST, effetAppel, signaux,
   type FileST, type IssueST, type ResultatST,
 } from "../../lib/appelsStOutils"
 import { useSession } from "../../lib/auth"
@@ -41,7 +41,6 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const s = (n: number) => (n > 1 ? "s" : "")
 type Choix = { resultat: ResultatST | null; issue: IssueST; motif: string; rappelJour: string; rappelHeure: string }
 const CHOIX_VIDE: Choix = { resultat: null, issue: "", motif: "", rappelJour: "", rappelHeure: "10:00" }
-const demain = (now: Date) => { const d = new Date(now); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) }
 
 /** Un gros bouton de résultat ou d'issue, sa touche en petit : le même que la barre des agences. */
 function GrosBouton({ touche, libelle, aide, choisi, onClick }: { touche: string; libelle: string; aide: string; choisi: boolean; onClick: () => void }) {
@@ -173,9 +172,14 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
     setAppelDepuis(Date.now())
     setCallId(r.callId ?? "")
   }
+  // Un seul enregistrement à la fois : la touche Entrée répétée (ou Entrée puis clic) arrivait avant
+  // que « occupe » ne désactive quoi que ce soit, et l'appel était compté deux ou trois fois — la
+  // fiche passait « injoignable » trop tôt (lot 5, 26/11/2026).
+  const enCours = useRef(false)
   const enregistrer = async () => {
-    if (!courant || !choix.resultat) return
+    if (!courant || !choix.resultat || enCours.current) return
     if (choix.resultat === "joint" && choix.issue === "a_rappeler" && !choix.rappelJour) { setErreur("Choisis le jour du rappel."); return }
+    enCours.current = true
     setOccupe(true); setErreur(""); setInfo("")
     try {
       const rappelLe = choix.issue === "a_rappeler" && choix.rappelJour ? new Date(`${choix.rappelJour}T${choix.rappelHeure || "10:00"}:00`).toISOString() : null
@@ -188,10 +192,12 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
       // La ligne sort de la file (la base l'a reclassée) ; on passe au suivant.
       setListe((l) => l.filter((x) => x.id !== courant.st.id))
       setDirecteId(null)
+      setChoix(CHOIX_VIDE) // le choix est consommé : Entrée ne peut plus le renvoyer pendant que la fiche suivante se charge
       chargerCompteurs().catch(() => undefined)
     } catch (e) {
       setErreur(message(e))
     } finally {
+      enCours.current = false
       setOccupe(false)
     }
   }
@@ -204,8 +210,8 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
       if (!courant || ficheOuverte) return
       if (e.key >= "1" && e.key <= "4") {
         const i = Number(e.key) - 1
-        setChoix((c) => (c.resultat === "joint" ? { ...c, issue: ISSUES_ST[i].code, rappelJour: ISSUES_ST[i].code === "a_rappeler" && !c.rappelJour ? demain(new Date()) : c.rappelJour } : { ...c, resultat: RESULTATS_ST[i].code, issue: "" }))
-      } else if (e.key === "Enter" && choix.resultat && (choix.resultat !== "joint" || choix.issue)) {
+        setChoix((c) => (c.resultat === "joint" ? { ...c, issue: ISSUES_ST[i].code, rappelJour: ISSUES_ST[i].code === "a_rappeler" && !c.rappelJour ? demainParis(new Date()) : c.rappelJour } : { ...c, resultat: RESULTATS_ST[i].code, issue: "" }))
+      } else if (e.key === "Enter" && !e.repeat && choix.resultat && (choix.resultat !== "joint" || choix.issue)) {
         enregistrer()
       } else if (e.key === "Escape") {
         setChoix(CHOIX_VIDE)
@@ -384,7 +390,7 @@ export default function SessionCallST({ artisanInitial }: { artisanInitial?: str
                     <div className="mt-3 border-t border-fond-4 pt-3">
                       <div className="mb-2 text-colonne font-medium text-encre-2">Et avec l'artisan ?</div>
                       <div className="flex flex-wrap gap-2">
-                        {ISSUES_ST.map((i) => <GrosBouton key={i.code} touche={i.touche} libelle={i.libelle} aide={i.aide} choisi={choix.issue === i.code} onClick={() => setChoix({ ...choix, issue: i.code, rappelJour: i.code === "a_rappeler" && !choix.rappelJour ? demain(new Date()) : choix.rappelJour })} />)}
+                        {ISSUES_ST.map((i) => <GrosBouton key={i.code} touche={i.touche} libelle={i.libelle} aide={i.aide} choisi={choix.issue === i.code} onClick={() => setChoix({ ...choix, issue: i.code, rappelJour: i.code === "a_rappeler" && !choix.rappelJour ? demainParis(new Date()) : choix.rappelJour })} />)}
                       </div>
                       {choix.issue === "a_rappeler" ? (
                         <div className="mt-3 grid max-w-md grid-cols-1 gap-3 sm:grid-cols-2">

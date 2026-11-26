@@ -12,7 +12,9 @@ import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react"
 import type { SousTraitant, StatutST } from "../../recrutement"
 import { STATUTS_ARRETES, libelleStatutST, rolePastilleStatut } from "../../recrutement"
 import { supabaseConfigure } from "../../lib/supabase"
-import { chargerSousTraitants, creerSousTraitant, majSousTraitant, remettreAContacter, supprimerSousTraitant } from "../../lib/sousTraitantsDb"
+import { bilanSuppression, chargerSousTraitants, creerSousTraitant, majSousTraitant, remettreAContacter, supprimerSousTraitant } from "../../lib/sousTraitantsDb"
+import { ceQuiDisparait, raisonsDeGarder, type BilanSuppression } from "../../lib/suppressionArtisan"
+import { normaliserEmail, normaliserTelephone, trouverDoublon } from "../../lib/importSousTraitants"
 import { chargerEtapes, chargerSequences } from "../../lib/sequencesStDb"
 import { CORPS_METIERS } from "../../lib/recrutementCalc"
 import { FILTRES_VIDES, compterParStatut, filtrerFiches, sourcesDistinctes, type FiltresBase } from "../../lib/baseFiltres"
@@ -241,6 +243,7 @@ export default function BaseST() {
       {edition ? (
         <DialogueFiche
           fiche={edition.st}
+          fiches={fiches}
           onFermer={() => setEdition(null)}
           onEnregistre={async (msg) => { setEdition(null); setInfo(msg); await recharger() }}
         />
@@ -253,7 +256,7 @@ export default function BaseST() {
 // ── Ajouter / modifier une fiche ─────────────────────────────────────────────
 type Formulaire = { entreprise: string; contact: string; email: string; telephone: string; corps: string; autres: string; zone: string; source: string; statut: StatutST }
 
-function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant | null; onFermer: () => void; onEnregistre: (message: string) => Promise<void> }) {
+function DialogueFiche({ fiche, fiches, onFermer, onEnregistre }: { fiche: SousTraitant | null; fiches: SousTraitant[]; onFermer: () => void; onEnregistre: (message: string) => Promise<void> }) {
   const [f, setF] = useState<Formulaire>(() => {
     const { corps, autres } = separerCorps(fiche?.metier ?? "")
     return {
@@ -264,9 +267,14 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
   const [erreur, setErreur] = useState("")
   const [occupe, setOccupe] = useState(false)
   const [confirmerSuppression, setConfirmerSuppression] = useState(false)
+  // Lot 5 : ce que la suppression emporterait, lu à l'ouverture de la confirmation.
+  const [bilan, setBilan] = useState<BilanSuppression | null>(null)
+  // Lot 5 : un doublon (même e-mail ou téléphone, normalisés comme à l'import) prévient, sans bloquer.
+  const [doublonVu, setDoublonVu] = useState("")
   const set = (k: keyof Formulaire) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((p) => ({ ...p, [k]: e.target.value }))
 
   const modification = !!fiche?.id
+  const cleDoublon = `${normaliserEmail(f.email)}|${normaliserTelephone(f.telephone)}`
   // Le statut ne se change ici qu'entre « à contacter » et « exclu » ; un désinscrit
   // ne revient jamais par ce chemin (sa liste d'exclusion l'en empêcherait de toute façon).
   const statutModifiable = modification && fiche!.statut !== "desinscrit"
@@ -279,6 +287,15 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
     const champs: Partial<SousTraitant> = {
       entreprise: f.entreprise.trim(), contact: f.contact.trim(), email: f.email.trim(), telephone: f.telephone.trim(),
       metier: joindreCorps(f.corps, f.autres), zone: f.zone.trim(), source: f.source.trim(),
+    }
+    if (!modification) {
+      const d = trouverDoublon({ email: champs.email, telephone: champs.telephone }, fiches)
+      if (d && doublonVu !== cleDoublon) {
+        setDoublonVu(cleDoublon)
+        setErreur(`Cet artisan semble déjà dans la base : « ${d.fiche.entreprise || d.fiche.contact || d.fiche.email || "sans nom"} » (${libelleStatutST[d.fiche.statut]}), même ${d.par}. Cliquez encore sur « Ajouter » pour créer quand même une seconde fiche.`)
+        setOccupe(false)
+        return
+      }
     }
     try {
       if (!modification) {
@@ -299,6 +316,12 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
     }
   }
 
+  const ouvrirSuppression = async () => {
+    setOccupe(true); setErreur(""); setBilan(null)
+    try { setBilan(await bilanSuppression(fiche!.id!)); setConfirmerSuppression(true) }
+    catch (e) { setErreur(`Impossible de vérifier ce que la suppression emporterait : ${message(e)}`) }
+    finally { setOccupe(false) }
+  }
   const supprimer = async () => {
     setOccupe(true); setErreur("")
     try {
@@ -313,11 +336,27 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
 
   // La confirmation prend la place du formulaire (Échap ne referme qu'elle ;
   // le formulaire, et ce qu'on y a tapé, réapparaissent derrière).
-  if (confirmerSuppression) {
+  if (confirmerSuppression && bilan) {
+    const garder = raisonsDeGarder(fiche!, bilan)
+    const perdu = ceQuiDisparait(bilan)
+    const nomFiche = fiche!.entreprise || fiche!.contact || fiche!.email
+    if (garder.length) {
+      return (
+        <Dialogue
+          titre="Cette fiche ne peut pas être supprimée"
+          description={`Elle a ${garder.join(", ")} : la supprimer effacerait ces documents. Pour ne plus la solliciter, archivez-la : « Ne plus contacter » depuis la fiche, ou le statut « Exclu » ici.`}
+          onFermer={() => setConfirmerSuppression(false)}
+          largeur="max-w-md"
+          pied={<Bouton onClick={() => setConfirmerSuppression(false)}>Fermer</Bouton>}
+        >
+          <p className="text-legende text-encre">{nomFiche}</p>
+        </Dialogue>
+      )
+    }
     return (
       <Dialogue
         titre="Supprimer définitivement cette fiche ?"
-        description="Son historique d'envois et de clics disparaît avec elle. Pour simplement cesser de lui écrire, préférez « Ne plus contacter » depuis la fiche."
+        description={perdu.length ? "Disparaissent avec elle, sans retour possible :" : "Elle n'a encore aucun historique (ni envoi, ni clic, ni appel). Les e-mails échangés avec l'artisan restent dans la boîte de réception."}
         onFermer={() => setConfirmerSuppression(false)}
         largeur="max-w-md"
         pied={
@@ -328,7 +367,13 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
         }
       >
         {erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : null}
-        <p className="text-legende text-encre">{fiche!.entreprise || fiche!.contact || fiche!.email}</p>
+        <p className="text-legende text-encre">{nomFiche}</p>
+        {perdu.length ? (
+          <>
+            <ul className="mt-2 list-disc pl-5 text-legende text-encre">{perdu.map((x) => <li key={x}>{x}</li>)}</ul>
+            <p className="mt-2 text-colonne text-encre-2">Les e-mails échangés avec l'artisan restent dans la boîte de réception. Pour simplement cesser de lui écrire, préférez « Ne plus contacter » depuis la fiche.</p>
+          </>
+        ) : null}
       </Dialogue>
     )
   }
@@ -340,9 +385,9 @@ function DialogueFiche({ fiche, onFermer, onEnregistre }: { fiche: SousTraitant 
       onFermer={onFermer}
       pied={
         <>
-          {modification ? <Bouton variante="danger" icone={<Trash2 />} disabled={occupe} onClick={() => setConfirmerSuppression(true)} className="mr-auto">Supprimer définitivement</Bouton> : null}
+          {modification ? <Bouton variante="danger" icone={<Trash2 />} disabled={occupe} onClick={() => void ouvrirSuppression()} className="mr-auto">Supprimer définitivement</Bouton> : null}
           <Bouton onClick={onFermer} disabled={occupe}>Annuler</Bouton>
-          <Bouton variante="plein" chargement={occupe} onClick={enregistrer}>{modification ? "Enregistrer" : "Ajouter"}</Bouton>
+          <Bouton variante="plein" chargement={occupe} onClick={enregistrer}>{modification ? "Enregistrer" : doublonVu === cleDoublon ? "Ajouter quand même" : "Ajouter"}</Bouton>
         </>
       }
     >

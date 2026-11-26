@@ -2,6 +2,7 @@
 // Six parties : Audience (la carte comme Meta), Actions et séquence, Créatifs, Qualification, Garde-fous, Mesure.
 // À droite, le chemin du contact se redessine à chaque changement. Rien ne part tant qu'elle n'est pas lancée.
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
+import { poserGarde, retenirFermeture } from "../../lib/gardeQuitter"
 import { Check } from "lucide-react"
 import { Bandeau, Bouton, Champ, Chargement, Dialogue, Onglets, Selecteur, Zone } from "../../ui"
 import { Bloc, Etiquette } from "../demarchage/aujourdhui/courtier"
@@ -59,6 +60,8 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const [partie, setPartie] = useState<Partie>("audience")
   const [modeleId, setModeleId] = useState<string | null>(null)
   const [cfgDepart, setCfgDepart] = useState(() => JSON.stringify(cfg))
+  // La campagne telle qu'ouverte (ou telle que posée par le modèle choisi) : ce qui diffère est une modification (lot 5).
+  const [cDepart, setCDepart] = useState(() => JSON.stringify(c))
   const [baseVoulue, setBaseVoulue] = useState<string | null>(null)
   const [boites, setBoites] = useState<BoiteEnvoi[]>([])
   const [comptes, setComptes] = useState<Compte[]>([])
@@ -67,7 +70,7 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   useEffect(() => { chargerEtatInstantly().then((x) => { setBoites(x.boites); setRefusInstantly(x.erreur) }).catch(() => undefined); listerComptes().then(setComptes).catch(() => undefined) }, [])
   const [objectifChoisi, setObjectifChoisi] = useState(Boolean(existante))
   const choisirObjectif = (m: (typeof MODELES)[number] | null) => {
-    if (m) { const n = m.creer(); setC((x) => ({ ...x, baseId: m.baseId, nom: x.nom || m.titre, audience: { ...x.audience, filtres: {}, doitAvoir: estBaseAvis(m.baseId) ? ["email"] : x.audience.doitAvoir } })); setCfg(n); setCfgDepart(JSON.stringify(n)); setModeleId(m.id) }
+    if (m) { const n = m.creer(); const nc: Campagne = { ...c, baseId: m.baseId, nom: c.nom || m.titre, audience: { ...c.audience, filtres: {}, doitAvoir: estBaseAvis(m.baseId) ? ["email"] : c.audience.doitAvoir } }; setC(nc); setCDepart(JSON.stringify(nc)); setCfg(n); setCfgDepart(JSON.stringify(n)); setModeleId(m.id) }
     setObjectifChoisi(true)
   }
   // Changer de cible remet le réglage prévu pour cette cible : on ne garde pas les textes d'une autre cible.
@@ -172,17 +175,37 @@ export default function Editeur({ id, fini, annuler }: { id: string | null; fini
   const majAlerte = (p: Partial<AlerteOuverture>) => maj((x) => ({ ...x, garde: { ...x.garde, alerteOuverture: { ...(x.garde.alerteOuverture ?? ALERTE_DEFAUT), ...p } } }))
   const nomValeur = (cle: string, val: string) => { if (cle !== "commercial") return val; const q = comptes.find((x) => x.id === val); return q ? q.nom || q.email : "Commercial" }
   const champFiltre = (ch: { cle: string; libelle: string }) => <div key={ch.cle}><Etiquette>{ch.libelle}</Etiquette><div className="mt-1.5 flex flex-wrap gap-1.5">{valeurs(ch.cle).map((val) => { const on = (c.audience.filtres[ch.cle] ?? []).includes(val); return <button key={val} type="button" onClick={() => basculerFiltre(ch.cle, val)} className={`h-7 rounded-full px-3 text-colonne ${on ? "bg-action text-white" : "border-[0.5px] border-trait bg-fond text-encre hover:bg-fond-2"}`}>{nomValeur(ch.cle, val)}</button> })}</div></div>
-  const enregistrer = (statut: Campagne["statut"]) => { const s = { ...compilee, nom: c.nom.trim() || "Campagne sans nom", statut, lanceeLe: statut === "active" ? c.lanceeLe ?? v.etat.maintenant : c.lanceeLe }; depot.enregistrerCampagne(s); fini(s.id) }
+  // Lot 5 (26/11/2026) : quitter avec des modifications non enregistrées demande confirmation (menu, Retour, onglet),
+  // et un enregistrement refusé (modifiée ailleurs) laisse l'éditeur ouvert avec la saisie, au lieu de la jeter.
+  const modifie = JSON.stringify(c) !== cDepart || JSON.stringify(cfg) !== cfgDepart
+  const [enregistrement, setEnregistrement] = useState(false)
+  const [conflit, setConflit] = useState<Campagne["statut"] | null>(null)
+  useEffect(() => {
+    poserGarde(modifie && objectifChoisi ? "La campagne a des modifications non enregistrées. Quitter sans enregistrer ?" : null)
+  }, [modifie, objectifChoisi])
+  useEffect(() => {
+    window.addEventListener("beforeunload", retenirFermeture)
+    return () => { window.removeEventListener("beforeunload", retenirFermeture); poserGarde(null) }
+  }, [])
+  const enregistrer = async (statut: Campagne["statut"], forcer = false) => {
+    const s = { ...compilee, nom: c.nom.trim() || "Campagne sans nom", statut, lanceeLe: statut === "active" ? c.lanceeLe ?? v.etat.maintenant : c.lanceeLe }
+    setEnregistrement(true); setConfirmer(false)
+    const r = await depot.enregistrerCampagne(s, { forcer }).catch(() => "erreur" as const)
+    setEnregistrement(false)
+    if (r === "ok") { poserGarde(null); setConflit(null); fini(s.id); return }
+    if (r === "conflit") setConflit(statut)
+  }
 
   return (
     <div className="space-y-5">
       {erreurReglage ? <Bandeau role="alerte">{erreurReglage}</Bandeau> : null}
-      {confirmer ? <DialogueLancement c={c} controle={controle} eligibles={eligibles} unite={base?.unite ?? "contacts"} reprise={c.statut === "pause"} onFermer={() => setConfirmer(false)} onLancer={() => enregistrer("active")}>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></DialogueLancement> : null}
+      {conflit ? <Bandeau role="alerte" action={<><Bouton taille="sm" variante="danger" chargement={enregistrement} onClick={() => void enregistrer(conflit, true)}>Enregistrer ma version quand même</Bouton><Bouton taille="sm" variante="discret" onClick={() => setConflit(null)}>Fermer</Bouton></>}>La campagne a été modifiée ailleurs depuis l'ouverture de cette page : rien n'a été écrasé. Ta saisie est toujours là. « Enregistrer ma version quand même » remplace l'autre version par celle-ci ; sinon, recopie tes changements après avoir rouvert la campagne.</Bandeau> : null}
+      {confirmer ? <DialogueLancement c={c} controle={controle} eligibles={eligibles} unite={base?.unite ?? "contacts"} reprise={c.statut === "pause"} onFermer={() => setConfirmer(false)} onLancer={() => void enregistrer("active")}>{blocConseils}{iaSansRelecture ? <p className="text-colonne text-attention">Conseil : relis des exemples de l'IA avant de lancer, avec « Voir sur de vraies fiches » dans l'onglet Créatifs.</p> : null}{pageAvis ? <Libelle titre="Lien Google, proposé à tout le monde après l'avis"><Champ value={pageAvis.lienGoogle ?? ""} placeholder="https://g.page/r/…/review" onChange={(e) => maj((x) => ({ ...x, creatifs: x.creatifs.map((k) => (k.id === pageAvis.id ? { ...k, lienGoogle: e.target.value } : k)) }))} /></Libelle> : null}<p className="text-legende text-encre-2">Pour vérifier un mail avant, utilise « M'envoyer un essai » dans l'onglet Créatifs : aucun contact n'est touché.</p></DialogueLancement> : null}
       {refusInstantly && !avis && cfg.actions.some((a) => a.type === "mail" || a.type === "newsletter") ? <Bandeau role="alerte">Instantly refuse les envois : {refusInstantly}</Bandeau> : null}
       {baseVoulue ? <Dialogue titre="Changer de cible ?" description="Tes textes et ton parcours seront remplacés par ceux prévus pour cette cible." onFermer={() => setBaseVoulue(null)} pied={<><Bouton onClick={() => setBaseVoulue(null)}>Annuler</Bouton><Bouton variante="plein" onClick={() => appliquerBase(baseVoulue)}>Changer de cible</Bouton></>}><p className="text-legende text-encre-2">Ton audience et tes filtres sont aussi remis à zéro.</p></Dialogue> : null}
       {!objectifChoisi ? <ChoixObjectif modeles={MODELES.filter((m) => v.bases.some((b) => b.id === m.baseId))} onChoisir={choisirObjectif} onAnnuler={annuler} /> : null}
       <Titre titre={existante ? existante.nom : "Créer une campagne"} sous={tracabilite ? "Ce qui tourne aujourd'hui : les mails envoyés après les appels, avec leurs liens suivis. Cette campagne n'envoie rien toute seule." : existante?.statut === "active" ? "Campagne active : les changements valent pour les prochaines touches." : "Rien ne part tant qu'elle n'est pas lancée."}
-        droite={<><Bouton onClick={() => enregistrer(c.statut)}>Enregistrer</Bouton>{relancable(c) && !tracabilite ? <Bouton variante="plein" icone={<Check />} disabled={Boolean(controle.bloquant)} title={controle.bloquant ?? undefined} onClick={() => setConfirmer(true)}>{c.statut === "pause" ? "Reprendre" : "Lancer"}</Bouton> : null}</>} />
+        droite={<><Bouton chargement={enregistrement} onClick={() => void enregistrer(c.statut)}>Enregistrer</Bouton>{relancable(c) && !tracabilite ? <Bouton variante="plein" icone={<Check />} disabled={Boolean(controle.bloquant)} title={controle.bloquant ?? undefined} onClick={() => setConfirmer(true)}>{c.statut === "pause" ? "Reprendre" : "Lancer"}</Bouton> : null}</>} />
       <div className="grid gap-10 @min-[1100px]:grid-cols-[minmax(0,1fr)_250px]">
         <div className="min-w-0">
           <Onglets<Partie> valeur={partie} onChange={setPartie} options={avis ? [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "garde", label: "4 · Garde-fous" }, { id: "mesure", label: "5 · Mesure" }] : [{ id: "audience", label: "1 · Audience" }, { id: "sequence", label: "2 · Actions et séquence" }, { id: "creatifs", label: "3 · Créatifs" }, { id: "qualification", label: "4 · Qualification" }, { id: "garde", label: "5 · Garde-fous" }, { id: "mesure", label: "6 · Mesure" }]} />

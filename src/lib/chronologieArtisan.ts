@@ -29,7 +29,8 @@ export function chronologie(st: SousTraitant, envois: EnvoiST[], clics: ClicST[]
     ev.push({ quand: st.demarreLe, role: "etat", texte: st.recaleLe ? "Démarré (calendrier recalé)" : "Démarré", detail: st.statutMotif?.startsWith("campagne") ? st.statutMotif : undefined })
   }
   for (const e of envois) {
-    const nom = libelleEtape(parEtape.get(e.etapeId), e.canal)
+    const etape = e.etapeId ? parEtape.get(e.etapeId) : undefined
+    const nom = !etape && e.etapeLibelle ? `${e.etapeLibelle} (étape supprimée)` : libelleEtape(etape, e.canal)
     if (e.statut === "envoye") {
       const suite = [e.tentative > 1 ? `rejoué (tentative ${e.tentative})` : "", e.delivreLe ? "délivré" : "", e.ouvertLe ? `ouvert le ${dateHeure(e.ouvertLe)}` : ""].filter(Boolean).join(" · ")
       ev.push({ quand: e.envoyeLe, role: e.canal === "sms" ? "sms" : "ok", texte: `${nom} envoyé`, detail: suite || undefined })

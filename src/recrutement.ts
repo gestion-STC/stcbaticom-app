@@ -125,7 +125,8 @@ export type PilotageST = {
 export type EnvoiST = {
   id: string
   sousTraitantId: string
-  etapeId: string
+  etapeId: string | null // null : l'étape a été supprimée depuis (lot 5) — l'envoi reste dans l'historique
+  etapeLibelle?: string // le nom de l'étape au moment de sa suppression
   canal: CanalEtape
   envoyeLe: string
   statut: "envoye" | "erreur" | "saute" | "abandonne"
