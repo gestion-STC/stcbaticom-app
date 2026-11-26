@@ -190,7 +190,9 @@ set search_path to 'public'
 as $$
 begin
   if new.secteur is not null and new.type <> 'apporteur'
-     and (tg_op = 'INSERT' or new.secteur is distinct from old.secteur) then
+     and (tg_op = 'INSERT' or new.secteur is distinct from old.secteur)
+     -- « Attribuée à » changé dans le même enregistrement que le secteur (fiche agence, lot 4 du 26/11/2026) : ce choix l'emporte.
+     and (tg_op = 'INSERT' or new.commercial_id is not distinct from old.commercial_id) then
     -- Une agence travaillée garde celui qui l'a travaillée, même si son secteur change.
     if tg_op = 'UPDATE' and public.agence_travaillee(new.etape, new.id) and new.commercial_id is not null then return new; end if;
     new.commercial_id := (select s.commercial_id from public.secteurs s where s.code = new.secteur);
@@ -762,7 +764,7 @@ as $$
       ('agence_premier_os', 'ec639a4844d765424b15d87f25eb2bb8'),
       ('agence_proprietaire_apres', '0d9c85db7743982e041d83cf23087e62'),
       ('agence_suit_qui_la_travaille', 'b74c9ee0363298df0d79486225b23128'),
-      ('agence_suit_son_secteur', '0286513920c2afbd2d44fbfe9fa5211f'),
+      ('agence_suit_son_secteur', 'fa94069934d8b0627f2bf00c5e7d074b'),
       ('agence_travaillee', '9558429fb3bbcb0320ed6bd43fb8caa2'),
       ('agences_etape_journal', 'fc6f7ba67ce22c7dc068d2559317e3db'),
       ('agences_etape_relances', '8d48310d52142575ba5bf13577d055e5'),

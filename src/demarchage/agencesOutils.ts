@@ -11,6 +11,8 @@ import { supabase } from "../lib/supabase"
 import { lireParLots } from "../lib/pagination"
 import { dansNJoursA } from "./aujourdhuiOutils"
 import {
+  numeroCherche,
+  textePlat,
   type Activite,
   type Agence,
   type Contact,
@@ -109,14 +111,14 @@ export type FiltresLocaux = {
 export const FILTRES_VIDES: FiltresLocaux = { recherche: "", secteur: "", etape: "", type: "", enseigne: "", jamaisJointe: false, avecContact: false, attribuee: "" }
 export type FileOuToutes = File | "toutes"
 
-const plat = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim()
+const plat = textePlat // le même « à plat » que la base (agences_liste.recherche_plat)
 const chiffres = (s: string) => (s || "").replace(/\D/g, "")
 
 /** Les mêmes filtres que la base, appliqués en mémoire (pour les files, chargées sans filtre). */
 export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
   const texte = plat(f.recherche)
-  const brut = f.recherche.trim()
-  const numero = brut && /^[\d\s.+-]+$/.test(brut) ? chiffres(brut.replace(/^(\+33|0033)/, "0")) : ""
+  const numero = numeroCherche(f.recherche)
+  const national = (t: string) => numeroCherche(t) || chiffres(t)
   const sorties: string[] = SORTIES.map((s) => s.code)
   return agences.filter((a) => {
     if (f.etape === "actives" && sorties.includes(a.etape)) return false
@@ -133,7 +135,7 @@ export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
     if (texte) {
       const meule = plat([a.nom, a.enseigne, a.telephone, a.email, a.adresse, a.contactPrincipal, a.contactLigne, a.secteurLibelle].join(" "))
       const parTexte = meule.includes(texte)
-      const parNumero = !!numero && (chiffres(a.telephone).includes(numero) || chiffres(a.contactLigne).includes(numero))
+      const parNumero = !!numero && (national(a.telephone).includes(numero) || national(a.contactLigne).includes(numero))
       if (!parTexte && !parNumero) return false
     }
     return true

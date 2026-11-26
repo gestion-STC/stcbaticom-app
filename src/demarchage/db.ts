@@ -23,6 +23,7 @@ import {
   type Secteur,
   contactDuGestionnaire,
   filtreRechercheAgences,
+  memeTelephone,
   jourLocal,
   premiersInteresses,
   nomCle,
@@ -108,7 +109,8 @@ export type FiltresAgences = { etape?: Etape | "actives" | ""; secteur?: string;
 // alors qu'il y en a 2 372 et 17). Toute lecture qui peut dépasser passe par lireParLots.
 export async function chargerAgences(f: FiltresAgences = {}): Promise<Agence[]> {
   const requete = (de: number, a: number) => {
-    let q = sb().from("agences_liste").select(COLONNES_AGENCE).order("nom").order("id").range(de, a)
+    // Une recherche lit agences_recherche (agences_liste + textes à plat et numéros en chiffres, lot 4 du 26/11/2026).
+    let q = sb().from(f.recherche?.trim() ? "agences_recherche" : "agences_liste").select(COLONNES_AGENCE).order("nom").order("id").range(de, a)
     if (f.etape === "actives") q = q.in("etape", ["a_prospecter", "gestionnaire_joint", "interesse", "rdv_planifie", "client"])
     else if (f.etape) q = q.eq("etape", f.etape)
     if (f.secteur) q = q.eq("secteur", f.secteur)
@@ -275,7 +277,8 @@ export async function chargerAgence(id: string): Promise<AgenceComplete> {
     // Les signaux du site vivent sur la table (pas dans la vue) ; tant que les colonnes ne sont pas posées, on les ignore.
     s.from("agences").select("dernier_signal, dernier_signal_le, compte_ouvert_le, compte_email").eq("id", id).maybeSingle(),
     s.from("contacts").select(COLONNES_CONTACT).eq("agence_id", id).order("principal", { ascending: false }).order("cree_le"),
-    s.from("activites").select(COLONNES_ACTIVITE).eq("agence_id", id).order("date", { ascending: false }).limit(300),
+    // Les doubles d'un appel entrant (écrits avant le 26/11 par deux onglets) restent en base, marqués doublon_de : hors du fil.
+    s.from("activites").select(COLONNES_ACTIVITE).eq("agence_id", id).is("doublon_de", null).order("date", { ascending: false }).limit(300),
     s.from("messages").select("id, sens, espace, sous_traitant_id, de, a, objet, corps_text, corps_html, message_id, in_reply_to, agence_id, lu, created_at, pieces_jointes").eq("agence_id", id).order("created_at", { ascending: false }).limit(100),
   ])
   erreur(a.error)
@@ -301,7 +304,8 @@ export async function chercherDoublons(nom: string, secteur: string | null, tele
     q = secteur ? q.eq("secteur", secteur) : q.is("secteur", null)
     requetes.push(q)
   }
-  if (tel.length >= 9) requetes.push(s.from("agences_liste").select(COLONNES_AGENCE).ilike("telephone", `%${tel.slice(-4)}`).limit(20))
+  // Le même standard : les 9 derniers chiffres, comparés en chiffres seuls (la base garde « 01 40 21 15 15 »).
+  if (tel.length >= 9) requetes.push(s.from("agences_recherche").select(COLONNES_AGENCE).like("telephone_chiffres", `%${tel.slice(-9)}`).limit(20))
   const resultats = await Promise.all(requetes)
   const vus = new Set<string>()
   const out: Agence[] = []
@@ -309,7 +313,7 @@ export async function chercherDoublons(nom: string, secteur: string | null, tele
     erreur(r.error)
     for (const l of (r.data ?? []) as (LigneAgence & { nom_cle?: string })[]) {
       if (vus.has(l.id)) continue
-      if (tel.length >= 9 && chiffres(l.telephone) !== tel && nomCle(l.nom) !== cle) continue
+      if (tel.length >= 9 && !memeTelephone(l.telephone, tel) && nomCle(l.nom) !== cle) continue
       vus.add(l.id)
       out.push(versAgence(l))
     }
@@ -386,9 +390,11 @@ function versLigneContact(c: ChampsContact): Record<string, unknown> {
 }
 export async function creerContact(agenceId: string, c: ChampsContact): Promise<Contact> {
   const s = sb()
-  // Le premier contact d'une agence est le contact principal.
-  const { count } = await s.from("contacts").select("id", { count: "exact", head: true }).eq("agence_id", agenceId).eq("parti", false)
-  const principal = c.principal ?? (count ?? 0) === 0
+  // Le premier contact d'une agence est le contact principal (lot 4, 26/11/2026) : même si la case n'est pas cochée,
+  // un contact présent ajouté à une agence qui n'a aucun contact principal présent le devient.
+  const { count, error: ec } = await s.from("contacts").select("id", { count: "exact", head: true }).eq("agence_id", agenceId).eq("parti", false).eq("principal", true)
+  erreur(ec)
+  const principal = c.principal === true || (!c.parti && (count ?? 0) === 0)
   if (principal) {
     const { error: e } = await s.from("contacts").update({ principal: false }).eq("agence_id", agenceId)
     erreur(e)
@@ -480,8 +486,12 @@ export async function appelsANoter(minutes: number): Promise<AppelANoter[]> {
 }
 
 // Un appel entrant reconnu : journalisé sans toucher à l'étape.
+// Un même appel (identifiant Ringover) ne s'écrit qu'une fois (lot 4, 26/11/2026) : la base refuse le second
+// (index unique activites_appel_entrant_unique) quand deux onglets ou deux collègues reçoivent le même appel ;
+// ce refus veut dire « déjà sur la fiche », pas une erreur.
 export async function journaliserAppelEntrant(agenceId: string, contactId: string | null, callId: string, compteNom: string): Promise<void> {
   const { error } = await sb().from("activites").insert({ agence_id: agenceId, contact_id: contactId, type: "appel", resultat: "joint", sens: "entrant", call_id: callId, compte_nom: compteNom, note: "Appel entrant", source: "session" })
+  if (error && (error as { code?: string }).code === "23505") return
   erreur(error)
 }
 
