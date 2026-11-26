@@ -136,3 +136,11 @@ describe("D101 / D102 / D103 : sous-traitants de STC Bâtiment", () => {
     expect(fraicheurStc(null, m)).toBeNull()
   })
 })
+
+import ouvert from "../../supabase/functions/acces-partenaire-ouvert/index.ts?raw"
+describe("D78 : un compte ouvert sans fiche Baticom retrouve la fiche par l'adresse", () => {
+  it("adresse exacte, jokers neutralisés, sans écraser une ouverture déjà notée", () => {
+    expect(ouvert).toMatch(/\.ilike\("email", email\.replace\(/)
+    expect(ouvert).toContain(`.is("acces_ouvert_le", null)`)
+  })
+})
