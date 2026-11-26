@@ -46,6 +46,8 @@ export function raisonsExclusion(ctx: Contexte): (k: Contact) => string | null {
   return (k) => {
     if (retires.has(k.id)) return "Retiré de cette campagne"
     if (dedans.has(k.id)) return null // déjà entré : les garde-fous ne valent que pour les nouvelles entrées
+    // Lot 3 (27/11/2026) : le moteur n'inscrit que les contacts « libres » ; un contact déjà lead n'entre pas, l'écran le dit.
+    if (k.statut === "lead") return "Déjà lead"
     if (recus.has(k.id)) return `Une autre campagne lui a écrit il y a moins de ${ecart} j`
     if (rebonds.has(k.id)) return "Adresse en erreur"
     if (pasInteresse(k)) return "Pas intéressé"

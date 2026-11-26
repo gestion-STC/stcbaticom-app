@@ -115,8 +115,12 @@ export type FileOuToutes = File | "toutes"
 const plat = textePlat // le même « à plat » que la base (agences_liste.recherche_plat)
 const chiffres = (s: string) => (s || "").replace(/\D/g, "")
 
-/** Les mêmes filtres que la base, appliqués en mémoire (pour les files, chargées sans filtre). */
-export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
+/**
+ * Les mêmes filtres que la base, appliqués en mémoire (pour les files, chargées sans filtre).
+ * `trouvees` : les agences que la recherche de la base a trouvées pour ce même texte (contacts secondaires, e-mails
+ * et mobiles des gestionnaires, que la liste ne porte pas) ; une agence y figurant passe le filtre texte (lot f6).
+ */
+export function filtrerAgences(agences: Agence[], f: FiltresLocaux, trouvees?: ReadonlySet<string>): Agence[] {
   const texte = plat(f.recherche)
   const numero = numeroCherche(f.recherche)
   const national = (t: string) => numeroCherche(t) || chiffres(t)
@@ -137,7 +141,7 @@ export function filtrerAgences(agences: Agence[], f: FiltresLocaux): Agence[] {
       const meule = plat([a.nom, a.enseigne, a.telephone, a.email, a.adresse, a.contactPrincipal, a.contactLigne, a.secteurLibelle].join(" "))
       const parTexte = meule.includes(texte)
       const parNumero = !!numero && (national(a.telephone).includes(numero) || national(a.contactLigne).includes(numero))
-      if (!parTexte && !parNumero) return false
+      if (!parTexte && !parNumero && !trouvees?.has(a.id)) return false
     }
     return true
   })

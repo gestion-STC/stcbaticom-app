@@ -4,16 +4,21 @@ import { Bandeau } from "../../../ui"
 import { Bloc } from "../../demarchage/aujourdhui/courtier"
 import { chargerLeadsRecus } from "../../../lib/leadsRecusDb"
 import type { ConfigCampagne } from "../../../prospection/configCampagne"
-import type { Campagne, Envoi, Evenement, Inscription } from "../../../prospection/modele"
+import type { Appel, Base, Campagne, Contact, Envoi, Evenement, Inscription, Lead } from "../../../prospection/modele"
 import { mesureCampagne, type PositionCampagne } from "../../../prospection/mesureCampagne"
 import { LIBELLE_TRI } from "../../../prospection/ia"
-import { parInstantly } from "../../../prospection/indicateurs"
+import { indicateurs, parInstantly } from "../../../prospection/indicateurs"
 import { chargerCoutIA, chargerTrisCampagne } from "../../../lib/campagnesIa"
 
 const euros = (x: number | null) => (x === null ? "—" : `${x.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`)
 const COULEUR = { LEAD: "bg-signature", "GAGNÉ": "bg-ok" } as const
 
-export default function MesureCampagne({ campagne, cfg, inscriptions, envois, evenements }: { campagne: Campagne; cfg: ConfigCampagne; inscriptions: Inscription[]; envois: Envoi[]; evenements: Evenement[] }) {
+// Lot 3 (27/11/2026, décision 8) : les leads et les gagnés viennent du calcul du Suivi, avec les mêmes données que lui.
+export default function MesureCampagne({ campagne, base, cfg, contacts, inscriptions, envois, evenements, leads, appels }: { campagne: Campagne; base: Base; cfg: ConfigCampagne; contacts: Contact[]; inscriptions: Inscription[]; envois: Envoi[]; evenements: Evenement[]; leads: Lead[]; appels: Appel[] }) {
+  const suivi = useMemo(() => {
+    const ind = indicateurs(campagne, base, contacts, inscriptions, envois, evenements, leads, appels)
+    return { leads: ind.conversion.leads, gagnes: ind.conversion.gagnes, contactsLeads: leads.filter((l) => l.campagneId === campagne.id).map((l) => l.contactId) }
+  }, [campagne, base, contacts, inscriptions, envois, evenements, leads, appels])
   const [positions, setPositions] = useState<PositionCampagne[]>([])
   const [erreur, setErreur] = useState("")
   useEffect(() => { let vivant = true; chargerLeadsRecus(new Date()).then((r) => { if (vivant) setPositions(r.positions) }).catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) }); return () => { vivant = false } }, [])
@@ -26,7 +31,7 @@ export default function MesureCampagne({ campagne, cfg, inscriptions, envois, ev
     if (inscrits.size) chargerTrisCampagne(inscrits).then((x) => { if (vivant) setTris(x) }).catch(() => undefined)
     return () => { vivant = false }
   }, [campagne.id, inscriptions])
-  const m = useMemo(() => mesureCampagne(cfg, campagne.id, campagne.coutSms, inscriptions, envois, evenements, positions, coutIA, parInstantly(campagne)), [cfg, campagne, inscriptions, envois, evenements, positions, coutIA])
+  const m = useMemo(() => mesureCampagne(cfg, campagne.id, campagne.coutSms, inscriptions, envois, evenements, positions, coutIA, parInstantly(campagne), suivi), [cfg, campagne, inscriptions, envois, evenements, positions, coutIA, suivi])
   return (
     <div className="space-y-6">
       {erreur ? <Bandeau role="alerte">{erreur}</Bandeau> : null}
@@ -39,7 +44,7 @@ export default function MesureCampagne({ campagne, cfg, inscriptions, envois, ev
             <span className="chiffres w-12 text-right text-colonne text-encre-2">{l.part === null ? "" : `${l.part} %`}</span>
           </li>)}
         </ol>
-        <p className="mt-3 text-colonne text-encre-2">Le pourcentage compare chaque ligne à la précédente.</p>
+        <p className="mt-3 text-colonne text-encre-2">Le pourcentage compare chaque ligne à la précédente. Leads et gagnés : les mêmes que dans le Suivi.</p>
       </Bloc>
       {Object.keys(tris).length ? <Bloc titre="Les réponses, triées par l'IA"><ul className="mt-3 divide-y-[0.5px] divide-trait">{Object.keys(LIBELLE_TRI).filter((k) => tris[k]).map((k) => <li key={k} className="flex justify-between py-2 text-legende"><span>{LIBELLE_TRI[k]}</span><span className="chiffres font-medium">{tris[k].toLocaleString("fr-FR")}</span></li>)}</ul></Bloc> : null}
       <Bloc titre="Ce que ça coûte">

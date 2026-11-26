@@ -6,9 +6,9 @@ import { ChevronRight, Plus } from "lucide-react"
 import { Bouton, Interrupteur, Pastille } from "../../ui"
 import { Bandeau, Table } from "../demarchage/aujourdhui/courtier"
 import { useDepot } from "../../prospection/depot"
-import { indicateurs } from "../../prospection/indicateurs"
+import { indicateurs, libelleLeadsSuivi } from "../../prospection/indicateurs"
 import type { Campagne } from "../../prospection/modele"
-import { ORIGINE_TRACABILITE, configDe } from "../../prospection/configCampagne"
+import { ORIGINE_TRACABILITE } from "../../prospection/configCampagne"
 import { NomBase, Onglets, Titre } from "./morceaux"
 import { fr, pct, useVue } from "./outils"
 import { ConfirmerLancement } from "./moteur/Lancement"
@@ -18,7 +18,6 @@ const ROLE = { brouillon: "inerte", active: "fait", pause: "attente", terminee: 
 const LIB = { brouillon: "Brouillon", active: "Active", pause: "En pause", terminee: "Terminée" } as const
 // La traçabilité des agences tourne hors du moteur : en base elle reste « pause » pour qu'il ne la touche jamais.
 const tracabilite = (c: Campagne) => c.origine === ORIGINE_TRACABILITE
-const criteres = (c: Campagne) => { const q = configDe(c).qualification; return `Lead : ${q.etapes.find((e) => e.id === q.leadA)?.nom ?? "à choisir"}${q.gagneA ? ` · Gagné : ${q.etapes.find((e) => e.id === q.gagneA)?.nom ?? "à choisir"}` : ""}` }
 
 export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => void; creer: () => void }) {
   const v = useVue()
@@ -49,7 +48,7 @@ export default function Campagnes({ ouvrir, creer }: { ouvrir: (id: string) => v
         vide="Aucune campagne : crée la première."
         lignes={lignes.map(({ c, i }) => ({ cle: c.id, cellules: [
           tracabilite(c) || c.statut === "terminee" ? <span /> : <Interrupteur allume={c.statut === "active"} onChange={() => basculer(c)} libelle={c.statut === "active" ? "Mettre en pause" : c.statut === "pause" ? "Reprendre" : "Lancer"} />,
-          <button type="button" onClick={() => ouvrir(c.id)} className="block w-full truncate py-1.5 text-left"><span className="font-medium text-encre hover:underline">{c.nom}</span><span className="block truncate text-colonne text-encre-2">{criteres(c)}</span></button>,
+          <button type="button" onClick={() => ouvrir(c.id)} className="block w-full truncate py-1.5 text-left"><span className="font-medium text-encre hover:underline">{c.nom}</span><span className="block truncate text-colonne text-encre-2">{v.base(c.baseId) ? libelleLeadsSuivi(v.base(c.baseId)!) : ""}</span></button>,
           ...(v.bases.length > 1 ? [<NomBase base={v.base(c.baseId)} />] : []),
           <Pastille role={tracabilite(c) ? "fait" : ROLE[c.statut]}>{tracabilite(c) ? "Active" : LIB[c.statut]}</Pastille>,
           fr(i.audience.enCours), fr(i.engagement.touches), pct(i.engagement.tauxOuverture), pct(i.engagement.tauxClic),

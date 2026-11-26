@@ -26,11 +26,25 @@ export function envoisPartis(c: Pick<Campagne, "baseId" | "origine">, envois: En
 }
 /** Le DERNIER essai de chaque contact à chaque étape (26/11/2026) : un contact sans adresse est « sauté » à chaque passage
  *  du moteur, une erreur est rejouée. Compter les essais donnait « 8 857 sautés » pour 35 contacts, et 1 194 erreurs
- *  dont 219 finalement partis. Erreurs et sautés se comptent désormais par contact, sur son dernier état. */
+ *  dont 219 finalement partis. Erreurs et sautés se comptent désormais par contact, sur son dernier état ; un contact déjà touché ne compte
+ *  jamais en erreur ni en sauté à cette étape. */
 export function derniersEssais(envois: Envoi[]): Envoi[] {
   const m = new Map<string, Envoi>()
-  for (const e of envois) { const k = e.contactId + "|" + e.etapeId, p = m.get(k); if (!p || e.le >= p.le) m.set(k, e) }
+  // Lot 3 (27/11/2026) : un message parti l'emporte sur tout essai suivant. Un SMS parti puis rejeté (« trop rapprochés »)
+  // comptait « en erreur » alors que le contact l'avait reçu (29 couples sur la machine sous-traitants).
+  for (const e of envois) {
+    const k = e.contactId + "|" + e.etapeId, p = m.get(k)
+    const parti = e.statut === "envoye", pParti = p?.statut === "envoye"
+    if (!p || (parti && !pParti) || (parti === pParti && e.le >= p.le)) m.set(k, e)
+  }
   return [...m.values()]
+}
+
+/** Ce que comptent « Leads » et « Gagnés » au Suivi et dans la liste (lot 3, 27/11/2026) : la liste affichait
+ *  « Lead : Dossier déposé » (l'étape du parcours) à côté de 69 leads qui étaient des clics. */
+export function libelleLeadsSuivi(base: Pick<Base, "id" | "gagne">): string {
+  const lead = base.id === "artisans" ? "a cliqué la candidature ou le barème" : "signal reçu (clic, plaquette, réponse, formulaire)"
+  return `Lead : ${lead}${base.gagne ? ` · Gagné : ${base.gagne.charAt(0).toLowerCase()}${base.gagne.slice(1)}` : ""}`
 }
 
 const taux = (n: number, sur: number): number | null => (sur > 0 ? n / sur : null)

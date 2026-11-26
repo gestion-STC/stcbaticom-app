@@ -158,3 +158,25 @@ describe("trouverDoublon (lot 5 : avertir à la création manuelle)", () => {
     expect(trouverDoublon({ email: "autre@x.fr", telephone: "0699999999" }, base)).toBeNull()
   })
 })
+
+describe("lot f6 (27/11/2026) : un e-mail qui n'est pas une adresse", () => {
+  it("« inconnu » dans la colonne E-mail n'est pas gardé, et n'écarte plus les lignes suivantes", () => {
+    const { sousTraitants } = construire([
+      ["Entreprise", "E-mail", "Téléphone"],
+      ["A", "inconnu", "06 11 11 11 11"],
+      ["B", "NC", "06 22 22 22 22"],
+      ["C", "NC", "06 33 33 33 33"],
+    ], true)
+    expect(sousTraitants.map((s) => s.email)).toEqual(["", "", ""])
+    const d = dedoublonner(sousTraitants, [{ email: "inconnu", telephone: "01 00 00 00 00" }], [])
+    expect(d.aAjouter).toHaveLength(3)
+    expect(d.doublons).toBe(0)
+  })
+  it("une adresse dans la colonne E-mail est gardée, sans le texte autour", () => {
+    const { sousTraitants } = construire([["Entreprise", "E-mail"], ["A", "Mail : Jean@Martin.fr"]], true)
+    expect(sousTraitants[0].email).toBe("Jean@Martin.fr")
+  })
+  it("une fiche à l'e-mail « inconnu » n'est pas un doublon d'une autre « inconnu »", () => {
+    expect(trouverDoublon({ email: "inconnu" }, [{ id: "x", email: "inconnu" }])).toBeNull()
+  })
+})

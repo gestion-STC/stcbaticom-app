@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Phone, Plus } from "lucide-react"
 import { ETAPES, FILES, SORTIES, TYPES_AGENCE, type Agence, type File, type Secteur, type TypeAgence, libelleEtape, libelleResultat, pastilleEtape } from "../../demarchage/modele"
-import { chargerAgences, chargerPile, chargerSecteurs, compterApporteurs, compterParEtape, compterPiles, type FiltresAgences } from "../../demarchage/db"
+import { chargerAgences, chargerPile, chargerSecteurs, chercherIdsAgences, compterApporteurs, compterParEtape, compterPiles, type FiltresAgences } from "../../demarchage/db"
 import { useReglages } from "../../demarchage/reglages"
 import {
   FILTRES_VIDES, type CleTri, type FileOuToutes, type FiltresLocaux, type Tri, basculerTri, dateCourte, depuisTexte, enRetard, enseignesDistinctes, filtrerAgences, ilYA, messageErreur, pluriel,
@@ -76,7 +76,7 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   const jetonCompteurs = useRef(0)
   const chargerCompteurs = useCallback(async () => {
     const jeton = ++jetonCompteurs.current
-    const [e, f, ap] = await Promise.all([compterParEtape(), compterPiles(proprietaire).catch(() => null), compterApporteurs().catch(() => 0)])
+    const [e, f, ap] = await Promise.all([compterParEtape(proprietaire), compterPiles(proprietaire).catch(() => null), compterApporteurs().catch(() => 0)])
     if (jeton !== jetonCompteurs.current) return // un autre « Attribuée à » a été choisi entre-temps
     setApporteurs(ap)
     setParEtape(e); setParFile(f)
@@ -123,8 +123,20 @@ export default function Agences({ onOuvrirSession, etapeInitiale = null }: { onO
   const choisirFile = (id: FileOuToutes) => { setFile(id); setPage(0); setChargement(true) }
   const filtresActifs = (Object.keys(FILTRES_VIDES) as (keyof FiltresLocaux)[]).some((k) => filtres[k] !== FILTRES_VIDES[k])
 
-  // Les files arrivent sans filtre : on applique les nôtres en mémoire (sans effet quand la base l'a déjà fait).
-  const filtrees = useMemo(() => filtrerAgences(agences, filtres), [agences, filtres])
+  // Les files arrivent sans recherche : la base dit quelles agences le texte trouve (tous les contacts, e-mails et
+  // mobiles des gestionnaires), en plus de ce que la ligne affichée contient (lot f6, 27/11/2026).
+  const [trouvees, setTrouvees] = useState<{ texte: string; ids: Set<string> } | null>(null)
+  useEffect(() => {
+    if (file === "toutes" || !recherchePrete.trim() || !supabaseConfigure) return
+    let vivant = true
+    chercherIdsAgences(recherchePrete).then((ids) => { if (vivant) setTrouvees({ texte: recherchePrete, ids }) }).catch(() => undefined)
+    return () => { vivant = false }
+  }, [file, recherchePrete])
+  // Les files arrivent sans filtre : on applique les nôtres en mémoire. Dans « Toutes », la base a déjà filtré le
+  // texte (agences_recherche) : on ne le refiltre pas, sinon une agence trouvée par un contact secondaire disparaîtrait.
+  const filtrees = useMemo(() => file === "toutes"
+    ? filtrerAgences(agences, { ...filtres, recherche: "" })
+    : filtrerAgences(agences, filtres, trouvees && trouvees.texte === filtres.recherche ? trouvees.ids : undefined), [agences, filtres, file, trouvees])
   const triees = useMemo(() => trierAgences(filtrees, tri), [filtrees, tri])
   const enseignes = useMemo(() => enseignesDistinctes(agences), [agences])
   const nbPages = Math.max(1, Math.ceil(triees.length / PAR_PAGE))
