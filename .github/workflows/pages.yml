@@ -1,5 +1,5 @@
 # Publication automatique : chaque push sur main verifie la qualite (tests +
-# lint), reconstruit l'app (Vite) et la deploie sur GitHub Pages
+# lint) et publie sur GitHub Pages (depuis la fusion dans STC : la page de redirection relais/pages)
 # (gestion-stc.github.io/stcbaticom-app).
 name: pages
 on:
@@ -49,13 +49,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deploiement.outputs.page_url }}
     steps:
+      # FUSION DANS STC BÂTIMENT (branche fusion/relais) : on ne publie plus l'application, seulement la page qui
+      # renvoie vers https://www.stcbatiment.com/commercial/ en gardant les paramètres des liens déjà envoyés
+      # (relais/pages). Retour arrière : annuler la fusion de cette branche, l'application est republiée telle quelle.
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: npm }
-      - run: npm ci
-      - run: npm run build -- --base=/stcbaticom-app/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
-        with: { path: dist }
+        with: { path: relais/pages }
       - id: deploiement
         uses: actions/deploy-pages@v4

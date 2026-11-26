@@ -1,0 +1,37 @@
+# Les RELAIS de l'ancien projet Baticom (ifvrmsiwlwppinfdmeao), à déployer LE JOUR DE LA BASCULE seulement, depuis ce
+# dossier (relais/), fonction par fonction : voir ~/stc-passation/fusion/bascule-branchements.md.
+# Toutes publiques, comme les fonctions qu'elles remplacent : liens dans des mails, webhooks de prestataires.
+project_id = "ifvrmsiwlwppinfdmeao"
+
+[functions.lien-st]
+verify_jwt = false
+
+[functions.evenements-site]
+verify_jwt = false
+
+[functions.formulaire-campagne]
+verify_jwt = false
+
+[functions.formation-st]
+verify_jwt = false
+
+[functions.soumettre-dossier-st]
+verify_jwt = false
+
+[functions.docusign-evenements]
+verify_jwt = false
+
+[functions.instantly-evenements]
+verify_jwt = false
+
+[functions.ringover-webhook]
+verify_jwt = false
+
+[functions.linkedin]
+verify_jwt = false
+
+[functions.recevoir-email]
+verify_jwt = false
+
+[functions.resend-evenements]
+verify_jwt = false

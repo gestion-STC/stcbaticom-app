@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>STC Bâtiment</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<!--
+  RELAIS (fusion dans STC Bâtiment) : l'ancienne adresse gestion-stc.github.io/stcbaticom-app/ envoie vers
+  https://www.stcbatiment.com/commercial/ en GARDANT tous les paramètres du lien (?fc=&f=&k=&s=&t=&stop= des
+  formulaires et avis, ?a= des liens courts, ?formation= des formations d'artisans). Le même fichier sert de 404.html :
+  une adresse plus longue (…/stcbaticom-app/xxx) arrive aussi sur la page d'accueil du Commercial, paramètres gardés.
+  Un reste de connexion de l'ancien projet dans l'ancre (#access_token=…) n'est pas transmis : il ne vaut rien chez STC.
+  logo-stc.png reste servi ici : des signatures de mails déjà envoyés l'affichent depuis cette adresse.
+-->
+<script>
+(function () {
+  var cible = "https://www.stcbatiment.com/commercial/";
+  var ancre = /access_token|refresh_token|error_description|provider_token/.test(location.hash) ? "" : location.hash;
+  location.replace(cible + location.search + ancre);
+})();
+</script>
+<noscript><meta http-equiv="refresh" content="0;url=https://www.stcbatiment.com/commercial/"></noscript>
+</head>
+<body style="margin:0;background:#f6f6f8;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px">
+<p style="color:#525252">Cette page a déménagé. <a id="suite" href="https://www.stcbatiment.com/commercial/">Continuer vers STC Bâtiment</a>.</p>
+<script>document.getElementById("suite").href = "https://www.stcbatiment.com/commercial/" + location.search;</script>
+</body>
+</html>
