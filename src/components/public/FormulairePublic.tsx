@@ -42,6 +42,9 @@ export default function FormulairePublic() {
   // Le lien « ne plus recevoir » (26/11/2026) : la page demande de confirmer. Avant, elle désinscrivait dès son ouverture,
   // et les robots de sécurité des messageries, qui ouvrent tous les liens d'un mail, désinscrivaient à la place des gens.
   const demandeStop = params.has("stop")
+  // Arrivé par le lien court d'un SMS (lot 2, décision 9 du 26/11/2026) : la page d'avis propose Google ET « ne plus
+  // recevoir », au lieu d'envoyer tout de suite sur Google (le SMS ne porte plus de second lien pour se désinscrire).
+  const parSms = params.has("a")
   const lien = { c: params.get("fc"), f: params.get("f"), k: params.get("k"), s: params.get("s"), t: params.get("t") ?? "" }
   const cle = params.toString()
 
@@ -49,12 +52,25 @@ export default function FormulairePublic() {
     let vivant = true
     const q = new URLSearchParams(cle)
     if (q.has("stop")) return () => { vivant = false }
+    // Lien court : on lit d'abord le lien signé complet, puis la page se charge comme d'habitude (« a » reste dans l'adresse).
+    if (q.has("a") && !q.has("fc")) {
+      appeler<{ fc: string; f: string; k: string; s: string; t: string }>({ action: "court", a: q.get("a") })
+        .then((d) => {
+          if (!vivant) return
+          const n = new URLSearchParams({ a: q.get("a") ?? "", fc: d.fc, f: d.f, k: d.k, s: d.s })
+          if (d.t) n.set("t", d.t)
+          window.history.replaceState({}, "", `?${n.toString()}`)
+          setParams(n)
+        })
+        .catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) })
+      return () => { vivant = false }
+    }
     appeler<Contenu>({ action: "lire", c: q.get("fc"), f: q.get("f"), k: q.get("k"), s: q.get("s"), t: q.get("t") ?? "" })
       .then((d) => {
         if (!vivant) return
         // Avis = avis GOOGLE uniquement (17/11/2026) : la page envoie tout de suite sur Google, sans formulaire chez nous.
         // Vaut aussi pour les liens déjà envoyés : ils ouvrent cette page.
-        if (d.type === "avis" && d.lienGoogle) { window.location.replace(d.lienGoogle); return }
+        if (d.type === "avis" && d.lienGoogle && !q.has("a")) { window.location.replace(d.lienGoogle); return }
         setContenu(d)
       })
       .catch((e) => { if (vivant) setErreur(e instanceof Error ? e.message : String(e)) })
@@ -85,6 +101,7 @@ export default function FormulairePublic() {
       .catch((x) => setErreur(x instanceof Error ? x.message : String(x)))
       .finally(() => setOccupe(false))
   }
+  const demanderStop = () => { const q = new URLSearchParams(params); q.set("stop", "1"); window.history.pushState({}, "", `?${q.toString()}`); setParams(q) }
   const suivant = () => { const q = new URLSearchParams(params); q.set("f", contenu!.versId); window.history.pushState({}, "", `?${q.toString()}`); setContenu(null); setParams(q) }
 
   return (
@@ -102,6 +119,13 @@ export default function FormulairePublic() {
           </div>
         ) : erreur && !contenu ? <Bandeau role="alerte">{erreur}</Bandeau> : !contenu ? <Chargement texte="Chargement…" /> : fini ? (
           <div><h1 className="text-h1 font-semibold text-encre">Merci !</h1><p className="mt-2 text-corps text-encre-2">{contenu.type === "avis" ? "Nous avons bien reçu votre avis." : "Nous avons bien reçu vos réponses. Notre équipe revient vers vous rapidement."}</p>{contenu.type === "avis" && contenu.lienGoogle ? <p className="mt-4"><a className="text-legende font-medium text-encre underline" href={contenu.lienGoogle} target="_blank" rel="noreferrer">Laisser aussi un avis sur Google</a></p> : null}</div>
+        ) : contenu.type === "avis" && contenu.lienGoogle && parSms ? (
+          <div className="space-y-5">
+            <h1 className="text-h1 font-semibold tracking-[-0.015em] text-encre">{contenu.titre}</h1>
+            {contenu.texte ? <p className="whitespace-pre-line text-corps text-encre">{contenu.texte}</p> : null}
+            <a className="inline-block rounded-6 bg-action px-5 py-3 text-corps font-medium text-white" href={contenu.lienGoogle}>Donner mon avis sur Google</a>
+            <p><button type="button" className="text-legende text-encre-2 underline" onClick={demanderStop}>Ne plus recevoir nos messages</button></p>
+          </div>
         ) : contenu.type === "avis" ? (
           <div className="space-y-5">
             <h1 className="text-h1 font-semibold tracking-[-0.015em] text-encre">{contenu.titre}</h1>

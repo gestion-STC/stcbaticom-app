@@ -32,6 +32,16 @@ Deno.serve(async (req: Request) => {
     const b = unClic
       ? { action: "desinscrire", c: adresse.get("fc") ?? "", f: adresse.get("f") ?? "", k: adresse.get("k") ?? "", s: adresse.get("s") ?? "", t: adresse.get("t") ?? "" } as { action?: string; c?: string; f?: string; k?: string; s?: string; t?: string; reponses?: Record<string, unknown> }
       : await req.json().catch(() => ({})) as { action?: string; c?: string; f?: string; k?: string; s?: string; t?: string; reponses?: Record<string, unknown> }
+    // Le lien COURT d'un SMS d'avis (lot 2, 27/11/2026) : « ?a=<code> » ; la page reçoit le lien signé complet et s'en sert.
+    if (b.action === "court") {
+      const code = String((b as { a?: unknown }).a ?? "")
+      if (!/^[A-Za-z0-9]{6,20}$/.test(code)) return json({ error: "Lien incomplet." }, 400)
+      const { data: l } = await sb.from("cmp_liens_courts").select("campagne_id, creatif_id, contact_ref, test").eq("code", code).maybeSingle()
+      const lien = l as { campagne_id: string; creatif_id: string; contact_ref: string; test: boolean } | null
+      const cleC = await clePassage(sb)
+      if (!lien || !cleC) return json({ error: "Ce lien n'est pas valide." }, 404)
+      return json({ fc: lien.campagne_id, f: lien.creatif_id, k: lien.contact_ref, s: await signer(cleC, lien.campagne_id, lien.contact_ref, lien.test), t: lien.test ? "1" : "" })
+    }
     const c = String(b.c ?? ""), f = String(b.f ?? ""), k = String(b.k ?? ""), test = b.t === "1"
     if (!/^[0-9a-f-]{36}$/i.test(c) || !f || !k || !b.s) return json({ error: "Lien incomplet." }, 400)
     const cle = await clePassage(sb)

@@ -17,9 +17,16 @@ export type RetourInstantly = { ok: boolean; status: number; data: Record<string
 
 export async function appelInstantly(cle: string, chemin: string, options: { methode?: string; corps?: unknown } = {}): Promise<RetourInstantly> {
   const avecCorps = options.corps !== undefined
-  const r = await fetch(`${API}${chemin}`, { method: options.methode ?? (avecCorps ? "POST" : "GET"), headers: { Authorization: `Bearer ${cle}`, ...(avecCorps ? { "Content-Type": "application/json" } : {}) }, body: avecCorps ? JSON.stringify(options.corps) : undefined })
-  const data = await r.json().catch(() => ({})) as Record<string, unknown>
-  return { ok: r.ok, status: r.status, data }
+  // Une coupure réseau ou un délai dépassé (lot 2, 27/11/2026) : un refus comme un autre (status 0). Avant, l'exception
+  // remontait au passage : l'envoi restait « en cours », passait « sauté » au passage suivant (étape perdue), et le reste
+  // de la campagne n'était pas traité.
+  try {
+    const r = await fetch(`${API}${chemin}`, { method: options.methode ?? (avecCorps ? "POST" : "GET"), headers: { Authorization: `Bearer ${cle}`, ...(avecCorps ? { "Content-Type": "application/json" } : {}) }, body: avecCorps ? JSON.stringify(options.corps) : undefined })
+    const data = await r.json().catch(() => ({})) as Record<string, unknown>
+    return { ok: r.ok, status: r.status, data }
+  } catch (e) {
+    return { ok: false, status: 0, data: { message: `réseau : ${String((e as Error)?.message ?? e).slice(0, 120)}` } }
+  }
 }
 
 /** La clé qui prouve qu'un retour vient bien de notre branchement : Instantly la renvoie dans un en-tête. */
@@ -120,8 +127,10 @@ export async function envoyerParInstantly(sb: SupabaseClient, ins: ContexteInsta
   return { ok: true, fournisseurId: String(r.data?.id ?? "") }
 }
 
-/** Une relance : une réponse au dernier mail envoyé à ce contact, dans le même fil. Rien à quoi répondre : null, et le mail part normalement. */
-export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; baseId: string; mentions?: Mentions }, contact: string, to: string, objet: string, texte: string, desinscription?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string } | null> {
+/** Une relance : une réponse au dernier mail envoyé à ce contact, dans le même fil. Rien à quoi répondre : null, et le mail part normalement.
+ *  `/emails/reply` envoie À L'INSTANT, hors campagne Instantly (lot 2, 27/11/2026) : l'écart de 10 minutes entre deux mails
+ *  d'une même boîte et le volume par boîte du jour sont donc appliqués ici. Boîte pas libre : la relance est reportée. */
+export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantly, c: { id: string; baseId: string; mentions?: Mentions }, contact: string, to: string, objet: string, texte: string, desinscription?: string, debutJour?: string): Promise<{ ok: boolean; erreur?: string; fournisseurId?: string; reporte?: string } | null> {
   if (!ins.cle) return null
   const { data: envois } = await sb.from("cmp_envois").select("fournisseur_id").eq("campagne_id", c.id).eq("contact_ref", contact).eq("statut", "envoye").eq("test", false).not("fournisseur_id", "is", null).order("le", { ascending: false }).limit(1)
   const id = (envois?.[0] as { fournisseur_id?: string } | undefined)?.fournisseur_id
@@ -129,6 +138,8 @@ export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantl
   const { data: mail } = await sb.from("messages").select("de, objet").eq("sens", "sortant").eq("message_id", id).maybeSingle()
   const m = mail as { de?: string; objet?: string } | null
   if (!m?.de) return null
+  const libre = await boiteLibre(sb, ins, m.de, debutJour)
+  if (libre) return { ok: false, reporte: libre }
   const sujet = m.objet ? (/^re\s*:/i.test(m.objet) ? m.objet : `Re: ${m.objet}`) : objet
   const html = corpsAvecMentions(texte, desinscription, true, c.mentions)
   const r = await appelInstantly(ins.cle, "/emails/reply", { corps: { reply_to_uuid: id, eaccount: m.de, subject: sujet, body: { html, text: texte } } })
@@ -138,4 +149,58 @@ export async function envoyerDansLeFil(sb: SupabaseClient, ins: ContexteInstantl
   const { error } = await sb.from("messages").insert({ sens: "sortant", de: m.de, a: to, objet: sujet, corps_text: texte, corps_html: html, message_id: nouveau || null, in_reply_to: id, lu: true, ...lien })
   if (error) console.error("[INSTANTLY] journal de la relance", error.message)
   return { ok: true, fournisseurId: nouveau }
+}
+
+/** La boîte peut-elle envoyer une relance maintenant ? null si oui, sinon la cause du report. Les mails partis de la boîte
+ *  (premiers mails confirmés par Instantly et relances) sont lus dans `messages`. Une lecture en échec retient la relance. */
+async function boiteLibre(sb: SupabaseClient, ins: ContexteInstantly, boite: string, debutJour?: string): Promise<string | null> {
+  const depuis = new Date(Date.now() - ECART_MAILS_MIN * 60_000).toISOString()
+  const { count: recents, error } = await sb.from("messages").select("id", { count: "exact", head: true }).eq("sens", "sortant").eq("de", boite).gte("created_at", depuis)
+  if (error) return "boîte : lecture impossible, relance reportée"
+  if ((recents ?? 0) > 0) return `boîte occupée (${ECART_MAILS_MIN} min entre deux mails)`
+  if (!debutJour) return null
+  const limite = Number((ins.boites.find((b) => b.email.toLowerCase() === boite.toLowerCase()) as { limite?: number | null } | undefined)?.limite ?? 0) || MAILS_PAR_BOITE
+  const { count: jour, error: errJour } = await sb.from("messages").select("id", { count: "exact", head: true }).eq("sens", "sortant").eq("de", boite).gte("created_at", debutJour)
+  if (errJour) return "boîte : lecture impossible, relance reportée"
+  return (jour ?? 0) >= limite ? `volume du jour de la boîte atteint (${limite})` : null
+}
+
+/** Les campagnes Instantly d'une campagne Baticom : une par variante, clés « <campagne>:<variante> » de la carte. */
+export function campagnesInstantlyDe(carte: Record<string, string>, campagneId: string): { cle: string; id: string }[] {
+  return Object.entries(carte).filter(([k]) => !k.includes("#") && k.startsWith(`${campagneId}:`)).map(([cle, id]) => ({ cle, id }))
+}
+/** Toutes les campagnes Baticom qui ont une campagne Instantly. */
+export function campagnesBaticomDansLaCarte(carte: Record<string, string>): string[] {
+  return [...new Set(Object.keys(carte).filter((k) => !k.includes("#") && k.includes(":")).map((k) => k.slice(0, k.indexOf(":"))))]
+}
+
+/** Pause ou reprise chez Instantly (lot 2, 27/11/2026) : une campagne Baticom en pause (bouton, arrêt automatique sur
+ *  rebonds), terminée ou supprimée met en pause ses campagnes Instantly ; les mails déjà confiés n'y partent plus.
+ *  Reprise : réactivées. L'état est noté dans la carte (« #pause ») : un seul appel par changement, rejoué s'il échoue.
+ *  Appels de l'API v2 documentés : POST /campaigns/{id}/pause et POST /campaigns/{id}/activate. Rend les refus. */
+export async function synchroniserPause(sb: SupabaseClient, ins: ContexteInstantly, campagneId: string, enPause: boolean): Promise<string[]> {
+  if (!ins.cle) return []
+  const refus: string[] = []
+  let change = false
+  for (const { cle, id } of campagnesInstantlyDe(ins.carte, campagneId)) {
+    const estEnPause = ins.carte[`${cle}#pause`] === "1"
+    if (estEnPause === enPause) continue
+    const r = await appelInstantly(ins.cle, `/campaigns/${id}/${enPause ? "pause" : "activate"}`, { methode: "POST" })
+    // 404 : la campagne n'existe plus chez Instantly, rien ne peut en partir.
+    if (r.ok || r.status === 404) {
+      if (enPause) ins.carte[`${cle}#pause`] = "1"
+      else delete ins.carte[`${cle}#pause`]
+      change = true
+    } else refus.push(`Instantly : ${enPause ? "pause" : "reprise"} refusée (${r.status}) ${String(r.data?.message ?? "").slice(0, 80)}`)
+  }
+  if (change) await ecrireParametre(sb, CLE_CARTE, JSON.stringify(ins.carte))
+  return refus
+}
+
+/** Retire un contact confié et pas encore parti (lot 2, 27/11/2026) : DELETE /leads/{id} (API v2, documenté). Le contact
+ *  n'a reçu aucun mail par cette campagne d'un seul mail : rien d'autre n'est effacé. 404 : déjà retiré. */
+export async function retirerContactInstantly(ins: ContexteInstantly, leadId: string): Promise<{ ok: boolean; erreur?: string }> {
+  if (!ins.cle) return { ok: false, erreur: "Instantly n'est pas configuré" }
+  const r = await appelInstantly(ins.cle, `/leads/${encodeURIComponent(leadId)}`, { methode: "DELETE" })
+  return r.ok || r.status === 404 ? { ok: true } : { ok: false, erreur: `retrait refusé (${r.status}) ${String(r.data?.message ?? "").slice(0, 80)}` }
 }
