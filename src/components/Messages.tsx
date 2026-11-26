@@ -17,7 +17,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { ArrowLeft, ChevronLeft, ChevronRight, Forward, Loader2, Mail, RefreshCw, Reply, Search, Send, Trash2, X } from "lucide-react"
-import { chargerLies, clesDe, deciderReponse, fusionner, piecesPourTransfert, rechercherMessages, TRANCHE_RECENTS } from "../lib/messagesDb"
+import { chargerLies, clesDe, contactDejaPresent, contactsDeLAgence, deciderReponse, fusionner, piecesPourTransfert, rechercherMessages, TRANCHE_RECENTS } from "../lib/messagesDb"
 import { creerContact } from "../demarchage/db"
 import {
   chargerBoite,
@@ -57,7 +57,7 @@ import { OUTIL, PETITE, PILULE_CLAIRE, PILULE_NOIRE, SOUS_TITRE, TITRE_PAGE, bas
 import { ElementMenu, MenuPoints, SeparateurMenu } from "./boite/MenuPoints"
 import LigneBoite, { EnTeteColonnes } from "./boite/LigneBoite"
 import MessageDuFil from "./boite/MessageDuFil"
-import { etiquetteTri, interessesSansAgence } from "./boite/outils"
+import { antiSpamEnAttente, estAntiSpam, etiquetteTri, interessesSansAgence } from "./boite/outils"
 
 type Conv = Conversation<Message>
 type Vue = Dossier
@@ -157,9 +157,16 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   // Le message auquel on répond, ou qu'on transfère (celui sur lequel on a cliqué) ; null = le choix par défaut.
   const [cibleId, setCibleId] = useState<string | null>(null)
   const [brouillons, setBrouillons] = useState<Record<string, Brouillon>>({})
-  const [compoObjet, setCompoObjet] = useState("")
   const [compoCorps, setCompoCorps] = useState("")
   const [compoPieces, setCompoPieces] = useState<PieceJointe[]>([])
+  // LE NOUVEAU MESSAGE A SES PROPRES CHAMPS (26/11/2026, D69) : la fenêtre flottante reste ouverte pendant qu'on lit
+  // une conversation ; avant, elle partageait le texte de la réponse (l'un écrasait l'autre) et « Envoyer » sous la
+  // conversation partait en nouveau message, hors du fil.
+  const [nvTo, setNvTo] = useState("")
+  const [nvObjet, setNvObjet] = useState("")
+  const [nvCorps, setNvCorps] = useState("")
+  const [nvPieces, setNvPieces] = useState<PieceJointe[]>([])
+  const [nvErreur, setNvErreur] = useState("")
   const [envoiEnCours, setEnvoiEnCours] = useState(false)
   const [envoiErreur, setEnvoiErreur] = useState("")
   const [envoiOk, setEnvoiOk] = useState("")
@@ -222,6 +229,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const nbNonLues = useMemo(() => compterNonLues(conversations), [conversations])
   // Les réponses « intéressé » sans fiche agence : sans agence, ni lead ni suite (25/11/2026).
   const interessesPerdus = useMemo(() => (espace === "recrutement" ? [] : interessesSansAgence(conversations)), [conversations, espace])
+  // Nos mails retenus par l'anti-spam d'une agence (D75) : tant que personne ne clique sur le lien, l'agence ne les a pas.
+  const antiSpams = useMemo(() => (espace === "recrutement" ? [] : antiSpamEnAttente(conversations)), [conversations, espace])
   const visibles = useMemo(
     () => filtrerConversations(conversations, vue, recherche, trouves),
     [conversations, vue, recherche, trouves],
@@ -249,6 +258,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const [decision, setDecision] = useState<"lead" | "dead" | null>(null)
   const [creation, setCreation] = useState(false)
   const [contactCree, setContactCree] = useState("")
+  // Le contact cité est-il déjà sur la fiche ? (D74 : « Créer ce contact » revenait après un rechargement → doublon.)
+  const [dejaSurFiche, setDejaSurFiche] = useState<Record<string, boolean>>({})
 
   // Le brouillon en cours, gardé pour la conversation (rien n'est écrit en base).
   function garderBrouillon() {
@@ -355,23 +366,24 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     if (recues.some((p) => !p.nonGardee)) piecesPourTransfert(recues).then((l) => setCompoPieces((actuelles) => (actuelles.length ? actuelles : l))).catch((e) => setEnvoiErreur(`Pièces jointes non reprises : ${e instanceof Error ? e.message : String(e)}. Ajoute-les à la main.`))
   }
 
+  // Déjà ouvert : rien n'est effacé. La réponse en cours sous une conversation n'est pas touchée.
   function ouvrirNouveau() {
-    garderBrouillon()
     setEnvoiOk("")
-    setEnvoiErreur("")
-    setCompoCc("")
-    setCompoCci("")
-    setCompoTo("")
-    setCompoObjet("")
-    setCompoCorps("")
-    setCompoPieces([])
-    setMode(null)
+    if (nouveau) return
+    setNvTo("")
+    setNvObjet("")
+    setNvCorps("")
+    setNvPieces([])
+    setNvErreur("")
     setNouveau(true)
+  }
+  function fermerNouveau() {
+    setNouveau(false)
+    setNvErreur("")
   }
 
   function fermerCompo() {
     setMode(null)
-    setNouveau(false)
     setEnvoiErreur("")
   }
   // « Annuler » : le brouillon est jeté (geste voulu), contrairement à « Retour ».
@@ -385,11 +397,27 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   const aTransferer = ouvert && mode === "transferer" ? messageATransferer(ouvert.messages, cible) : null
   const objetCible = (cible ?? ouvert?.dernier)?.objet ?? ""
   // La réponse à trancher : la dernière reçue d'une agence, côté démarchage.
-  const reponseATrancher = ouvert && ouvert.agenceId ? [...ouvert.messages].reverse().find((m) => m.sens === "entrant" && m.espace === "demarchage") ?? null : null
+  // Une demande d'anti-spam n'est pas une réponse de l'agence (D75) : elle a son propre bandeau.
+  const reponseATrancher = ouvert && ouvert.agenceId ? [...ouvert.messages].reverse().find((m) => m.sens === "entrant" && m.espace === "demarchage" && !estAntiSpam(m)) ?? null : null
+  const antiSpamOuvert = ouvert ? [...ouvert.messages].reverse().find(estAntiSpam) ?? null : null
+  const citeId = reponseATrancher?.triDetail?.contact_nom || reponseATrancher?.triDetail?.contact_email ? reponseATrancher.id : ""
+  useEffect(() => {
+    const r = reponseATrancher
+    if (!citeId || !r?.agenceId || !r.triDetail || dejaSurFiche[citeId] !== undefined) return
+    let annule = false
+    contactsDeLAgence(r.agenceId)
+      .then((l) => { if (!annule) setDejaSurFiche((p) => ({ ...p, [citeId]: contactDejaPresent(r.triDetail ?? {}, l) })) })
+      .catch(() => undefined)
+    return () => { annule = true }
+  }, [citeId, reponseATrancher, dejaSurFiche])
   async function creerLeContact() {
     const r = reponseATrancher, d = r?.triDetail
     if (!r?.agenceId || !d) return
     setCreation(true); setErreur("")
+    // Relu juste avant d'écrire : un collègue (ou un autre onglet) l'a peut-être déjà ajouté.
+    try {
+      if (contactDejaPresent(d, await contactsDeLAgence(r.agenceId))) { setDejaSurFiche((p) => ({ ...p, [r.id]: true })); setCreation(false); return }
+    } catch { /* lecture impossible : on crée quand même, comme avant */ }
     const [prenom, ...reste] = (d.contact_nom ?? "").replace(/^(m\.|mme|madame|monsieur|mr)\s+/i, "").trim().split(/\s+/)
     const tel = (d.contact_telephone ?? "").replace(/\s/g, "")
     try {
@@ -410,12 +438,31 @@ export default function Messages({ espace }: { espace: Espace | null }) {
   // LinkedIn et la boîte de prospection répondent dans leur propre conversation : pas de champ À.
   const canalFixe = !!ouvert && mode === "repondre" && (!!messageLinkedIn(ouvert.messages) || !!messageDeProspection(ouvert.messages))
   const copiesOk = adressesOk(compoCc, false) && adressesOk(compoCci, false)
+  // Un transfert part sans mot quand le message transféré a un contenu ou des pièces (D73 : un mail reçu sans texte,
+  // avec seulement une pièce jointe, se transfère).
+  const transfertAContenu = !!aTransferer && ((aTransferer.corpsHtml ?? "").trim() !== "" || (aTransferer.corpsText ?? "").trim() !== "" || compoPieces.length > 0)
   const pretAEnvoyer = !piecesTropLourdes(compoPieces) && (
-    nouveau
-      ? adressesOk(compoTo, true) && compoCorps.trim() !== ""
-      : mode === "repondre"
-        ? compoCorps.trim() !== "" && (canalFixe || (adressesOk(compoTo, true) && copiesOk))
-        : adressesOk(compoTo, true) && copiesOk && (compoCorps.trim() !== "" || !!aTransferer))
+    mode === "repondre"
+      ? compoCorps.trim() !== "" && (canalFixe || (adressesOk(compoTo, true) && copiesOk))
+      : adressesOk(compoTo, true) && copiesOk && (compoCorps.trim() !== "" || transfertAContenu))
+  const pretNouveau = !piecesTropLourdes(nvPieces) && adressesOk(nvTo, true) && nvCorps.trim() !== ""
+
+  async function envoyerNouveau() {
+    if (!pretNouveau || envoiEnCours) return
+    setEnvoiEnCours(true)
+    setNvErreur("")
+    try {
+      await repondreMessage({ to: decouperAdresses(nvTo), objet: nvObjet.trim() || "(sans objet)", corps: nvCorps.trim(), signatureHtml: signaturePour(espace ?? "demarchage"), commercial: prenomCommercial, espace: espace ?? "demarchage", pieces: piecesAEnvoyer(nvPieces) })
+      setEnvoiOk(`Message envoyé à ${nvTo.trim()}.`)
+      setNvTo(""); setNvObjet(""); setNvCorps(""); setNvPieces([])
+      fermerNouveau()
+      charger()
+    } catch (e) {
+      setNvErreur(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnvoiEnCours(false)
+    }
+  }
 
   async function envoyer() {
     if (!pretAEnvoyer || envoiEnCours) return
@@ -424,10 +471,7 @@ export default function Messages({ espace }: { espace: Espace | null }) {
     const pieces = piecesAEnvoyer(compoPieces)
     try {
       const cleEnvoyee = cleOuverte
-      if (nouveau) {
-        await repondreMessage({ to: decouperAdresses(compoTo), objet: compoObjet.trim() || "(sans objet)", corps: compoCorps.trim(), signatureHtml: signaturePour(espace ?? "demarchage"), commercial: prenomCommercial, espace: espace ?? "demarchage", pieces })
-        setEnvoiOk(`Message envoyé à ${compoTo.trim()}.`)
-      } else if (ouvert && mode === "repondre" && messageLinkedIn(ouvert.messages)) {
+      if (ouvert && mode === "repondre" && messageLinkedIn(ouvert.messages)) {
         if (pieces?.length) throw new Error("Pas de pièce jointe sur LinkedIn : mets plutôt un lien.")
         await repondreLinkedIn(messageLinkedIn(ouvert.messages)!.id, compoCorps.trim())
         setEnvoiOk(`Réponse envoyée sur LinkedIn à ${nomDe(ouvert)}.`)
@@ -448,6 +492,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
           inReplyTo: fil.inReplyTo,
           references: fil.references,
           agenceId: ouvert.agenceId,
+          // Au recrutement, la réponse est rangée sur l'artisan de la conversation (D70).
+          sousTraitantId: (cible ?? ouvert.dernier).espace === "recrutement" ? ouvert.sousTraitantId : null,
           signatureHtml: signaturePour((cible ?? ouvert.dernier).espace),
           commercial: prenomCommercial,
           espace: (cible ?? ouvert.dernier).espace,
@@ -475,10 +521,9 @@ export default function Messages({ espace }: { espace: Espace | null }) {
       setCompoTo("")
       setCompoCc("")
       setCompoCci("")
-      setCompoObjet("")
       setCompoPieces([])
       setCibleId(null)
-      if (!nouveau) oublierBrouillon(cleEnvoyee)
+      oublierBrouillon(cleEnvoyee)
       fermerCompo()
       charger()
     } catch (e) {
@@ -581,6 +626,18 @@ export default function Messages({ espace }: { espace: Espace | null }) {
             </div>
           )}
 
+          {antiSpams.length > 0 && (
+            <div className={BANDEAU}>
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#C27C0E]" />
+              <span className="min-w-0 flex-1 text-[#3C3C40]">
+                {antiSpams.length} mail{antiSpams.length > 1 ? "s" : ""} retenu{antiSpams.length > 1 ? "s" : ""} par l'anti-spam d'une agence : tant que personne ne clique sur le lien de validation, l'agence ne l'a pas reçu.
+              </span>
+              {antiSpams.slice(0, 3).map((c) => (
+                <button key={c.cle} type="button" className={`${PILULE_CLAIRE} ${PETITE}`} onClick={() => ouvrirConversation(c)}>{nomDe(c)}</button>
+              ))}
+            </div>
+          )}
+
           {/* La liste, pleine largeur, en rangées fines — comme une boîte mail. */}
           <EnTeteColonnes />
           <div className="border-t-[0.5px] border-[#E6E6EA]">
@@ -655,6 +712,14 @@ export default function Messages({ espace }: { espace: Espace | null }) {
 
           {bandeaux}
 
+          {antiSpamOuvert && (
+            <div className={BANDEAU}>
+              <p className="min-w-0 flex-1 leading-normal text-[#3C3C40]">
+                <span className="font-semibold text-[#111113]">Mail retenu par l'anti-spam de l'agence</span> — notre envoi n'a pas encore été remis. Ouvrez la demande ci-dessous et cliquez sur son lien de validation ; ce n'est ni une réponse, ni un lead.
+              </p>
+            </div>
+          )}
+
           {/* Une réponse d'agence : le tri, et la décision du commercial (lead / dead). */}
           {reponseATrancher && (
             <div className={BANDEAU}>
@@ -683,6 +748,8 @@ export default function Messages({ espace }: { espace: Espace | null }) {
               </p>
               {contactCree === reponseATrancher.id ? (
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-[#1F8A4C]"><span className="h-1.5 w-1.5 rounded-full bg-[#1F8A4C]" />Contact ajouté à la fiche</span>
+              ) : dejaSurFiche[reponseATrancher.id] ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[#6B6B70]"><span className="h-1.5 w-1.5 rounded-full bg-[#8E8E93]" />Déjà sur la fiche</span>
               ) : (
                 <button type="button" className={`${PILULE_CLAIRE} ${PETITE}`} disabled={creation} onClick={() => void creerLeContact()}>
                   {creation && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Créer ce contact
@@ -820,39 +887,39 @@ export default function Messages({ espace }: { espace: Espace | null }) {
           className="fixed bottom-0 right-4 z-50 flex w-[95vw] max-w-[540px] flex-col rounded-t-[10px] border-[0.5px] border-b-0 border-[#D4D4D8] bg-white text-[13px] text-[#111113] shadow-[0_-4px_30px_rgba(17,17,19,.12)] sm:right-8">
           <div className="flex items-center rounded-t-[10px] bg-[#F6F6F7] py-2 pl-3.5 pr-2.5">
             <span className="flex-1 font-semibold">Nouveau message</span>
-            <button type="button" className={OUTIL} onClick={() => { if (!envoiEnCours) fermerCompo() }} title="Fermer" aria-label="Fermer">
+            <button type="button" className={OUTIL} onClick={() => { if (!envoiEnCours) fermerNouveau() }} title="Fermer" aria-label="Fermer">
               <X className="h-[15px] w-[15px]" strokeWidth={1.8} />
             </button>
           </div>
           <div className="px-3.5">
             <LigneCompo libelle="À">
-              <input value={compoTo} onChange={(e) => setCompoTo(e.target.value)} autoFocus placeholder="Adresse e-mail" aria-label="Destinataire"
+              <input value={nvTo} onChange={(e) => setNvTo(e.target.value)} autoFocus placeholder="Adresse e-mail" aria-label="Destinataire"
                 className="min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-[#A1A1A6]" />
             </LigneCompo>
             <div className="border-b-[0.5px] border-[#E6E6EA] py-1">
-              <input aria-label="Objet" value={compoObjet} onChange={(e) => setCompoObjet(e.target.value)} placeholder="Objet"
+              <input aria-label="Objet" value={nvObjet} onChange={(e) => setNvObjet(e.target.value)} placeholder="Objet"
                 className="w-full bg-transparent py-1.5 text-[13px] outline-none placeholder:text-[#A1A1A6]" />
             </div>
             <textarea
               aria-label="Message"
-              value={compoCorps}
-              onChange={(e) => setCompoCorps(e.target.value)}
+              value={nvCorps}
+              onChange={(e) => setNvCorps(e.target.value)}
               placeholder="Votre message… (la signature est ajoutée automatiquement)"
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void envoyer() }}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void envoyerNouveau() }}
               className="max-h-[45vh] min-h-[220px] w-full resize-none bg-transparent py-3 text-[13px] leading-[1.65] outline-none placeholder:text-[#A1A1A6]"
             />
-            <PiecesCompo pieces={compoPieces} onChange={setCompoPieces} />
+            <PiecesCompo pieces={nvPieces} onChange={setNvPieces} />
           </div>
-          {envoiErreur && <p className="mx-3.5 mb-2 rounded-[6px] bg-[#C9302C]/[0.06] px-3 py-2 text-[11px] text-[#C9302C]">{envoiErreur}</p>}
+          {nvErreur && <p className="mx-3.5 mb-2 rounded-[6px] bg-[#C9302C]/[0.06] px-3 py-2 text-[11px] text-[#C9302C]">{nvErreur}</p>}
           <div className="flex items-center gap-2 border-t-[0.5px] border-[#E6E6EA] px-3.5 py-2.5">
-            <button type="button" onClick={() => void envoyer()} disabled={envoiEnCours || !pretAEnvoyer} className={`${PILULE_NOIRE} ${PETITE}`}>
+            <button type="button" onClick={() => void envoyerNouveau()} disabled={envoiEnCours || !pretNouveau} className={`${PILULE_NOIRE} ${PETITE}`}>
               {envoiEnCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               Envoyer
             </button>
             <div className="min-w-2 flex-1" />
             {signataires.length > 1 ? <SigneParCompo noms={signataires} nom={nomSignataire} onChange={choisirSignataire} /> : null}
             <button type="button" className={`${OUTIL} text-[#8E8E93] hover:text-[#C9302C]`} title="Supprimer le brouillon" aria-label="Supprimer le brouillon"
-              onClick={() => { setCompoTo(""); setCompoObjet(""); setCompoCorps(""); setCompoPieces([]); fermerCompo() }}>
+              onClick={() => { setNvTo(""); setNvObjet(""); setNvCorps(""); setNvPieces([]); fermerNouveau() }}>
               <Trash2 className="h-[15px] w-[15px]" strokeWidth={1.7} />
             </button>
           </div>

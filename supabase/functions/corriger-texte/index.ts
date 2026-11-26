@@ -1,24 +1,18 @@
 // Corriger l'orthographe d'un e-mail (Mahdi, 12/10/2026) : le composeur envoie l'objet et le
 // message, STC Bâtiment les corrige par IA (la clé Anthropic est là-bas), on renvoie le résultat.
-// Réservée aux comptes connectés de Baticom ; STC Bâtiment est appelé avec la clé partagée.
+// Réservée aux membres de l'équipe Baticom ; STC Bâtiment est appelé avec la clé partagée.
 // Secrets : STC_BATIMENT_URL, STC_BATIMENT_ANON, PASSERELLE_CLE (déjà posés).
+import { jetonDe, membre } from "../_shared/acces.ts"
+
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } })
-
-async function utilisateurConnecte(req: Request, base: string, anon: string): Promise<boolean> {
-  const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "")
-  if (!jeton) return false
-  const r = await fetch(`${base}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${jeton}` } })
-  if (!r.ok) return false
-  const u = await r.json().catch(() => null)
-  return !!u?.id
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
   if (req.method !== "POST") return json({ error: "POST attendu" }, 405)
-  const base = Deno.env.get("SUPABASE_URL")!, anon = Deno.env.get("SUPABASE_ANON_KEY")!
-  if (!(await utilisateurConnecte(req, base, anon))) return json({ error: "Connexion requise" }, 401)
+  // Un MEMBRE de l'équipe (admin ou téléprospecteur), pas seulement un compte connecté (26/11/2026, D6) : un compte sans
+  // rôle n'a aucun composeur à l'écran.
+  if (!(await membre(jetonDe(req)))) return json({ error: "Connexion requise" }, 401)
 
   const stc = (Deno.env.get("STC_BATIMENT_URL") || "").replace(/\/$/, ""), stcAnon = Deno.env.get("STC_BATIMENT_ANON") || "", cle = Deno.env.get("PASSERELLE_CLE") || ""
   if (!stc || !stcAnon || !cle) return json({ error: "Secrets STC_BATIMENT_URL / STC_BATIMENT_ANON / PASSERELLE_CLE manquants" }, 500)

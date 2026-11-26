@@ -39,6 +39,7 @@ export function etiquetteTri(m: Pick<Message, "tri" | "triDetail"> | null | unde
   if (!m?.tri) return null
   if (m.tri === "interesse") return { libelle: "Lead", couleur: "#1F8A4C" }
   if (m.tri === "pas_interesse") return { libelle: "Dead", couleur: "#8E8E93" }
+  if (m.tri === TRI_ANTI_SPAM) return { libelle: "Anti-spam de l'agence", couleur: "#C27C0E" }
   if (m.tri === "absent") {
     const retour = m.triDetail?.retour
     return { libelle: retour ? `Absent jusqu'au ${new Date(retour + "T12:00:00").toLocaleDateString("fr-FR")}` : LIBELLE_TRI.absent, couleur: "#C27C0E" }
@@ -55,4 +56,14 @@ export function dernierTrie(c: Conversation<Message>): Message | null {
  *  ne créent ni lead ni suite de campagne. La boîte les signale pour qu'on les rattache à la main. */
 export function interessesSansAgence(convs: Conversation<Message>[]): Conversation<Message>[] {
   return convs.filter((c) => !c.agenceId && c.messages.some((m) => m.sens === "entrant" && m.espace === "demarchage" && m.tri === "interesse" && !m.agenceId))
+}
+
+/** Une demande de validation d'un anti-spam (Mailinblack…) : notre mail attend chez l'agence (26/11/2026, D75). Le tri
+ *  est posé par recevoir-email ; il n'est ni une réponse, ni un lead. */
+export const TRI_ANTI_SPAM = "anti_spam"
+export const estAntiSpam = (m: Pick<Message, "sens" | "tri">) => m.sens === "entrant" && m.tri === TRI_ANTI_SPAM
+
+/** Les conversations où un anti-spam attend qu'on clique sur son lien (message encore non lu). */
+export function antiSpamEnAttente(convs: Conversation<Message>[]): Conversation<Message>[] {
+  return convs.filter((c) => c.messages.some((m) => estAntiSpam(m) && !m.lu))
 }

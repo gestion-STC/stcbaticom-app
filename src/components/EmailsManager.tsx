@@ -86,20 +86,27 @@ export default function EmailsManager({ partie }: { partie?: "signatures" | "mod
   const [signaturesChargees, setSignaturesChargees] = useState(false)
   const [nouvelleSignature, setNouvelleSignature] = useState("")
   const [erreurSignature, setErreurSignature] = useState<string | null>(null)
+  // Une lecture ratée (réseau) ne vaut PAS une liste vide (26/11/2026, D76) : la liste reste « non chargée », l'ajout
+  // reste fermé (sinon il réécrivait la liste avec le seul nouveau nom) et « Réessayer » relit.
+  const [lectureSignaturesRatee, setLectureSignaturesRatee] = useState(false)
+  const [essaiSignatures, setEssaiSignatures] = useState(0)
   useEffect(() => {
     if (!compteId) return
     let annule = false
     lireSignatures(compteId)
-      .catch(() => [] as string[])
       .then((liste) => {
         if (annule) return
         setAutresSignatures(liste)
         setSignaturesChargees(true)
+        setLectureSignaturesRatee(false)
+      })
+      .catch(() => {
+        if (!annule) setLectureSignaturesRatee(true)
       })
     return () => {
       annule = true
     }
-  }, [compteId])
+  }, [compteId, essaiSignatures])
 
   async function ajouterUneSignature() {
     const motif = motifRefusSignature(autresSignatures, nouvelleSignature, nomAffiche(session))
@@ -196,7 +203,14 @@ export default function EmailsManager({ partie }: { partie?: "signatures" | "mod
                 ))}
               </ul>
             ) : (
-              <p className="text-colonne text-encre-2">{signaturesChargees ? "Aucun autre nom : seul le nom du compte signe." : "Lecture…"}</p>
+              lectureSignaturesRatee ? (
+                <p className="flex flex-wrap items-center gap-2 text-colonne text-alerte">
+                  Lecture des noms impossible : rien n'est modifiable tant qu'elle n'a pas réussi.
+                  <Bouton variante="discret" onClick={() => { setLectureSignaturesRatee(false); setEssaiSignatures((n) => n + 1) }}>Réessayer</Bouton>
+                </p>
+              ) : (
+                <p className="text-colonne text-encre-2">{signaturesChargees ? "Aucun autre nom : seul le nom du compte signe." : "Lecture…"}</p>
+              )
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Champ

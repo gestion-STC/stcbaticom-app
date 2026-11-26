@@ -2,6 +2,7 @@
 // son message, dans le même fil. Déployée sans vérification de JWT par la passerelle : l'utilisateur est vérifié ici.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { appelInstantly } from "../_shared/campagnes/instantly.ts"
+import { optionsDeLAppelant } from "../_shared/perimetre.ts"
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } })
@@ -20,7 +21,9 @@ Deno.serve(async (req: Request) => {
     const b = await req.json().catch(() => ({})) as { message?: string; objet?: string; corps?: string; signature_html?: string }
     const corps = String(b.corps ?? "").trim(), objet = String(b.objet ?? "").trim()
     if (!b.message || !corps) return json({ error: "Message vide." }, 400)
-    const { data: m, error } = await sb.from("messages").select("sens, de, a, objet, message_id, espace, agence_id, sous_traitant_id").eq("id", b.message).maybeSingle()
+    // Relu AVEC LE JETON de l'appelant (26/11/2026, D6) : la RLS de la boîte s'applique ; un message qu'il ne voit pas
+    // à l'écran (autre boîte, autre chargé d'affaires) est introuvable, donc on n'y répond pas.
+    const { data: m, error } = await createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, optionsDeLAppelant(jeton)).from("messages").select("sens, de, a, objet, message_id, espace, agence_id, sous_traitant_id").eq("id", b.message).maybeSingle()
     if (error) throw new Error(error.message)
     if (!m || m.sens !== "entrant" || !m.message_id || !m.a) return json({ error: "Ce message ne peut pas recevoir de réponse par cette boîte." }, 400)
     const html = `${echapper(corps).replace(/\n/g, "<br/>")}${b.signature_html ? `<br/><br/>${b.signature_html}` : ""}`
