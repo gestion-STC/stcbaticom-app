@@ -411,3 +411,14 @@ export function texteBilanAppels(b: BilanAppels, etape = ""): string {
   if (!b.appels || avancee) return appels
   return `${appels} · gestionnaire pas encore eu en ligne`
 }
+
+// ── « À appeler aujourd'hui » (lot 4, 26/11/2026) ──
+// Une agence n'y est qu'UNE fois, dans son groupe le plus urgent : lead, puis demande d'une campagne, puis rappel.
+// Le badge de la session et la file qu'elle enchaîne passent par ce même calcul (avant : leads + campagnes +
+// rappels additionnés, une agence en lead ET en rappel comptait deux fois : 60 affichées, 59 enchaînées).
+export function repartirAAppeler(leads: readonly string[], campagnes: readonly string[], rappels: readonly string[]): { leads: string[]; campagnes: string[]; rappels: string[]; total: number } {
+  const vus = new Set<string>()
+  const garder = (ids: readonly string[]) => ids.filter((id) => (vus.has(id) ? false : (vus.add(id), true)))
+  const l = garder(leads), c = garder(campagnes), r = garder(rappels)
+  return { leads: l, campagnes: c, rappels: r, total: vus.size }
+}

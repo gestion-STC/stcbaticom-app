@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Activite, Agence, Contact } from "./modele"
 import {
+  repartirAAppeler,
   SURVEILLANCE_INITIALE,
   choixComplet,
   datePassee,
@@ -310,5 +311,15 @@ describe("rappels : origine, température, date", () => {
     const choix = { resultat: "joint" as const, issue: "a_rappeler" as const, motif: "" as const, rdvLe: null }
     expect(choixComplet({ ...choix, rappelLe: new Date(2026, 0, 11, 10).toISOString() }, maintenant)).toBe(false)
     expect(choixComplet({ ...choix, rappelLe: new Date(2026, 10, 18, 10).toISOString() }, maintenant)).toBe(true)
+  })
+})
+
+describe("À appeler aujourd'hui : agences distinctes (lot 4)", () => {
+  it("une agence en lead ET en rappel n'est comptée qu'une fois, dans son groupe le plus urgent", () => {
+    const r = repartirAAppeler(["a", "b"], ["c", "a"], ["b", "d", "c", "e"])
+    expect(r).toEqual({ leads: ["a", "b"], campagnes: ["c"], rappels: ["d", "e"], total: 5 })
+  })
+  it("deux leads ou deux demandes pour la même agence : une seule fois", () => {
+    expect(repartirAAppeler(["a", "a"], ["b", "b"], []).total).toBe(2)
   })
 })

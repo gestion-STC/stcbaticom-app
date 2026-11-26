@@ -135,8 +135,10 @@ function DialogueAutreAgence({ client, occupe, onFermer, onChoisir, onOuvrirAgen
   useEffect(() => {
     const r = recherche.trim()
     if (r.length < 2) { const t = setTimeout(() => setResultats([]), 0); return () => clearTimeout(t) }
-    const t = setTimeout(() => { chargerAgences({ recherche: r, limite: 15 }).then(setResultats).catch(() => setResultats([])) }, 250)
-    return () => clearTimeout(t)
+    // Une réponse arrivée après une frappe plus récente est ignorée (lot 4, 26/11/2026).
+    let vivant = true
+    const t = setTimeout(() => { chargerAgences({ recherche: r, limite: 15 }).then((l) => { if (vivant) setResultats(l) }).catch(() => { if (vivant) setResultats([]) }) }, 250)
+    return () => { vivant = false; clearTimeout(t) }
   }, [recherche])
   return (
     <Dialogue titre="Quelle agence a envoyé cet ordre de service ?" description={`${client.societe || client.nom}${client.email ? ` · ${client.email}` : ""}`} onFermer={onFermer} pied={<Bouton onClick={onFermer}>Annuler</Bouton>}>

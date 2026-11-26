@@ -315,6 +315,20 @@ describe("le secteur fait foi", () => {
     const r = await un<{ c: string }>(`select commercial_id::text as c from public.agences where id = $1`, [id])
     expect(r.c).toBe(MAHDI)
   })
+  // Lot 4 (26/11/2026) : la fiche enregistre le secteur ET « Attribuée à » d'un coup ; le choix explicite l'emporte.
+  it("secteur et « Attribuée à » changés ensemble : le choix du chargé d'affaires est gardé", async () => {
+    const AUTRE = "0d3c1f7e-5d8f-4a8b-9a51-1f1f1f1f1f1f"
+    const TIERS = "6a0e2b9c-2b7d-4c55-8e0a-2e2e2e2e2e2e"
+    await q(`insert into public.secteurs (code, libelle, zone, commercial_id) values ('75019', 'Paris 19', 'Paris', $1) on conflict (code) do update set commercial_id = excluded.commercial_id`, [AUTRE])
+    const id = await agence()
+    await q(`update public.agences set secteur = '75019', commercial_id = $2 where id = $1`, [id, TIERS])
+    expect((await un<{ c: string }>(`select commercial_id::text as c from public.agences where id = $1`, [id])).c).toBe(TIERS)
+    // Le secteur seul (commercial_id renvoyé inchangé, comme le fait la fiche) : le secteur décide, comme avant.
+    const id2 = await agence()
+    await q(`update public.agences set secteur = '75019', commercial_id = $2 where id = $1`, [id2, MAHDI])
+    expect((await un<{ c: string }>(`select commercial_id::text as c from public.agences where id = $1`, [id2])).c).toBe(AUTRE)
+    await q(`delete from public.agences where id in ($1, $2)`, [id, id2])
+  })
 })
 
 describe("la santé de la base", () => {
